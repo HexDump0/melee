@@ -47,7 +47,8 @@ native/AI/
 ├── ARCHITECTURE.md        <- design and data flow
 ├── STATE.md               <- as-built status snapshot (update it!)
 ├── TASKS.md               <- backlog + claims
-├── ROADMAP.md             <- milestone plan
+├── ROADMAP.md             <- human-readable milestone overview
+├── ROADMAP_DETAILS.md     <- agent-facing technical roadmap details
 ├── TESTING.md             <- verification protocol
 ├── HANDOFFS.md            <- how to hand off work + index
 ├── DECISIONS.md           <- architecture decision log (ADR)
