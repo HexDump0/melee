@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-10 (PObj types, vertex colours, culling)
+Last updated: 2026-09-10 (hidden joints, z-mode, decals)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -30,6 +30,8 @@ attributes read from the disc.
 | PObj types | SKIN (shared two-slot and rigid) and SHAPEANIM handled; Kirby, Link, Falcon, Game & Watch colors correct |
 | Vertex colours | GX colour enum (RGB565/RGB8/RGBX8/RGBA4/RGBA6/RGBA8) decoded; fixes desync on coloured meshes |
 | Per-PObj culling | GX cull modes + clockwise front faces; Master Hand renders solid |
+| Hidden joints | `JOBJ_HIDDEN` skipped; fixes Mario's cap emblem/face smear and cuts most of Game & Watch's extra pieces |
+| Material z-mode | `RENDER_ZMODE_ALWAYS` / `RENDER_NO_ZUPDATE` honoured per batch |
 | GX display lists | Strips/triangles/quads decoded; clean opcode histogram (only 0x80/0x90/0x98) |
 | Textures | 31 textures for Mario (CMPR + CI8), correct cap/overalls/face/eyes |
 | Materials | Per-DObj diffuse color as vertex color |
@@ -57,10 +59,10 @@ Ordered by impact.
 5. **Animated expressions not implemented.** The neutral pose is correct, but
    blinking/damage expressions need the animation system (P-201) to drive
    `ftParts_80074B0C` indices. Model visibility tables are already parsed.
-6. **Game & Watch extra pieces.** His visibility tables leave a stack of
-   collinear flat pieces (x=0, y 13.6..21.9) visible; in-game they are hidden
-   through animation/joint state the port does not evaluate yet. Everything
-   else about him (colours, flat pieces) is correct. P-201/P-410.
+6. **Game & Watch residual slivers.** After honouring hidden joints he is
+   recognisable, but a few thin edge-on pieces remain (x=0, y 13.6..21.9) that
+   in-game are hidden through animation/joint state the port does not evaluate
+   yet. P-201/P-412.
 7. **TEV approximated.** Rendering is `texture * material color` with fixed
    function lighting. Multi-texture, toon ramps, alpha test thresholds and
    additive blends will not match the GameCube. Workstream P-204.

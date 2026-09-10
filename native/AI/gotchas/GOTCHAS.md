@@ -223,6 +223,24 @@ inside of the mesh through z-fighting.
 **Fix:** map `flags & 0xC000` to GL culling, set `glFrontFace(GL_CW)`, and skip
 PObjs with both cull bits. `0xC000` means "do not draw".
 
+## G-032: hidden joints still exist in the model graph
+
+**Symptom:** a decal is partially covered by the surface under it (Mario's cap
+"M"), or a character has extra geometry (Game & Watch's flat pieces).
+**Cause:** `HSD_JObjDispDObj` skips DObjs of joints flagged `JOBJ_HIDDEN`
+(1<<4) while still recursing into children. Hidden duplicate/helper meshes
+overlap the visible ones.
+**Fix:** skip the DObj loop for hidden joints; keep recursing. This completes
+the static visibility picture together with `FtPartsVis` (G-025).
+
+## G-033: honour material z-mode bits
+
+**Symptom:** decals/effects fight with the surface they sit on.
+**Cause:** `HSD_MObjDesc.rendermode` may set `RENDER_ZMODE_ALWAYS` (1<<27) or
+`RENDER_NO_ZUPDATE` (1<<29); the port ignored them.
+**Fix:** map them to `glDepthFunc(GL_ALWAYS)` / `glDepthMask(GL_FALSE)` while
+drawing the batch, restoring afterwards.
+
 ## G-020: do not judge geometry from a flat-color render
 
 **Symptom:** hours lost thinking the parser is broken.

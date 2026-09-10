@@ -216,6 +216,18 @@ This is what places Link's sword and shield on his back instead of the floor.
 Applying `right` to PObjs on the skeleton root would break Mario; the root
 check is essential.
 
+## Joint flags
+
+`HSD_JObjDispDObj` skips a joint's DObjs when `flags & JOBJ_HIDDEN` (1 << 4),
+but still recurses into its children.  Model archives use this for duplicate
+or helper pieces; the port must honour it or hidden geometry shows through
+(Mario's cap decal was being cut by a hidden overlapping piece, and much of
+Mr. Game & Watch's extra geometry is hidden this way).
+
+Other flags used by the port: `JOBJ_SKELETON` 1<<0, `JOBJ_SKELETON_ROOT` 1<<1,
+`JOBJ_ENVELOPE_MODEL` 1<<2, `JOBJ_CLASSICAL_SCALE` 1<<3, `JOBJ_PTCL` 1<<5,
+`JOBJ_INSTANCE` 1<<12, `JOBJ_SPLINE` 1<<14.
+
 ## PObj types (`pobj->flags & 0x3000`)
 
 | Type | Value | Bind transform |
@@ -227,6 +239,17 @@ check is essential.
 `right` applies **only** to envelope PObjs; skin/shapeanim use the current (or
 shared) joint directly.  Mixing this up breaks characters that use skin PObjs
 (Kirby, Link, Game & Watch, Captain Falcon).
+
+## Material render modes
+
+`HSD_MObjDesc.rendermode` (at `mobj+4`) carries the `RENDER_*` bits.  The port
+currently honours the depth-related ones while drawing a batch:
+
+| Bit | Value | Effect |
+|---|---|---|
+| `RENDER_ZMODE_ALWAYS` | 1<<27 | `glDepthFunc(GL_ALWAYS)` (decal over depth) |
+| `RENDER_NO_ZUPDATE` | 1<<29 | `glDepthMask(GL_FALSE)` |
+| `RENDER_XLU` | 1<<30 | transparent material (alpha from the material) |
 
 ## Part visibility (faces)
 
