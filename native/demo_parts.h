@@ -23,7 +23,8 @@ extern "C" {
  * data (the model stays fully visible), and -1 on a malformed archive.
  */
 int demo_parts_apply(const char *disc_image, const char *model_file,
-                     DemoModel *model, char *error, size_t error_size);
+                     DemoModel *model, int slot, int variant, char *error,
+                     size_t error_size);
 
 /* Marks every drawable object visible. */
 void demo_parts_show_all(DemoModel *model);

@@ -14,6 +14,9 @@
 #define DEFAULT_DISC "iso/Super Smash Bros. Melee (USA) (En,Ja) (Rev 2).ciso"
 #define PI 3.14159265358979323846f
 
+static int g_vis_slot = 0;
+static int g_vis_variant = 0;
+
 typedef struct Visual {
     DemoModel model;
     GLuint list;
@@ -79,7 +82,8 @@ static int load_model(Visual *v, const char *disc, const char *file)
     v->scale = height > .001f ? 11.0f/height : 1;
     {
         char parts_error[128];
-        int parts = demo_parts_apply(disc,file,&v->model,parts_error,
+        int parts = demo_parts_apply(disc,file,&v->model,g_vis_slot,
+                                     g_vis_variant,parts_error,
                                      sizeof(parts_error));
         if(parts==0)printf("Parts visibility: %zu of %zu objects hidden (neutral pose)\n",
                            demo_parts_hidden_count(&v->model),v->model.dobj_count);
@@ -140,6 +144,19 @@ static void list_vertices(Visual *v,size_t first,size_t count,int wrap_s,int wra
     glDepthMask(GL_TRUE);
 }
 
+static void compile_full_list(Visual *v)
+{
+    size_t i;
+    if(v->list)glDeleteLists(v->list,1);
+    v->list=glGenLists(1);
+    glNewList(v->list,GL_COMPILE);
+    for(i=0;i<v->model.batch_count&&i<DEMO_MAX_BATCHES;++i) {
+        if(v->batch_lists[i]&&demo_model_batch_visible(&v->model,i))
+            glCallList(v->batch_lists[i]);
+    }
+    glEndList();
+}
+
 static void compile_model(Visual *v)
 {
     size_t i;
@@ -165,13 +182,7 @@ static void compile_model(Visual *v)
                       b->rendermode);
         glEndList();
     }
-    v->list=glGenLists(1);
-    glNewList(v->list,GL_COMPILE);
-    for(i=0;i<v->model.batch_count&&i<DEMO_MAX_BATCHES;++i) {
-        if(v->batch_lists[i]&&demo_model_batch_visible(&v->model,i))
-            glCallList(v->batch_lists[i]);
-    }
-    glEndList();
+    compile_full_list(v);
 }
 
 /* Interactive model viewer: orbit, zoom, wireframe and model switching. */
@@ -201,21 +212,46 @@ typedef struct Viewer {
     int wireframe,textures,lighting,culling,grid,spin,help;
     int show_hidden;
     int batch,mode; /* mode: 0 = all, 1 = only selected, 2 = hide selected */
+    int vis_slot;
 } Viewer;
 
-static void viewer_frame_model(Viewer *vs,const Visual *v)
+static void viewer_frame_bounds(Viewer *vs,const float mn[3],const float mx[3])
 {
     float size[3];
     float radius;
     int i;
     for(i=0;i<3;++i) {
-        size[i]=v->model.bounds_max[i]-v->model.bounds_min[i];
-        vs->target[i]=(v->model.bounds_min[i]+v->model.bounds_max[i])*.5f;
+        size[i]=mx[i]-mn[i];
+        vs->target[i]=(mn[i]+mx[i])*.5f;
     }
     radius=.5f*sqrtf(size[0]*size[0]+size[1]*size[1]+size[2]*size[2]);
     if(radius<1e-3f)radius=1.0f;
     vs->radius=radius;
     vs->distance=radius/tanf(0.35f)*1.15f;
+}
+
+static void viewer_frame_model(Viewer *vs,const Visual *v)
+{
+    viewer_frame_bounds(vs,v->model.bounds_min,v->model.bounds_max);
+}
+
+/* Frames the camera on one batch so isolated parts fill the view. */
+static void viewer_frame_batch(Viewer *vs,const Visual *v,size_t batch)
+{
+    float mn[3]={1e30f,1e30f,1e30f},mx[3]={-1e30f,-1e30f,-1e30f};
+    size_t i,k;
+    DemoModelBatch *b;
+    if(batch>=v->model.batch_count)return;
+    b=&v->model.batches[batch];
+    for(i=0;i<b->vertex_count;++i) {
+        const float *p=v->model.vertices[b->first_vertex+i].position;
+        for(k=0;k<3;++k) {
+            if(p[k]<mn[k])mn[k]=p[k];
+            if(p[k]>mx[k])mx[k]=p[k];
+        }
+    }
+    if(mn[0]>mx[0])return;
+    viewer_frame_bounds(vs,mn,mx);
 }
 
 static void viewer_grid(const Visual *v)
@@ -276,7 +312,7 @@ static void viewer_hud(int w,int h,const Visual *v,const Viewer *vs,
     }
     glColor3f(.68f,.73f,.84f);
     demo_text(24*s,h-56*s,1.4f*s,"DRAG: ORBIT   WHEEL: ZOOM   ARROWS: ORBIT   N/P: MODEL   R: RESET");
-    demo_text(24*s,h-34*s,1.4f*s,"T:TEX L:LIGHT W:WIRE C:CULL G:GRID V:MODE [ ]:PART X:HIDDEN SPACE:SPIN F12:SAVE H:HELP ESC:QUIT");
+    demo_text(24*s,h-34*s,1.4f*s,"T:TEX L:LIGHT W:WIRE C:CULL G:GRID V:MODE B:SLOT [ ]:PART X:HIDDEN SPACE:SPIN F12:SAVE H:HELP ESC:QUIT");
     glColor3f(.39f,.8f,.77f);
     demo_text(w-388*s,h-56*s,1.4f*s,vs->textures?"TEX ON":"TEX OFF");
     demo_text(w-288*s,h-56*s,1.4f*s,vs->lighting?"LIGHT ON":"LIGHT OFF");
@@ -284,6 +320,9 @@ static void viewer_hud(int w,int h,const Visual *v,const Viewer *vs,
     demo_text(w-388*s,h-34*s,1.4f*s,vs->culling?"CULL ON":"CULL OFF");
     demo_text(w-288*s,h-34*s,1.4f*s,vs->grid?"GRID ON":"GRID OFF");
     demo_text(w-168*s,h-34*s,1.4f*s,vs->show_hidden?"HIDDEN ON":"HIDDEN OFF");
+    snprintf(line,sizeof(line),"SLOT %d",vs->vis_slot);
+    glColor3f(.95f,.8f,.5f);
+    demo_text(w-538*s,h-34*s,1.4f*s,line);
     if(vs->help) {
         glColor4f(.02f,.03f,.05f,.85f);rect(w*.5f-300*s,h*.5f-120*s,600*s,240*s);
         glColor3f(1,1,1);demo_text(w*.5f-250*s,h*.5f-90*s,2.4f*s,"VIEWER CONTROLS");
@@ -512,6 +551,7 @@ int main(int argc,char **argv)
     int frames=0,inspect=0,scripted=0,view=0;
     int list_models=0,all_models=0,model_index=-1,view_part=-1,view_part_mode=0,list_parts=0,show_hidden=0,no_visibility=0;
     const char *dump_textures=NULL;
+    const char *extract_file=NULL,*extract_out=NULL;
     int force_no_cull=0;
     float view_angle=25.0f,view_elev=-12.0f,view_zoom=1.0f;
     for(int i=1;i<argc;++i) {
@@ -531,6 +571,9 @@ int main(int argc,char **argv)
         else if(!strcmp(argv[i],"--no-visibility"))no_visibility=1;
         else if(!strcmp(argv[i],"--dump-textures")&&i+1<argc)dump_textures=argv[++i];
         else if(!strcmp(argv[i],"--no-cull"))force_no_cull=1;
+        else if(!strcmp(argv[i],"--extract")&&i+2<argc){extract_file=argv[++i];extract_out=argv[++i];}
+        else if(!strcmp(argv[i],"--vis-slot")&&i+1<argc)g_vis_slot=atoi(argv[++i]);
+        else if(!strcmp(argv[i],"--vis-variant")&&i+1<argc)g_vis_variant=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--part-mode")&&i+1<argc) {
             const char *m=argv[++i];
             view_part_mode=!strcmp(m,"only")?1:(!strcmp(m,"hide")?2:0);
@@ -539,6 +582,17 @@ int main(int argc,char **argv)
         else if(!strcmp(argv[i],"--elevation")&&i+1<argc)view_elev=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--zoom")&&i+1<argc)view_zoom=(float)atof(argv[++i]);
         else {printf("Usage: %s [--disc IMAGE] [--model PlMrNr.dat] [--model-index N] [--part N] [--part-mode all|only|hide] [--list-models] [--all-models] [--inspect] [--view [--angle DEG] [--elevation DEG]] [--frames N] [--screenshot FILE.bmp] [--scripted]\n",argv[0]);return strcmp(argv[i],"--help")!=0;}
+    }
+    if(extract_file&&extract_out) {
+        DemoAsset a={0};char err[128];
+        if(demo_asset_load(disc,extract_file,&a,err,sizeof(err))!=DEMO_ASSET_OK) {
+            fprintf(stderr,"extract %s: %s\n",extract_file,err);return 1;
+        }
+        FILE *f=fopen(extract_out,"wb");
+        if(!f){fprintf(stderr,"cannot write %s\n",extract_out);demo_asset_free(&a);return 1;}
+        fwrite(a.data,1,a.size,f);fclose(f);
+        printf("Wrote %s (%zu bytes)\n",extract_out,a.size);
+        demo_asset_free(&a);return 0;
     }
     DemoAssetList models={0};
     if(view||list_models||model_index>=0) {
@@ -654,11 +708,13 @@ int main(int argc,char **argv)
         vs.pitch=-view_elev*PI/180.0f;
         vs.textures=1;vs.lighting=1;vs.culling=0;vs.grid=1;vs.help=0;
         vs.show_hidden=show_hidden;
+        vs.vis_slot=g_vis_slot;
         if(force_no_cull)vs.culling=0;
         vs.batch=view_part>=0?view_part:0;vs.mode=view_part_mode;
         for(mi=0;mi<models.count;++mi)
             if(!strcmp(models.names[mi],model_file)){index=(int)mi;break;}
-        viewer_frame_model(&vs,&visuals[0]);
+        if(view_part>=0&&view_part_mode==1)viewer_frame_batch(&vs,&visuals[0],(size_t)view_part);
+        else viewer_frame_model(&vs,&visuals[0]);
         vs.distance*=view_zoom>0.01f?view_zoom:1.0f;
         while(running) {
             SDL_Event e;
@@ -686,6 +742,18 @@ int main(int argc,char **argv)
                     case SDLK_g:vs.grid=!vs.grid;break;
                     case SDLK_h:vs.help=!vs.help;break;
                     case SDLK_SPACE:vs.spin=!vs.spin;break;
+                    case SDLK_b:
+                        vs.vis_slot=(vs.vis_slot+1)%4;
+                        {
+                            char part_err[128];
+                            if(demo_parts_apply(disc,
+                                    index>=0&&(size_t)index<models.count?models.names[index]:model_file,
+                                    &visuals[0].model,vs.vis_slot,0,part_err,
+                                    sizeof(part_err))==0)
+                                compile_full_list(&visuals[0]);
+                            printf("Visibility slot %d\n",vs.vis_slot);
+                        }
+                        break;
                     case SDLK_v:vs.mode=(vs.mode+1)%3;break;
                     case SDLK_x:vs.show_hidden=!vs.show_hidden;break;
                     case SDLK_LEFTBRACKET:vs.batch--;break;
@@ -715,7 +783,8 @@ int main(int argc,char **argv)
                 vs.batch=(int)visuals[0].model.batch_count-1;
             if(next_model||prev_model) {
                 if(models.count>0&&viewer_cycle(&visuals[0],disc,&models,&index,next_model?1:-1)) {
-                    viewer_frame_model(&vs,&visuals[0]);
+                    if(view_part>=0&&view_part_mode==1)viewer_frame_batch(&vs,&visuals[0],(size_t)view_part);
+                    else viewer_frame_model(&vs,&visuals[0]);
                     vs.batch=0;
                     printf("Viewing %s\n",models.names[index]);
                 } else {

@@ -118,9 +118,9 @@ static void hide_slot(DemoModel *model, const uint8_t *d, size_t n,
     }
 }
 
-/* Shows variant 0 for every model in a slot (the neutral expression). */
-static void show_neutral(DemoModel *model, const uint8_t *d, size_t n,
-                         size_t slot_ptr, size_t model_num)
+/* Shows one variant for every model in a slot. */
+static void show_variant(DemoModel *model, const uint8_t *d, size_t n,
+                         size_t slot_ptr, size_t model_num, size_t variant)
 {
     size_t lookup;
     size_t i;
@@ -130,19 +130,25 @@ static void show_neutral(DemoModel *model, const uint8_t *d, size_t n,
     lookup = DATA_BASE + slot_ptr;
     for (i = 0; i < model_num; ++i) {
         uint32_t variant_ptr;
+        uint32_t variant_count;
         if (!range_ok(lookup + i * 8, 8, n)) {
             break;
+        }
+        variant_count = be32(d + lookup + i * 8);
+        if (variant >= variant_count) {
+            continue;
         }
         variant_ptr = be32(d + lookup + i * 8 + 4);
         if (variant_ptr == 0 || variant_ptr > n - DATA_BASE) {
             continue;
         }
-        apply_variant(model, d, n, DATA_BASE + variant_ptr, 0);
+        apply_variant(model, d, n, DATA_BASE + variant_ptr + variant * 8, 0);
     }
 }
 
 int demo_parts_apply(const char *disc_image, const char *model_file,
-                     DemoModel *model, char *error, size_t error_size)
+                     DemoModel *model, int slot, int variant, char *error,
+                     size_t error_size)
 {
     char ft_name[32];
     DemoAsset asset = {0};
@@ -155,7 +161,7 @@ int demo_parts_apply(const char *disc_image, const char *model_file,
     uint32_t model_num;
     uint32_t vis_table;
     size_t vis;
-    size_t slot;
+    size_t s;
 
     if (disc_image == NULL || model_file == NULL || model == NULL) {
         return -1;
@@ -199,18 +205,18 @@ int demo_parts_apply(const char *disc_image, const char *model_file,
     }
     vis = DATA_BASE + vis_table;
     /* Hide everything the tables mention, like ftParts_800749CC does. */
-    for (slot = 0; slot < 4; ++slot) {
+    for (s = 0; s < 4; ++s) {
         uint32_t slot_ptr;
-        if (!range_ok(vis + slot * 4, 4, n)) {
+        if (!range_ok(vis + s * 4, 4, n)) {
             break;
         }
-        slot_ptr = be32(d + vis + slot * 4);
+        slot_ptr = be32(d + vis + s * 4);
         hide_slot(model, d, n, slot_ptr, model_num);
     }
-    /* Show the neutral variant (slot 0, variant 0). */
-    {
-        uint32_t slot0 = be32(d + vis);
-        show_neutral(model, d, n, slot0, model_num);
+    /* Show the requested slot/variant (default slot 0 variant 0). */
+    if (slot >= 0 && slot < 4) {
+        uint32_t slot_ptr = be32(d + vis + (size_t) slot * 4);
+        show_variant(model, d, n, slot_ptr, model_num, (size_t) variant);
     }
     demo_asset_free(&asset);
     return 0;
