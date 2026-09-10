@@ -501,7 +501,7 @@ int main(int argc,char **argv)
     int frames=0,inspect=0,scripted=0,view=0;
     int list_models=0,all_models=0,model_index=-1,view_part=-1,view_part_mode=0,list_parts=0,show_hidden=0,no_visibility=0;
     const char *dump_textures=NULL;
-    float view_angle=210.0f,view_elev=-15.0f;
+    float view_angle=25.0f,view_elev=-12.0f;
     for(int i=1;i<argc;++i) {
         if(!strcmp(argv[i],"--disc")&&i+1<argc)disc=argv[++i];
         else if(!strcmp(argv[i],"--model")&&i+1<argc)model_file=argv[++i];
