@@ -51,6 +51,7 @@
 
 #define HSD_FLAG_SCL_INHERIT 0x8
 #define HSD_FLAG_SKELETON 0x1
+#define HSD_FLAG_HIDDEN 0x10
 #define HSD_FLAG_INSTANCE 0x1000
 #define HSD_FLAG_SKELETON_ROOT 0x2
 
@@ -939,7 +940,7 @@ static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
                        const JointTable *table, const float *right,
                        const float *current_world, size_t dobj_index,
                        uint8_t color[4], int texture, uint8_t wrap_s,
-                       uint8_t wrap_t)
+                       uint8_t wrap_t, uint32_t rendermode)
 {
     RawDesc descs[32];
     EnvGroup groups[HSD_MAX_ENV_GROUPS];
@@ -1117,6 +1118,7 @@ static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
         batch->dobj_index = dobj_index;
         batch->texture = (int16_t) texture;
         batch->cull_mode = (uint8_t) cull_mode;
+        batch->rendermode = rendermode;
         batch->wrap_s = wrap_s;
         batch->wrap_t = wrap_t;
         batch->translucent =
@@ -1136,6 +1138,9 @@ static void walk_joint(DemoModel *m, const uint8_t *d, size_t n, size_t jo,
     child = rptr(d, n, jo + 8);
     next = rptr(d, n, jo + 12);
     dobj = rptr(d, n, jo + 16);
+    if (rb32(d, n, jo + 4) & HSD_FLAG_HIDDEN) {
+        dobj = SIZE_MAX; /* HSD_JObjDispDObj skips hidden joints */
+    }
     {
         float right[3][4];
         int m_index = joint_index_of(table, jo);
@@ -1176,7 +1181,8 @@ static void walk_joint(DemoModel *m, const uint8_t *d, size_t n, size_t jo,
                 m->object_count++;
                 parse_pobj(m, d, n, pobj, table,
                            has_right ? &right[0][0] : NULL, current_world,
-                           dobj_index, color, texture, wrap_s, wrap_t);
+                           dobj_index, color, texture, wrap_s, wrap_t,
+                           mobj_rendermode);
                 pobj = rptr(d, n, pobj + 4);
             }
             if (m->dobj_count < DEMO_MAX_DOBJS) {

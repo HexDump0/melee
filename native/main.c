@@ -111,11 +111,13 @@ static void apply_cull(int cull)
     }
 }
 
-static void list_vertices(Visual *v,size_t first,size_t count,int wrap_s,int wrap_t,int cull)
+static void list_vertices(Visual *v,size_t first,size_t count,int wrap_s,int wrap_t,int cull,uint32_t rendermode)
 {
     int current=-2;
     size_t i;
     apply_cull(cull);
+    if(rendermode&(1u<<27))glDepthFunc(GL_ALWAYS);
+    if(rendermode&(1u<<29))glDepthMask(GL_FALSE);
     for(i=0;i<count;++i) {
         DemoModelVertex *p=&v->model.vertices[first+i];
         if(p->texture!=current) {
@@ -135,6 +137,8 @@ static void list_vertices(Visual *v,size_t first,size_t count,int wrap_s,int wra
         glVertex3fv(p->position);
     }
     if(current!=-2)glEnd();
+    glDepthFunc(GL_LESS);
+    glDepthMask(GL_TRUE);
 }
 
 static void compile_model(Visual *v)
@@ -159,7 +163,7 @@ static void compile_model(Visual *v)
         v->batch_lists[i]=glGenLists(1);
         glNewList(v->batch_lists[i],GL_COMPILE);
         list_vertices(v,b->first_vertex,b->vertex_count,b->wrap_s,b->wrap_t,
-                      b->cull_mode);
+                      b->cull_mode,b->rendermode);
         glEndList();
     }
     v->list=glGenLists(1);
@@ -496,6 +500,7 @@ int main(int argc,char **argv)
     const char *disc=DEFAULT_DISC,*capture=NULL,*model_file="PlMrNr.dat";
     int frames=0,inspect=0,scripted=0,view=0;
     int list_models=0,all_models=0,model_index=-1,view_part=-1,view_part_mode=0,list_parts=0,show_hidden=0,no_visibility=0;
+    const char *dump_textures=NULL;
     float view_angle=210.0f,view_elev=-15.0f;
     for(int i=1;i<argc;++i) {
         if(!strcmp(argv[i],"--disc")&&i+1<argc)disc=argv[++i];
@@ -512,6 +517,7 @@ int main(int argc,char **argv)
         else if(!strcmp(argv[i],"--list-parts"))list_parts=1;
         else if(!strcmp(argv[i],"--show-hidden"))show_hidden=1;
         else if(!strcmp(argv[i],"--no-visibility"))no_visibility=1;
+        else if(!strcmp(argv[i],"--dump-textures")&&i+1<argc)dump_textures=argv[++i];
         else if(!strcmp(argv[i],"--part-mode")&&i+1<argc) {
             const char *m=argv[++i];
             view_part_mode=!strcmp(m,"only")?1:(!strcmp(m,"hide")?2:0);
@@ -546,6 +552,32 @@ int main(int argc,char **argv)
     if(show_hidden)demo_parts_show_all(&visuals[0].model);
     /* Two instances of the same decoded costume during renderer bring-up. */
     visuals[0].label="P1 / MARIO";visuals[1]=visuals[0];visuals[1].label="P2 / MARIO";
+    if(dump_textures) {
+        size_t ti,max=visuals[0].model.texture_count;
+        for(ti=0;ti<max&&ti<DEMO_MAX_TEXTURES;++ti) {
+            DemoModelTexture *t=&visuals[0].model.textures[ti];
+            char path[512];
+            if(t->rgba==NULL)continue;
+            snprintf(path,sizeof(path),"%s/tex_%02zu.ppm",dump_textures,ti);
+            FILE *f=fopen(path,"wb");
+            if(!f)continue;
+            fprintf(f,"P6\n%u %u\n255\n",t->width,t->height);
+            {
+                size_t p;
+                size_t transparent=0;
+                for(p=0;p<(size_t)t->width*t->height;++p) {
+                    if(t->rgba[p*4+3]<128)transparent++;
+                    fwrite(&t->rgba[p*4],1,3,f);
+                }
+                printf("tex %zu: %ux%u fmt %u transparent %.1f%%\n",ti,
+                       t->width,t->height,t->format,
+                       100.0*(double)transparent/((double)t->width*t->height));
+            }
+            fclose(f);
+        }
+        printf("Dumped %zu textures\n",max);
+        demo_model_free(&visuals[0].model);free(visuals[0].model.vertices);return 0;
+    }
     if(inspect){
         if(list_parts) {
             size_t bi;
@@ -561,8 +593,8 @@ int main(int argc,char **argv)
                     if(p[0]<xmin)xmin=p[0];
                     if(p[0]>xmax)xmax=p[0];
                 }
-                printf("%-4zu %-6zu dobj=%-3zu cull=%u w=%u,%u %-8s y[%6.2f %6.2f] x[%6.2f %6.2f]",
-                       bi,b->vertex_count,b->dobj_index,b->cull_mode,b->wrap_s,b->wrap_t,
+                printf("%-4zu %-6zu dobj=%-3zu rm=%#08x cull=%u w=%u,%u %-8s y[%6.2f %6.2f] x[%6.2f %6.2f]",
+                       bi,b->vertex_count,b->dobj_index,(unsigned)b->rendermode,b->cull_mode,b->wrap_s,b->wrap_t,
                        demo_model_batch_visible(&visuals[0].model,bi)?"visible":"HIDDEN",
                        ymin,ymax,xmin,xmax);
                 if(b->texture>=0&&(size_t)b->texture<visuals[0].model.texture_count) {
