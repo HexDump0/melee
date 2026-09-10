@@ -28,6 +28,7 @@ data.
 | [`fighter_data.md`](fighter_data.md) | `ftData`, `ftCo_DatAttrs`, attribute offsets |
 | [`gl_shaders.md`](gl_shaders.md) | GL 3.3 core setup, ES3-portable shaders, per-batch VBOs, fixed-function parity traps |
 | [`hsd_tev_materials.md`](hsd_tev_materials.md) | HSD MObj/TObj descriptors, GX channels, TEV combiner, alpha test/blend/Z |
+| [`hsd_lights_fog.md`](hsd_lights_fog.md) | HSD_LightDesc/HSD_FogDesc, channel selection, scene light sources |
 
 ## Writing a new entry
 

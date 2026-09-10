@@ -135,6 +135,9 @@ SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --view --animate \
 # Dump the per-batch GX material state (rendermode, PEDesc, TObj chain)
 ./build/native/melee-demo --dump-tev
 
+# Dump the scene lights/fog the viewer uses (character-select table)
+./build/native/melee-demo --dump-lights
+
 # Render an isolated view to a BMP, optionally isolating one part
 ./build/native/melee-demo --view --angle 180 --screenshot /tmp/mario.bmp
 ./build/native/melee-demo --view --part 21 --part-mode only --frames 3 \

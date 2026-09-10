@@ -12,6 +12,7 @@
 #include "demo_anim.h"
 #include "demo_assets.h"
 #include "demo_attributes.h"
+#include "demo_light.h"
 #include "demo_model.h"
 #include "demo_parts.h"
 #include "demo_physics.h"
@@ -22,6 +23,12 @@
 
 static int g_vis_slot = 0;
 static int g_vis_variant = 0;
+
+/* Character-select scene lights/fog (MnSelectChrDataTable), used as the
+ * viewer's reference scene until stage lights exist. */
+#define DEMO_MAX_SCENE_LIGHTS 4
+static DemoLightSet g_lights;
+static int g_lights_loaded = 0;
 
 typedef struct Visual {
     DemoModel model;
@@ -176,6 +183,13 @@ static void m4_transform_dir(float out[3],const Mat4 m,const float v[3])
     len=sqrtf(out[0]*out[0]+out[1]*out[1]+out[2]*out[2]);
     if(len<1e-8f)len=1.0f;
     out[0]/=len;out[1]/=len;out[2]/=len;
+}
+
+static void m4_transform_point(float out[3],const Mat4 m,const float v[3])
+{
+    out[0]=m[0]*v[0]+m[4]*v[1]+m[8]*v[2]+m[12];
+    out[1]=m[1]*v[0]+m[5]*v[1]+m[9]*v[2]+m[13];
+    out[2]=m[2]*v[0]+m[6]*v[1]+m[10]*v[2]+m[14];
 }
 
 /* -------------------------------------------------------------------------
@@ -370,15 +384,22 @@ static const char *MODEL_VS =
     "layout(location=3) in vec2 a_uv;\n"
     "layout(location=4) in vec2 a_uv2;\n"
     "uniform mat4 u_mvp;\n"
+    "uniform mat4 u_modelview;\n"
+    "uniform mat4 u_light_mv;\n"
     "uniform mat3 u_normal_mtx;\n"
     "uniform mat4 u_texmtx[2];\n"
     "uniform vec3 u_ambient_light;\n"
-    "uniform vec3 u_diffuse_light;\n"
-    "uniform vec3 u_specular_light;\n"
-    "uniform vec3 u_light_dir;\n"
     "uniform vec3 u_mat_ambient;\n"
     "uniform float u_shininess;\n"
     "uniform int u_lighting;\n"
+    "uniform int u_light_count;\n"
+    "uniform int u_light_type[4];\n"
+    "uniform vec4 u_light_color[4];\n"
+    "uniform vec3 u_light_pos[4];\n"
+    "uniform int u_spec_count;\n"
+    "uniform int u_spec_type[4];\n"
+    "uniform vec4 u_spec_color[4];\n"
+    "uniform vec3 u_spec_pos[4];\n"
     "out vec4 v_vertex;\n"
     "out vec3 v_lit_front;\n"
     "out vec3 v_lit_back;\n"
@@ -386,21 +407,47 @@ static const char *MODEL_VS =
     "out vec3 v_spec_back;\n"
     "out vec2 v_uv;\n"
     "out vec2 v_uv2;\n"
+    "out float v_fog_dist;\n"
+    /* HSD_SetupChannelMode case 4: ras = mat_ambient*ambient + sum(light*N.L)
+     * over the diffuse mask.  Specular uses the same channel with the
+     * material shininess (GX's specular pow is approximated). */
     "void main() {\n"
+    "    vec4 view = u_modelview * vec4(a_position, 1.0);\n"
     "    gl_Position = u_mvp * vec4(a_position, 1.0);\n"
+    "    v_fog_dist = -view.z;\n"
     "    v_uv = (u_texmtx[0] * vec4(a_uv, 0.0, 1.0)).xy;\n"
     "    v_uv2 = (u_texmtx[1] * vec4(a_uv2, 0.0, 1.0)).xy;\n"
     "    v_vertex = a_color;\n"
     "    if (u_lighting != 0) {\n"
     "        vec3 n = normalize(u_normal_mtx * a_normal);\n"
-    "        vec3 l = normalize(u_light_dir);\n"
-    "        vec3 h = normalize(l + vec3(0.0, 0.0, 1.0));\n"
-    "        float sf = pow(max(dot(n, h), 0.0), max(u_shininess, 1.0));\n"
-    "        float sb = pow(max(dot(-n, h), 0.0), max(u_shininess, 1.0));\n"
-    "        v_lit_front = clamp(u_mat_ambient * u_ambient_light + u_diffuse_light * max(dot(n, l), 0.0), 0.0, 1.0);\n"
-    "        v_lit_back = clamp(u_mat_ambient * u_ambient_light + u_diffuse_light * max(dot(-n, l), 0.0), 0.0, 1.0);\n"
-    "        v_spec_front = clamp(u_specular_light * sf, 0.0, 1.0);\n"
-    "        v_spec_back = clamp(u_specular_light * sb, 0.0, 1.0);\n"
+    "        vec3 amb = u_mat_ambient * u_ambient_light;\n"
+    "        vec3 litf = amb;\n"
+    "        vec3 litb = amb;\n"
+    "        vec3 specf = vec3(0.0);\n"
+    "        vec3 specb = vec3(0.0);\n"
+    "        for (int i = 0; i < 4; ++i) {\n"
+    "            if (i >= u_light_count) break;\n"
+    "            vec3 lp = u_light_pos[i];\n"
+    "            vec3 lv = (u_light_type[i] == 1) ? normalize(lp)\n"
+    "                                             : normalize(lp - view.xyz);\n"
+    "            litf += u_light_color[i].rgb * max(dot(n, lv), 0.0);\n"
+    "            litb += u_light_color[i].rgb * max(dot(-n, lv), 0.0);\n"
+    "        }\n"
+    "        for (int i = 0; i < 4; ++i) {\n"
+    "            if (i >= u_spec_count) break;\n"
+    "            vec3 lp = u_spec_pos[i];\n"
+    "            vec3 lv = (u_spec_type[i] == 1) ? normalize(lp)\n"
+    "                                            : normalize(lp - view.xyz);\n"
+    "            vec3 h = normalize(lv + vec3(0.0, 0.0, 1.0));\n"
+    "            float p = pow(max(dot(n, h), 0.0), max(u_shininess, 1.0));\n"
+    "            float pb = pow(max(dot(-n, h), 0.0), max(u_shininess, 1.0));\n"
+    "            specf += u_spec_color[i].rgb * p;\n"
+    "            specb += u_spec_color[i].rgb * pb;\n"
+    "        }\n"
+    "        v_lit_front = clamp(litf, 0.0, 1.0);\n"
+    "        v_lit_back = clamp(litb, 0.0, 1.0);\n"
+    "        v_spec_front = clamp(specf, 0.0, 1.0);\n"
+    "        v_spec_back = clamp(specb, 0.0, 1.0);\n"
     "    } else {\n"
     "        v_lit_front = vec3(1.0);\n"
     "        v_lit_back = vec3(1.0);\n"
@@ -428,6 +475,11 @@ static const char *MODEL_FS =
     "uniform int u_acomp[2];\n"
     "uniform float u_aref[2];\n"
     "uniform int u_aop;\n"
+    "uniform int u_fog_enable;\n"
+    "uniform int u_fog_type;\n"
+    "uniform float u_fog_start;\n"
+    "uniform float u_fog_end;\n"
+    "uniform vec3 u_fog_color;\n"
     "in vec4 v_vertex;\n"
     "in vec3 v_lit_front;\n"
     "in vec3 v_lit_back;\n"
@@ -435,6 +487,7 @@ static const char *MODEL_FS =
     "in vec3 v_spec_back;\n"
     "in vec2 v_uv;\n"
     "in vec2 v_uv2;\n"
+    "in float v_fog_dist;\n"
     "out vec4 frag_color;\n"
     /* GX TEV: out = (d + (1-c)*a + c*b), clamped; the HSD colormap/alphamap
      * branches map to a=prev, b=texture, c=texture/alpha/blend as below. */
@@ -521,6 +574,23 @@ static const char *MODEL_FS_MAIN =
     "                    (u_aop == 3) ? (p0 == p1) : (p0 && p1);\n"
     "        if (!pass) discard;\n"
     "    }\n"
+    /* HSD_FogSet -> GXSetFog: linear perspective fog uses the view distance;
+     * the exponential modes use the same distance with a derived density. */
+    "    if (u_fog_enable != 0) {\n"
+    "        float d = v_fog_dist;\n"
+    "        float f;\n"
+    "        if (u_fog_type == 2) {\n"
+    "            f = clamp((u_fog_end - d) / max(u_fog_end - u_fog_start, 1e-4), 0.0, 1.0);\n"
+    "        } else {\n"
+    "            float density = 1.0 / max(u_fog_end - u_fog_start, 1e-4);\n"
+    "            if (u_fog_type == 4) f = exp(-density * d);\n"
+    "            else if (u_fog_type == 5) f = exp(-density * density * d * d);\n"
+    "            else if (u_fog_type == 6) f = 1.0 - exp(-density * d);\n"
+    "            else if (u_fog_type == 7) f = 1.0 - exp(-density * density * d * d);\n"
+    "            else f = 1.0;\n"
+    "        }\n"
+    "        color.rgb = mix(u_fog_color, color.rgb, f);\n"
+    "    }\n"
     "    frag_color = color;\n"
     "}\n";
 
@@ -550,10 +620,17 @@ typedef struct ModelShader {
     GLint cmap;
     GLint amap;
     GLint tex_blend;
+    GLint modelview;
+    GLint light_mv;
     GLint ambient_light;
-    GLint diffuse_light;
-    GLint specular_light;
-    GLint light_dir;
+    GLint light_count;
+    GLint light_type;
+    GLint light_color;
+    GLint light_pos;
+    GLint spec_count;
+    GLint spec_type;
+    GLint spec_color;
+    GLint spec_pos;
     GLint mat_ambient;
     GLint shininess;
     GLint lighting;
@@ -568,6 +645,11 @@ typedef struct ModelShader {
     GLint acomp;
     GLint aref;
     GLint aop;
+    GLint fog_enable;
+    GLint fog_type;
+    GLint fog_start;
+    GLint fog_end;
+    GLint fog_color;
 } ModelShader;
 
 static ModelShader g_model;
@@ -628,10 +710,17 @@ static int renderer_init(void)
     g_model.cmap=glGetUniformLocation(g_model.program,"u_cmap[0]");
     g_model.amap=glGetUniformLocation(g_model.program,"u_amap[0]");
     g_model.tex_blend=glGetUniformLocation(g_model.program,"u_tex_blend[0]");
+    g_model.modelview=glGetUniformLocation(g_model.program,"u_modelview");
+    g_model.light_mv=glGetUniformLocation(g_model.program,"u_light_mv");
     g_model.ambient_light=glGetUniformLocation(g_model.program,"u_ambient_light");
-    g_model.diffuse_light=glGetUniformLocation(g_model.program,"u_diffuse_light");
-    g_model.specular_light=glGetUniformLocation(g_model.program,"u_specular_light");
-    g_model.light_dir=glGetUniformLocation(g_model.program,"u_light_dir");
+    g_model.light_count=glGetUniformLocation(g_model.program,"u_light_count");
+    g_model.light_type=glGetUniformLocation(g_model.program,"u_light_type[0]");
+    g_model.light_color=glGetUniformLocation(g_model.program,"u_light_color[0]");
+    g_model.light_pos=glGetUniformLocation(g_model.program,"u_light_pos[0]");
+    g_model.spec_count=glGetUniformLocation(g_model.program,"u_spec_count");
+    g_model.spec_type=glGetUniformLocation(g_model.program,"u_spec_type[0]");
+    g_model.spec_color=glGetUniformLocation(g_model.program,"u_spec_color[0]");
+    g_model.spec_pos=glGetUniformLocation(g_model.program,"u_spec_pos[0]");
     g_model.mat_ambient=glGetUniformLocation(g_model.program,"u_mat_ambient");
     g_model.shininess=glGetUniformLocation(g_model.program,"u_shininess");
     g_model.lighting=glGetUniformLocation(g_model.program,"u_lighting");
@@ -646,6 +735,11 @@ static int renderer_init(void)
     g_model.acomp=glGetUniformLocation(g_model.program,"u_acomp[0]");
     g_model.aref=glGetUniformLocation(g_model.program,"u_aref[0]");
     g_model.aop=glGetUniformLocation(g_model.program,"u_aop");
+    g_model.fog_enable=glGetUniformLocation(g_model.program,"u_fog_enable");
+    g_model.fog_type=glGetUniformLocation(g_model.program,"u_fog_type");
+    g_model.fog_start=glGetUniformLocation(g_model.program,"u_fog_start");
+    g_model.fog_end=glGetUniformLocation(g_model.program,"u_fog_end");
+    g_model.fog_color=glGetUniformLocation(g_model.program,"u_fog_color");
     glUseProgram(g_model.program);
     glUniform1i(g_model.tex[0],0);
     glUniform1i(g_model.tex[1],1);
@@ -673,19 +767,107 @@ static int renderer_init(void)
 
 /* Light colours are the viewer's stand-in light set; the GX channel consumes
  * them as ambient/diffuse light colours (HSD_SetupChannelMode). */
-static void model_set_view(const Mat4 mvp,const Mat4 mv,const float light_dir[3],
+/*
+ * Builds the GX channel inputs from the loaded HSD_LObj set
+ * (HSD_LObjSetupInit + HSD_SetupChannelMode: ambient slot, diffuse mask,
+ * specular mask) and transforms them into the light matrix's space.
+ * Falls back to the pre-scene stand-in light if the archive is unavailable.
+ */
+static void model_set_view(const Mat4 mvp,const Mat4 mv,const Mat4 light_mv,
                            int lighting)
 {
     float normal[9];
+    float ambient[3]={.78f,.78f,.82f};
+    int light_type[DEMO_MAX_SCENE_LIGHTS]={0};
+    float light_color[DEMO_MAX_SCENE_LIGHTS*4]={0};
+    float light_pos[DEMO_MAX_SCENE_LIGHTS*3]={0};
+    int spec_type[DEMO_MAX_SCENE_LIGHTS]={0};
+    float spec_color[DEMO_MAX_SCENE_LIGHTS*4]={0};
+    float spec_pos[DEMO_MAX_SCENE_LIGHTS*3]={0};
+    int light_count=0,spec_count=0;
+    size_t i;
+    if(g_lights_loaded) {
+        demo_lights_ambient(&g_lights,ambient);
+        for(i=0;i<g_lights.count&&light_count<DEMO_MAX_SCENE_LIGHTS;++i) {
+            const DemoLight *l=&g_lights.lights[i];
+            float p[3];
+            int c;
+            if((l->flags&3u)==DEMO_LOBJ_AMBIENT||
+               (l->flags&DEMO_LOBJ_HIDDEN)||!(l->flags&DEMO_LOBJ_DIFFUSE))
+                continue;
+            c=light_count++;
+            light_type[c]=(int)l->type;
+            light_color[c*4+0]=l->color[0]/255.0f;
+            light_color[c*4+1]=l->color[1]/255.0f;
+            light_color[c*4+2]=l->color[2]/255.0f;
+            light_color[c*4+3]=l->color[3]/255.0f;
+            if(l->type==DEMO_LOBJ_INFINITE) {
+                m4_transform_dir(p,light_mv,l->position);
+            } else if(l->has_position) {
+                m4_transform_point(p,light_mv,l->position);
+            }
+            memcpy(&light_pos[c*3],p,sizeof(p));
+        }
+        for(i=0;i<g_lights.count&&spec_count<DEMO_MAX_SCENE_LIGHTS;++i) {
+            const DemoLight *l=&g_lights.lights[i];
+            float p[3];
+            int c;
+            if((l->flags&3u)==DEMO_LOBJ_AMBIENT||
+               (l->flags&DEMO_LOBJ_HIDDEN)||!(l->flags&DEMO_LOBJ_SPECULAR))
+                continue;
+            c=spec_count++;
+            spec_type[c]=(int)l->type;
+            spec_color[c*4+0]=l->color[0]/255.0f;
+            spec_color[c*4+1]=l->color[1]/255.0f;
+            spec_color[c*4+2]=l->color[2]/255.0f;
+            spec_color[c*4+3]=l->color[3]/255.0f;
+            if(l->type==DEMO_LOBJ_INFINITE) {
+                m4_transform_dir(p,light_mv,l->position);
+            } else if(l->has_position) {
+                m4_transform_point(p,light_mv,l->position);
+            }
+            memcpy(&spec_pos[c*3],p,sizeof(p));
+        }
+    } else {
+        float p[3];
+        const float world[3]={.35f,.6f,1.0f};
+        light_count=1;
+        spec_count=1;
+        light_type[0]=DEMO_LOBJ_INFINITE;
+        spec_type[0]=DEMO_LOBJ_INFINITE;
+        light_color[0]=light_color[1]=light_color[2]=.9f;
+        spec_color[0]=spec_color[1]=spec_color[2]=.9f;
+        light_color[3]=spec_color[3]=1.0f;
+        m4_transform_dir(p,light_mv,world);
+        memcpy(light_pos,p,sizeof(p));
+        memcpy(spec_pos,p,sizeof(p));
+    }
     m4_normal_mtx(normal,mv);
     glUseProgram(g_model.program);
     glUniformMatrix4fv(g_model.mvp,1,GL_FALSE,mvp);
+    glUniformMatrix4fv(g_model.modelview,1,GL_FALSE,mv);
+    glUniformMatrix4fv(g_model.light_mv,1,GL_FALSE,light_mv);
     glUniformMatrix3fv(g_model.normal_mtx,1,GL_FALSE,normal);
     glUniform1i(g_model.lighting,lighting);
-    glUniform3f(g_model.ambient_light,.78f,.78f,.82f);
-    glUniform3f(g_model.diffuse_light,.9f,.88f,.82f);
-    glUniform3f(g_model.specular_light,.9f,.88f,.82f);
-    glUniform3f(g_model.light_dir,light_dir[0],light_dir[1],light_dir[2]);
+    glUniform3f(g_model.ambient_light,ambient[0],ambient[1],ambient[2]);
+    glUniform1i(g_model.light_count,light_count);
+    glUniform1iv(g_model.light_type,DEMO_MAX_SCENE_LIGHTS,light_type);
+    glUniform4fv(g_model.light_color,DEMO_MAX_SCENE_LIGHTS,light_color);
+    glUniform3fv(g_model.light_pos,DEMO_MAX_SCENE_LIGHTS,light_pos);
+    glUniform1i(g_model.spec_count,spec_count);
+    glUniform1iv(g_model.spec_type,DEMO_MAX_SCENE_LIGHTS,spec_type);
+    glUniform4fv(g_model.spec_color,DEMO_MAX_SCENE_LIGHTS,spec_color);
+    glUniform3fv(g_model.spec_pos,DEMO_MAX_SCENE_LIGHTS,spec_pos);
+    if(g_lights_loaded&&g_lights.fog.present) {
+        glUniform1i(g_model.fog_enable,1);
+        glUniform1i(g_model.fog_type,(int)g_lights.fog.type);
+        glUniform1f(g_model.fog_start,g_lights.fog.start);
+        glUniform1f(g_model.fog_end,g_lights.fog.end);
+        glUniform3f(g_model.fog_color,g_lights.fog.color[0]/255.0f,
+                    g_lights.fog.color[1]/255.0f,g_lights.fog.color[2]/255.0f);
+    } else {
+        glUniform1i(g_model.fog_enable,0);
+    }
 }
 
 static GLenum gx_blend_factor(uint8_t f)
@@ -1224,13 +1406,10 @@ static void render_viewer(const Visual *v,const Viewer *vs,int w,int h,
     glClearColor(.05f,.06f,.09f,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
     {
         Mat4 proj,view,mvp;
-        float light_world[3]={.35f,.6f,1.0f};
-        float light_eye[3];
         m4_frustum(proj,-top*aspect,top*aspect,-top,top,znear,zfar);
         m4_look_at(view,eye,vs->target);
         m4_mul(mvp,proj,view);
-        m4_transform_dir(light_eye,view,light_world);
-        model_set_view(mvp,view,light_eye,vs->lighting);
+        model_set_view(mvp,view,view,vs->lighting);
         glEnable(GL_DEPTH_TEST);
         glPolygonMode(GL_FRONT_AND_BACK,vs->wireframe?GL_LINE:GL_FILL);
         {
@@ -1305,7 +1484,7 @@ static void platform(const DemoPhysicsPlatform *p,int main_stage,const Mat4 mvp)
 
 static void draw_fighter(const Visual *v,const DemoPhysicsFighter *f,
                          int player,unsigned tick,const FighterAnim *anim,
-                         const Mat4 proj,const Mat4 base,const float light_eye[3])
+                         const Mat4 proj,const Mat4 base)
 {
     float r=player?.35f:1, g=player?.66f:.35f, b=player?1:.40f;
     Mat4 mv,mvp;
@@ -1328,7 +1507,7 @@ static void draw_fighter(const Visual *v,const DemoPhysicsFighter *f,
                      -v->model.bounds_min[1],
                      -(v->model.bounds_min[2]+v->model.bounds_max[2])*.5f);
     m4_mul(mvp,proj,mv);
-    model_set_view(mvp,mv,light_eye,1);
+    model_set_view(mvp,mv,base,1);
     {
         size_t bi;
         for(bi=0;bi<v->model.batch_count&&bi<DEMO_MAX_BATCHES;++bi) {
@@ -1449,7 +1628,7 @@ int main(int argc,char **argv)
     const char *dump_textures=NULL;
     const char *extract_file=NULL,*extract_out=NULL;
     const char *clip_name="Wait1",*anim_file=NULL,*dump_clip=NULL;
-    int animate=0,list_clips=0,force_no_cull=0,dump_tev=0;
+    int animate=0,list_clips=0,force_no_cull=0,dump_tev=0,dump_lights=0;
     float view_angle=25.0f,view_elev=-12.0f,view_zoom=1.0f;
     float anim_frame=-1.0f,anim_speed=1.0f;
     for(int i=1;i<argc;++i) {
@@ -1470,6 +1649,7 @@ int main(int argc,char **argv)
         else if(!strcmp(argv[i],"--dump-textures")&&i+1<argc)dump_textures=argv[++i];
         else if(!strcmp(argv[i],"--no-cull"))force_no_cull=1;
         else if(!strcmp(argv[i],"--dump-tev"))dump_tev=1;
+        else if(!strcmp(argv[i],"--dump-lights"))dump_lights=1;
         else if(!strcmp(argv[i],"--animate"))animate=1;
         else if(!strcmp(argv[i],"--clip")&&i+1<argc)clip_name=argv[++i];
         else if(!strcmp(argv[i],"--anim-frame")&&i+1<argc)anim_frame=(float)atof(argv[++i]);
@@ -1488,6 +1668,15 @@ int main(int argc,char **argv)
         else if(!strcmp(argv[i],"--elevation")&&i+1<argc)view_elev=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--zoom")&&i+1<argc)view_zoom=(float)atof(argv[++i]);
         else {printf("Usage: %s [--disc IMAGE] [--model PlMrNr.dat] [--model-index N] [--part N] [--part-mode all|only|hide] [--list-models] [--all-models] [--inspect] [--view [--angle DEG] [--elevation DEG]] [--animate [--clip NAME|N] [--anim-frame F] [--anim-speed S] [--anim-file PlMrAJ.dat] [--list-clips]] [--frames N] [--screenshot FILE.bmp] [--scripted]\n",argv[0]);return strcmp(argv[i],"--help")!=0;}
+    }
+    if(dump_lights) {
+        DemoLightSet lights;
+        char light_error[128];
+        if(demo_lights_load(disc,&lights,light_error,sizeof(light_error))!=0)
+            fprintf(stderr,"Lights unavailable (%s)\n",light_error);
+        else
+            demo_lights_dump(&lights);
+        return 0;
     }
     if(extract_file&&extract_out) {
         DemoAsset a={0};char err[128];
@@ -1673,6 +1862,17 @@ int main(int argc,char **argv)
     if(!renderer_init()) {
         fprintf(stderr,"Shader setup failed\n");
         SDL_GL_DeleteContext(context);SDL_DestroyWindow(window);SDL_Quit();return 1;
+    }
+    {
+        char light_error[128];
+        if(demo_lights_load(disc,&g_lights,light_error,sizeof(light_error))==0) {
+            g_lights_loaded=1;
+            printf("Scene lights: character select (%zu lights, fog %s)\n",
+                   g_lights.count,g_lights.fog.present?"on":"off");
+        } else {
+            fprintf(stderr,"Scene lights unavailable (%s); using stand-in\n",
+                    light_error);
+        }
     }
     compile_model(&visuals[0]);
     /* P2 shares the compiled buffers and textures; copy after compile so the
@@ -1982,8 +2182,6 @@ int main(int argc,char **argv)
         glViewport(0,0,w,h);glClearColor(.025f,.035f,.065f,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
         {
             Mat4 proj,base,mvp;
-            float light_world[3]={-40.0f,80.0f,100.0f};
-            float light_eye[3];
             float halfx=55,halfy=halfx*h/w;
             float midx=(fighters[0].x+fighters[1].x)*.5f;
             float midy=(fighters[0].y+fighters[1].y)*.5f+9;
@@ -2007,13 +2205,12 @@ int main(int argc,char **argv)
             m4_identity(base);
             m4_mul_rotate(base,7,1,0,0);
             m4_mul(mvp,proj,base);
-            m4_transform_dir(light_eye,base,light_world);
             for(int i=0;i<world.platform_count;++i)platform(&world.platforms[i],i==0,mvp);
             for(int i=0;i<2;++i)
                 if(visuals[i].anim_loaded&&fanim[i].clip>=0)
                     demo_anim_apply(&visuals[i].anim,&visuals[i].model,fanim[i].frame);
-            draw_fighter(&visuals[0],&fighters[0],0,tick,&fanim[0],proj,base,light_eye);
-            draw_fighter(&visuals[1],&fighters[1],1,tick,&fanim[1],proj,base,light_eye);
+            draw_fighter(&visuals[0],&fighters[0],0,tick,&fanim[0],proj,base);
+            draw_fighter(&visuals[1],&fighters[1],1,tick,&fanim[1],proj,base);
             hud(w,h,fighters,cpu,paused,visuals);
         }
         ++rendered;
