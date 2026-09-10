@@ -169,9 +169,12 @@ static void compile_model(Visual *v)
         glGenTextures(1,&v->textures[i]);
         glBindTexture(GL_TEXTURE_2D,v->textures[i]);
         glPixelStorei(GL_UNPACK_ALIGNMENT,1);
+        /* HSD's default LOD mode is GX_LIN_MIP_LIN (trilinear), so generate
+         * mipmaps like the game does. */
+        glTexParameteri(GL_TEXTURE_2D,GL_GENERATE_MIPMAP,GL_TRUE);
         glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,t->width,t->height,0,GL_RGBA,
                      GL_UNSIGNED_BYTE,t->rgba);
-        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_REPEAT);
