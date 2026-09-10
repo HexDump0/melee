@@ -176,7 +176,7 @@ GX position-matrix slots in order, max 10.
 - Otherwise: matrix = `sum_i weight_i * (joint_i.world * joint_i.inverse_bind)`,
   which is **the identity at bind pose** because `world * inverse_bind == I`.
 - If `right != NULL` (envelope-model node, not the skeleton root): additionally
-  concat `right`. Not implemented in the port; see P-202.
+  concat `right`. Implemented in `demo_model.c` (`joint_right`).
 
 **Group selection:** the vertex's `PNMTXIDX` attribute is a GX matrix slot:
 `GX_PNMTX0..PNMTX9` live at indices `0, 3, 6, ..., 27`. Therefore
@@ -187,6 +187,37 @@ group_index = pnmtxidx / 3
 
 Getting this wrong (using the raw byte) was the cause of the "spiky blob"
 render. Also apply the same matrix to the normal (rotation part + normalize).
+
+### The `right` matrix (implemented)
+
+`_HSD_mkEnvelopeModelNodeMtx(m)` for the current joint `m`:
+
+- `m` has `JOBJ_SKELETON_ROOT` -> NULL (no `right`).
+- Otherwise find `x` = nearest ancestor of `m` (including `m`) flagged
+  `JOBJ_SKELETON` or `JOBJ_SKELETON_ROOT`:
+  - `x == m`: `right = inverse(E_x) = bind_world(m)`.
+  - `x` is skeleton root: `right = inverse(x.bind) * m.bind`.
+  - otherwise: `right = inverse(x.bind * E_x) * m.bind`, which is `m.bind`
+    because `x.bind * E_x == I`.
+
+At bind pose the group matrices are identity for blended groups and `M_j * E_j`
+for rigid groups, so the final vertex transform reduces to:
+
+```
+right != NULL  -> v' = right * v              (any group)
+right == NULL  -> v' = M_j * v  (rigid)  or  v' = v  (blended)
+```
+
+This is what places Link's sword and shield on his back instead of the floor.
+Applying `right` to PObjs on the skeleton root would break Mario; the root
+check is essential.
+
+## Part visibility (faces)
+
+Model archives contain no default visibility.  The fighter's `ftData` has a
+`FtPartsDesc`/`FtPartsVis` table that `ftParts_800749CC` uses: every listed
+DObj starts hidden and the neutral variant (slot 0, variant 0) is shown.  The
+port parses this in `demo_parts.c`.  See `fighter_data.md` for the layout.
 
 ## Verified numbers (`PlMrNr.dat`)
 

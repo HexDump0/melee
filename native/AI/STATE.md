@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-10 (viewer + part isolation)
+Last updated: 2026-09-10 (correct models: right matrix, part visibility, TLUT)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -8,11 +8,13 @@ Last updated: 2026-09-10 (viewer + part isolation)
 ## TL;DR
 
 A playable two-player sandbox runs natively on Linux, rendering real disc
-assets: Mario, Fox, Pikachu and Young Link all decode with textures. There is
-also an interactive 3D model viewer with orbit/zoom/wireframe and per-part
-isolation for inspecting any `Pl*Nr.dat` on the disc. Fighters are in bind (T)
-pose because animation is not implemented. Movement uses real Mario attributes
-read from the disc.
+assets. Characters decode with correct bind-pose skinning, the `right` matrix
+that attaches PObjs on non-root joints, the game's own part visibility tables
+(neutral face, hidden alternate expressions) and full GX texture support
+including CI4/CI8 + TLUT. An interactive 3D viewer with orbit/zoom/wireframe,
+part isolation and a hidden-part toggle inspects any `Pl*Nr.dat`. Fighters are
+in bind (T) pose because animation is not implemented. Movement uses real Mario
+attributes read from the disc.
 
 ## Verified working
 
@@ -22,8 +24,11 @@ read from the disc.
 | FST lookup | Finds files in the root and one level deep |
 | HSD joint/DObj/PObj walk | Mario: 68 PObjs, 6328 triangles |
 | Bind-pose envelope skinning | Rendered Mario is a coherent T-pose; bounds `[-7.56 -0.28 -2.70]..[7.57 14.21 3.58]` |
+| `right` matrix | Link's sword/scabbard/shield sit on his back instead of the floor (bounds y-min rose from -6.14 to -0.01) |
+| Part visibility | Mario hides 16 of 59 DObjs, Link 32 of 83; faces render in neutral pose |
+| CI4/CI8 + TLUT | Mario eye atlas (190x190 CI8, palette RGB565) decodes; 31 textures total |
 | GX display lists | Strips/triangles/quads decoded; clean opcode histogram (only 0x80/0x90/0x98) |
-| Textures | 30 textures for Mario (CMPR etc.), correct cap/overalls/face |
+| Textures | 31 textures for Mario (CMPR + CI8), correct cap/overalls/face/eyes |
 | Materials | Per-DObj diffuse color as vertex color |
 | Cross-character | Fox 6658 tris/34 tex, Pikachu 4989/10, Young Link 7381/42 |
 | Model enumeration | `--list-models` finds 33 `Pl*Nr.dat`; `--all-models` finds 273 |
@@ -46,20 +51,15 @@ Ordered by impact.
    joints, HSD multiplies by `_HSD_mkEnvelopeModelNodeMtx`. All Melee fighter
    DObjs hang off the skeleton root today, so it is unobservable, but any asset
    with a different topology needs it. Workstream P-202.
-5. **Face expressions overlap.** Melee hides alternate expression DObjs through
-   the animation-driven `ftParts`/`FtPartsVis` system. With no animation all
-   expression meshes draw at once, so eyes/mustache look smeared. Workaround:
-   viewer part isolation. Real fix: P-201 or parsing part visibility
-   (`learnings/fighter_data.md`). This is visual only; geometry is correct.
-6. **Paletted textures unsupported.** `CI4`/`CI8` + TLUT are skipped, so those
-   parts fall back to material color. Character eyes and some effects use them.
-   Workstream P-203.
-7. **TEV approximated.** Rendering is `texture * material color` with fixed
+5. **Animated expressions not implemented.** The neutral pose is correct, but
+   blinking/damage expressions need the animation system (P-201) to drive
+   `ftParts_80074B0C` indices. Model visibility tables are already parsed.
+6. **TEV approximated.** Rendering is `texture * material color` with fixed
    function lighting. Multi-texture, toon ramps, alpha test thresholds and
    additive blends will not match the GameCube. Workstream P-204.
-8. **No audio, menus, items, stages, results, netplay, WASM.**
-9. **Non-Mario physics values** are demo defaults, not per-character data.
-10. **Windows/macOS untested.** Linux + Mesa is the only verified target.
+7. **No audio, menus, items, stages, results, netplay, WASM.**
+8. **Non-Mario physics values** are demo defaults, not per-character data.
+9. **Windows/macOS untested.** Linux + Mesa is the only verified target.
 
 ## Baseline commands
 

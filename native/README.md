@@ -18,12 +18,14 @@ unchanged and remains available.
 | Disc reading (CISO/ISO/GCM, FST) | Works |
 | HSD model decode (joints, DObj/PObj, display lists) | Works |
 | Bind-pose envelope skinning | Works |
-| GX texture decode (I4/I8/IA4/IA8/RGB565/RGB5A3/RGBA8/CMPR) | Works |
+| `right` matrix (PObjs on non-root joints, e.g. Link's sword/shield) | Works |
+| Fighter part visibility (neutral expression, hidden alternates) | Works |
+| GX texture decode (I4/I8/IA4/IA8/RGB565/RGB5A3/RGBA8/CMPR/CI4/CI8+TLUT) | Works |
 | Mario movement attributes from `PlMr.dat` | Works |
 | Sandbox movement, jumping, shield, one attack | Works |
 | Interactive 3D model viewer (orbit, zoom, parts) | Works |
 | Gameplay animation from `Pl*.dat` animation tables | Not implemented |
-| Face expressions (part visibility system) | Not implemented; expression meshes overlap |
+| Animated face expressions (blinking, damage) | Not implemented; neutral pose is correct |
 | Audio, menus, combat states, knockback model, items | Not implemented |
 | Other characters | Should work via `--model Pl**.dat`; untested |
 | Windows / macOS / WASM | Untested |
@@ -93,9 +95,10 @@ projection and a ground grid.
 | `H` | Help overlay |
 | `Esc` | Quit |
 
-Part isolation is useful for investigating the bind-pose overlap of Melee's
-face expression meshes (the game hides alternate expressions during animation,
-which this demo does not play yet).
+The neutral face now uses the fighter's own part visibility tables from
+`Pl<Char>.dat`, so alternate expression meshes are hidden exactly as the game
+hides them before animation. `X` reveals hidden parts for debugging, and part
+isolation is still useful to inspect individual meshes.
 
 ### Diagnostics
 

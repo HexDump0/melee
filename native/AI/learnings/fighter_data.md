@@ -68,16 +68,51 @@ From `src/melee/ft/types.h`:
 Attributes sit at `fp+0x110` because `Fighter` embeds `co_attrs` after the
 common fields; the demo avoids the giant `Fighter` struct entirely.
 
-## Parts and visibility (needed for faces and animation)
+## Parts and visibility (verified, implemented)
 
-- `ftData_x8` describes `Fighter_Part` mapping and animation joints.
-- `ftParts.c` assigns DObjs to parts (`ftParts_80074194`) and sets visibility
-  from `FtPartsVis` tables supplied by the **animation system**, e.g.
-  `ftParts_80074B6C` toggles `DOBJ_HIDDEN` (bit 0) on `dobj_list` entries.
-- Therefore model archives contain no "default visible" set: with no animation,
-  every face expression mesh is visible at once and overlaps. This is why the
-  bind-pose face looks smeared. Fix path: P-201 (animation) plus part
-  visibility, or a viewer-side part filter (already implemented for debugging).
+The static visibility lives in `Pl<Char>.dat` and is implemented by
+`native/demo_parts.c`.
+
+### Locating it
+
+```
+ftData<Char> +0x08 -> ftData_x8          (data-relative)
+    value 0 means data offset 0: the descriptor lives at the very start of the
+    archive's data section for Mario.  Do NOT treat 0 as NULL here.
+ftData_x8 +0x00 = FtPartsDesc {
+    u32 model_num;              // number of visibility "models" (Mario: 1)
+    void* (*vis_table)[4];      // data-relative
+}
+vis_table[costume][slot] -> FtPartsVisLookup[model_num]
+FtPartsVisLookup { int variant_count; TempS* variants; }
+TempS            { int count; u8* dobj_indices; }
+```
+
+`costume` is the costume id (0 = `Nr` normal). Slots 0..3; `FtPartsVis.xC[4]`
+is always NULL.
+
+### Runtime rules (from `src/melee/ft/ftparts.c`, `ftdrawcommon.c`)
+
+- `ftParts_8007487C` (called from `ftParts_800749CC`) marks **every** DObj
+  listed in any slot hidden (`HSD_DObjSetFlags(dobj, 1)`), then clears.
+- Normal rendering (`ftDrawCommon_800805C8`) enables slot 0 and disables
+  slots 1/2/4; metal fighters enable slot 2 instead.
+- `ftParts_80074B6C(fp, vis, slot, list)` shows variant `x5F4_arr[i].idx` for
+  each model `i` and hides the rest. The animation system sets that index.
+- With no animation, the port shows variant 0 of slot 0 and leaves everything
+  else hidden. That reproduces the neutral face.
+
+### DObj indices are not PObj/batch indices
+
+The vis tables index `fp->dobj_list`, built in joint-traversal order by
+`ftParts_SetupParts`. A DObj can own several PObjs, so the port stores the
+DObj index on every `DemoModelBatch` and tests visibility through
+`demo_model_batch_visible`. Never use the batch index directly.
+
+### Still missing
+
+Animated expressions (blink, damage) need animation playback (P-201) to set
+`x5F4_arr` indices; the tables themselves are already parsed.
 
 ## HYPOTHESIS (not yet tested)
 

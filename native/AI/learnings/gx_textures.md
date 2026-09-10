@@ -49,13 +49,18 @@ or eye UVs are wrong, check these first (P-205).
 
 | Offset | Field |
 |---|---|
-| +0x00 | `void* lut` |
-| +0x04 | `GXTlutFmt fmt` |
+| +0x00 | `void* lut` — data-relative pointer to `n_entries * 2` bytes |
+| +0x04 | `GXTlutFmt fmt` (0 = IA8, 1 = RGB565, 2 = RGB5A3) |
 | +0x08 | `u32 tlut_name` |
 | +0x0C | `u16 n_entries` |
 
-Not stored in the `.dat`; the runtime loads palettes separately (often from a
-sibling archive). This is why CI formats are not yet supported.
+The palette **is** in the model archive for fighter models. Verified with
+Mario's eye atlas: 190x190 CI8 image at `0x2C9C0`, palette at `0x359C0`
+(256 entries, RGB565), immediately after the image data.
+
+`demo_texture_decode_ci` expands the indices with a palette already converted
+to RGBA8; `demo_model.c` reads the tlutdesc, converts the palette with
+`decode_palette_entry`, and calls it for formats 8 (CI4) and 9 (CI8).
 
 ## Formats and encoded size
 
@@ -92,9 +97,15 @@ Mario overalls: `image_ptr` data offset `0x1AD40` (file `0x1AD60`),
 128x128, format 14 (CMPR). Decodes to a blue denim texture. Material diffuse is
 `0xB3B3B3FF` (gray), so the color comes from the texture, not the material.
 
-## CI palette path (future work, P-203)
+## CI palette path (implemented)
 
-1. Find the `tlutdesc` (or the fighter's shared TLUT asset).
-2. Decode the palette entry (`GXTlutFmt`: IA8, RGB565, RGB5A3).
-3. Expand CI4/CI8 indices to RGBA using the palette.
-4. Upload as RGBA8; no need to emulate GX palettes.
+1. `TObjDesc +0x50` -> `HSD_TlutDesc`.
+2. Convert `n_entries` palette words using `GXTlutFmt`.
+3. Expand CI4/CI8 indices (CI4: 8x8 blocks, 4 bpp; CI8: 8x4 blocks, 8 bpp)
+   via `demo_texture_decode_ci`.
+4. Upload as RGBA8; no GX palette emulation needed.
+
+## Texture wrap modes (not yet applied)
+
+`TObjDesc.wrap_s/wrap_t` (+0x34/+0x38) are GX_CLAMP/GX_REPEAT/GX_MIRROR. The
+port always uses `GL_REPEAT`; switch per batch if edge bleeding shows up.

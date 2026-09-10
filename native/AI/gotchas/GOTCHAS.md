@@ -145,6 +145,46 @@ a complete texture-bound run.
 the previous monolithic list behavior is preserved by calling batches
 sequentially.
 
+## G-023: `ftData->x8` value 0 can be a valid pointer
+
+**Symptom:** part visibility silently unavailable even though the archive has
+the tables.
+**Cause:** `ftData +0x08` is 0 in the raw file but is in the reloc table, so at
+runtime it becomes `data + 0`: the parts descriptor lives at data offset 0.
+**Fix:** treat a zero pointer as the start of the data section for this field
+and sanity-check `model_num`/`vis_table` before using it.
+
+## G-024: CI textures are paletted and the palette is in the archive
+
+**Symptom:** eyes and some effects render untextured or white.
+**Cause:** CI4/CI8 store palette indices; the palette lives in the model's
+`HSD_TlutDesc`, not separately. Skipping it loses the eye atlas.
+**Fix:** parse `TObjDesc+0x50`, expand the palette, use
+`demo_texture_decode_ci`. See `learnings/gx_textures.md`.
+
+## G-025: visibility indices are DObj indices, not PObj/batch indices
+
+**Symptom:** wrong parts disappear when applying `FtPartsVis`.
+**Cause:** the tables index `fp->dobj_list`; one DObj may own several PObjs.
+**Fix:** record `dobj_index` on every `DemoModelBatch` and test visibility via
+`demo_model_batch_visible`.
+
+## G-026: the `right` matrix must not apply to the skeleton root
+
+**Symptom:** applying `right` to every PObj distorts characters whose DObjs are
+on the root (Mario).
+**Cause:** `_HSD_mkEnvelopeModelNodeMtx` returns NULL when the joint has
+`JOBJ_SKELETON_ROOT`.
+**Fix:** return "no right" for skeleton roots; only non-root DObjs get it.
+
+## G-027: slots 1..4 of the visibility table are off in normal rendering
+
+**Symptom:** showing all visibility lists re-creates the face smear.
+**Cause:** `ftDrawCommon_800805C8` enables slot 0 (or slot 2 for metal) and
+explicitly disables slots 1, 2, 4.
+**Fix:** hide everything listed, then show only slot 0 variant 0 for the
+neutral pose.
+
 ## G-020: do not judge geometry from a flat-color render
 
 **Symptom:** hours lost thinking the parser is broken.
