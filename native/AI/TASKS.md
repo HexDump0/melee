@@ -31,8 +31,7 @@ Status values: `open`, `claimed`, `blocked`, `review`, `done`.
 | P-208 | Resolve IK joints (`resolveIKJoint1/2`, `JOBJ_JOINT`/`EFFECTOR`) during pose evaluation | open | — | `native/demo_model.c` | Foot/hand planting in landing and ledge clips. |
 | P-209 | Material animation (`HSD_MatAnimJoint`) from `Pl*Nr.dat` / AJ clips | open | — | `native/demo_model.c` | Texture scrolls/fades; `matanim_joint` public symbol is parsed but unused. |
 | P-210 | Per-action animation rate (`frame_speed_mul`) instead of fixed 1.0 | open | — | `native/main.c` | Rate currently 1.0, matching Wait; other actions can be 0.5/2.0. |
-| P-211 | Renderer rewrite: OpenGL 3.3 core + ES3/WebGL2-portable GLSL 330 (supersedes ADR-0004) | claimed | opencode (deepseek-flash), 2026-09-10 | `native/main.c`, `native/demo_text.h`, `native/CMakeLists.txt`, `native/AI/*` | Foundation for P-204. Spike offscreen 3.3 core first, write ADR-0009, keep screenshots deterministic and `--inspect` unchanged. |
-| P-204 | TEV approximation pass: alpha test, additive/translucent PObjs, multi-texture, combiner ops | blocked | — | `native/main.c`, `native/demo_model.c` | Blocked on P-211 (needs shaders). Use `RENDER_XLU`, material alpha, `TObj`/TEV descriptors. Acceptance: no opaque black borders around transparent parts; Master Hand shells and hair blend correctly. |
+| P-204 | TEV approximation pass: alpha test, additive/translucent PObjs, multi-texture, combiner ops | open | — | `native/main.c`, `native/demo_model.c` | Shader foundation landed in P-211 (ADR-0009): uniforms for material/alpha test/multi-texture already exist. Use `RENDER_XLU`, material alpha, `TObj`/TEV descriptors. Acceptance: no opaque black borders around transparent parts; Master Hand shells and hair blend correctly. |
 | P-205 | Per-TObj texture matrices (scale/translate/rotate) | open | — | `native/demo_model.c` | `HSD_TObjDesc` at +0x10..+0x30. Fixes facial/eye UV offsets if they turn out to be wrong. |
 | P-206 | Camera polish: zoom-to-fit both fighters, stage bounds, ledge visibility | open | — | `native/main.c` | Keep it headless-screenshot verifiable. |
 | P-301 | Compile pure HSD math (`mtx.c`, `vec.c`) from `src/sysdolphin` in `native/` | open | — | `native/CMakeLists.txt` | Replace hand-written `make_local_mtx`/`mtx_concat` with the real implementations behind a thin shim. No GameCube headers in the shim. |
@@ -60,11 +59,13 @@ remaining fidelity work is P-207..P-210 above.
 | H-1 | Does the interactive window/controller feel correct on real hardware? | project owner |
 | H-2 | Confirm the face texture artifact is not a regression after P-205 | project owner |
 | H-3 | Pick priority: animation vs audio vs WASM after M2 | project owner |
+| H-4 | On the 180 Hz display, confirm viewer animation speed and visuals after P-211 | project owner |
 
 ## Completed
 
 | ID | Task | Agent | Commit | Date |
 |---|---|---|---|---|
+| P-211 | OpenGL 3.3 core + ES3-portable shaders; per-batch VAO/VBOs, no fixed function | opencode (deepseek-flash) | `4eb7c1f2d`, `b35dd102e` | 2026-09-10 |
 | P-201 | HSD FigaTree animation playback, per-frame skinning, viewer + sandbox | opencode (deepseek-flash) | `0e1a974d2`, `6665bd5f2` | 2026-09-10 |
 | P-101 | Disc reader + FST (`demo_assets.c`) | Codex | `f70d50cce` | 2026-09-09 |
 | P-102 | HSD model decode + envelope bind pose | Codex + follow-up | `f70d50cce` | 2026-09-10 |
