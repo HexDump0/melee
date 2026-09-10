@@ -625,7 +625,7 @@ int main(int argc,char **argv)
     if(no_visibility)demo_parts_show_all(&visuals[0].model);
     if(show_hidden)demo_parts_show_all(&visuals[0].model);
     /* Two instances of the same decoded costume during renderer bring-up. */
-    visuals[0].label="P1 / MARIO";visuals[1]=visuals[0];visuals[1].label="P2 / MARIO";
+    visuals[0].label="P1 / MARIO";
     if(dump_textures) {
         size_t ti,max=visuals[0].model.texture_count;
         for(ti=0;ti<max&&ti<DEMO_MAX_TEXTURES;++ti) {
@@ -693,7 +693,11 @@ int main(int argc,char **argv)
     if(!context){fprintf(stderr,"Graphics: %s\n",SDL_GetError());SDL_Quit();return 1;}
     SDL_GL_SetSwapInterval(1);
     printf("Renderer: %s\n",glGetString(GL_RENDERER));
-    compile_model(&visuals[0]);visuals[1].list=visuals[0].list;
+    compile_model(&visuals[0]);
+    /* P2 shares the compiled lists and textures; copy after compile so the
+     * per-batch draw has valid GL list IDs. */
+    visuals[1]=visuals[0];
+    visuals[1].label="P2 / MARIO";
     glFrontFace(GL_CW);
     glDepthFunc(GL_LEQUAL);
     glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);

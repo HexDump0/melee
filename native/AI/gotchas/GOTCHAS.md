@@ -251,6 +251,15 @@ The port decoded UVs raw and ignored them.
 **Fix:** build HSD's texture matrix per batch and apply it with the GL texture
 matrix. See `learnings/gx_textures.md`.
 
+## G-035: copy the Visual only after GL resources exist
+
+**Symptom:** player 2 is invisible while player 1 renders.
+**Cause:** `visuals[1] = visuals[0]` happens before `compile_model`, so the
+copy's `batch_lists` array is all zeros; the per-batch draw loop then calls
+`glCallList(0)` for P2.
+**Fix:** copy the `Visual` after `compile_model`, or share the first one's
+list IDs explicitly.
+
 ## G-020: do not judge geometry from a flat-color render
 
 **Symptom:** hours lost thinking the parser is broken.
