@@ -372,3 +372,17 @@ the initial TEV stage uses the material `diffuse` constant unless
 **Fix:** derive `channel_lit`/`initial_ras`/`diffuse_mul` from `rendermode`
 and evaluate exactly that; per-vertex colour is only the raster when the
 channel is unlit. See `native/demo_model.c:parse_material`.
+
+## G-044: a TObj's lightmap flag selects its TEV phase, not just its texture
+
+**Symptom:** Luigi's face/gloves and Mario's pocket shells render grey and
+metallic-looking on normal costumes; the character looks like a half-finished
+metal variant even though the model file has no metal state.
+**Cause:** `TObjMakeTExp` routes textures by `TEX_LIGHTMAP_*`: DIFFUSE/
+AMBIENT modify the diffuse accumulator, SPECULAR (0x20) modifies the specular
+accumulator (`mat.specular` blended with the map, then multiplied by the
+specular light channel and added), EXT (0x80) is a reflection map applied
+last. Treating a SPECULAR map as a normal blend texture mixes its grey
+highlight map straight into the lit colour.
+**Fix:** classify each TObj into a phase (0 diffuse, 1 specular, 2 ext) and
+route it in the shader; see `learnings/hsd_tev_materials.md`.

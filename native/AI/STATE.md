@@ -80,10 +80,13 @@ Ordered by impact.
    yet. P-201/P-412.
 4. **TEV partially ported.** The common `MObjMakeTExp`/`TObjMakeTExp` path is
    in (material/RAS initial stage, colormap/alphamap, `RENDER_DIFFUSE`,
-   alpha-test/blend/Z, TEX0+TEX1), but specular (`RENDER_SPECULAR`) needs the
-   scene's specular lights (`HSD_LObj`, not ported), lightmap repeat chains
-   and `HSD_TObjTev` overrides are ignored, and toon textures are per-stage
-   state. See `learnings/hsd_tev_materials.md`. Still P-204.
+   specular phase with specular-lightmap textures, alpha-test/blend/Z,
+   TEX0+TEX1), but the actual **light values** are still the viewer's
+   stand-in set: in-game they come from `HSD_LObj` objects created by stage
+   code (`src/melee/gr/*`), so `lobj.c` + stage light lists are the next step.
+   `HSD_TObjTev` active overrides and toon textures are unhandled (inactive /
+   stage-only in the tested fighter archives). See
+   `learnings/hsd_tev_materials.md`. Still P-204.
 5. **No audio, menus, items, stages, results, netplay, WASM.**
 6. **Non-Mario physics values** are demo defaults, not per-character data.
 7. **Windows/macOS untested.** Linux + Mesa is the only verified target.

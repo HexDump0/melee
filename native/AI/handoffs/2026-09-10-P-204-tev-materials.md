@@ -19,6 +19,12 @@ ASan+UBSan runs clean; `--inspect` bounds/triangles unchanged (textures
   `RENDER_DIFFUSE` lit stage, two texture units (`TObjDesc.src` selects TEX0/
   TEX1), GX channel lighting (`mat_ambient*ambient_light + light*N·L`),
   `GXCompare`/`GXAlphaOp` discard, and `HSD_SetupPEMode` blend/Z via GL state.
+- Lightmap phases: a TObj's `TEX_LIGHTMAP_*` bits route it to the diffuse
+  (0x10/0x40), specular (0x20) or EXT (0x80) accumulator, matching
+  `TObjMakeTExp`. This fixed normal Luigi/Mario rendering grey because a
+  SPECULAR lightmap was being blended into the lit colour (G-044). The
+  specular accumulator is `mat.specular` -> map colormap -> specular light
+  channel -> added to the diffuse result.
 - `--dump-tev` prints the per-batch material state; `--inspect --list-parts`
   now reports the forced `RENDER_TOON` bit in `rm`.
 
@@ -33,12 +39,10 @@ ASan+UBSan runs clean; `--inspect` bounds/triangles unchanged (textures
 
 ## Exact next action
 
-1. **Specular (`RENDER_SPECULAR`, 1<<3).** `MObjMakeTExp` adds
-   `mat.specular * RAS1` (secondary colour) where RAS1 is the specular
-   lighting channel. This needs the scene's lights: port `HSD_LObj`
-   (`lobj.c`) and the `HSD_SetupChannelMode` `arg0 & 8` branch
-   (`state.c:152`), then feed `u_specular_light` from the active lights.
-   Don't invent a highlight before the light set is real.
+1. **Real light values.** The channel/specular math is ported, but the light
+   colours/directions are the viewer's stand-in set. Port `HSD_LObj`
+   (`lobj.c`), `HSD_LObjSetup`/`HSD_SetupChannelMode` and a stage's light
+   list so ambient/diffuse/specular match the game.
 2. **Lightmap chains.** Port `TObjMakeTExp`'s `lightmap_done`/`repeat`
    semantics and the SPECULAR/EXT passes so multi-lightmap materials compose
    exactly.

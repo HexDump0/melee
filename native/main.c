@@ -374,12 +374,16 @@ static const char *MODEL_VS =
     "uniform mat4 u_texmtx[2];\n"
     "uniform vec3 u_ambient_light;\n"
     "uniform vec3 u_diffuse_light;\n"
+    "uniform vec3 u_specular_light;\n"
     "uniform vec3 u_light_dir;\n"
     "uniform vec3 u_mat_ambient;\n"
+    "uniform float u_shininess;\n"
     "uniform int u_lighting;\n"
     "out vec4 v_vertex;\n"
     "out vec3 v_lit_front;\n"
     "out vec3 v_lit_back;\n"
+    "out vec3 v_spec_front;\n"
+    "out vec3 v_spec_back;\n"
     "out vec2 v_uv;\n"
     "out vec2 v_uv2;\n"
     "void main() {\n"
@@ -390,11 +394,18 @@ static const char *MODEL_VS =
     "    if (u_lighting != 0) {\n"
     "        vec3 n = normalize(u_normal_mtx * a_normal);\n"
     "        vec3 l = normalize(u_light_dir);\n"
+    "        vec3 h = normalize(l + vec3(0.0, 0.0, 1.0));\n"
+    "        float sf = pow(max(dot(n, h), 0.0), max(u_shininess, 1.0));\n"
+    "        float sb = pow(max(dot(-n, h), 0.0), max(u_shininess, 1.0));\n"
     "        v_lit_front = clamp(u_mat_ambient * u_ambient_light + u_diffuse_light * max(dot(n, l), 0.0), 0.0, 1.0);\n"
     "        v_lit_back = clamp(u_mat_ambient * u_ambient_light + u_diffuse_light * max(dot(-n, l), 0.0), 0.0, 1.0);\n"
+    "        v_spec_front = clamp(u_specular_light * sf, 0.0, 1.0);\n"
+    "        v_spec_back = clamp(u_specular_light * sb, 0.0, 1.0);\n"
     "    } else {\n"
     "        v_lit_front = vec3(1.0);\n"
     "        v_lit_back = vec3(1.0);\n"
+    "        v_spec_front = vec3(0.0);\n"
+    "        v_spec_back = vec3(0.0);\n"
     "    }\n"
     "}\n";
 
@@ -409,7 +420,10 @@ static const char *MODEL_FS =
     "uniform int u_ras_lit;\n"
     "uniform int u_initial_ras;\n"
     "uniform int u_diffuse_mul;\n"
+    "uniform int u_specular_tev;\n"
     "uniform vec4 u_material;\n"
+    "uniform vec3 u_mat_specular;\n"
+    "uniform int u_tex_phase[2];\n" /* 0 diffuse/ambient, 1 specular, 2 ext */
     "uniform int u_alpha_test;\n"
     "uniform int u_acomp[2];\n"
     "uniform float u_aref[2];\n"
@@ -417,6 +431,8 @@ static const char *MODEL_FS =
     "in vec4 v_vertex;\n"
     "in vec3 v_lit_front;\n"
     "in vec3 v_lit_back;\n"
+    "in vec3 v_spec_front;\n"
+    "in vec3 v_spec_back;\n"
     "in vec2 v_uv;\n"
     "in vec2 v_uv2;\n"
     "out vec4 frag_color;\n"
@@ -450,26 +466,51 @@ static const char *MODEL_FS =
     "    if (func == 5) return a != ref;\n"
     "    if (func == 6) return a >= ref;\n"
     "    return true;\n"
-    "}\n"
+    "}\n";
+
+static const char *MODEL_FS_MAIN =
     "void main() {\n"
     "    vec3 lit = gl_FrontFacing ? v_lit_front : v_lit_back;\n"
+    "    vec3 spec_lit = gl_FrontFacing ? v_spec_front : v_spec_back;\n"
     "    vec4 ras = vec4(u_ras_lit != 0 ? lit : v_vertex.rgb, v_vertex.a);\n"
     "    vec4 color = u_initial_ras != 0 ? ras : u_material;\n"
-    "    if (u_tex_count > 0) {\n"
-    "        vec2 uv = (u_texsrc[0] == 5) ? v_uv2 : v_uv;\n"
-    "        vec4 t = texture(u_tex0, uv);\n"
-    "        color = vec4(tev_colormap(u_cmap[0], u_tex_blend[0], color.rgb, t),\n"
-    "                     tev_alphamap(u_amap[0], u_tex_blend[0], color.a, t));\n"
+    "    vec4 t0 = vec4(1.0);\n"
+    "    vec4 t1 = vec4(1.0);\n"
+    "    if (u_tex_count > 0)\n"
+    "        t0 = texture(u_tex0, (u_texsrc[0] == 5) ? v_uv2 : v_uv);\n"
+    "    if (u_tex_count > 1)\n"
+    "        t1 = texture(u_tex1, (u_texsrc[1] == 5) ? v_uv2 : v_uv);\n"
+    /* MObjMakeTExp phase order: DIFFUSE/AMBIENT textures, then the
+     * RENDER_DIFFUSE raster multiply, then SPECULAR lightmaps accumulated
+     * into mat.specular and multiplied by the specular channel, then EXT. */
+    "    if (u_tex_count > 0 && u_tex_phase[0] == 0) {\n"
+    "        color = vec4(tev_colormap(u_cmap[0], u_tex_blend[0], color.rgb, t0),\n"
+    "                     tev_alphamap(u_amap[0], u_tex_blend[0], color.a, t0));\n"
     "    }\n"
-    "    if (u_tex_count > 1) {\n"
-    "        vec2 uv = (u_texsrc[1] == 5) ? v_uv2 : v_uv;\n"
-    "        vec4 t = texture(u_tex1, uv);\n"
-    "        color = vec4(tev_colormap(u_cmap[1], u_tex_blend[1], color.rgb, t),\n"
-    "                     tev_alphamap(u_amap[1], u_tex_blend[1], color.a, t));\n"
+    "    if (u_tex_count > 1 && u_tex_phase[1] == 0) {\n"
+    "        color = vec4(tev_colormap(u_cmap[1], u_tex_blend[1], color.rgb, t1),\n"
+    "                     tev_alphamap(u_amap[1], u_tex_blend[1], color.a, t1));\n"
     "    }\n"
     "    if (u_diffuse_mul != 0) {\n"
     "        color.rgb = clamp(color.rgb * ras.rgb, 0.0, 1.0);\n"
     "        color.a = clamp(color.a * ras.a, 0.0, 1.0);\n"
+    "    }\n"
+    "    if (u_specular_tev != 0) {\n"
+    "        vec3 spec = u_mat_specular;\n"
+    "        if (u_tex_count > 0 && u_tex_phase[0] == 1)\n"
+    "            spec = tev_colormap(u_cmap[0], u_tex_blend[0], spec, t0);\n"
+    "        if (u_tex_count > 1 && u_tex_phase[1] == 1)\n"
+    "            spec = tev_colormap(u_cmap[1], u_tex_blend[1], spec, t1);\n"
+    "        spec *= spec_lit;\n"
+    "        color.rgb = clamp(color.rgb + spec, 0.0, 1.0);\n"
+    "    }\n"
+    "    if (u_tex_count > 0 && u_tex_phase[0] == 2) {\n"
+    "        color = vec4(tev_colormap(u_cmap[0], u_tex_blend[0], color.rgb, t0),\n"
+    "                     tev_alphamap(u_amap[0], u_tex_blend[0], color.a, t0));\n"
+    "    }\n"
+    "    if (u_tex_count > 1 && u_tex_phase[1] == 2) {\n"
+    "        color = vec4(tev_colormap(u_cmap[1], u_tex_blend[1], color.rgb, t1),\n"
+    "                     tev_alphamap(u_amap[1], u_tex_blend[1], color.a, t1));\n"
     "    }\n"
     "    if (u_alpha_test != 0) {\n"
     "        int av = int(color.a * 255.0 + 0.5);\n"
@@ -511,13 +552,18 @@ typedef struct ModelShader {
     GLint tex_blend;
     GLint ambient_light;
     GLint diffuse_light;
+    GLint specular_light;
     GLint light_dir;
     GLint mat_ambient;
+    GLint shininess;
     GLint lighting;
     GLint ras_lit;
     GLint initial_ras;
     GLint diffuse_mul;
+    GLint specular_tev;
     GLint material;
+    GLint mat_specular;
+    GLint tex_phase;
     GLint alpha_test;
     GLint acomp;
     GLint aref;
@@ -526,13 +572,13 @@ typedef struct ModelShader {
 
 static ModelShader g_model;
 
-static GLuint compile_shader(GLenum type,const char *body)
+static GLuint compile_shader(GLenum type,const char *body,const char *body2)
 {
-    const char *sources[2]={DEMO_GLSL_HEADER,body};
+    const char *sources[3]={DEMO_GLSL_HEADER,body,body2};
     char log[2048];
     GLint ok=0;
     GLuint s=glCreateShader(type);
-    glShaderSource(s,2,sources,NULL);
+    glShaderSource(s,body2?3:2,sources,NULL);
     glCompileShader(s);
     glGetShaderiv(s,GL_COMPILE_STATUS,&ok);
     if(!ok) {
@@ -567,8 +613,8 @@ static GLuint link_program(GLuint vs,GLuint fs,const char *name)
 static int renderer_init(void)
 {
     GLuint vs,fs;
-    vs=compile_shader(GL_VERTEX_SHADER,MODEL_VS);
-    fs=compile_shader(GL_FRAGMENT_SHADER,MODEL_FS);
+    vs=compile_shader(GL_VERTEX_SHADER,MODEL_VS,NULL);
+    fs=compile_shader(GL_FRAGMENT_SHADER,MODEL_FS,MODEL_FS_MAIN);
     if(!vs||!fs)return 0;
     g_model.program=link_program(vs,fs,"model");
     if(!g_model.program)return 0;
@@ -584,13 +630,18 @@ static int renderer_init(void)
     g_model.tex_blend=glGetUniformLocation(g_model.program,"u_tex_blend[0]");
     g_model.ambient_light=glGetUniformLocation(g_model.program,"u_ambient_light");
     g_model.diffuse_light=glGetUniformLocation(g_model.program,"u_diffuse_light");
+    g_model.specular_light=glGetUniformLocation(g_model.program,"u_specular_light");
     g_model.light_dir=glGetUniformLocation(g_model.program,"u_light_dir");
     g_model.mat_ambient=glGetUniformLocation(g_model.program,"u_mat_ambient");
+    g_model.shininess=glGetUniformLocation(g_model.program,"u_shininess");
     g_model.lighting=glGetUniformLocation(g_model.program,"u_lighting");
     g_model.ras_lit=glGetUniformLocation(g_model.program,"u_ras_lit");
     g_model.initial_ras=glGetUniformLocation(g_model.program,"u_initial_ras");
     g_model.diffuse_mul=glGetUniformLocation(g_model.program,"u_diffuse_mul");
+    g_model.specular_tev=glGetUniformLocation(g_model.program,"u_specular_tev");
     g_model.material=glGetUniformLocation(g_model.program,"u_material");
+    g_model.mat_specular=glGetUniformLocation(g_model.program,"u_mat_specular");
+    g_model.tex_phase=glGetUniformLocation(g_model.program,"u_tex_phase[0]");
     g_model.alpha_test=glGetUniformLocation(g_model.program,"u_alpha_test");
     g_model.acomp=glGetUniformLocation(g_model.program,"u_acomp[0]");
     g_model.aref=glGetUniformLocation(g_model.program,"u_aref[0]");
@@ -599,8 +650,8 @@ static int renderer_init(void)
     glUniform1i(g_model.tex[0],0);
     glUniform1i(g_model.tex[1],1);
 
-    vs=compile_shader(GL_VERTEX_SHADER,OVERLAY_VS);
-    fs=compile_shader(GL_FRAGMENT_SHADER,OVERLAY_FS);
+    vs=compile_shader(GL_VERTEX_SHADER,OVERLAY_VS,NULL);
+    fs=compile_shader(GL_FRAGMENT_SHADER,OVERLAY_FS,NULL);
     if(!vs||!fs)return 0;
     g_ov_program=link_program(vs,fs,"overlay");
     if(!g_ov_program)return 0;
@@ -633,6 +684,7 @@ static void model_set_view(const Mat4 mvp,const Mat4 mv,const float light_dir[3]
     glUniform1i(g_model.lighting,lighting);
     glUniform3f(g_model.ambient_light,.78f,.78f,.82f);
     glUniform3f(g_model.diffuse_light,.9f,.88f,.82f);
+    glUniform3f(g_model.specular_light,.9f,.88f,.82f);
     glUniform3f(g_model.light_dir,light_dir[0],light_dir[1],light_dir[2]);
 }
 
@@ -821,6 +873,7 @@ static void draw_batch(const Visual *v,size_t bi,int pose,int textured)
     int texsrc[2]={4,5};
     int cmap[2]={0,0};
     int amap[2]={0,0};
+    int phase[2]={0,0};
     float blend[2]={0.0f,0.0f};
     float mtx[32];
     int acomp[2];
@@ -840,6 +893,8 @@ static void draw_batch(const Visual *v,size_t bi,int pose,int textured)
             texsrc[count]=t->src==5?5:4; /* GX_TG_TEX0 / GX_TG_TEX1 */
             cmap[count]=(int)((t->flags>>16)&0xf);
             amap[count]=(int)((t->flags>>20)&0xf);
+            /* TObjMakeTExp phase: DIFFUSE/AMBIENT, SPECULAR lightmap, EXT. */
+            phase[count]=(t->flags&0x20u)?1:((t->flags&0x80u)?2:0);
             blend[count]=t->blending;
             count++;
         }
@@ -855,15 +910,20 @@ static void draw_batch(const Visual *v,size_t bi,int pose,int textured)
     glUniform1iv(g_model.texsrc,2,texsrc);
     glUniform1iv(g_model.cmap,2,cmap);
     glUniform1iv(g_model.amap,2,amap);
+    glUniform1iv(g_model.tex_phase,2,phase);
     glUniform1fv(g_model.tex_blend,2,blend);
     glUniform1i(g_model.tex_count,count);
     glUniform1i(g_model.ras_lit,mat->channel_lit);
     glUniform1i(g_model.initial_ras,mat->initial_ras);
     glUniform1i(g_model.diffuse_mul,mat->diffuse_mul);
+    glUniform1i(g_model.specular_tev,mat->specular_tev);
     glUniform4f(g_model.material,mat->diffuse[0]/255.0f,mat->diffuse[1]/255.0f,
                 mat->diffuse[2]/255.0f,mat->alpha);
     glUniform3f(g_model.mat_ambient,mat->ambient[0]/255.0f,
                 mat->ambient[1]/255.0f,mat->ambient[2]/255.0f);
+    glUniform3f(g_model.mat_specular,mat->specular[0]/255.0f,
+                mat->specular[1]/255.0f,mat->specular[2]/255.0f);
+    glUniform1f(g_model.shininess,mat->shininess);
     glUniform1iv(g_model.acomp,2,acomp);
     glUniform1fv(g_model.aref,2,aref);
     glUniform1i(g_model.alpha_test,mat->alpha_test);

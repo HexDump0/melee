@@ -72,11 +72,23 @@ Port mappings (all with clamp enabled, bias 0, scale 1):
 BLEND `mix(prev, tex.a, blending)`; MODULATE `prev*tex.a`; REPLACE `tex.a`;
 ADD/SUB add/sub.
 
-Textures are applied in `TObjMakeTExp` in two passes keyed by
-`tobj_lightmap`: DIFFUSE/AMBIENT first, then SPECULAR, then EXT. The fighter
-main texture always carries `TEX_LIGHTMAP_DIFFUSE` (0x10), so it is applied in
-the first pass with `repeat = 0` (both colour and alpha). A second texture is
-usually an EXT/reflection map using `GX_TG_TEX1` coordinates.
+Textures are applied in `TObjMakeTExp` in phases keyed by `tobj_lightmap`:
+
+1. **DIFFUSE/AMBIENT (0x10/0x40)** modify the diffuse accumulator. The fighter
+   main texture always carries 0x10, so it is applied here with `repeat = 0`
+   (both colour and alpha).
+2. **SPECULAR (0x20)** modify the specular accumulator: it starts at
+   `mat.specular`, then each spec map applies its colormap, then the result is
+   multiplied by the specular lighting channel `RAS1`
+   (`mat.specular * clamp(spec_light * pow(N·H, shininess))`), and finally
+   added to the diffuse result. Examples: Mario's batches 39/61 and Luigi's
+   face (`0x30020`/`0x40020`) — a spec map blended into diffuse turns the face
+   grey (G-044).
+3. **EXT (0x80)** modify the `ext = diff` accumulator last; these are the
+   reflection maps (Kirby `0x30081`, coord 1, `GX_TG_TEX1`).
+
+The shader gets a `u_tex_phase[2]` per texture slot and routes each sampled
+texture to the right accumulator. Fighters use at most one map of each kind.
 
 ### Alpha test, blend and Z (`HSD_SetupPEMode`, state.c:203)
 
@@ -114,14 +126,16 @@ Decoding the TEX1 TObj adds one texture to `PlMrNr.dat` (31 -> 32), so the
 
 ## Not ported yet
 
-- **Specular** (`RENDER_SPECULAR`, 1<<3): `MObjMakeTExp` adds
-  `mat.specular * RAS1` (secondary colour = specular lighting channel).
-  RAS1 comes from the scene's specular lights (`HSD_LObj`), which the port
-  does not have yet; adding an invented highlight would be worse than none.
-  (All Mario materials have specular 255 and shininess 50.)
-- **Lightmap repeat semantics** (`lightmap_done`) and SPECULAR/EXT lightmap
-  chains beyond a single EXT texture. Fighters use one DIFFUSE + at most one
-  EXT map.
+- **Real scene light values.** The channel equations are ported, but the
+  ambient/diffuse/specular light colours and directions come from the viewer's
+  stand-in set (`model_set_view`). In the game they are `HSD_LObj` objects set
+  up by stages (`src/melee/gr/*`); porting `lobj.c` + the stage light lists is
+  the next step for exact lighting/specular.
+- **Lightmap repeat semantics** (`lightmap_done`) for materials with two maps
+  of the same class; fighters use one DIFFUSE + at most one SPECULAR/EXT map,
+  which is handled.
+- **Alpha changes from SPECULAR/EXT maps** (their alphamap result is dropped;
+  all fighter specs use alphamap NONE).
 - **`HSD_TObjTev` active overrides** (`MakeColorGenTExp`). Every TObj in the
   9 tested fighter archives has `active == 0`; verify before relying on it.
 - **Toon texture** (`tobj_toon`): registered per stage, not per model.
