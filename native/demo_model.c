@@ -160,43 +160,45 @@ static void mtx_identity(float m[3][4])
     m[2][2] = 1.0f;
 }
 
-/* out = a * b for 3x4 affine matrices (implicit last row 0 0 0 1). */
-static void mtx_concat(const float a[3][4], const float b[3][4], float out[3][4])
+/* out = a * b for 3x4 affine matrices (implicit last row 0 0 0 1).  The
+ * pointers are flat 12-float arrays in row-major order. */
+static void mtx_concat(const float *a, const float *b, float *out)
 {
-    float r[3][4];
+    float r[12];
     int i;
     int j;
     int k;
     for (i = 0; i < 3; ++i) {
         for (j = 0; j < 3; ++j) {
-            r[i][j] = 0.0f;
+            float sum = 0.0f;
             for (k = 0; k < 3; ++k) {
-                r[i][j] += a[i][k] * b[k][j];
+                sum += a[i * 4 + k] * b[k * 4 + j];
             }
+            r[i * 4 + j] = sum;
         }
-        r[i][3] = a[i][3];
+        r[i * 4 + 3] = a[i * 4 + 3];
         for (k = 0; k < 3; ++k) {
-            r[i][3] += a[i][k] * b[k][3];
+            r[i * 4 + 3] += a[i * 4 + k] * b[k * 4 + 3];
         }
     }
     memcpy(out, r, sizeof(r));
 }
 
-static void mtx_transform_point(const float m[3][4], const float in[3],
-                                float out[3])
+static void mtx_transform_point(const float *m, const float in[3], float out[3])
 {
     int i;
     for (i = 0; i < 3; ++i) {
-        out[i] = m[i][0] * in[0] + m[i][1] * in[1] + m[i][2] * in[2] + m[i][3];
+        out[i] = m[i * 4 + 0] * in[0] + m[i * 4 + 1] * in[1] +
+                 m[i * 4 + 2] * in[2] + m[i * 4 + 3];
     }
 }
 
-static void mtx_transform_normal(const float m[3][4], const float in[3],
+static void mtx_transform_normal(const float *m, const float in[3],
                                  float out[3])
 {
-    float x = m[0][0] * in[0] + m[0][1] * in[1] + m[0][2] * in[2];
-    float y = m[1][0] * in[0] + m[1][1] * in[1] + m[1][2] * in[2];
-    float z = m[2][0] * in[0] + m[2][1] * in[1] + m[2][2] * in[2];
+    float x = m[0] * in[0] + m[1] * in[1] + m[2] * in[2];
+    float y = m[4] * in[0] + m[5] * in[1] + m[6] * in[2];
+    float z = m[8] * in[0] + m[9] * in[1] + m[10] * in[2];
     float length = sqrtf(x * x + y * y + z * z);
     if (length > 1e-8f) {
         x /= length;
@@ -303,7 +305,8 @@ static void joint_table_add(const uint8_t *d, size_t n, size_t jo, int parent,
         make_local_mtx(local, scale, rot, pos, parent_scale);
     }
     if (parent >= 0) {
-        mtx_concat(table->joints[parent].world, local, info->world);
+        mtx_concat(&table->joints[parent].world[0][0], &local[0][0],
+                   &info->world[0][0]);
     } else {
         memcpy(info->world, local, sizeof(local));
     }
@@ -676,6 +679,7 @@ static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
     EnvGroup groups[HSD_MAX_ENV_GROUPS];
     size_t group_count = 0;
     size_t desc_count = 0;
+    size_t first_vertex = m->vertex_count;
     size_t vo;
     size_t dl;
     size_t limit;
@@ -729,13 +733,13 @@ static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
                 if (group < group_count && groups[group].rigid &&
                     verts[i].has_pos) {
                     float moved[3];
-                    mtx_transform_point(groups[group].matrix, verts[i].pos,
-                                        moved);
+                    mtx_transform_point(&groups[group].matrix[0][0],
+                                        verts[i].pos, moved);
                     memcpy(verts[i].pos, moved, sizeof(moved));
                     if (verts[i].has_nrm) {
                         float normal[3];
-                        mtx_transform_normal(groups[group].matrix, verts[i].nrm,
-                                             normal);
+                        mtx_transform_normal(&groups[group].matrix[0][0],
+                                             verts[i].nrm, normal);
                         memcpy(verts[i].nrm, normal, sizeof(normal));
                     }
                 }
@@ -792,6 +796,13 @@ static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
         if (cur <= dl) {
             break;
         }
+    }
+    if (m->vertex_count > first_vertex && m->batch_count < DEMO_MAX_BATCHES) {
+        DemoModelBatch *batch = &m->batches[m->batch_count++];
+        batch->first_vertex = first_vertex;
+        batch->vertex_count = m->vertex_count - first_vertex;
+        batch->object_index = m->object_count ? m->object_count - 1 : 0;
+        batch->texture = (int16_t) texture;
     }
 }
 

@@ -13,6 +13,7 @@
 #include <stdint.h>
 
 #define DEMO_MAX_TEXTURES 128
+#define DEMO_MAX_BATCHES 512
 
 typedef struct DemoModelVertex {
     float position[3];
@@ -30,6 +31,15 @@ typedef struct DemoModelTexture {
     uint32_t format;
 } DemoModelTexture;
 
+/* One drawable piece, usually a single PObj display list.  The viewer can
+ * isolate these to inspect individual body/face parts. */
+typedef struct DemoModelBatch {
+    size_t first_vertex;
+    size_t vertex_count;
+    size_t object_index;
+    int16_t texture;
+} DemoModelBatch;
+
 typedef struct DemoModel {
     DemoModelVertex *vertices; /* three entries per triangle */
     size_t vertex_count;
@@ -41,6 +51,8 @@ typedef struct DemoModel {
     size_t skipped_primitives;
     size_t texture_count;
     DemoModelTexture textures[DEMO_MAX_TEXTURES];
+    size_t batch_count;
+    DemoModelBatch batches[DEMO_MAX_BATCHES];
 } DemoModel;
 
 /* Forward declaration keeps the native build independent of the HSD headers. */

@@ -21,7 +21,9 @@ unchanged and remains available.
 | GX texture decode (I4/I8/IA4/IA8/RGB565/RGB5A3/RGBA8/CMPR) | Works |
 | Mario movement attributes from `PlMr.dat` | Works |
 | Sandbox movement, jumping, shield, one attack | Works |
+| Interactive 3D model viewer (orbit, zoom, parts) | Works |
 | Gameplay animation from `Pl*.dat` animation tables | Not implemented |
+| Face expressions (part visibility system) | Not implemented; expression meshes overlap |
 | Audio, menus, combat states, knockback model, items | Not implemented |
 | Other characters | Should work via `--model Pl**.dat`; untested |
 | Windows / macOS / WASM | Untested |
@@ -68,23 +70,60 @@ Pass `--disc /path/to/image.ciso` to use another image.
 `F2` toggles the CPU, `P` pauses, `R` respawns, `Esc` quits. A game controller
 can also drive player 1.
 
+### 3D model viewer
+
+```sh
+./build/native/melee-demo --view
+```
+
+The viewer orbits any character model loaded from the disc with perspective
+projection and a ground grid.
+
+| Viewer control | Action |
+|---|---|
+| Left drag / arrow keys | Orbit |
+| Mouse wheel / `+` / `-` | Zoom |
+| `N` / `P` | Next / previous character model |
+| `[` / `]` | Select previous / next mesh part |
+| `V` | Part mode: all / only selected / hide selected |
+| `T` / `L` / `W` / `C` | Toggle textures / lighting / wireframe / culling |
+| `G` / `Space` | Toggle grid / auto-spin |
+| `R` | Reset camera |
+| `F12` | Save a screenshot |
+| `H` | Help overlay |
+| `Esc` | Quit |
+
+Part isolation is useful for investigating the bind-pose overlap of Melee's
+face expression meshes (the game hides alternate expressions during animation,
+which this demo does not play yet).
+
 ### Diagnostics
 
 ```sh
 # Parse the model and print counts/bounds without opening a window
 ./build/native/melee-demo --inspect
 
-# Render an isolated bind-pose view to a BMP
+# List every character model archive on the disc
+./build/native/melee-demo --list-models
+./build/native/melee-demo --all-models --list-models
+
+# List the mesh parts of a model (index, vertex count, bounds)
+./build/native/melee-demo --inspect --list-parts
+
+# Render an isolated view to a BMP, optionally isolating one part
 ./build/native/melee-demo --view --angle 180 --screenshot /tmp/mario.bmp
+./build/native/melee-demo --view --part 21 --part-mode only --frames 3 \
+    --screenshot /tmp/part.bmp
 
 # Run a fixed number of frames headlessly (SDL offscreen video driver)
 SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --scripted --frames 240 \
     --screenshot /tmp/gameplay.bmp
 ```
 
-`--model Pl**.dat` selects a different costume archive (for example
-`PlFxNr.dat` for Fox). Model root selection uses the archive's public symbol
-table, so model-only archives work without extra configuration.
+`--model Pl**.dat` selects a costume archive (for example `PlFxNr.dat` for Fox).
+`--model-index N` selects by position in the `--list-models` output. Model root
+selection uses the archive's public symbol table, so model-only archives work
+without extra configuration.
 
 ## Implementation notes
 

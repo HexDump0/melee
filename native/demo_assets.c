@@ -22,6 +22,7 @@ typedef struct Disc {
     uint32_t block_size;
     int ciso;
     unsigned char map[CISO_MAP_SIZE];
+    uint32_t block_ordinal[CISO_MAP_SIZE];
 } Disc;
 
 static uint32_t be32(const unsigned char *p) {
@@ -60,12 +61,11 @@ static int disc_read(Disc *d, uint64_t off, void *dst, size_t size) {
         if (block >= CISO_MAP_SIZE || d->map[block] == 0) {
             memset(out, 0, chunk);
         } else {
-            /* map entries are ordinal physical blocks; reject overflow and
-             * truncated packed images before seeking. */
-            { uint64_t ordinal = 0, n;
-              for (n = 0; n < block; ++n) ordinal += d->map[n] != 0;
-              physical = CISO_HEADER_SIZE + ordinal * d->block_size + in_block;
-            }
+            /* map entries are ordinal physical blocks; block_ordinal is a
+             * prefix count computed once at open time. */
+            physical = CISO_HEADER_SIZE +
+                       (uint64_t) d->block_ordinal[block] * d->block_size +
+                       in_block;
             if (!seek_read(d, physical, out, chunk)) return 0;
         }
         off += chunk; out += chunk; size -= chunk;
@@ -93,6 +93,14 @@ static int disc_open(Disc *d, const char *path) {
             disc_close(d); return 0;
         }
         memcpy(d->map, hdr + CISO_MAP_OFFSET, CISO_MAP_SIZE);
+        {
+            uint32_t sum = 0;
+            size_t i;
+            for (i = 0; i < CISO_MAP_SIZE; ++i) {
+                d->block_ordinal[i] = sum;
+                if (d->map[i] != 0) sum++;
+            }
+        }
         d->ciso = 1;
     }
     return 1;
@@ -153,6 +161,148 @@ int demo_asset_load_default(const char *image_path, DemoAsset *out, char *error,
     return demo_asset_load(image_path, "PlMrNr.dat", out, error, error_size);
 }
 void demo_asset_free(DemoAsset *asset) { if (asset) { free(asset->data); asset->data=NULL; asset->size=0; } }
+
+void demo_asset_list_free(DemoAssetList *list)
+{
+    size_t i;
+    if (list == NULL) return;
+    for (i = 0; i < list->count; ++i) free(list->names[i]);
+    free(list->names);
+    list->names = NULL;
+    list->count = 0;
+    list->capacity = 0;
+}
+
+static int list_append(DemoAssetList *list, const char *name)
+{
+    char *copy;
+    if (list->count == list->capacity) {
+        size_t capacity = list->capacity ? list->capacity * 2 : 64;
+        char **grown = realloc(list->names, capacity * sizeof(*grown));
+        if (grown == NULL) return 0;
+        list->names = grown;
+        list->capacity = capacity;
+    }
+    copy = malloc(strlen(name) + 1);
+    if (copy == NULL) return 0;
+    strcpy(copy, name);
+    list->names[list->count++] = copy;
+    return 1;
+}
+
+static int list_name_cmp(const void *a, const void *b)
+{
+    return strcmp(*(const char *const *) a, *(const char *const *) b);
+}
+
+/* Reads one FST name into host memory. Strings are NUL-terminated and short;
+ * one chunked read is enough and much faster than byte-at-a-time. */
+static int fst_read_name(Disc *d, uint32_t strings, const unsigned char ent[12],
+                         char *name, size_t name_size)
+{
+    uint32_t name_off = ((uint32_t)ent[1] << 16) | ((uint32_t)ent[2] << 8) | ent[3];
+    unsigned char buffer[128];
+    uint64_t name_file;
+    uint64_t available;
+    size_t chunk;
+    size_t i;
+    if (name_off >= (1u << 24) || name_size == 0) return 0;
+    name_file = (uint64_t)strings + name_off;
+    if (name_file >= d->file_size) return 0;
+    available = d->file_size - name_file;
+    chunk = sizeof(buffer) < available ? sizeof(buffer) : (size_t) available;
+    if (chunk < 2) return 0;
+    if (!disc_read(d, (uint64_t)strings + name_off, buffer, chunk)) return 0;
+    for (i = 0; i < chunk; ++i) {
+        if (buffer[i] == 0) break;
+    }
+    if (i == chunk) return 0;
+    if (i >= name_size) i = name_size - 1;
+    memcpy(name, buffer, i);
+    name[i] = 0;
+    return 1;
+}
+
+int demo_asset_list(const char *image_path, const char *prefix,
+                    const char *suffix, DemoAssetList *out, char *error,
+                    size_t error_size)
+{
+    Disc d;
+    unsigned char head[12];
+    unsigned char ent[12];
+    uint32_t fst;
+    uint32_t entries;
+    uint32_t strings;
+    uint32_t i;
+    size_t prefix_length = prefix ? strlen(prefix) : 0;
+    size_t suffix_length = suffix ? strlen(suffix) : 0;
+    int rc = DEMO_ASSET_OK;
+    if (out == NULL || image_path == NULL) {
+        set_error(error, error_size, "bad argument");
+        return DEMO_ASSET_BAD_ARGUMENT;
+    }
+    memset(out, 0, sizeof(*out));
+    if (!disc_open(&d, image_path)) {
+        set_error(error, error_size, "cannot open disc image");
+        return DEMO_ASSET_OPEN_FAILED;
+    }
+    if (!disc_read(&d, 0x1c, head, 4) || be32(head) != GC_MAGIC ||
+        !disc_read(&d, 0x424, head, 4)) {
+        rc = DEMO_ASSET_NOT_A_DISC;
+        goto done;
+    }
+    fst = be32(head);
+    if (!disc_read(&d, (uint64_t)fst + 8, head, 4)) {
+        rc = DEMO_ASSET_CORRUPT_DISC;
+        goto done;
+    }
+    entries = be32(head);
+    if (entries < 1 || entries > MAX_FST_ENTRIES ||
+        !range_ok(fst, (uint64_t)entries * 12,
+                  d.ciso ? (uint64_t)CISO_MAP_SIZE * d.block_size : d.file_size)) {
+        rc = DEMO_ASSET_CORRUPT_DISC;
+        goto done;
+    }
+    strings = fst + entries * 12;
+    for (i = 1; i < entries; ++i) {
+        char name[256];
+        size_t length;
+        if (!disc_read(&d, (uint64_t)fst + i * 12, ent, 12)) {
+            rc = DEMO_ASSET_CORRUPT_DISC;
+            goto done;
+        }
+        if (ent[0] & 1) {
+            continue;
+        }
+        if (!fst_read_name(&d, strings, ent, name, sizeof(name))) {
+            rc = DEMO_ASSET_CORRUPT_DISC;
+            goto done;
+        }
+        length = strlen(name);
+        if (prefix_length != 0 && strncmp(name, prefix, prefix_length) != 0) {
+            continue;
+        }
+        if (suffix_length != 0 &&
+            (length < suffix_length ||
+             strcmp(name + length - suffix_length, suffix) != 0)) {
+            continue;
+        }
+        if (!list_append(out, name)) {
+            rc = DEMO_ASSET_OUT_OF_MEMORY;
+            goto done;
+        }
+    }
+    if (out->count > 1) {
+        qsort(out->names, out->count, sizeof(*out->names), list_name_cmp);
+    }
+done:
+    disc_close(&d);
+    if (rc != DEMO_ASSET_OK) {
+        demo_asset_list_free(out);
+    }
+    set_error(error, error_size, demo_asset_error_string(rc));
+    return rc;
+}
 
 int demo_asset_enumerate_public_symbols(const DemoAsset *a, DemoAssetSymbolFn cb, void *user, char *error, size_t n) {
     const unsigned char *p; uint32_t file_size,data_size,nrel,npub,next, i;

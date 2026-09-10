@@ -12,6 +12,12 @@ typedef struct DemoAsset {
     size_t size;
 } DemoAsset;
 
+typedef struct DemoAssetList {
+    char **names;
+    size_t count;
+    size_t capacity;
+} DemoAssetList;
+
 enum DemoAssetError {
     DEMO_ASSET_OK = 0,
     DEMO_ASSET_BAD_ARGUMENT = 1,
@@ -32,6 +38,14 @@ int demo_asset_load(const char *image_path, const char *disc_path,
 /* Convenience wrapper for the Mario costume model archive. */
 int demo_asset_load_default(const char *image_path, DemoAsset *out,
                             char *error, size_t error_size);
+
+/* Enumerates file entries on the disc whose names begin with prefix and end
+ * with suffix (either may be NULL), sorted alphabetically. */
+int demo_asset_list(const char *image_path, const char *prefix,
+                    const char *suffix, DemoAssetList *out, char *error,
+                    size_t error_size);
+
+void demo_asset_list_free(DemoAssetList *list);
 
 void demo_asset_free(DemoAsset *asset);
 

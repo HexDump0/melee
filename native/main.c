@@ -16,10 +16,13 @@
 typedef struct Visual {
     DemoModel model;
     GLuint list;
+    GLuint batch_lists[DEMO_MAX_BATCHES];
     GLuint textures[DEMO_MAX_TEXTURES];
     float scale;
     const char *label;
 } Visual;
+
+static void destroy_visual(Visual *v);
 
 static void rect(float x, float y, float w, float h)
 {
@@ -73,6 +76,29 @@ static int load_model(Visual *v, const char *disc, const char *file)
     return 1;
 }
 
+static void list_vertices(Visual *v,size_t first,size_t count)
+{
+    int current=-2;
+    size_t i;
+    for(i=0;i<count;++i) {
+        DemoModelVertex *p=&v->model.vertices[first+i];
+        if(p->texture!=current) {
+            if(current!=-2)glEnd();
+            current=p->texture;
+            if(current>=0&&(size_t)current<v->model.texture_count)
+                glBindTexture(GL_TEXTURE_2D,v->textures[current]);
+            else
+                glBindTexture(GL_TEXTURE_2D,0);
+            glBegin(GL_TRIANGLES);
+        }
+        glColor4ubv(p->color);
+        glNormal3fv(p->normal);
+        glTexCoord2fv(p->uv);
+        glVertex3fv(p->position);
+    }
+    if(current!=-2)glEnd();
+}
+
 static void compile_model(Visual *v)
 {
     size_t i;
@@ -88,51 +114,210 @@ static void compile_model(Visual *v)
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_REPEAT);
     }
+    for(i=0;i<v->model.batch_count&&i<DEMO_MAX_BATCHES;++i) {
+        v->batch_lists[i]=glGenLists(1);
+        glNewList(v->batch_lists[i],GL_COMPILE);
+        list_vertices(v,v->model.batches[i].first_vertex,
+                      v->model.batches[i].vertex_count);
+        glEndList();
+    }
     v->list=glGenLists(1);
     glNewList(v->list,GL_COMPILE);
-    {
-        int current=-2;
-        for(i=0;i<v->model.vertex_count;++i) {
-            DemoModelVertex *p=&v->model.vertices[i];
-            if(p->texture!=current) {
-                if(current!=-2)glEnd();
-                current=p->texture;
-                if(current>=0&&(size_t)current<v->model.texture_count)
-                    glBindTexture(GL_TEXTURE_2D,v->textures[current]);
-                else
-                    glBindTexture(GL_TEXTURE_2D,0);
-                glBegin(GL_TRIANGLES);
-            }
-            glColor4ubv(p->color);
-            glNormal3fv(p->normal);
-            glTexCoord2fv(p->uv);
-            glVertex3fv(p->position);
-        }
-        if(current!=-2)glEnd();
+    for(i=0;i<v->model.batch_count&&i<DEMO_MAX_BATCHES;++i) {
+        if(v->batch_lists[i])glCallList(v->batch_lists[i]);
     }
     glEndList();
 }
 
-/* Isolated turntable view used to inspect decoded bind-pose geometry. */static void render_model_view(const Visual *v,float angle,float elevation,int w,int h)
+/* Interactive model viewer: orbit, zoom, wireframe and model switching. */
+static void look_at(const float eye[3], const float target[3])
 {
-    float cx=(v->model.bounds_min[0]+v->model.bounds_max[0])*.5f;
-    float cy=(v->model.bounds_min[1]+v->model.bounds_max[1])*.5f;
-    float cz=(v->model.bounds_min[2]+v->model.bounds_max[2])*.5f;
-    float height=v->model.bounds_max[1]-v->model.bounds_min[1];
-    float half=height*.62f,aspect=(float)w/(float)h;
-    glViewport(0,0,w,h);
-    glClearColor(.055f,.075f,.11f,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
-    glMatrixMode(GL_PROJECTION);glLoadIdentity();
-    if(aspect>=1)glOrtho(-half*aspect,half*aspect,-half,half,-200,200);
-    else glOrtho(-half,half,-half/aspect,half/aspect,-200,200);
+    float f[3]={target[0]-eye[0],target[1]-eye[1],target[2]-eye[2]};
+    float s[3],u[3],m[16];
+    float length=sqrtf(f[0]*f[0]+f[1]*f[1]+f[2]*f[2]);
+    if(length<1e-6f)length=1e-6f;
+    f[0]/=length;f[1]/=length;f[2]/=length;
+    s[0]=-f[2];s[1]=0.0f;s[2]=f[0];
+    length=sqrtf(s[0]*s[0]+s[1]*s[1]+s[2]*s[2]);
+    if(length<1e-6f){s[0]=1.0f;s[1]=0.0f;s[2]=0.0f;length=1.0f;}
+    s[0]/=length;s[1]/=length;s[2]/=length;
+    u[0]=s[1]*f[2]-s[2]*f[1];
+    u[1]=s[2]*f[0]-s[0]*f[2];
+    u[2]=s[0]*f[1]-s[1]*f[0];
+    m[0]=s[0];m[4]=s[1];m[8]=s[2];m[12]=-(s[0]*eye[0]+s[1]*eye[1]+s[2]*eye[2]);
+    m[1]=u[0];m[5]=u[1];m[9]=u[2];m[13]=-(u[0]*eye[0]+u[1]*eye[1]+u[2]*eye[2]);
+    m[2]=-f[0];m[6]=-f[1];m[10]=-f[2];m[14]=f[0]*eye[0]+f[1]*eye[1]+f[2]*eye[2];
+    m[3]=0.0f;m[7]=0.0f;m[11]=0.0f;m[15]=1.0f;
+    glLoadMatrixf(m);
+}
+
+typedef struct Viewer {
+    float yaw,pitch,distance,radius,target[3];
+    int wireframe,textures,lighting,culling,grid,spin,help;
+    int batch,mode; /* mode: 0 = all, 1 = only selected, 2 = hide selected */
+} Viewer;
+
+static void viewer_frame_model(Viewer *vs,const Visual *v)
+{
+    float size[3];
+    float radius;
+    int i;
+    for(i=0;i<3;++i) {
+        size[i]=v->model.bounds_max[i]-v->model.bounds_min[i];
+        vs->target[i]=(v->model.bounds_min[i]+v->model.bounds_max[i])*.5f;
+    }
+    radius=.5f*sqrtf(size[0]*size[0]+size[1]*size[1]+size[2]*size[2]);
+    if(radius<1e-3f)radius=1.0f;
+    vs->radius=radius;
+    vs->distance=radius/tanf(0.35f)*1.15f;
+}
+
+static void viewer_grid(const Visual *v)
+{
+    float y=v->model.bounds_min[1];
+    float extent=0.0f;
+    float step;
+    float x;
+    int i;
+    for(i=0;i<3;++i) {
+        float s=v->model.bounds_max[i]-v->model.bounds_min[i];
+        if(s>extent)extent=s;
+    }
+    extent*=1.1f;
+    step=extent/10.0f;
+    glDisable(GL_LIGHTING);
+    glDisable(GL_TEXTURE_2D);
+    glColor4f(.30f,.38f,.50f,.55f);
+    glBegin(GL_LINES);
+    for(i=-10;i<=10;++i) {
+        x=i*step;
+        glVertex3f(x,y,-extent);glVertex3f(x,y,extent);
+        glVertex3f(-extent,y,x);glVertex3f(extent,y,x);
+    }
+    glEnd();
+}
+
+static void viewer_hud(int w,int h,const Visual *v,const Viewer *vs,
+                       const char *name,int index,int total)
+{
+    char line[192];
+    float s=fmaxf(1.0f,w/1280.0f);
+    glDisable(GL_DEPTH_TEST);
+    glMatrixMode(GL_PROJECTION);glLoadIdentity();glOrtho(0,w,h,0,-1,1);
     glMatrixMode(GL_MODELVIEW);glLoadIdentity();
-    glRotatef(elevation,1,0,0);
-    glRotatef(angle,0,1,0);
-    glTranslatef(-cx,-cy,-cz);
-    GLfloat light[]={-40,80,120,0};glLightfv(GL_LIGHT0,GL_POSITION,light);
-    glEnable(GL_DEPTH_TEST);glEnable(GL_LIGHTING);glEnable(GL_TEXTURE_2D);
-    glCallList(v->list);
-    glDisable(GL_TEXTURE_2D);glDisable(GL_LIGHTING);
+    glColor4f(.03f,.045f,.075f,.9f);rect(0,0,w,88*s);
+    glColor3f(.92f,.95f,1);demo_text(24*s,16*s,3*s,"MODEL VIEWER");
+    glColor3f(.39f,.8f,.77f);
+    demo_text(24*s,44*s,1.5f*s,"REAL DISC ASSETS / BIND POSE / CUSTOM SANDBOX");
+    glColor3f(.85f,.9f,1);
+    if(total>0)snprintf(line,sizeof(line),"%s  [%d/%d]",name,index+1,total);
+    else snprintf(line,sizeof(line),"%s",name);
+    demo_text(w*.5f-140*s,18*s,2*s,line);
+    snprintf(line,sizeof(line),"%zu TRIS  %zu TEXTURES  %zu PARTS",
+             v->model.triangle_count,v->model.texture_count,
+             v->model.batch_count);
+    glColor3f(.62f,.7f,.82f);
+    demo_text(w*.5f-140*s,44*s,1.3f*s,line);
+    if(v->model.batch_count>0) {
+        int b=vs->batch;
+        static const char *mode_names[3]={"ALL PARTS","ONLY PART","HIDE PART"};
+        if(b<0)b=0;
+        if((size_t)b>=v->model.batch_count)b=(int)v->model.batch_count-1;
+        snprintf(line,sizeof(line),"%s  %d/%zu  %zu VERTS",mode_names[vs->mode],
+                 b+1,v->model.batch_count,v->model.batches[b].vertex_count);
+        glColor3f(.95f,.8f,.5f);
+        demo_text(w*.5f-140*s,66*s,1.3f*s,line);
+    }
+    glColor3f(.68f,.73f,.84f);
+    demo_text(24*s,h-56*s,1.4f*s,"DRAG: ORBIT   WHEEL: ZOOM   ARROWS: ORBIT   N/P: MODEL   R: RESET");
+    demo_text(24*s,h-34*s,1.4f*s,"T:TEX L:LIGHT W:WIRE C:CULL G:GRID V:PART-MODE [ ]:SELECT PART SPACE:SPIN F12:SAVE H:HELP ESC:QUIT");
+    glColor3f(.39f,.8f,.77f);
+    demo_text(w-388*s,h-56*s,1.4f*s,vs->textures?"TEX ON":"TEX OFF");
+    demo_text(w-288*s,h-56*s,1.4f*s,vs->lighting?"LIGHT ON":"LIGHT OFF");
+    demo_text(w-168*s,h-56*s,1.4f*s,vs->wireframe?"WIRE":"SOLID");
+    demo_text(w-388*s,h-34*s,1.4f*s,vs->culling?"CULL ON":"CULL OFF");
+    demo_text(w-288*s,h-34*s,1.4f*s,vs->grid?"GRID ON":"GRID OFF");
+    demo_text(w-168*s,h-34*s,1.4f*s,vs->spin?"SPIN":"STILL");
+    if(vs->help) {
+        glColor4f(.02f,.03f,.05f,.85f);rect(w*.5f-300*s,h*.5f-120*s,600*s,240*s);
+        glColor3f(1,1,1);demo_text(w*.5f-250*s,h*.5f-90*s,2.4f*s,"VIEWER CONTROLS");
+        glColor3f(.8f,.85f,.92f);
+        demo_text(w*.5f-250*s,h*.5f-40*s,1.5f*s,"LEFT DRAG OR ARROWS: ORBIT THE MODEL");
+        demo_text(w*.5f-250*s,h*.5f-10*s,1.5f*s,"MOUSE WHEEL OR +/-: ZOOM IN AND OUT");
+        demo_text(w*.5f-250*s,h*.5f+20*s,1.5f*s,"N / P: NEXT OR PREVIOUS CHARACTER MODEL");
+        demo_text(w*.5f-250*s,h*.5f+50*s,1.5f*s,"H: CLOSE THIS HELP");
+    }
+}
+
+static void render_viewer(const Visual *v,const Viewer *vs,int w,int h,
+                          const char *name,int index,int total)
+{
+    float aspect=(float)w/(float)h;
+    float fovy=.7f;
+    float zfar=vs->distance*8.0f+100.0f;
+    float znear=zfar/1200.0f;
+    float top;
+    float cp,sp;
+    float eye[3];
+    if(znear<.05f)znear=.05f;
+    top=znear*tanf(fovy*.5f);
+    cp=cosf(vs->pitch);sp=sinf(vs->pitch);
+    eye[0]=vs->target[0]+vs->distance*cp*sinf(vs->yaw);
+    eye[1]=vs->target[1]+vs->distance*sp;
+    eye[2]=vs->target[2]+vs->distance*cp*cosf(vs->yaw);
+    glViewport(0,0,w,h);
+    glClearColor(.05f,.06f,.09f,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+    glMatrixMode(GL_PROJECTION);glLoadIdentity();
+    glFrustum(-top*aspect,top*aspect,-top,top,znear,zfar);
+    glMatrixMode(GL_MODELVIEW);glLoadIdentity();
+    look_at(eye,vs->target);
+    if(vs->lighting) {
+        GLfloat light[]={.35f,.6f,1.0f,0.0f};
+        glLightfv(GL_LIGHT0,GL_POSITION,light);
+        glEnable(GL_LIGHTING);
+    }
+    if(vs->culling)glEnable(GL_CULL_FACE);else glDisable(GL_CULL_FACE);
+    if(vs->textures)glEnable(GL_TEXTURE_2D);
+    glEnable(GL_DEPTH_TEST);
+    glPolygonMode(GL_FRONT_AND_BACK,vs->wireframe?GL_LINE:GL_FILL);
+    {
+        size_t bi;
+        for(bi=0;bi<v->model.batch_count&&bi<DEMO_MAX_BATCHES;++bi) {
+            int visible=vs->mode==0||(vs->mode==1&&(int)bi==vs->batch)||
+                        (vs->mode==2&&(int)bi!=vs->batch);
+            if(visible&&v->batch_lists[bi])glCallList(v->batch_lists[bi]);
+        }
+    }
+    glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);
+    if(vs->grid)viewer_grid(v);
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_DEPTH_TEST);
+    viewer_hud(w,h,v,vs,name,index,total);
+    glEnable(GL_DEPTH_TEST);
+}
+
+static int viewer_open_model(Visual *v,const char *disc,const char *file)
+{
+    destroy_visual(v);
+    memset(v,0,sizeof(*v));
+    if(!load_model(v,disc,file))return 0;
+    compile_model(v);
+    return 1;
+}
+
+static int viewer_cycle(Visual *v,const char *disc,DemoAssetList *models,int *index,int dir)
+{
+    int attempts=(int)models->count;
+    int i=*index;
+    while(attempts-->0) {
+        i+=dir;
+        if(i<0)i=(int)models->count-1;
+        if(i>=(int)models->count)i=0;
+        if(viewer_open_model(v,disc,models->names[i])){*index=i;return 1;}
+        fprintf(stderr,"Skipping %s (could not decode)\n",models->names[i]);
+    }
+    return 0;
 }
 
 static void platform(const DemoPhysicsPlatform *p, int main_stage)
@@ -249,6 +434,9 @@ static void destroy_visual(Visual *v)
 {
     size_t i;
     if(v->list)glDeleteLists(v->list,1);
+    for(i=0;i<v->model.batch_count&&i<DEMO_MAX_BATCHES;++i) {
+        if(v->batch_lists[i])glDeleteLists(v->batch_lists[i],1);
+    }
     for(i=0;i<v->model.texture_count&&i<DEMO_MAX_TEXTURES;++i) {
         if(v->textures[i])glDeleteTextures(1,&v->textures[i]);
     }
@@ -262,6 +450,7 @@ int main(int argc,char **argv)
 {
     const char *disc=DEFAULT_DISC,*capture=NULL,*model_file="PlMrNr.dat";
     int frames=0,inspect=0,scripted=0,view=0;
+    int list_models=0,all_models=0,model_index=-1,view_part=-1,view_part_mode=0,list_parts=0;
     float view_angle=210.0f,view_elev=-15.0f;
     for(int i=1;i<argc;++i) {
         if(!strcmp(argv[i],"--disc")&&i+1<argc)disc=argv[++i];
@@ -271,16 +460,64 @@ int main(int argc,char **argv)
         else if(!strcmp(argv[i],"--inspect"))inspect=1;
         else if(!strcmp(argv[i],"--scripted"))scripted=1;
         else if(!strcmp(argv[i],"--view"))view=1;
+        else if(!strcmp(argv[i],"--list-models"))list_models=1;
+        else if(!strcmp(argv[i],"--all-models"))all_models=1;
+        else if(!strcmp(argv[i],"--model-index")&&i+1<argc)model_index=atoi(argv[++i]);
+        else if(!strcmp(argv[i],"--part")&&i+1<argc)view_part=atoi(argv[++i]);
+        else if(!strcmp(argv[i],"--list-parts"))list_parts=1;
+        else if(!strcmp(argv[i],"--part-mode")&&i+1<argc) {
+            const char *m=argv[++i];
+            view_part_mode=!strcmp(m,"only")?1:(!strcmp(m,"hide")?2:0);
+        }
         else if(!strcmp(argv[i],"--angle")&&i+1<argc)view_angle=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--elevation")&&i+1<argc)view_elev=(float)atof(argv[++i]);
-        else {printf("Usage: %s [--disc IMAGE] [--model PlMrNr.dat] [--inspect] [--view [--angle DEG] [--elevation DEG]] [--frames N] [--screenshot FILE.bmp] [--scripted]\n",argv[0]);return strcmp(argv[i],"--help")!=0;}
+        else {printf("Usage: %s [--disc IMAGE] [--model PlMrNr.dat] [--model-index N] [--part N] [--part-mode all|only|hide] [--list-models] [--all-models] [--inspect] [--view [--angle DEG] [--elevation DEG]] [--frames N] [--screenshot FILE.bmp] [--scripted]\n",argv[0]);return strcmp(argv[i],"--help")!=0;}
+    }
+    DemoAssetList models={0};
+    if(view||list_models||model_index>=0) {
+        char list_error[128];
+        if(demo_asset_list(disc,"Pl",all_models?".dat":"Nr.dat",&models,list_error,sizeof(list_error))!=DEMO_ASSET_OK) {
+            fprintf(stderr,"Model list unavailable (%s)\n",list_error);
+            if(list_models)return 1;
+        }
+        if(list_models) {
+            size_t i;
+            for(i=0;i<models.count;++i)printf("%s\n",models.names[i]);
+            printf("%zu model archives\n",models.count);
+            demo_asset_list_free(&models);
+            return 0;
+        }
+        if(model_index>=0&&(size_t)model_index<models.count)model_file=models.names[model_index];
     }
     Visual visuals[2];
     memset(visuals,0,sizeof(visuals));
     if(!load_model(&visuals[0],disc,model_file))return 1;
     /* Two instances of the same decoded costume during renderer bring-up. */
     visuals[0].label="P1 / MARIO";visuals[1]=visuals[0];visuals[1].label="P2 / MARIO";
-    if(inspect){demo_model_free(&visuals[0].model);free(visuals[0].model.vertices);return 0;}
+    if(inspect){
+        if(list_parts) {
+            size_t bi;
+            printf("%-4s %-8s %-8s %-10s %s\n","#","verts","texture","y-range","x-range");
+            for(bi=0;bi<visuals[0].model.batch_count;++bi) {
+                DemoModelBatch *b=&visuals[0].model.batches[bi];
+                float ymin=1e30f,ymax=-1e30f,xmin=1e30f,xmax=-1e30f;
+                size_t vi;
+                for(vi=0;vi<b->vertex_count;++vi) {
+                    float *p=visuals[0].model.vertices[b->first_vertex+vi].position;
+                    if(p[1]<ymin)ymin=p[1];
+                    if(p[1]>ymax)ymax=p[1];
+                    if(p[0]<xmin)xmin=p[0];
+                    if(p[0]>xmax)xmax=p[0];
+                }
+                if(b->texture>=0&&(size_t)b->texture<visuals[0].model.texture_count)
+                    printf("%-4zu %-8zu %-8s y[%6.2f %6.2f] x[%6.2f %6.2f]\n",bi,b->vertex_count,"tex",ymin,ymax,xmin,xmax);
+                else
+                    printf("%-4zu %-8zu %-8s y[%6.2f %6.2f] x[%6.2f %6.2f]\n",bi,b->vertex_count,"none",ymin,ymax,xmin,xmax);
+            }
+            printf("%zu parts\n",visuals[0].model.batch_count);
+        }
+        demo_model_free(&visuals[0].model);free(visuals[0].model.vertices);return 0;
+    }
     if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMECONTROLLER|SDL_INIT_TIMER)) {
         fprintf(stderr,"SDL: %s\n",SDL_GetError());return 1;
     }
@@ -301,11 +538,104 @@ int main(int argc,char **argv)
     glLightModelfv(GL_LIGHT_MODEL_AMBIENT,ambient);glLightfv(GL_LIGHT0,GL_DIFFUSE,diffuse);glEnable(GL_LIGHT0);
     glLightModeli(GL_LIGHT_MODEL_TWO_SIDE,GL_TRUE);
     if(view) {
-        int w,h;SDL_GL_GetDrawableSize(window,&w,&h);
-        render_model_view(&visuals[0],view_angle,view_elev,w,h);
-        SDL_GL_SwapWindow(window);
-        if(capture&&!screenshot(capture,w,h))fprintf(stderr,"Screenshot failed: %s\n",SDL_GetError());
-        printf("Rendered %s at angle %.1f elevation %.1f\n",model_file,view_angle,view_elev);
+        Viewer vs;
+        int running=1,index=-1,next_model=0,prev_model=0,rendered=0,want_shot=0;
+        int w=0,h=1;
+        size_t mi;
+        int dragging=0,lastx=0,lasty=0;
+        double previous=SDL_GetPerformanceCounter()/(double)SDL_GetPerformanceFrequency();
+        memset(&vs,0,sizeof(vs));
+        vs.yaw=view_angle*PI/180.0f;
+        vs.pitch=-view_elev*PI/180.0f;
+        vs.textures=1;vs.lighting=1;vs.culling=0;vs.grid=1;vs.help=0;
+        vs.batch=view_part>=0?view_part:0;vs.mode=view_part_mode;
+        for(mi=0;mi<models.count;++mi)
+            if(!strcmp(models.names[mi],model_file)){index=(int)mi;break;}
+        viewer_frame_model(&vs,&visuals[0]);
+        while(running) {
+            SDL_Event e;
+            float dt;
+            while(SDL_PollEvent(&e)) {
+                if(e.type==SDL_QUIT)running=0;
+                else if(e.type==SDL_MOUSEBUTTONDOWN&&e.button.button==SDL_BUTTON_LEFT){dragging=1;lastx=e.button.x;lasty=e.button.y;}
+                else if(e.type==SDL_MOUSEBUTTONUP&&e.button.button==SDL_BUTTON_LEFT)dragging=0;
+                else if(e.type==SDL_MOUSEMOTION&&dragging){
+                    vs.yaw-=(e.motion.x-lastx)*0.01f;
+                    vs.pitch+=(e.motion.y-lasty)*0.01f;
+                    lastx=e.motion.x;lasty=e.motion.y;
+                } else if(e.type==SDL_MOUSEWHEEL) {
+                    vs.distance*=(1.0f-(float)e.wheel.y*0.1f);
+                } else if(e.type==SDL_KEYDOWN&&!e.key.repeat) {
+                    switch(e.key.keysym.sym) {
+                    case SDLK_ESCAPE:running=0;break;
+                    case SDLK_n:next_model=1;break;
+                    case SDLK_p:prev_model=1;break;
+                    case SDLK_r:vs.yaw=view_angle*PI/180.0f;vs.pitch=-view_elev*PI/180.0f;viewer_frame_model(&vs,&visuals[0]);break;
+                    case SDLK_t:vs.textures=!vs.textures;break;
+                    case SDLK_l:vs.lighting=!vs.lighting;break;
+                    case SDLK_w:vs.wireframe=!vs.wireframe;break;
+                    case SDLK_c:vs.culling=!vs.culling;break;
+                    case SDLK_g:vs.grid=!vs.grid;break;
+                    case SDLK_h:vs.help=!vs.help;break;
+                    case SDLK_SPACE:vs.spin=!vs.spin;break;
+                    case SDLK_v:vs.mode=(vs.mode+1)%3;break;
+                    case SDLK_LEFTBRACKET:vs.batch--;break;
+                    case SDLK_RIGHTBRACKET:vs.batch++;break;
+                    case SDLK_F12:want_shot=1;break;
+                    default:break;
+                    }
+                }
+            }
+            {
+                const Uint8 *keys=SDL_GetKeyboardState(NULL);
+                double now=SDL_GetPerformanceCounter()/(double)SDL_GetPerformanceFrequency();
+                dt=(float)(now-previous);previous=now;
+                if(dt>0.1f)dt=0.1f;
+                vs.yaw+=(keys[SDL_SCANCODE_LEFT]-keys[SDL_SCANCODE_RIGHT])*1.5f*dt;
+                vs.pitch+=(keys[SDL_SCANCODE_UP]-keys[SDL_SCANCODE_DOWN])*1.0f*dt;
+                if(keys[SDL_SCANCODE_EQUALS]||keys[SDL_SCANCODE_KP_PLUS])vs.distance*=1.0f-1.5f*dt;
+                if(keys[SDL_SCANCODE_MINUS]||keys[SDL_SCANCODE_KP_MINUS])vs.distance*=1.0f+1.5f*dt;
+                if(vs.spin)vs.yaw+=0.6f*dt;
+            }
+            if(vs.pitch>1.5f)vs.pitch=1.5f;
+            if(vs.pitch<-1.5f)vs.pitch=-1.5f;
+            if(vs.distance<vs.radius*0.2f)vs.distance=vs.radius*0.2f;
+            if(vs.distance>vs.radius*12.0f)vs.distance=vs.radius*12.0f;
+            if(vs.batch<0)vs.batch=0;
+            if((size_t)vs.batch>=visuals[0].model.batch_count&&visuals[0].model.batch_count>0)
+                vs.batch=(int)visuals[0].model.batch_count-1;
+            if(next_model||prev_model) {
+                if(models.count>0&&viewer_cycle(&visuals[0],disc,&models,&index,next_model?1:-1)) {
+                    viewer_frame_model(&vs,&visuals[0]);
+                    vs.batch=0;
+                    printf("Viewing %s\n",models.names[index]);
+                } else {
+                    fprintf(stderr,"No decodable model in list\n");
+                }
+                next_model=prev_model=0;
+            }
+            {
+                SDL_GL_GetDrawableSize(window,&w,&h);
+                if(h<1)h=1;
+                render_viewer(&visuals[0],&vs,w,h,
+                              index>=0&&(size_t)index<models.count?models.names[index]:model_file,
+                              index,(int)models.count);
+                SDL_GL_SwapWindow(window);
+                if(want_shot) {
+                    if(screenshot(capture?capture:"viewer.bmp",w,h))printf("Saved screenshot\n");
+                    else fprintf(stderr,"Screenshot failed: %s\n",SDL_GetError());
+                    want_shot=0;
+                }
+            }
+            ++rendered;
+            if(frames&&rendered>=frames) {
+                if(capture&&!screenshot(capture,w,h))fprintf(stderr,"Screenshot failed: %s\n",SDL_GetError());
+                printf("Rendered %d viewer frames of %s\n",rendered,model_file);
+                running=0;
+            }
+            SDL_Delay(1);
+        }
+        demo_asset_list_free(&models);
         destroy_visual(&visuals[0]);
         SDL_GL_DeleteContext(context);SDL_DestroyWindow(window);SDL_Quit();return 0;
     }
