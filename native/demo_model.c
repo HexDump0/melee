@@ -1508,6 +1508,7 @@ void demo_model_init(DemoModel *m, DemoModelVertex *storage, size_t capacity)
     memset(m, 0, sizeof(*m));
     m->vertices = storage;
     m->vertex_capacity = capacity;
+    m->model_scale = 1.0f;
     for (i = 0; i < 3; ++i) {
         m->bounds_min[i] = 1e30f;
         m->bounds_max[i] = -1e30f;
@@ -1674,6 +1675,8 @@ void demo_model_pose_apply(DemoModel *m)
     for (j = 0; j < m->joint_count; ++j) {
         DemoJoint *jt = &m->joints[j];
         float local[3][4];
+        float root_scale[3] = { m->model_scale, m->model_scale,
+                                m->model_scale };
         const float *parent_scale = NULL;
         if (jt->parent >= 0) {
             parent_scale = m->joints[jt->parent].scale_world;
@@ -1682,7 +1685,9 @@ void demo_model_pose_apply(DemoModel *m)
             mtx_concat(&m->joints[jt->parent].world[0][0], &local[0][0],
                        &jt->world[0][0]);
         } else {
-            make_local_mtx(local, jt->scale, jt->rotation, jt->position, NULL);
+            /* Fighter_UpdateModelScale overrides the root joint scale with
+             * the per-character model scaling each frame. */
+            make_local_mtx(local, root_scale, jt->rotation, jt->position, NULL);
             memcpy(jt->world, local, sizeof(local));
         }
         if (jt->parent >= 0 && (jt->flags & HSD_FLAG_SCL_INHERIT)) {
@@ -1696,7 +1701,7 @@ void demo_model_pose_apply(DemoModel *m)
             jt->scale_world[2] =
                 jt->scale[2] * m->joints[jt->parent].scale_world[2];
         } else {
-            memcpy(jt->scale_world, jt->scale, sizeof(jt->scale_world));
+            memcpy(jt->scale_world, root_scale, sizeof(jt->scale_world));
         }
     }
     for (b = 0; b < m->batch_count; ++b) {
@@ -1822,6 +1827,7 @@ int demo_model_load(DemoModel *m, const uint8_t *d, size_t n, size_t root_offset
         seterr(err, errn, "invalid model buffer");
         return 0;
     }
+    m->model_scale = 1.0f;
     root = SIZE_MAX;
     if (root_offset != 0 && root_offset <= n - HSD_DATA_BASE) {
         root = root_offset + HSD_DATA_BASE;

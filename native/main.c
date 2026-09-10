@@ -778,22 +778,28 @@ static int load_model(Visual *v, const char *disc, const char *file)
         fprintf(stderr,"Model %s: %s (%zu vertices)\n",file,error,v->model.vertex_count);
         free(storage); memset(v,0,sizeof(*v)); return 0;
     }
-    printf("Decoded %s: %zu triangles, %zu textures; bounds [%.2f %.2f %.2f] to [%.2f %.2f %.2f]\n",
-           file,v->model.vertex_count/3,v->model.texture_count,v->model.bounds_min[0],v->model.bounds_min[1],
-           v->model.bounds_min[2],v->model.bounds_max[0],v->model.bounds_max[1],v->model.bounds_max[2]);
-    printf("PObj types: skin %zu, shapeanim %zu, envelope %zu; joints %zu, instances %zu\n",
-           v->model.pobj_type_count[0],v->model.pobj_type_count[1],
-           v->model.pobj_type_count[2],v->model.joint_count,v->model.instance_count);
-    float height = v->model.bounds_max[1]-v->model.bounds_min[1];
-    v->scale = height > .001f ? 11.0f/height : 1;
     {
         char parts_error[128];
         int parts = demo_parts_apply(disc,file,&v->model,g_vis_slot,
                                      g_vis_variant,parts_error,
                                      sizeof(parts_error));
-        if(parts==0)printf("Parts visibility: %zu of %zu objects hidden (neutral pose)\n",
-                           demo_parts_hidden_count(&v->model),v->model.dobj_count);
+        /* demo_parts_apply reads ftData<Char>'s model_scaling; re-evaluate the
+         * bind pose so the vertices and bounds include it. */
+        demo_model_pose_apply(&v->model);
+        printf("Decoded %s: %zu triangles, %zu textures; bounds [%.2f %.2f %.2f] to [%.2f %.2f %.2f]\n",
+               file,v->model.vertex_count/3,v->model.texture_count,v->model.bounds_min[0],v->model.bounds_min[1],
+               v->model.bounds_min[2],v->model.bounds_max[0],v->model.bounds_max[1],v->model.bounds_max[2]);
+        printf("PObj types: skin %zu, shapeanim %zu, envelope %zu; joints %zu, instances %zu\n",
+               v->model.pobj_type_count[0],v->model.pobj_type_count[1],
+               v->model.pobj_type_count[2],v->model.joint_count,v->model.instance_count);
+        if(parts==0)printf("Parts visibility: %zu of %zu objects hidden (neutral pose; model scale %.4f)\n",
+                           demo_parts_hidden_count(&v->model),v->model.dobj_count,
+                           (double)v->model.model_scale);
         else if(parts<0)fprintf(stderr,"Parts visibility failed: %s\n",parts_error);
+    }
+    {
+        float height = v->model.bounds_max[1]-v->model.bounds_min[1];
+        v->scale = height > .001f ? 11.0f/height : 1;
     }
     return 1;
 }

@@ -33,6 +33,7 @@ The full struct is `ftCo_DatAttrs` in `src/melee/ft/types.h` starting at
 | +0x64 | `air_drift_stick_mul` | horizontal air accel |
 | +0x70 | `aerial_friction` | air friction |
 | +0x78 | `air_max_horizontal_velocity` | air speed cap |
+| +0x8C | `model_scaling` | per-character model scale |
 
 Retail Mario values observed through the demo:
 
@@ -45,6 +46,41 @@ The demo maps `air_drift_stick_mul` onto its single `air_accel` field; the real
 formula also adds `aerial_drift_base` with a sign term
 (`ftCommon_CalcSelfAccel_Drift`, `src/melee/ft/ftcommon.c`). That is a
 documented approximation (P-302).
+
+## Per-character model scale (`Fighter_UpdateModelScale`)
+
+The raw `Pl<Char>Nr.dat` vertices are **not** at game scale. Each frame the
+game does (`src/melee/ft/fighter.c:213`):
+
+```c
+modelScale = fp->x34_scale.y * fp->co_attrs.model_scaling;
+scale.x = (fp->x34_scale.z != 1.0f) ? fp->x34_scale.z : modelScale;
+scale.y = scale.z = modelScale;
+HSD_JObjSetScale(root_joint, &scale);
+```
+
+`x34_scale.y` is `Player_GetModelScale(slot)` (1.0 in normal play; mushroom /
+Giant Melee change it), so the constant per-character factor is
+`ftCo_DatAttrs.model_scaling` at **+0x8C**. The port applies it as the root
+joint scale in `demo_model_pose_apply` (`model->model_scale`), read by
+`demo_parts_apply`.
+
+Observed on retail Rev 2 (bounds height in game units after scaling):
+
+| Model | `model_scaling` | Height | Relative to Mario |
+|---|---|---|---|
+| `PlMr` | 1.10 | 15.94 | 1.00 |
+| `PlLg` | 1.25 | 17.69 | 1.11 |
+| `PlPk` | 0.90 | 14.45 | 0.91 |
+| `PlFx` | 0.96 | 16.54 | 1.04 |
+| `PlKp` (Bowser) | 0.69 | 28.86 | 1.81 |
+| `PlDk` | 1.00 | 31.29 | 1.96 |
+| `PlZd` | 1.26 | 19.27 | 1.21 |
+| `PlMs` (Marth) | 1.15 | 19.59 | 1.23 |
+| `PlKb` (Kirby) | 0.92 | 9.75 | 0.61 |
+
+`x34_scale.z` (`ftCommonData` or `da->x0_GAMEWATCH_WIDTH` for Mr. Game &
+Watch) is not modelled yet; G&W's X flattening will need it.
 
 ## `ftData` layout beyond x0
 

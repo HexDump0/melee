@@ -29,7 +29,8 @@ reproduced to within a few 1/65535 RMSE units.
 | Disc read (CISO) | `--inspect` finds and extracts `PlMrNr.dat` (473,522 bytes) |
 | FST lookup | Finds files in the root and one level deep |
 | HSD joint/DObj/PObj walk | Mario: 68 PObjs, 6328 triangles |
-| Bind-pose envelope skinning | Rendered Mario is a coherent T-pose; bounds `[-7.56 -0.28 -2.70]..[7.57 14.21 3.58]` |
+| Bind-pose envelope skinning | Rendered Mario is a coherent T-pose; bounds `[-8.31 -0.31 -2.97]..[8.32 15.63 3.94]` (includes the game's 1.10 model scale) |
+| Model scaling | `Fighter_UpdateModelScale` from `ftData.model_scaling`: Bowser 0.69, Kirby 0.92, Mario 1.10, Luigi 1.25 |
 | `right` matrix | Link's sword/scabbard/shield sit on his back instead of the floor (bounds y-min rose from -6.14 to -0.01) |
 | Part visibility | Mario hides 16 of 59 DObjs, Link 32 of 83; faces render in neutral pose |
 | CI4/CI8 + TLUT | Mario eye atlas (190x190 CI8, palette RGB565) decodes; 32 textures total (incl. one TEX1 map) |
@@ -110,7 +111,7 @@ SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --scripted --frames 240 \
 Expected `--inspect` tail:
 
 ```
-Decoded PlMrNr.dat: 6328 triangles, 32 textures; bounds [-7.56 -0.28 -2.70] to [7.57 14.21 3.58]
+Decoded PlMrNr.dat: 6328 triangles, 32 textures; bounds [-8.31 -0.31 -2.97] to [8.32 15.63 3.94]
 ```
 
 If those numbers move, say why in the commit and update this file.

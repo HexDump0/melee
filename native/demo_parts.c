@@ -1,5 +1,6 @@
 #include "demo_parts.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -185,6 +186,26 @@ int demo_parts_apply(const char *disc_image, const char *model_file,
     if (!range_ok(ft, 0x60, n)) {
         demo_asset_free(&asset);
         return -1;
+    }
+    /*
+     * ftData +0x00 -> ftCo_DatAttrs (0 means the start of the data section).
+     * model_scaling is at +0x8C (types.h); Fighter_UpdateModelScale multiplies
+     * it into the root joint scale.  This is what makes Bowser/DK big and
+     * Pikachu small relative to the raw archive vertices.
+     */
+    {
+        uint32_t attrs_ptr = be32(d + ft);
+        if (attrs_ptr <= n - DATA_BASE) {
+            size_t attrs = DATA_BASE + attrs_ptr;
+            if (range_ok(attrs, 0x90, n)) {
+                uint32_t bits = be32(d + attrs + 0x8c);
+                float scale;
+                memcpy(&scale, &bits, sizeof(scale));
+                if (isfinite(scale) && scale > 0.02f && scale < 8.0f) {
+                    model->model_scale = scale;
+                }
+            }
+        }
     }
     desc_ptr = be32(d + ft + 8);
     if (desc_ptr > n - DATA_BASE) {

@@ -19,6 +19,13 @@ ASan+UBSan runs clean; `--inspect` bounds/triangles unchanged (textures
   `RENDER_DIFFUSE` lit stage, two texture units (`TObjDesc.src` selects TEX0/
   TEX1), GX channel lighting (`mat_ambient*ambient_light + light*N·L`),
   `GXCompare`/`GXAlphaOp` discard, and `HSD_SetupPEMode` blend/Z via GL state.
+- Per-character model scale: `demo_parts_apply` now reads
+  `ftCo_DatAttrs.model_scaling` (+0x8C) from `ftData<Char>` and
+  `demo_model_pose_apply` applies it to the root joint, matching
+  `Fighter_UpdateModelScale`. Before this, Bowser/DK rendered at raw archive
+  size (Bowser 1.8x too tall) and Kirby/Pikachu too big. Mario's scale is
+  1.10, so `--inspect` bounds changed to
+  `[-8.31 -0.31 -2.97]..[8.32 15.63 3.94]` (documented in `STATE.md`).
 - Lightmap phases: a TObj's `TEX_LIGHTMAP_*` bits route it to the diffuse
   (0x10/0x40), specular (0x20) or EXT (0x80) accumulator, matching
   `TObjMakeTExp`. This fixed normal Luigi/Mario rendering grey because a

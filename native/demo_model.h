@@ -180,6 +180,10 @@ typedef struct DemoModel {
     DemoJoint joints[DEMO_MAX_JOINTS];
     size_t joint_count;
     size_t instance_count;
+    /* Fighter_UpdateModelScale: the game sets the root joint scale to
+     * x34_scale.y * co_attrs.model_scaling.  demo_parts_apply fills this from
+     * ftData<Char>'s attribute table; 1.0 when unavailable. */
+    float model_scale;
     /* Raw per-vertex skinning inputs: 6 floats (position, normal in the
      * group's stored space) and one selector byte per vertex. */
     float *raw;
