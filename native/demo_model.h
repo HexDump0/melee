@@ -41,6 +41,10 @@ typedef struct DemoModelBatch {
     size_t object_index;
     size_t dobj_index;
     int16_t texture;
+    uint8_t cull_mode;   /* 0 none, 1 front, 2 back, 3 both (not drawn) */
+    uint8_t wrap_s;      /* GX wrap: 0 clamp, 1 repeat, 2 mirror */
+    uint8_t wrap_t;
+    uint8_t translucent;
 } DemoModelBatch;
 
 typedef struct DemoModel {
@@ -58,6 +62,9 @@ typedef struct DemoModel {
     DemoModelBatch batches[DEMO_MAX_BATCHES];
     size_t dobj_count; /* DObjs in HSD traversal order (parts visibility) */
     uint8_t dobj_hidden[DEMO_MAX_DOBJS];
+    size_t pobj_type_count[3]; /* skin, shapeanim, envelope */
+    size_t joint_count;
+    size_t instance_count;
 } DemoModel;
 
 /* Forward declaration keeps the native build independent of the HSD headers. */

@@ -51,6 +51,7 @@
 
 #define HSD_FLAG_SCL_INHERIT 0x8
 #define HSD_FLAG_SKELETON 0x1
+#define HSD_FLAG_INSTANCE 0x1000
 #define HSD_FLAG_SKELETON_ROOT 0x2
 
 typedef struct RawDesc {
@@ -90,6 +91,7 @@ typedef struct JointTable {
 
 typedef struct EnvGroup {
     int rigid;
+    float scale; /* blended groups: sum of weights (M_i * inverseBind == I) */
     float matrix[3][4];
 } EnvGroup;
 
@@ -474,6 +476,80 @@ static size_t ctype_size(uint32_t ctype)
     return 4;
 }
 
+static uint8_t model_expand4(unsigned int v) { return (uint8_t) ((v << 4) | v); }
+static uint8_t model_expand5(unsigned int v) { return (uint8_t) ((v * 255u) / 31u); }
+static uint8_t model_expand6(unsigned int v) { return (uint8_t) ((v * 255u) / 63u); }
+
+/*
+ * For GX_VA_CLR0/CLR1 the comp_type field uses the color encoding enum
+ * (GX_RGB565=0, GX_RGB8=1, GX_RGBX8=2, GX_RGBA4=3, GX_RGBA6=4, GX_RGBA8=5),
+ * not the scalar component enum.  This was the cause of the vertex stream
+ * desync on coloured meshes.
+ */
+static size_t color_attribute_size(uint32_t ctype)
+{
+    switch (ctype) {
+    case 0: /* GX_RGB565 */
+    case 3: /* GX_RGBA4 */
+        return 2;
+    case 2: /* GX_RGBX8 */
+    case 5: /* GX_RGBA8 */
+        return 4;
+    case 1: /* GX_RGB8 */
+    case 4: /* GX_RGBA6 */
+    default:
+        return 3;
+    }
+}
+
+static void decode_color(uint32_t ctype, const uint8_t *p, size_t n, size_t o,
+                         uint8_t out[4])
+{
+    switch (ctype) {
+    case 0: { /* RGB565 */
+        uint16_t v = rb16(p, n, o);
+        out[0] = model_expand5((v >> 11) & 31);
+        out[1] = model_expand6((v >> 5) & 63);
+        out[2] = model_expand5(v & 31);
+        out[3] = 255;
+        break;
+    }
+    case 1: /* RGB8 */
+        out[0] = p[o];
+        out[1] = p[o + 1];
+        out[2] = p[o + 2];
+        out[3] = 255;
+        break;
+    case 2: /* RGBX8 */
+        out[0] = p[o];
+        out[1] = p[o + 1];
+        out[2] = p[o + 2];
+        out[3] = p[o + 3];
+        break;
+    case 3: { /* RGBA4 */
+        uint16_t v = rb16(p, n, o);
+        out[0] = model_expand4((v >> 12) & 15);
+        out[1] = model_expand4((v >> 8) & 15);
+        out[2] = model_expand4((v >> 4) & 15);
+        out[3] = model_expand4(v & 15);
+        break;
+    }
+    case 4: /* RGBA6, 18 bits packed big-endian */
+        out[0] = (uint8_t) ((p[o] >> 2) * 255 / 63);
+        out[1] = (uint8_t) ((((p[o] & 3) << 4) | (p[o + 1] >> 4)) * 255 / 63);
+        out[2] = (uint8_t) ((((p[o + 1] & 15) << 2) | (p[o + 2] >> 6)) * 255 / 63);
+        out[3] = (uint8_t) ((p[o + 2] & 63) * 255 / 63);
+        break;
+    case 5: /* RGBA8 */
+    default:
+        out[0] = p[o];
+        out[1] = p[o + 1];
+        out[2] = p[o + 2];
+        out[3] = p[o + 3];
+        break;
+    }
+}
+
 static float decode_comp(uint32_t ctype, uint8_t frac, const uint8_t *p, size_t n,
                          size_t o)
 {
@@ -544,12 +620,15 @@ static int read_vertex(const uint8_t *d, size_t n, const RawDesc *descs,
         size_t offset = 0;
         size_t comps;
         size_t i;
+        int is_color = (desc->attr == GX_VA_CLR0 || desc->attr == GX_VA_CLR1);
+        size_t element_size = is_color
+                                  ? color_attribute_size(desc->ctype)
+                                  : attr_comp_count(desc->attr, desc->cnt) *
+                                        ctype_size(desc->ctype);
         if (desc->type == GX_DIRECT) {
             /* Matrix indices are always a single byte in GX, even though the
              * descriptor records F32 as the component type. */
-            size_t bytes = (desc->attr <= 8) ? 1
-                                             : attr_comp_count(desc->attr, desc->cnt) *
-                                                   ctype_size(desc->ctype);
+            size_t bytes = (desc->attr <= 8) ? 1 : element_size;
             if (cur + bytes > end) {
                 return 0;
             }
@@ -577,7 +656,7 @@ static int read_vertex(const uint8_t *d, size_t n, const RawDesc *descs,
             comps = attr_comp_count(desc->attr, desc->cnt);
             if (desc->base != SIZE_MAX && desc->stride != 0) {
                 size_t element = desc->base + index * desc->stride;
-                if (element + comps * bytes <= n) {
+                if (element + (is_color ? element_size : comps * bytes) <= n) {
                     source = d;
                     offset = element;
                 }
@@ -607,23 +686,9 @@ static int read_vertex(const uint8_t *d, size_t n, const RawDesc *descs,
                                          offset + i * step);
             }
             out->has_uv = 1;
-        } else if (desc->attr == GX_VA_CLR0 || desc->attr == GX_VA_CLR1) {
+        } else if (is_color) {
             if (!out->has_color) {
-                size_t step = ctype_size(desc->ctype);
-                for (i = 0; i < comps && i < 4; ++i) {
-                    float value = decode_comp(desc->ctype, desc->frac, source, n,
-                                              offset + i * step);
-                    if (value > 1.0f) {
-                        value = 1.0f;
-                    }
-                    if (value < 0.0f) {
-                        value = 0.0f;
-                    }
-                    out->color[i] = (uint8_t) (value * 255.0f + 0.5f);
-                }
-                if (comps == 3) {
-                    out->color[3] = 255;
-                }
+                decode_color(desc->ctype, source, n, offset, out->color);
                 out->has_color = 1;
             }
         }
@@ -837,6 +902,7 @@ static void load_env_groups(const uint8_t *d, size_t n, size_t po,
             break;
         }
         groups[i].rigid = weight >= (1.0f - 1e-6f);
+        groups[i].scale = 1.0f;
         if (groups[i].rigid) {
             const JointInfo *info =
                 joint_lookup(table, joint_value + HSD_DATA_BASE);
@@ -845,9 +911,24 @@ static void load_env_groups(const uint8_t *d, size_t n, size_t po,
             } else {
                 mtx_identity(groups[i].matrix);
                 groups[i].rigid = 0;
+                groups[i].scale = 1.0f;
             }
         } else {
-            /* Blended groups sum to the identity at bind pose. */
+            /* Blended group: at bind pose each M_joint * inverseBind is the
+             * identity, so the group matrix is (sum of weights) * I. */
+            size_t e;
+            groups[i].scale = 0.0f;
+            for (e = 0; e < 16; ++e) {
+                uint32_t joint;
+                if (!range_ok(group + e * 8, 8, n)) {
+                    break;
+                }
+                joint = rb32(d, n, group + e * 8);
+                if (joint == 0) {
+                    break;
+                }
+                groups[i].scale += rf32(d, n, group + e * 8 + 4);
+            }
             mtx_identity(groups[i].matrix);
         }
         *out_group_count = i + 1;
@@ -856,7 +937,9 @@ static void load_env_groups(const uint8_t *d, size_t n, size_t po,
 
 static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
                        const JointTable *table, const float *right,
-                       size_t dobj_index, uint8_t color[4], int texture)
+                       const float *current_world, size_t dobj_index,
+                       uint8_t color[4], int texture, uint8_t wrap_s,
+                       uint8_t wrap_t)
 {
     RawDesc descs[32];
     EnvGroup groups[HSD_MAX_ENV_GROUPS];
@@ -868,6 +951,10 @@ static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
     size_t limit;
     size_t cur;
     uint16_t display_blocks;
+    uint16_t pobj_flags;
+    unsigned int pobj_type;
+    unsigned int cull_mode;
+    const float *shared_world = NULL;
     if (!range_ok(po, 0x18, n)) {
         return;
     }
@@ -885,7 +972,25 @@ static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
     if (desc_count == 0) {
         return;
     }
-    load_env_groups(d, n, po, table, groups, &group_count);
+    pobj_flags = rb16(d, n, po + 0xc);
+    pobj_type = (pobj_flags >> 12) & 3;
+    cull_mode = (pobj_flags & 0xc000u) >> 14;
+    if (pobj_type < 3) {
+        m->pobj_type_count[pobj_type]++;
+    }
+    if (pobj_type == 2) {
+        load_env_groups(d, n, po, table, groups, &group_count);
+    } else if (pobj_type == 0) {
+        /* POBJ_SKIN: a non-null joint means two matrix slots (GX_PNMTX0 =
+         * current joint, GX_PNMTX1 = this joint), selected per vertex. */
+        size_t shared = rptr(d, n, po + 0x14);
+        if (shared != SIZE_MAX) {
+            const JointInfo *info = joint_lookup(table, shared);
+            if (info != NULL) {
+                shared_world = &info->world[0][0];
+            }
+        }
+    }
     cur = dl;
     while (cur + 3 <= dl + limit) {
         uint8_t op = d[cur] & 0xf8;
@@ -910,32 +1015,43 @@ static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
             if (!verts[i].has_color) {
                 memcpy(verts[i].color, color, 4);
             }
-            if (right != NULL) {
-                /* PObj on a non-skeleton-root joint: at bind pose the group
-                 * matrix is identity and `right` places the vertices. */
-                if (verts[i].has_pos) {
-                    float moved[3];
-                    mtx_transform_point(right, verts[i].pos, moved);
-                    memcpy(verts[i].pos, moved, sizeof(moved));
-                    if (verts[i].has_nrm) {
-                        float normal[3];
-                        mtx_transform_normal(right, verts[i].nrm, normal);
-                        memcpy(verts[i].nrm, normal, sizeof(normal));
+            {
+                const float *matrix = NULL;
+                if (pobj_type == 2) {
+                    /* Envelope: `right` for non-root joints, otherwise rigid
+                     * groups use their joint and blended groups are identity. */
+                    if (right != NULL) {
+                        matrix = right;
+                    } else {
+                        size_t group = (size_t) (verts[i].matrix / 3);
+                        if (group < group_count && groups[group].rigid) {
+                            matrix = &groups[group].matrix[0][0];
+                        } else if (group < group_count &&
+                                   groups[group].scale != 1.0f &&
+                                   verts[i].has_pos) {
+                            /* Blended at bind: uniform scale by weight sum. */
+                            float sum = groups[group].scale;
+                            verts[i].pos[0] *= sum;
+                            verts[i].pos[1] *= sum;
+                            verts[i].pos[2] *= sum;
+                        }
                     }
+                } else if (pobj_type == 0) {
+                    /* Skin: slot 0 = current joint, slot 1 (GX_PNMTX1) = shared. */
+                    matrix = (verts[i].matrix == 3 && shared_world != NULL)
+                                 ? shared_world
+                                 : current_world;
+                } else {
+                    /* Shape animation: rigid to the current joint at bind. */
+                    matrix = current_world;
                 }
-            } else {
-                /* Envelope matrix slots are GX_PNMTX0..9 at 3-index strides. */
-                size_t group = (size_t) (verts[i].matrix / 3);
-                if (group < group_count && groups[group].rigid &&
-                    verts[i].has_pos) {
+                if (matrix != NULL && verts[i].has_pos) {
                     float moved[3];
-                    mtx_transform_point(&groups[group].matrix[0][0],
-                                        verts[i].pos, moved);
+                    mtx_transform_point(matrix, verts[i].pos, moved);
                     memcpy(verts[i].pos, moved, sizeof(moved));
                     if (verts[i].has_nrm) {
                         float normal[3];
-                        mtx_transform_normal(&groups[group].matrix[0][0],
-                                             verts[i].nrm, normal);
+                        mtx_transform_normal(matrix, verts[i].nrm, normal);
                         memcpy(verts[i].nrm, normal, sizeof(normal));
                     }
                 }
@@ -1000,6 +1116,11 @@ static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
         batch->object_index = m->object_count ? m->object_count - 1 : 0;
         batch->dobj_index = dobj_index;
         batch->texture = (int16_t) texture;
+        batch->cull_mode = (uint8_t) cull_mode;
+        batch->wrap_s = wrap_s;
+        batch->wrap_t = wrap_t;
+        batch->translucent =
+            (color[3] != 255) ? 1 : 0;
     }
 }
 
@@ -1019,15 +1140,21 @@ static void walk_joint(DemoModel *m, const uint8_t *d, size_t n, size_t jo,
         float right[3][4];
         int m_index = joint_index_of(table, jo);
         int has_right = joint_right(table, m_index, right);
+        const float *current_world =
+            m_index >= 0 ? &table->joints[m_index].world[0][0] : NULL;
         while (dobj != SIZE_MAX && range_ok(dobj, 0x10, n)) {
             size_t dobj_index = m->dobj_count < DEMO_MAX_DOBJS ? m->dobj_count : DEMO_MAX_DOBJS;
             size_t pobj = rptr(d, n, dobj + 12);
             size_t mobj = rptr(d, n, dobj + 8);
             uint8_t color[4] = { 205, 145, 70, 255 };
+            uint8_t wrap_s = 0;
+            uint8_t wrap_t = 0;
+            uint32_t mobj_rendermode = 0;
             int texture = -1;
             if (mobj != SIZE_MAX && range_ok(mobj, 0x18, n)) {
                 size_t mat = rptr(d, n, mobj + 0xc);
                 size_t texdesc = rptr(d, n, mobj + 8);
+                mobj_rendermode = rb32(d, n, mobj + 4);
                 if (mat != SIZE_MAX && range_ok(mat, 8, n)) {
                     color[0] = d[mat + 4];
                     color[1] = d[mat + 5];
@@ -1035,14 +1162,21 @@ static void walk_joint(DemoModel *m, const uint8_t *d, size_t n, size_t jo,
                     color[3] = d[mat + 7];
                 }
                 if (texdesc != SIZE_MAX && range_ok(texdesc, 0x5c, n)) {
+                    wrap_s = (uint8_t) rb32(d, n, texdesc + 0x34);
+                    wrap_t = (uint8_t) rb32(d, n, texdesc + 0x38);
                     texture = find_or_add_texture(m, d, n, texdesc);
                 }
+            }
+            /* RENDER_XLU (1<<30) marks a blended material; opaque parts ignore
+             * the material alpha so they never render see-through. */
+            if ((mobj_rendermode & 0x40000000u) == 0) {
+                color[3] = 255;
             }
             while (pobj != SIZE_MAX && range_ok(pobj, 0x18, n)) {
                 m->object_count++;
                 parse_pobj(m, d, n, pobj, table,
-                           has_right ? &right[0][0] : NULL, dobj_index, color,
-                           texture);
+                           has_right ? &right[0][0] : NULL, current_world,
+                           dobj_index, color, texture, wrap_s, wrap_t);
                 pobj = rptr(d, n, pobj + 4);
             }
             if (m->dobj_count < DEMO_MAX_DOBJS) {
@@ -1180,6 +1314,15 @@ int demo_model_load(DemoModel *m, const uint8_t *d, size_t n, size_t root_offset
     }
     memset(&table, 0, sizeof(table));
     joint_table_add(d, n, root, -1, &table, 0);
+    m->joint_count = table.count;
+    {
+        size_t ji;
+        for (ji = 0; ji < table.count; ++ji) {
+            if (table.joints[ji].flags & HSD_FLAG_INSTANCE) {
+                m->instance_count++;
+            }
+        }
+    }
     walk_joint(m, d, n, root, &table, 0);
     if (m->triangle_count == 0) {
         seterr(err, errn, "joint graph contained no supported triangles");

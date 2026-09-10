@@ -72,6 +72,9 @@ static int load_model(Visual *v, const char *disc, const char *file)
     printf("Decoded %s: %zu triangles, %zu textures; bounds [%.2f %.2f %.2f] to [%.2f %.2f %.2f]\n",
            file,v->model.vertex_count/3,v->model.texture_count,v->model.bounds_min[0],v->model.bounds_min[1],
            v->model.bounds_min[2],v->model.bounds_max[0],v->model.bounds_max[1],v->model.bounds_max[2]);
+    printf("PObj types: skin %zu, shapeanim %zu, envelope %zu; joints %zu, instances %zu\n",
+           v->model.pobj_type_count[0],v->model.pobj_type_count[1],
+           v->model.pobj_type_count[2],v->model.joint_count,v->model.instance_count);
     float height = v->model.bounds_max[1]-v->model.bounds_min[1];
     v->scale = height > .001f ? 11.0f/height : 1;
     {
@@ -85,19 +88,45 @@ static int load_model(Visual *v, const char *disc, const char *file)
     return 1;
 }
 
-static void list_vertices(Visual *v,size_t first,size_t count)
+static GLint gx_wrap_to_gl(int wrap)
+{
+    if(wrap==1)return GL_REPEAT;
+    if(wrap==2)return GL_MIRRORED_REPEAT;
+    return GL_CLAMP_TO_EDGE;
+}
+
+static void apply_wrap(int wrap_s,int wrap_t)
+{
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,gx_wrap_to_gl(wrap_s));
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,gx_wrap_to_gl(wrap_t));
+}
+
+static void apply_cull(int cull)
+{
+    if(cull==0) {
+        glDisable(GL_CULL_FACE);
+    } else {
+        glEnable(GL_CULL_FACE);
+        glCullFace(cull==1?GL_FRONT:GL_BACK);
+    }
+}
+
+static void list_vertices(Visual *v,size_t first,size_t count,int wrap_s,int wrap_t,int cull)
 {
     int current=-2;
     size_t i;
+    apply_cull(cull);
     for(i=0;i<count;++i) {
         DemoModelVertex *p=&v->model.vertices[first+i];
         if(p->texture!=current) {
             if(current!=-2)glEnd();
             current=p->texture;
-            if(current>=0&&(size_t)current<v->model.texture_count)
+            if(current>=0&&(size_t)current<v->model.texture_count) {
                 glBindTexture(GL_TEXTURE_2D,v->textures[current]);
-            else
+                apply_wrap(wrap_s,wrap_t);
+            } else {
                 glBindTexture(GL_TEXTURE_2D,0);
+            }
             glBegin(GL_TRIANGLES);
         }
         glColor4ubv(p->color);
@@ -125,10 +154,12 @@ static void compile_model(Visual *v)
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_REPEAT);
     }
     for(i=0;i<v->model.batch_count&&i<DEMO_MAX_BATCHES;++i) {
+        DemoModelBatch *b=&v->model.batches[i];
+        if(b->cull_mode==3)continue; /* POBJ_CULLFRONT|CULLBACK: never drawn */
         v->batch_lists[i]=glGenLists(1);
         glNewList(v->batch_lists[i],GL_COMPILE);
-        list_vertices(v,v->model.batches[i].first_vertex,
-                      v->model.batches[i].vertex_count);
+        list_vertices(v,b->first_vertex,b->vertex_count,b->wrap_s,b->wrap_t,
+                      b->cull_mode);
         glEndList();
     }
     v->list=glGenLists(1);
@@ -295,7 +326,8 @@ static void render_viewer(const Visual *v,const Viewer *vs,int w,int h,
     {
         size_t bi;
         for(bi=0;bi<v->model.batch_count&&bi<DEMO_MAX_BATCHES;++bi) {
-            int allowed=vs->show_hidden||demo_model_batch_visible(&v->model,bi);
+            int allowed=v->model.batches[bi].cull_mode!=3&&
+                        (vs->show_hidden||demo_model_batch_visible(&v->model,bi));
             int visible=allowed&&(vs->mode==0||(vs->mode==1&&(int)bi==vs->batch)||
                         (vs->mode==2&&(int)bi!=vs->batch));
             if(visible&&v->batch_lists[bi])glCallList(v->batch_lists[bi]);
@@ -529,18 +561,15 @@ int main(int argc,char **argv)
                     if(p[0]<xmin)xmin=p[0];
                     if(p[0]>xmax)xmax=p[0];
                 }
+                printf("%-4zu %-6zu dobj=%-3zu cull=%u w=%u,%u %-8s y[%6.2f %6.2f] x[%6.2f %6.2f]",
+                       bi,b->vertex_count,b->dobj_index,b->cull_mode,b->wrap_s,b->wrap_t,
+                       demo_model_batch_visible(&visuals[0].model,bi)?"visible":"HIDDEN",
+                       ymin,ymax,xmin,xmax);
                 if(b->texture>=0&&(size_t)b->texture<visuals[0].model.texture_count) {
                     DemoModelTexture *t=&visuals[0].model.textures[b->texture];
-                    printf("%-4zu %-8zu %#-8x %-8s y[%6.2f %6.2f] x[%6.2f %6.2f]  %dx%d f%d\n",
-                           bi,b->vertex_count,(unsigned)t->source_offset,
-                           demo_model_batch_visible(&visuals[0].model,bi)?"visible":"HIDDEN",
-                           ymin,ymax,xmin,xmax,t->width,t->height,t->format);
-                } else {
-                    printf("%-4zu %-8zu %-8s %-8s y[%6.2f %6.2f] x[%6.2f %6.2f]\n",
-                           bi,b->vertex_count,"-",
-                           demo_model_batch_visible(&visuals[0].model,bi)?"visible":"HIDDEN",
-                           ymin,ymax,xmin,xmax);
+                    printf("  %#x %dx%d f%d",(unsigned)t->source_offset,t->width,t->height,t->format);
                 }
+                printf("\n");
             }
             printf("%zu parts\n",visuals[0].model.batch_count);
         }
@@ -559,6 +588,7 @@ int main(int argc,char **argv)
     SDL_GL_SetSwapInterval(1);
     printf("Renderer: %s\n",glGetString(GL_RENDERER));
     compile_model(&visuals[0]);visuals[1].list=visuals[0].list;
+    glFrontFace(GL_CW);
     glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_NORMALIZE);glEnable(GL_COLOR_MATERIAL);
     glColorMaterial(GL_FRONT_AND_BACK,GL_AMBIENT_AND_DIFFUSE);
