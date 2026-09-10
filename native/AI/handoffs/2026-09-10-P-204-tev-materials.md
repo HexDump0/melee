@@ -19,6 +19,12 @@ ASan+UBSan runs clean; `--inspect` bounds/triangles unchanged (textures
   `RENDER_DIFFUSE` lit stage, two texture units (`TObjDesc.src` selects TEX0/
   TEX1), GX channel lighting (`mat_ambient*ambient_light + light*N·L`),
   `GXCompare`/`GXAlphaOp` discard, and `HSD_SetupPEMode` blend/Z via GL state.
+- Texture filters/LOD: per-TObj `HSD_TexLODDesc` min/mag filters with the
+  `TObjSetup` CI/non-mipmapped rules, shader LOD bias, anisotropy when the
+  driver exposes the extension; lightmap `repeat` skips the alpha map.
+- Mr. Game & Watch: `ftGameWatchAttributes.x0` flattening (root X = 0.01) and
+  the costume-0 diffuse override (`ftMaterial_800BFB4C`). His outline/face TEV
+  is runtime state and still missing.
 - Per-character model scale: `demo_parts_apply` now reads
   `ftCo_DatAttrs.model_scaling` (+0x8C) from `ftData<Char>` and
   `demo_model_pose_apply` applies it to the root joint, matching

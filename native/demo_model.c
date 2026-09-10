@@ -852,6 +852,7 @@ static int find_or_add_texture(DemoModel *m, const uint8_t *d, size_t n,
     m->textures[m->texture_count].source_offset = image_value;
     m->textures[m->texture_count].palette_offset = palette_value;
     m->textures[m->texture_count].format = format;
+    m->textures[m->texture_count].mipmap = (uint8_t) rb32(d, n, imagedesc + 0xc);
     m->texture_count++;
     return (int) (m->texture_count - 1);
 }
@@ -1124,8 +1125,21 @@ static void parse_material(DemoModel *m, const uint8_t *d, size_t n,
         t->src = (uint8_t) rb32(d, n, td + 0xc);
         t->wrap_s = (uint8_t) rb32(d, n, td + 0x34);
         t->wrap_t = (uint8_t) rb32(d, n, td + 0x38);
+        t->magfilt = (uint8_t) rb32(d, n, td + 0x48);
         t->flags = rb32(d, n, td + 0x40);
         t->blending = rf32(d, n, td + 0x44);
+        /* TObjSetup's default when HSD_TObjDesc.lod (+0x54) is NULL. */
+        t->minfilt = 5; /* GX_LIN_MIP_LIN */
+        {
+            size_t lod = rptr(d, n, td + 0x54);
+            if (lod != SIZE_MAX && range_ok(lod, 12, n)) {
+                t->minfilt = (uint8_t) rb32(d, n, lod + 0);
+                t->lod_bias = rf32(d, n, lod + 4);
+                t->bias_clamp = d[lod + 8];
+                t->edge_lod = d[lod + 9];
+                t->anisotropy = d[lod + 10];
+            }
+        }
         tev = rptr(d, n, td + 0x58);
         if (tev != SIZE_MAX && range_ok(tev, 0x28, n)) {
             t->has_tev = 1;
@@ -1509,6 +1523,7 @@ void demo_model_init(DemoModel *m, DemoModelVertex *storage, size_t capacity)
     m->vertices = storage;
     m->vertex_capacity = capacity;
     m->model_scale = 1.0f;
+    m->model_scale_x = 0.0f;
     for (i = 0; i < 3; ++i) {
         m->bounds_min[i] = 1e30f;
         m->bounds_max[i] = -1e30f;
@@ -1675,8 +1690,11 @@ void demo_model_pose_apply(DemoModel *m)
     for (j = 0; j < m->joint_count; ++j) {
         DemoJoint *jt = &m->joints[j];
         float local[3][4];
-        float root_scale[3] = { m->model_scale, m->model_scale,
-                                m->model_scale };
+        /* x34_scale.z (Mr. Game & Watch's width) overrides X when set. */
+        float root_scale[3] = {
+            m->model_scale_x > 0.0f ? m->model_scale_x : m->model_scale,
+            m->model_scale, m->model_scale
+        };
         const float *parent_scale = NULL;
         if (jt->parent >= 0) {
             parent_scale = m->joints[jt->parent].scale_world;
@@ -1828,6 +1846,7 @@ int demo_model_load(DemoModel *m, const uint8_t *d, size_t n, size_t root_offset
         return 0;
     }
     m->model_scale = 1.0f;
+    m->model_scale_x = 0.0f;
     root = SIZE_MAX;
     if (root_offset != 0 && root_offset <= n - HSD_DATA_BASE) {
         root = root_offset + HSD_DATA_BASE;

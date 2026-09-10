@@ -89,6 +89,19 @@ Textures are applied in `TObjMakeTExp` in phases keyed by `tobj_lightmap`:
 
 The shader gets a `u_tex_phase[2]` per texture slot and routes each sampled
 texture to the right accumulator. Fighters use at most one map of each kind.
+`repeat = (lightmap_done & tobj_lightmap)` skips the **alpha** map for a phase
+already applied; the port passes `u_tex_repeat[1]` per slot.
+
+### Texture filters and LOD
+
+`HSD_TObjSetup` picks the min filter from `HSD_TexLODDesc.minFilt` (default
+`GX_LIN_MIP_LIN` when the descriptor is NULL), clears the mip bits when
+`ImageDesc.mipmap == 0`, and downgrades `GX_LIN_MIP_LIN` to `GX_LIN_MIP_NEAR`
+for CI images (`tobj.c:1239`). Mag filter is `TObjDesc.magFilt`. The port
+applies these per draw (`gx_min_filter`/`gx_mag_filter`) and feeds
+`HSD_TexLODDesc.LODBias` to `texture(sampler, uv, bias)` because core GL has
+no texture LOD bias. `GXAnisotropy` maps to
+`GL_EXT_texture_filter_anisotropic` when the driver exposes it.
 
 ### Alpha test, blend and Z (`HSD_SetupPEMode`, state.c:203)
 
@@ -126,22 +139,17 @@ Decoding the TEX1 TObj adds one texture to `PlMrNr.dat` (31 -> 32), so the
 
 ## Not ported yet
 
-- **Real scene light values.** The channel equations are ported, but the
-  ambient/diffuse/specular light colours and directions come from the viewer's
-  stand-in set (`model_set_view`). In the game they are `HSD_LObj` objects set
-  up by stages (`src/melee/gr/*`); porting `lobj.c` + the stage light lists is
-  the next step for exact lighting/specular.
-- **Lightmap repeat semantics** (`lightmap_done`) for materials with two maps
-  of the same class; fighters use one DIFFUSE + at most one SPECULAR/EXT map,
-  which is handled.
+- **Stage light sets.** The character-select `HSD_LObj` set is used for the
+  viewer (see `learnings/hsd_lights_fog.md`); match lighting comes from
+  stage-created light lists (`src/melee/gr/*`) and is M4 work.
+- **Point/spot attenuation** (`GX_DA_*`, `HSD_LightAttn`) and GX's exact
+  specular attenuation polynomial (Blinn-Phong is used).
+- **`HSD_TObjTev` active overrides** (`MakeColorGenTExp`). Every TObj in the
+  9 tested fighter archives has `active == 0`; the values are parsed and
+  dumped but the expression graph is not evaluated.
 - **Alpha changes from SPECULAR/EXT maps** (their alphamap result is dropped;
   all fighter specs use alphamap NONE).
-- **`HSD_TObjTev` active overrides** (`MakeColorGenTExp`). Every TObj in the
-  9 tested fighter archives has `active == 0`; verify before relying on it.
 - **Toon texture** (`tobj_toon`): registered per stage, not per model.
-- **Per-scene `HSD_LObj` setup and fog**: render-side state that lives in game
-  code, not the model archive. The shader currently uses the viewer's
-  stand-in light set for the channel equation.
 - **Runtime material swaps**: metal, invisibility, giant/mushroom and damage
   flashes do not live in `Pl*Nr.dat`. `ftMaterial_800BF2B8`
   (`src/melee/ft/ftmaterial.c`) swaps in `ft_804D6580`/`ft_804D6588` and ORs

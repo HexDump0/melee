@@ -43,6 +43,7 @@ typedef struct DemoModelTexture {
     size_t source_offset;  /* data-relative offset of the GX image */
     size_t palette_offset; /* data-relative offset of the TLUT, 0 when none */
     uint32_t format;
+    uint8_t mipmap; /* HSD_ImageDesc.mipmap */
 } DemoModelTexture;
 
 /* One TObjDesc from the material's texture chain (mobj->texdesc->next...).
@@ -52,6 +53,11 @@ typedef struct DemoTobjInfo {
     uint8_t id;          /* GXTexMapID */
     uint8_t src;         /* GXTexGenSrc */
     uint8_t wrap_s, wrap_t;
+    uint8_t magfilt;     /* GXTexFilter */
+    uint8_t minfilt;     /* GXTexFilter; default GX_LIN_MIP_LIN */
+    uint8_t anisotropy;  /* GXAnisotropy (0 = 1x) */
+    uint8_t bias_clamp, edge_lod;
+    float lod_bias;
     uint32_t flags;
     float blending;
     uint8_t has_tev;
@@ -182,8 +188,14 @@ typedef struct DemoModel {
     size_t instance_count;
     /* Fighter_UpdateModelScale: the game sets the root joint scale to
      * x34_scale.y * co_attrs.model_scaling.  demo_parts_apply fills this from
-     * ftData<Char>'s attribute table; 1.0 when unavailable. */
+     * ftData<Char>'s attribute table; 1.0 when unavailable.  model_scale_x is
+     * the X override (x34_scale.z, nonzero only for Mr. Game & Watch). */
     float model_scale;
+    float model_scale_x;
+    /* Runtime material overrides (ftMaterial_800BFB4C): Mr. Game & Watch's
+     * costume colour replaces every MObj diffuse. */
+    uint8_t override_diffuse[4];
+    uint8_t has_override_diffuse;
     /* Raw per-vertex skinning inputs: 6 floats (position, normal in the
      * group's stored space) and one selector byte per vertex. */
     float *raw;

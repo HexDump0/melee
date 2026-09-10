@@ -79,8 +79,23 @@ Observed on retail Rev 2 (bounds height in game units after scaling):
 | `PlMs` (Marth) | 1.15 | 19.59 | 1.23 |
 | `PlKb` (Kirby) | 0.92 | 9.75 | 0.61 |
 
-`x34_scale.z` (`ftCommonData` or `da->x0_GAMEWATCH_WIDTH` for Mr. Game &
-Watch) is not modelled yet; G&W's X flattening will need it.
+`x34_scale.z` has two sources:
+
+- **Mr. Game & Watch, always:** `ftGw_Init` (`ftgamewatch.c:536`) sets
+  `x34_scale.z = ftGameWatchAttributes.x0_GAMEWATCH_WIDTH` (`ftData.ext_attr
+  +0`, 0.01 by default), so his root X scale is 0.01 and he is paper flat.
+  The viewer reads it into `DemoModel.model_scale_x`.
+- **Flat Zone only:** `Fighter_80068E64` (`fighter.c:825`) sets
+  `x34_scale.z = p_ftCommonData->x7E4_scaleZ` when
+  `stage_info.grkind == Gr_Kind_Flatzone`. A bare model viewer has no stage,
+  so the viewer intentionally leaves it at 1.0.
+
+Runtime colour overrides also exist outside the model file: `ftGw_Init` picks
+`ftGameWatchAttributes.x4_GAMEWATCH_COLOR[costume]` (+4) and
+`ftMaterial_800BFB4C` copies it into every MObj diffuse. The viewer applies
+costume 0 (`DemoModel.override_diffuse`). G&W's black/white outline and face
+are a runtime outline TEV (`ftmaterial.c`, `fp->x610_color_rgba`), not ported
+(M3).
 
 ## `ftData` layout beyond x0
 

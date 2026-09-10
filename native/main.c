@@ -30,6 +30,9 @@ static int g_vis_variant = 0;
 static DemoLightSet g_lights;
 static int g_lights_loaded = 0;
 
+#define DEMO_GL_ANISO_EXT 0x84FEu
+static int g_aniso_supported = 0;
+
 typedef struct Visual {
     DemoModel model;
     DemoAnim anim;
@@ -464,6 +467,7 @@ static const char *MODEL_FS =
     "uniform int u_cmap[2];\n"
     "uniform int u_amap[2];\n"
     "uniform float u_tex_blend[2];\n"
+    "uniform float u_tex_lod[2];\n"
     "uniform int u_ras_lit;\n"
     "uniform int u_initial_ras;\n"
     "uniform int u_diffuse_mul;\n"
@@ -471,6 +475,7 @@ static const char *MODEL_FS =
     "uniform vec4 u_material;\n"
     "uniform vec3 u_mat_specular;\n"
     "uniform int u_tex_phase[2];\n" /* 0 diffuse/ambient, 1 specular, 2 ext */
+    "uniform int u_tex_repeat[2];\n" /* lightmap_done: skip the alpha map */
     "uniform int u_alpha_test;\n"
     "uniform int u_acomp[2];\n"
     "uniform float u_aref[2];\n"
@@ -530,19 +535,19 @@ static const char *MODEL_FS_MAIN =
     "    vec4 t0 = vec4(1.0);\n"
     "    vec4 t1 = vec4(1.0);\n"
     "    if (u_tex_count > 0)\n"
-    "        t0 = texture(u_tex0, (u_texsrc[0] == 5) ? v_uv2 : v_uv);\n"
+    "        t0 = texture(u_tex0, (u_texsrc[0] == 5) ? v_uv2 : v_uv, u_tex_lod[0]);\n"
     "    if (u_tex_count > 1)\n"
-    "        t1 = texture(u_tex1, (u_texsrc[1] == 5) ? v_uv2 : v_uv);\n"
+    "        t1 = texture(u_tex1, (u_texsrc[1] == 5) ? v_uv2 : v_uv, u_tex_lod[1]);\n"
     /* MObjMakeTExp phase order: DIFFUSE/AMBIENT textures, then the
      * RENDER_DIFFUSE raster multiply, then SPECULAR lightmaps accumulated
      * into mat.specular and multiplied by the specular channel, then EXT. */
     "    if (u_tex_count > 0 && u_tex_phase[0] == 0) {\n"
-    "        color = vec4(tev_colormap(u_cmap[0], u_tex_blend[0], color.rgb, t0),\n"
-    "                     tev_alphamap(u_amap[0], u_tex_blend[0], color.a, t0));\n"
+    "        color.rgb = tev_colormap(u_cmap[0], u_tex_blend[0], color.rgb, t0);\n"
+    "        if (u_tex_repeat[0] == 0) color.a = tev_alphamap(u_amap[0], u_tex_blend[0], color.a, t0);\n"
     "    }\n"
     "    if (u_tex_count > 1 && u_tex_phase[1] == 0) {\n"
-    "        color = vec4(tev_colormap(u_cmap[1], u_tex_blend[1], color.rgb, t1),\n"
-    "                     tev_alphamap(u_amap[1], u_tex_blend[1], color.a, t1));\n"
+    "        color.rgb = tev_colormap(u_cmap[1], u_tex_blend[1], color.rgb, t1);\n"
+    "        if (u_tex_repeat[1] == 0) color.a = tev_alphamap(u_amap[1], u_tex_blend[1], color.a, t1);\n"
     "    }\n"
     "    if (u_diffuse_mul != 0) {\n"
     "        color.rgb = clamp(color.rgb * ras.rgb, 0.0, 1.0);\n"
@@ -558,12 +563,12 @@ static const char *MODEL_FS_MAIN =
     "        color.rgb = clamp(color.rgb + spec, 0.0, 1.0);\n"
     "    }\n"
     "    if (u_tex_count > 0 && u_tex_phase[0] == 2) {\n"
-    "        color = vec4(tev_colormap(u_cmap[0], u_tex_blend[0], color.rgb, t0),\n"
-    "                     tev_alphamap(u_amap[0], u_tex_blend[0], color.a, t0));\n"
+    "        color.rgb = tev_colormap(u_cmap[0], u_tex_blend[0], color.rgb, t0);\n"
+    "        if (u_tex_repeat[0] == 0) color.a = tev_alphamap(u_amap[0], u_tex_blend[0], color.a, t0);\n"
     "    }\n"
     "    if (u_tex_count > 1 && u_tex_phase[1] == 2) {\n"
-    "        color = vec4(tev_colormap(u_cmap[1], u_tex_blend[1], color.rgb, t1),\n"
-    "                     tev_alphamap(u_amap[1], u_tex_blend[1], color.a, t1));\n"
+    "        color.rgb = tev_colormap(u_cmap[1], u_tex_blend[1], color.rgb, t1);\n"
+    "        if (u_tex_repeat[1] == 0) color.a = tev_alphamap(u_amap[1], u_tex_blend[1], color.a, t1);\n"
     "    }\n"
     "    if (u_alpha_test != 0) {\n"
     "        int av = int(color.a * 255.0 + 0.5);\n"
@@ -620,6 +625,7 @@ typedef struct ModelShader {
     GLint cmap;
     GLint amap;
     GLint tex_blend;
+    GLint tex_lod;
     GLint modelview;
     GLint light_mv;
     GLint ambient_light;
@@ -641,6 +647,7 @@ typedef struct ModelShader {
     GLint material;
     GLint mat_specular;
     GLint tex_phase;
+    GLint tex_repeat;
     GLint alpha_test;
     GLint acomp;
     GLint aref;
@@ -695,6 +702,8 @@ static GLuint link_program(GLuint vs,GLuint fs,const char *name)
 static int renderer_init(void)
 {
     GLuint vs,fs;
+    g_aniso_supported=
+        SDL_GL_ExtensionSupported("GL_EXT_texture_filter_anisotropic")?1:0;
     vs=compile_shader(GL_VERTEX_SHADER,MODEL_VS,NULL);
     fs=compile_shader(GL_FRAGMENT_SHADER,MODEL_FS,MODEL_FS_MAIN);
     if(!vs||!fs)return 0;
@@ -710,6 +719,7 @@ static int renderer_init(void)
     g_model.cmap=glGetUniformLocation(g_model.program,"u_cmap[0]");
     g_model.amap=glGetUniformLocation(g_model.program,"u_amap[0]");
     g_model.tex_blend=glGetUniformLocation(g_model.program,"u_tex_blend[0]");
+    g_model.tex_lod=glGetUniformLocation(g_model.program,"u_tex_lod[0]");
     g_model.modelview=glGetUniformLocation(g_model.program,"u_modelview");
     g_model.light_mv=glGetUniformLocation(g_model.program,"u_light_mv");
     g_model.ambient_light=glGetUniformLocation(g_model.program,"u_ambient_light");
@@ -731,6 +741,7 @@ static int renderer_init(void)
     g_model.material=glGetUniformLocation(g_model.program,"u_material");
     g_model.mat_specular=glGetUniformLocation(g_model.program,"u_mat_specular");
     g_model.tex_phase=glGetUniformLocation(g_model.program,"u_tex_phase[0]");
+    g_model.tex_repeat=glGetUniformLocation(g_model.program,"u_tex_repeat[0]");
     g_model.alpha_test=glGetUniformLocation(g_model.program,"u_alpha_test");
     g_model.acomp=glGetUniformLocation(g_model.program,"u_acomp[0]");
     g_model.aref=glGetUniformLocation(g_model.program,"u_aref[0]");
@@ -974,9 +985,12 @@ static int load_model(Visual *v, const char *disc, const char *file)
         printf("PObj types: skin %zu, shapeanim %zu, envelope %zu; joints %zu, instances %zu\n",
                v->model.pobj_type_count[0],v->model.pobj_type_count[1],
                v->model.pobj_type_count[2],v->model.joint_count,v->model.instance_count);
-        if(parts==0)printf("Parts visibility: %zu of %zu objects hidden (neutral pose; model scale %.4f)\n",
+        if(parts==0)printf("Parts visibility: %zu of %zu objects hidden (neutral pose; model scale %.4f, x %.4f)\n",
                            demo_parts_hidden_count(&v->model),v->model.dobj_count,
-                           (double)v->model.model_scale);
+                           (double)v->model.model_scale,
+                           (double)(v->model.model_scale_x>0.0f
+                                        ?v->model.model_scale_x
+                                        :v->model.model_scale));
         else if(parts<0)fprintf(stderr,"Parts visibility failed: %s\n",parts_error);
     }
     {
@@ -1009,6 +1023,40 @@ static void apply_wrap(int wrap_s,int wrap_t)
 {
     glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,gx_wrap_to_gl(wrap_s));
     glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,gx_wrap_to_gl(wrap_t));
+}
+
+/* HSD_TObjSetup + GXInitTexObjLOD: default min filter GX_LIN_MIP_LIN, CI
+ * textures downgrade it to GX_LIN_MIP_NEAR, and non-mipmapped images keep
+ * only the nearest/linear bit. */
+static GLenum gx_min_filter(uint8_t f,uint8_t mipmap,uint32_t format)
+{
+    if(!mipmap)f=(uint8_t)(f&1u);
+    if(f==5&&(format==8||format==9||format==10))f=3;
+    switch(f) {
+    case 0: return GL_NEAREST;
+    case 1: return GL_LINEAR;
+    case 2: return GL_NEAREST_MIPMAP_NEAREST;
+    case 3: return GL_LINEAR_MIPMAP_NEAREST;
+    case 4: return GL_NEAREST_MIPMAP_LINEAR;
+    default: return GL_LINEAR_MIPMAP_LINEAR;
+    }
+}
+
+static GLenum gx_mag_filter(uint8_t f)
+{
+    return f==0?GL_NEAREST:GL_LINEAR;
+}
+
+static void apply_tex_filter(const DemoTobjInfo *t,
+                             const DemoModelTexture *tex)
+{
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,
+                    gx_min_filter(t->minfilt,tex->mipmap,tex->format));
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,
+                    gx_mag_filter(t->magfilt));
+    if(g_aniso_supported&&t->anisotropy>0&&t->anisotropy<4)
+        glTexParameterf(GL_TEXTURE_2D,DEMO_GL_ANISO_EXT,
+                        (float)(1u<<t->anisotropy));
 }
 
 static void apply_cull(int cull)
@@ -1062,7 +1110,10 @@ static void draw_batch(const Visual *v,size_t bi,int pose,int textured)
     int cmap[2]={0,0};
     int amap[2]={0,0};
     int phase[2]={0,0};
+    int repeat[2]={0,0};
+    int seen_phase[3]={0,0,0};
     float blend[2]={0.0f,0.0f};
+    float lod[2]={0.0f,0.0f};
     float mtx[32];
     int acomp[2];
     float aref[2];
@@ -1078,12 +1129,17 @@ static void draw_batch(const Visual *v,size_t bi,int pose,int textured)
             glActiveTexture(GL_TEXTURE0+(GLenum)count);
             glBindTexture(GL_TEXTURE_2D,v->textures[t->texture]);
             apply_wrap(t->wrap_s,t->wrap_t);
+            apply_tex_filter(t,&v->model.textures[t->texture]);
             texsrc[count]=t->src==5?5:4; /* GX_TG_TEX0 / GX_TG_TEX1 */
             cmap[count]=(int)((t->flags>>16)&0xf);
             amap[count]=(int)((t->flags>>20)&0xf);
-            /* TObjMakeTExp phase: DIFFUSE/AMBIENT, SPECULAR lightmap, EXT. */
+            /* TObjMakeTExp phase: DIFFUSE/AMBIENT, SPECULAR lightmap, EXT.
+             * `repeat` (lightmap_done) skips the alpha map for a phase that
+             * was already applied. */
             phase[count]=(t->flags&0x20u)?1:((t->flags&0x80u)?2:0);
+            repeat[count]=seen_phase[phase[count]]++;
             blend[count]=t->blending;
+            lod[count]=t->lod_bias;
             count++;
         }
         glActiveTexture(GL_TEXTURE0);
@@ -1099,14 +1155,20 @@ static void draw_batch(const Visual *v,size_t bi,int pose,int textured)
     glUniform1iv(g_model.cmap,2,cmap);
     glUniform1iv(g_model.amap,2,amap);
     glUniform1iv(g_model.tex_phase,2,phase);
+    glUniform1iv(g_model.tex_repeat,2,repeat);
     glUniform1fv(g_model.tex_blend,2,blend);
+    glUniform1fv(g_model.tex_lod,2,lod);
     glUniform1i(g_model.tex_count,count);
     glUniform1i(g_model.ras_lit,mat->channel_lit);
     glUniform1i(g_model.initial_ras,mat->initial_ras);
     glUniform1i(g_model.diffuse_mul,mat->diffuse_mul);
     glUniform1i(g_model.specular_tev,mat->specular_tev);
-    glUniform4f(g_model.material,mat->diffuse[0]/255.0f,mat->diffuse[1]/255.0f,
-                mat->diffuse[2]/255.0f,mat->alpha);
+    {
+        const uint8_t *diff=mat->diffuse;
+        if(v->model.has_override_diffuse)diff=v->model.override_diffuse;
+        glUniform4f(g_model.material,diff[0]/255.0f,diff[1]/255.0f,
+                    diff[2]/255.0f,mat->alpha);
+    }
     glUniform3f(g_model.mat_ambient,mat->ambient[0]/255.0f,
                 mat->ambient[1]/255.0f,mat->ambient[2]/255.0f);
     glUniform3f(g_model.mat_specular,mat->specular[0]/255.0f,

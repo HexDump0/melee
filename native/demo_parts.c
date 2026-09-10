@@ -207,6 +207,30 @@ int demo_parts_apply(const char *disc_image, const char *model_file,
             }
         }
     }
+    /*
+     * Mr. Game & Watch is always flat: ftGw_Init sets x34_scale.z from
+     * ftGameWatchAttributes.x0 (ftData.ext_attr +0, "Z-Axis stretch; 0.01 by
+     * default"), and Fighter_UpdateModelScale maps x34_scale.z to the root X
+     * scale.
+     */
+    if (strncmp(model_file, "PlGw", 4) == 0) {
+        uint32_t ext_ptr = be32(d + ft + 4);
+        if (ext_ptr != 0 && ext_ptr <= n - DATA_BASE) {
+            size_t ext = DATA_BASE + ext_ptr;
+            /* ftGameWatchAttributes: x0 width, x4 costume colours[4]. */
+            if (range_ok(ext, 0x18, n)) {
+                uint32_t bits = be32(d + ext);
+                float width;
+                memcpy(&width, &bits, sizeof(width));
+                if (isfinite(width) && width > 0.001f && width <= 1.5f) {
+                    model->model_scale_x = width;
+                }
+                /* ftGw_Init + ftMaterial_800BFB4C: costume 0 diffuse. */
+                memcpy(model->override_diffuse, d + ext + 4, 4);
+                model->has_override_diffuse = 1;
+            }
+        }
+    }
     desc_ptr = be32(d + ft + 8);
     if (desc_ptr > n - DATA_BASE) {
         demo_asset_free(&asset);
