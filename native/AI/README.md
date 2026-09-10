@@ -83,11 +83,12 @@ native/AI/
 
 ## The one-paragraph summary
 
-`native/` is a hand-written C sandbox, not a port of the Melee engine. It reads
-a user-supplied disc image, decodes HSD model archives and GX textures, applies
-the same bind-pose envelope transforms HSD uses at rest, and renders a
-two-player controller sandbox with SDL2 + OpenGL. Mario's real movement values
-come from `ftDataMario` on the disc. The long-term goal is to replace demo code
-with the actual decompiled engine code where practical, add animation, audio,
-menus, netplay and a WASM target, without ever requiring the user to
-redistribute game assets.
+`native/` is the native port. It reads a user-supplied disc image, decodes HSD
+model archives and GX textures, and renders a two-player sandbox with SDL2 +
+OpenGL. Models, textures, movement attributes and animation all come from the
+disc and are evaluated with ports of the engine's own functions: bind-pose and
+per-frame envelope/shared/rigid skinning, the `fobj.c` curve player, and
+`ftAnim_8006F4C8`-style FigaTree binding. The long-term goal is to keep
+replacing original sandbox code with decompiled engine code (`src/`) until the
+port is faithful, adding audio, menus, netplay and a WASM target, without ever
+requiring the user to redistribute game assets.

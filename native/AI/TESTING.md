@@ -19,8 +19,18 @@ cmake --build build/native -j4
 Expected tail:
 
 ```
-Decoded PlMrNr.dat: 6328 triangles, 30 textures; bounds [-7.56 -0.28 -2.70] to [7.57 14.21 3.58]
+Decoded PlMrNr.dat: 6328 triangles, 31 textures; bounds [-7.56 -0.28 -2.70] to [7.57 14.21 3.58]
 ```
+
+```sh
+# Animation clip table and a deterministic animated frame
+./build/native/melee-demo --model PlMrNr.dat --list-clips | head
+SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --view --animate \
+    --clip Wait1 --anim-frame 25 --frames 1 --screenshot /tmp/anim.bmp
+```
+
+Expected: 195 clips for Mario (`Wait1` 50 frames), and
+`Rendered 1 viewer frames`. Screenshots at frames 0 and 25 must differ.
 
 ```sh
 # Full loop + render, headless

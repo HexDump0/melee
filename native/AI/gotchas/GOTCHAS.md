@@ -282,3 +282,41 @@ editing docs, run `git check-ignore -v native/AI/README.md`.
 **Cause:** the GL implementation does not free everything at exit.
 **Fix:** run with `ASAN_OPTIONS=detect_leaks=0` (see `TESTING.md`); leaks in
 port allocations are still a bug and must be fixed.
+
+## G-036: do not reinterpret the FObj stream statelessly
+
+**Symptom:** animations look fine early, then a joint explodes near the end of
+a clip (values like `-6e32`), or KEY/SPL tracks never match the game.
+**Cause:** rewriting `fobj.c`'s compressed curve playback as a "parse once,
+evaluate at t" model. The stream is read incrementally; pack counts, waits,
+slope bookkeeping and the end-of-data state 6 all matter.
+**Fix:** port the state machine literally (see `demo_aobj.c`). Seek with
+`ReqAnim(frame)` + `Interpret(rate = 0)`, which is exactly what
+`HSD_JObjReqAnimAll` + `HSD_JObjAnimAll` do. Differential-test against a
+transcription of `fobj.c` if you change it.
+
+## G-037: FigaTree nodes map to joints, not ftParts slots
+
+**Symptom:** characters with `Fighter_804D6540` entries (Kirby, Link, Zelda)
+animate with wrong/offset limbs if the skip list is treated as a joint filter.
+**Cause:** the skip list inserts phantom part slots for item attachments; the
+i-th figatree node still drives the i-th joint in HSD traversal order.
+**Fix:** bind node i to model joint i (see `demo_anim_set_clip`); use the skip
+list only for part-index bookkeeping.
+
+## G-038: animation time must step on the 60 Hz tick
+
+**Symptom:** animations play too fast/slow depending on the monitor (e.g.
+180 Hz).
+**Cause:** advancing animation frames by render `dt` directly couples playback
+to the refresh rate.
+**Fix:** accumulate wall time into a fixed 1/60 step before advancing, as the
+game does (`HSD_AObjSetRate` is frames per 60 Hz tick).
+
+## G-039: `--model` alone opens the interactive sandbox
+
+**Symptom:** running `melee-demo --model PlKbNr.dat` from a terminal pops a
+window instead of printing.
+**Cause:** without `--inspect`, `--view`, `--list-clips`, etc. the default mode
+is the playable sandbox.
+**Fix:** always pass a headless mode flag when probing assets.

@@ -27,7 +27,10 @@ Status values: `open`, `claimed`, `blocked`, `review`, `done`.
 | ID | Task | Status | Agent | Files | Notes / acceptance |
 |---|---|---|---|---|---|
 | P-108 | Per-part isolation for the viewer (`DemoModelBatch`, batch lists) | done | follow-up | `native/demo_model.*`, `native/main.c` | Added with the viewer; see Completed. |
-| P-201 | Animation foundation: evaluate HSD `AObj` and drive joint matrices per frame; then set expression indices via `ftParts_80074B0C` | **next** | — | `native/demo_model.*`, `native/main.c` | See the brief below. Acceptance: a looping idle animation plays for `PlMrNr.dat` with no ASan errors. |
+| P-207 | Animation expressions: handle `SETBYTE`/`SETFLOAT` channels and drive `ftParts_80074B0C` visibility | open | — | `native/demo_aobj.c`, `native/demo_anim.c` | Fixes blinking/damage faces and NODE/BRANCH part toggles. Mario Wait/Damage first. |
+| P-208 | Resolve IK joints (`resolveIKJoint1/2`, `JOBJ_JOINT`/`EFFECTOR`) during pose evaluation | open | — | `native/demo_model.c` | Foot/hand planting in landing and ledge clips. |
+| P-209 | Material animation (`HSD_MatAnimJoint`) from `Pl*Nr.dat` / AJ clips | open | — | `native/demo_model.c` | Texture scrolls/fades; `matanim_joint` public symbol is parsed but unused. |
+| P-210 | Per-action animation rate (`frame_speed_mul`) instead of fixed 1.0 | open | — | `native/main.c` | Rate currently 1.0, matching Wait; other actions can be 0.5/2.0. |
 | P-204 | TEV approximation pass: alpha test, additive/translucent PObjs | open | — | `native/main.c`, `native/demo_model.c` | Use `POBJ_CULLFRONT/CULLBACK`, `RENDER_XLU`, material alpha, `TObj` colormap flags. Acceptance: no opaque black borders around transparent parts. |
 | P-205 | Per-TObj texture matrices (scale/translate/rotate) | open | — | `native/demo_model.c` | `HSD_TObjDesc` at +0x10..+0x30. Fixes facial/eye UV offsets if they turn out to be wrong. |
 | P-206 | Camera polish: zoom-to-fit both fighters, stage bounds, ledge visibility | open | — | `native/main.c` | Keep it headless-screenshot verifiable. |
@@ -41,40 +44,13 @@ Status values: `open`, `claimed`, `blocked`, `review`, `done`.
 | P-501 | Audio backend design memo | open | — | `native/AI/DECISIONS.md` | Options: reimplement AX/DSP, use an existing AX emulator, or replace with per-game mixer. Write an ADR before coding. |
 | P-502 | WASM feasibility memo | open | — | `native/AI/DECISIONS.md` | Emscripten + SDL2 + WebGL1. Identify blockers: synchronous disc read, threading, file access. |
 
-## P-201 implementation brief (for the next session)
+## P-201 result
 
-**Goal:** play an HSD animation on a fighter and drive joint world matrices per
-frame instead of baking one static batch list.
-
-**Data:** each `Pl<Char>.dat` public table has an animation root (for Mario:
-`PlyMario5K_Share_matanim_joint`); `Pl*AJ.dat` archives hold standalone anims.
-`HSD_AnimJoint` -> `HSD_AObjDesc` -> `HSD_AObjKey`/`HSD_AObj` (`src/sysdolphin/
-baselib/aobj.c/.h`). Evaluate keys with `HSD_AObjReqAnim`/`HSD_AObjAnim`
-semantics (curve types: step/linear/bezier). Joints get rotation/translation/
-scale tracks.
-
-**Decomp reading:** `aobj.c` (`HSD_AObjSetFlags`, curves), `jobj.c`
-(`HSD_JObjMakeMatrix` already ported as `make_local_mtx`, `HSD_JObjAnimAll`),
-`ftanim.c`/`ftdrawcommon.c` for per-frame part visibility
-(`ftParts_80074B0C`, `ftParts_800750C8`).
-
-**Renderer change:** tag each `DemoModelBatch` with its DObj index (already
-stored) and compile one list per batch (already done). At draw time, compute
-each joint's world matrix for the current frame, then draw each batch with its
-joint/group matrix via `glPushMatrix`/`glMultMatrixf` around its batch list.
-Keep the bind-pose fast path for `--view`.
-
-**Acceptance:**
-- `--view --animate` (or a new flag) plays a looping clip; screenshots at two
-  different times show different poses.
-- The match uses the animated pose.
-- `--inspect` numbers unchanged; 600-frame scripted run ASan-clean.
-
-**Watch out:** joint matrices are 3x4 column-vector convention (`p' = M*p`);
-envelope PObjs already bake group matrices into vertices, so animating joints
-means either rebaking on the CPU or applying the delta per joint. Prefer the
-latter: store per-batch `mix` matrix = `currentJoint * inverseBindJoint * right`
-and multiply at draw time.
+Done in `0e1a974d2` (backend) and `6665bd5f2` (viewer/sandbox). Clips come from
+`Pl<Char>AJ.dat` FigaTree archives; `demo_aobj.c` is a literal port of the
+`fobj.c` player and `demo_anim.c` binds nodes to joints exactly like
+`ftAnim_8006F4C8`. Read `learnings/hsd_animation.md` before touching it. The
+remaining fidelity work is P-207..P-210 above.
 
 ## Blocked / needs a human
 
@@ -88,6 +64,7 @@ and multiply at draw time.
 
 | ID | Task | Agent | Commit | Date |
 |---|---|---|---|---|
+| P-201 | HSD FigaTree animation playback, per-frame skinning, viewer + sandbox | opencode (deepseek-flash) | `0e1a974d2`, `6665bd5f2` | 2026-09-10 |
 | P-101 | Disc reader + FST (`demo_assets.c`) | Codex | `f70d50cce` | 2026-09-09 |
 | P-102 | HSD model decode + envelope bind pose | Codex + follow-up | `f70d50cce` | 2026-09-10 |
 | P-103 | GX texture decode to RGBA8 | Codex | `f70d50cce` | 2026-09-09 |

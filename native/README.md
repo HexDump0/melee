@@ -29,7 +29,7 @@ unchanged and remains available.
 | Mario movement attributes from `PlMr.dat` | Works |
 | Sandbox movement, jumping, shield, one attack | Works |
 | Interactive 3D model viewer (orbit, zoom, parts) | Works |
-| Gameplay animation from `Pl*.dat` animation tables | Not implemented |
+| Fighter animation from `Pl*AJ.dat` FigaTree clips | Works (viewer playback + sandbox clip switching) |
 | Animated face expressions (blinking, damage) | Not implemented; neutral pose is correct |
 | Audio, menus, combat states, knockback model, items | Not implemented |
 | Other characters | Should work via `--model Pl**.dat`; untested |
@@ -93,8 +93,12 @@ projection and a ground grid.
 | `N` / `P` | Next / previous character model |
 | `[` / `]` | Select previous / next mesh part |
 | `V` | Part mode: all / only selected / hide selected |
+| `A` | Play / pause the fighter animation |
+| `,` / `.` | Step one animation frame (pauses) |
+| `Z` / `X` | Previous / next animation clip |
+| `M` | Cycle playback speed (0.25x / 0.5x / 1x / 2x) |
 | `B` | Cycle visibility slot (body / reflection / metal) |
-| `X` | Reveal hidden parts |
+| `Y` | Reveal hidden parts |
 | `T` / `L` / `W` / `C` | Toggle textures / lighting / wireframe / culling |
 | `G` / `Space` | Toggle grid / auto-spin |
 | `R` | Reset camera |
@@ -116,6 +120,13 @@ isolation is still useful to inspect individual meshes.
 # List every character model archive on the disc
 ./build/native/melee-demo --list-models
 ./build/native/melee-demo --all-models --list-models
+
+# List the animation clips in the character's Pl*AJ.dat archive
+./build/native/melee-demo --model PlMrNr.dat --list-clips
+
+# Play a clip in the viewer and capture a deterministic frame
+SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --view --animate \
+    --clip Wait1 --anim-frame 25 --frames 1 --screenshot /tmp/anim.bmp
 
 # List the mesh parts of a model (index, vertex count, bounds)
 ./build/native/melee-demo --inspect --list-parts
@@ -147,11 +158,16 @@ without extra configuration.
 
 - `demo_assets.c` reads CISO/ISO/GCM images and resolves FST paths.
 - `demo_model.c` walks HSD joints, display lists and envelope groups and applies
-  the same bind-pose transforms HSD uses at rest. HSD archive pointers are
-  32-bit offsets from the start of the data section; every read is bounds
-  checked so 64-bit hosts are safe.
-- `demo_texture.c` decodes the GX texture formats used by the fighter costumes.
-  Paletted (`CI4`/`CI8`) textures are skipped and fall back to material color.
+  the same transforms HSD uses (bind pose by default, animated on demand). It
+  keeps the raw per-vertex skin inputs and re-skins each evaluated frame. HSD
+  archive pointers are 32-bit offsets from the start of the data section; every
+  read is bounds checked so 64-bit hosts are safe.
+- `demo_texture.c` decodes the GX texture formats used by the fighter costumes,
+  including paletted (`CI4`/`CI8` + TLUT) textures.
+- `demo_aobj.c` is a literal port of the HSD FObj curve player
+  (`src/sysdolphin/baselib/fobj.c`).
+- `demo_anim.c` walks the `Pl<Char>AJ.dat` clip container, binds FigaTree nodes
+  to joints exactly like `ftAnim_8006F4C8`, and poses the model.
 - `demo_attributes.c` reads `ftDataMario`'s `ftCo_DatAttrs` from `PlMr.dat`.
 - `demo_physics.c` is the sandbox controller. It uses real Mario values where
   available and clearly marked demo approximations elsewhere.

@@ -12,6 +12,33 @@ Follow them even when they feel slow.
   `#ifdef`-free wrapper under `native/`.
 - Never use or commit game assets. Test against the user's local disc image.
 
+## 0.1 This is a port, not a reinterpretation
+
+**The decompilation under `src/` is the specification. Port the game's actual
+logic; do not invent an equivalent that "looks about right".**
+
+- Before writing engine behavior, find the function that implements it
+  (`rg` for the symbol, read the `.c`/`.h`) and translate that function
+  structure, naming, control flow and arithmetic into `native/`. Keep the
+  original function names in comments (e.g. `/* HSD_FObjInterpretAnim */`).
+- Do not replace state machines with "cleaner" stateless models. If the engine
+  plays increments a byte stream (FObj), the port plays the same stream with
+  the same state. If the engine walks a tree a certain way (ftParts), the port
+  walks it the same way. Reinventions drift and produce wrong output.
+- Reuse the decomp's constants, offsets and formulas verbatim (fixed-point
+  encodings, spline kernel, matrix convention, flag semantics). When a
+  formula is copied, cite the source file/function in a comment.
+- When experimenting, validate against the decomp's behavior, not against
+  "it looks plausible": differential tests against a literal transcription of
+  the decomp function are the expected proof (see `TESTING.md`).
+- The known-good engine sources for the animation work are:
+  `src/sysdolphin/baselib/fobj.c` + `aobj.c` (curve playback),
+  `jobj.c` (`JObjUpdateFunc`, `HSD_JObjMakeMatrix`), `mtx.c` (`HSD_MtxSRT`,
+  `splGetHelmite` in `spline.c`), `displayfunc.c`
+  (`_HSD_mkEnvelopeModelNodeMtx`), `pobj.c` / `src/melee/ft/ftparts.c`
+  (envelope/shared/rigid matrix setup), `src/melee/lb/lbanim.c` (FigaTree),
+  `src/melee/ft/ftanim.c` (node -> joint binding).
+
 ## 1. Cold start (do this every session)
 
 1. `git pull`

@@ -103,7 +103,7 @@ per frame unless profiling shows it is cheap enough at 60 Hz for two fighters.
 gains a per-joint draw loop. Verifiable with the existing `--scripted`
 screenshot harness.
 
-**Status:** proposed (2026-09-10).
+**Status:** superseded by ADR-0008 (2026-09-10).
 
 ---
 
@@ -117,3 +117,28 @@ Linux-only APIs so a WASM port is possible. Write the WASM feasibility memo
 (P-502) before attempting it.
 
 **Status:** accepted (2026-09-09).
+
+---
+
+## ADR-0008: Animation is a literal port of the decomp, re-skinned on the CPU
+
+**Context.** The engine plays FigaTree clips through HSD `FObj` byte streams and
+`JObjUpdateFunc`, then skins with `PObjSetupMtx`. A hand-written "clean"
+equivalent (stateless curve evaluation, per-joint render matrices) drifted from
+the engine and produced wrong poses at clip boundaries. The project goal is an
+exact port, and the decomp is the specification.
+
+**Decision.** Transcribe the engine state machines and math verbatim:
+`demo_aobj.c` follows `fobj.c`, `demo_anim.c` follows `lbanim.c` +
+`ftAnim_8006F4C8`, and `demo_model.c` keeps the raw per-vertex skin inputs so it
+can re-evaluate `SetupEnvelopeModelMtx`/`SetupSharedVtxModelMtx` semantics into
+the vertex buffer each frame. The static display lists remain the bind-pose
+fast path. Playback advances on a fixed 60 Hz accumulator.
+
+**Consequences.** Correctness is verifiable against a transcription of the
+engine code (differential tests) rather than eyeballing; the renderer pays a
+CPU re-skin of ~19k vertices per fighter per frame, which is negligible.
+Per-joint GPU matrices would not express blended envelope groups without
+splitting batches, so the CPU path is also the simplest faithful one.
+
+**Status:** accepted (2026-09-10).

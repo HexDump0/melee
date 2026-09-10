@@ -9,14 +9,16 @@ Outcome: load and display real disc models and textures in a controllable
 sandbox.
 
 Acceptance:
-- `--inspect` decodes `PlMrNr.dat` to 6328 triangles, 30 textures.
+- `--inspect` decodes `PlMrNr.dat` to 6328 triangles, 31 textures.
 - Rendered Mario is textured and coherent in bind pose.
 - `SDL_VIDEODRIVER=offscreen --frames 600` is ASan-clean.
 
-## M1 — Animation
+## M1 — Animation (done 2026-09-10)
 
 Outcome: fighters play their idle/walk/jump animations driven by real HSD
-animation data.
+animation data. FigaTree clip playback, joint binding and per-frame skinning
+are implemented (`learnings/hsd_animation.md`); expressions (P-207), IK
+(P-208) and material animation (P-209) remain.
 
 Work:
 - P-201 evaluate `AObj` curves (rotation/translation/scale) and drive joints.

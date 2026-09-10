@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-10 (texture matrix: mirrored logos correct)
+Last updated: 2026-09-10 (fighter animation: FigaTree playback + pose skinning)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -12,9 +12,12 @@ assets. Characters decode with correct bind-pose skinning, the `right` matrix
 that attaches PObjs on non-root joints, the game's own part visibility tables
 (neutral face, hidden alternate expressions) and full GX texture support
 including CI4/CI8 + TLUT. An interactive 3D viewer with orbit/zoom/wireframe,
-part isolation and a hidden-part toggle inspects any `Pl*Nr.dat`. Fighters are
-in bind (T) pose because animation is not implemented. Movement uses real Mario
-attributes read from the disc.
+part isolation and a hidden-part toggle inspects any `Pl*Nr.dat`. Fighters now
+play their real `Pl<Char>AJ.dat` FigaTree clips: the viewer can play, pause,
+scrub and cycle clips, and the sandbox switches Wait/Walk/Dash/Jump/Fall clips
+per fighter. Animation runs through a literal port of the engine's FObj state
+machine, joint transforms and envelope/shared/rigid skinning. Movement uses
+real Mario attributes read from the disc.
 
 ## Verified working
 
@@ -44,6 +47,10 @@ attributes read from the disc.
 | Part isolation | 68 batches for Mario; `--list-parts`, `[`/`]`, `V` modes |
 | Mario attributes | accel .080, friction .060, run 1.500, gravity .095, terminal 1.70, air .045, jump 2.30, 2 jumps |
 | Sandbox | Move, jump, shield, attack, damage, stocks, respawn, CPU, camera follow |
+| FigaTree clips | `--list-clips` finds 195 clips for `PlMrNr.dat` (Wait1 50 frames) |
+| FObj playback | `demo_aobj.c` matches a literal `fobj.c` transcription on 5661 samples (worst 6.4e-7) |
+| Animation viewer | `--view --animate --clip Wait1`; `A`, `,`/`.`, `Z`/`X`, `M`; HUD shows clip/frame |
+| Match animation | Both fighters pose independently; `Wait1`/`WalkMiddle`/`Dash`/`JumpF`/`Fall` by movement |
 | Headless verify | `SDL_VIDEODRIVER=offscreen ... --frames N --screenshot` works |
 | Sanitizers | 600-frame scripted run clean under ASan+UBSan (leaks disabled) |
 
@@ -51,13 +58,14 @@ attributes read from the disc.
 
 Ordered by impact.
 
-1. **No animation.** Fighters are frozen in bind pose. HSD `AObj` curves in the
-   `*_matanim_joint` / animation joints are not evaluated, and the renderer
-   bakes geometry into one static batch list, which blocks per-joint transforms.
-   This is the top priority: P-201.
+1. **Animation fidelity gaps.** Clips play and skin correctly, but
+   `SETBYTE`/`SETFLOAT` channels (expressions, blinking, `ftParts_80074B0C`),
+   IK joint resolution (`resolveIKJoint1/2`), material animation
+   (`matanim`), shape sets and animation blending are not ported. Playback
+   rate is fixed at the engine default 1.0 instead of per-action
+   `frame_speed_mul`. See P-207..P-210.
 2. **Animated expressions not implemented.** The neutral pose is correct, but
-   blinking/damage expressions need the animation system (P-201) to drive
-   `ftParts_80074B0C` indices. Model visibility tables are already parsed.
+   blinking/damage expressions need the `SETBYTE` callbacks from item 1.
 3. **Game & Watch residual slivers.** After honouring hidden joints he is
    recognisable, but a few thin edge-on pieces remain (x=0, y 13.6..21.9) that
    in-game are hidden through animation/joint state the port does not evaluate
@@ -77,8 +85,11 @@ cmake -S native -B build/native -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build/native -j4
 ./build/native/melee-demo --inspect
 ./build/native/melee-demo --list-models
+./build/native/melee-demo --list-clips
 SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --view --frames 3 \
     --screenshot /tmp/viewer.bmp
+SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --view --animate \
+    --clip Wait1 --anim-frame 25 --frames 1 --screenshot /tmp/anim.bmp
 SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --scripted --frames 240 \
     --screenshot /tmp/baseline.bmp
 ```
@@ -86,7 +97,7 @@ SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --scripted --frames 240 \
 Expected `--inspect` tail:
 
 ```
-Decoded PlMrNr.dat: 6328 triangles, 30 textures; bounds [-7.56 -0.28 -2.70] to [7.57 14.21 3.58]
+Decoded PlMrNr.dat: 6328 triangles, 31 textures; bounds [-7.56 -0.28 -2.70] to [7.57 14.21 3.58]
 ```
 
 If those numbers move, say why in the commit and update this file.
