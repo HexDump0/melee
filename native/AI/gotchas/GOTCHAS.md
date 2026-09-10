@@ -1,0 +1,169 @@
+# Gotcha list
+
+## G-001: HSD pointers are data-relative, not file offsets
+
+**Symptom:** model parses into nothing, or "valid" pointers land 0x20 bytes
+early and produce garbage geometry.
+**Cause:** every pointer field in an HSD archive is an offset from the data
+section base (`0x20`), not from the file start.
+**Fix:** `file = stored_u32 + 0x20`. See `learnings/hsd_archive_format.md`.
+
+## G-002: zero pointer is sometimes valid
+
+**Symptom:** the first vertex array or display list is skipped (`vertex == 0`).
+**Cause:** `0` means NULL for link pointers, but it also means "data offset 0"
+for array-base pointers.
+**Fix:** use the NULL-aware accessor for links and the base-aware accessor for
+arrays. `demo_model.c` has both (`rptr`/`rbase`).
+
+## G-003: direct attributes are read relative to a moved pointer
+
+**Symptom:** model renders as spikes/shards; only direct (non-indexed)
+attributes affected; matrix indices wrong.
+**Cause:** code did `source = d + cur; offset = cur;` then indexed
+`source[offset]`, reading `d[cur + cur]`.
+**Fix:** for direct attributes set `offset = 0` because `source` already points
+at the data. Commit `f70d50cce`.
+
+## G-004: matrix-index attributes are always one byte
+
+**Symptom:** stream desync after the first vertex; opcodes become garbage.
+**Cause:** the descriptor says `GX_F32` for `PNMTXIDX`, but GX always writes a
+single byte inline for matrix indices.
+**Fix:** special-case `attr <= 8` to 1 byte in direct mode.
+
+## G-005: `PNMTXIDX` selects a GX matrix slot, not a group index
+
+**Symptom:** majority of vertices transform by the wrong joint; model becomes a
+spiky blob.
+**Cause:** HSD loads envelope groups at `GX_PNMTX0..PNMTX9` = slots
+`0, 3, 6, ...`. The vertex byte is the slot.
+**Fix:** `group_index = pnmtxidx / 3`.
+
+## G-006: envelope groups are rigid vs blended
+
+**Symptom:** some parts sit correctly, others are in the wrong space.
+**Cause:** groups whose first weight is `1.0` transform by the joint's bind
+world matrix; blended groups use `sum(w * M * inverseBind)`, which is the
+identity at bind pose.
+**Fix:** implement exactly `SetupEnvelopeModelMtx`'s two branches. See
+`learnings/hsd_models_and_skinning.md`.
+
+## G-007: `HSD_Joint.mtx` is the inverse bind matrix
+
+**Symptom:** applying the stored matrix directly explodes the model.
+**Cause:** the field is `inverse(bind world)`, used for `M * E` skinning.
+**Fix:** verify with `bind_world * stored == I` (holds for all 53 joints in
+`PlMrNr.dat`) before trusting your matrix convention.
+
+## G-008: `HSD_MtxSRT` has a parent-scale correction
+
+**Symptom:** joints with non-uniform/accumulated scale land in the wrong place.
+**Cause:** HSD corrects each scale component by the parent's accumulated scale
+when building the local matrix.
+**Fix:** copy the formula verbatim from `mtx.c` rather than using a generic
+Euler matrix. Also inherit accumulated scale when the joint's flag `0x8` is set.
+
+## G-009: `n_display` is a count of 32-byte blocks
+
+**Symptom:** display lists truncate early or read into the next object.
+**Cause:** `pobj->n_display` is in blocks; the byte length is `n_display * 32`
+(`GXCallDisplayList(pobj->display, pobj->n_display << 5)`).
+**Fix:** multiply by 32 and bounds check.
+
+## G-010: draw opcode low three bits are the vertex format
+
+**Symptom:** opcode histogram contains odd values like 0x91/0x9B.
+**Cause:** the byte is `primitive | (vtxfmt << 3)`; the primitive is `byte &
+0xF8`.
+**Fix:** mask, then dispatch on 0x80/0x90/0x98/0xA0/0xA8...
+
+## G-011: display list ends at opcode 0x00
+
+**Symptom:** parsing walks off the end or reads padding as data.
+**Cause:** lists are padded to 32-byte blocks with zero bytes.
+**Fix:** treat `op == 0x00` as the terminator. Never assume the data length
+matches the header block count exactly.
+
+## G-012: never skip vertex bytes for unknown opcodes
+
+**Symptom:** desync at the first unknown primitive.
+**Cause:** assuming an opcode has no attributes.
+**Fix:** every draw command in these lists is followed by `count` vertices in
+descriptor order; consume them even when you do not emit triangles.
+
+## G-013: texture image descriptor offsets
+
+**Symptom:** no textures decode; garbage or truncation errors.
+**Cause:** wrong field offsets in `HSD_ImageDesc` / `HSD_TObjDesc`.
+**Fix:** `TObjDesc.imagedesc` is at +0x4C; `ImageDesc` is `image_ptr +0,
+width +4, height +6, format +8`. See `learnings/gx_textures.md`.
+
+## G-014: CI4/CI8 need a palette that is not in the model archive
+
+**Symptom:** some parts (eyes, effects) render flat material color.
+**Cause:** the texture's `tlutdesc` is present but the palette data lives
+elsewhere; decoding without it yields indices, not colors.
+**Fix:** currently skip, fall back to material color. Real fix is P-203.
+
+## G-015: CISO virtual offsets may exceed the physical file
+
+**Symptom:** `fread` fails or you read the wrong data near the end of the FST.
+**Cause:** unused blocks are omitted from the CISO file, so the virtual disc is
+larger than the file.
+**Fix:** clamp dynamic reads to `d->file_size` and treat a short read as
+corruption. Also precompute the block ordinal prefix (G-016).
+
+## G-016: CISO block lookup is O(blocks) if done naively
+
+**Symptom:** FST enumeration takes minutes; `--list-models` feels hung.
+**Cause:** computing the physical block ordinal by scanning the map from zero
+on every read.
+**Fix:** precompute a prefix-count array once in `disc_open` (`block_ordinal`).
+
+## G-017: face expression meshes overlap in bind pose
+
+**Symptom:** eyes/mustache smeared or doubled on Mario's face.
+**Cause:** Melee hides alternate expression DObjs via the animation-driven part
+visibility system (`ftParts`, `FtPartsVis`). With no animation, all are drawn.
+**Fix/workaround:** viewer part isolation (`[` `]` + `V`). Real fix: P-201
+(animation) or parse the part visibility table.
+
+## G-018: root symbol selection
+
+**Symptom:** model decode fails or produces nothing.
+**Cause:** picking the first public symbol blindly.
+**Fix:** prefer the first public whose name ends `_joint` and excludes
+`matanim`; fall back to the first public.
+
+## G-019: texture binding inside a GL display list is fine, but...
+
+**Symptom:** batch lists render with the wrong texture or crash.
+**Cause:** `glBegin`/`glEnd` cannot span `glCallList`; a batch list must contain
+a complete texture-bound run.
+**Fix:** compile one self-contained list per part batch and call them in order;
+the previous monolithic list behavior is preserved by calling batches
+sequentially.
+
+## G-020: do not judge geometry from a flat-color render
+
+**Symptom:** hours lost thinking the parser is broken.
+**Cause:** untextured, low-resolution renders are near-useless for diagnosing
+skin/UV bugs.
+**Fix:** use the interactive viewer with textures, the ground grid, wireframe
+toggle and part isolation before concluding anything.
+
+## G-021: `native/AI` must stay trackable
+
+**Symptom:** AI docs silently not committed.
+**Cause:** `.git/info/exclude` historically used the unanchored pattern `AI/`,
+which also matched `native/AI/`.
+**Fix:** keep the pattern anchored (`/AI/`). If `git status` looks empty after
+editing docs, run `git check-ignore -v native/AI/README.md`.
+
+## G-022: ASan leak reports come from the GL driver
+
+**Symptom:** sanitizer run "fails" with leaks in mesa/driver frames.
+**Cause:** the GL implementation does not free everything at exit.
+**Fix:** run with `ASAN_OPTIONS=detect_leaks=0` (see `TESTING.md`); leaks in
+port allocations are still a bug and must be fixed.
