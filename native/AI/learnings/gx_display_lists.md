@@ -45,11 +45,24 @@ matrix indices. For the common 4-entry set:
 Rules:
 - **Matrix-index attributes are always 1 byte inline**, regardless of the
   `comp_type` in the descriptor (it says `GX_F32`, ignore it).
+- **Color attributes (`GX_VA_CLR0/CLR1`) use a different `comp_type` enum!**
+  For colors the field is one of `GX_RGB565=0` (2 bytes), `GX_RGB8=1` (3),
+  `GX_RGBX8=2` (4), `GX_RGBA4=3` (2), `GX_RGBA6=4` (3), `GX_RGBA8=5` (4).
+  Treating it as the scalar enum (`GX_U8`) makes every vertex 1 byte too long
+  and desyncs the whole stream. This was the cause of Mr. Game & Watch
+  exploding and Captain Falcon's rainbow triangle.
 - Indexed attributes read `u8` (GX_INDEX8) or `u16` (GX_INDEX16) big-endian,
   then fetch `base + index * stride` from the descriptor's array.
 - Direct attributes read `comp_count * comp_type_size` bytes inline, big-endian
-  for 16-bit and float.
+  for 16-bit and float. For colors the size is the color enum above.
 - Apply `frac`: integer values are fixed point; decode as `value / 2^frac`.
+
+### Per-PObj culling
+
+`pobj->flags & 0xC000`: 0 = no culling, 0x4000 cull front, 0x8000 cull back,
+0xC000 = not drawn at all.  GX front faces are **clockwise**, so the port sets
+`glFrontFace(GL_CW)` and maps the modes to `GL_FRONT`/`GL_BACK`.  Drawing
+backfaces made Master Hand look transparent and streaky.
 
 ## Debugging desync
 

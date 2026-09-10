@@ -19,7 +19,10 @@ unchanged and remains available.
 | HSD model decode (joints, DObj/PObj, display lists) | Works |
 | Bind-pose envelope skinning | Works |
 | `right` matrix (PObjs on non-root joints, e.g. Link's sword/shield) | Works |
+| PObj types: skin, shared-vertex skin, shape animation | Works |
 | Fighter part visibility (neutral expression, hidden alternates) | Works |
+| Per-PObj GX culling (front/back/both) | Works |
+| GX vertex colours (RGB565/RGB8/RGBX8/RGBA4/RGBA6/RGBA8) | Works |
 | GX texture decode (I4/I8/IA4/IA8/RGB565/RGB5A3/RGBA8/CMPR/CI4/CI8+TLUT) | Works |
 | Mario movement attributes from `PlMr.dat` | Works |
 | Sandbox movement, jumping, shield, one attack | Works |

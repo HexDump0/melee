@@ -185,6 +185,44 @@ explicitly disables slots 1, 2, 4.
 **Fix:** hide everything listed, then show only slot 0 variant 0 for the
 neutral pose.
 
+## G-028: GX color comp_type is the colour enum, not the scalar enum
+
+**Symptom:** models made of vertex-coloured pieces explode into spikes; a huge
+rainbow triangle appears near a character's head; all-vertex-colour characters
+like Mr. Game & Watch are unreadable.
+**Cause:** for `GX_VA_CLR0/CLR1`, `comp_type` is `GX_RGB565=0`, `GX_RGB8=1`,
+`GX_RGBX8=2`, `GX_RGBA4=3`, `GX_RGBA6=4`, `GX_RGBA8=5` (2/3/4/2/3/4 bytes), not
+`GX_U8..GX_F32`. Reading it as a scalar makes each vertex 1 byte too long and
+desyncs everything after it.
+**Fix:** size and decode colours with the colour enum (`color_attribute_size`,
+`decode_color` in `demo_model.c`).
+
+## G-029: POBJ_SKIN has two matrix slots, SHAPEANIM is rigid
+
+**Symptom:** characters that mix PObj types (Kirby, Link, Game & Watch,
+Captain Falcon) have parts in the wrong place.
+**Cause:** `PObjSetupMtx` only uses envelope groups for `POBJ_ENVELOPE`.
+`POBJ_SKIN` uses the current joint, or two joints selected per vertex via
+`PNMTXIDX` (0 = current, 3 = `u.joint`). `POBJ_SHAPEANIM` uses the current
+joint only. `right` applies to envelope PObjs only.
+**Fix:** dispatch on `(flags >> 12) & 3`.
+
+## G-030: blended envelope groups scale by the weight sum
+
+**Symptom:** parts are uniformly half/double size, or collapse to the origin.
+**Cause:** `sum_i w_i * (M_i * inverseBind_i)` equals `(sum w_i) * I` at bind,
+not necessarily `I`. Apparent "identity" only holds when the weights sum to 1.
+**Fix:** sum the group's weights and scale positions by that value; start the
+sum at 0, not 1.
+
+## G-031: cull modes are per PObj and GX front faces are clockwise
+
+**Symptom:** gloves and other shells look transparent/streaky (Master Hand).
+**Cause:** the game culls back faces per PObj; drawing both sides shows the
+inside of the mesh through z-fighting.
+**Fix:** map `flags & 0xC000` to GL culling, set `glFrontFace(GL_CW)`, and skip
+PObjs with both cull bits. `0xC000` means "do not draw".
+
 ## G-020: do not judge geometry from a flat-color render
 
 **Symptom:** hours lost thinking the parser is broken.

@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-10 (correct models: right matrix, part visibility, TLUT)
+Last updated: 2026-09-10 (PObj types, vertex colours, culling)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -27,6 +27,9 @@ attributes read from the disc.
 | `right` matrix | Link's sword/scabbard/shield sit on his back instead of the floor (bounds y-min rose from -6.14 to -0.01) |
 | Part visibility | Mario hides 16 of 59 DObjs, Link 32 of 83; faces render in neutral pose |
 | CI4/CI8 + TLUT | Mario eye atlas (190x190 CI8, palette RGB565) decodes; 31 textures total |
+| PObj types | SKIN (shared two-slot and rigid) and SHAPEANIM handled; Kirby, Link, Falcon, Game & Watch colors correct |
+| Vertex colours | GX colour enum (RGB565/RGB8/RGBX8/RGBA4/RGBA6/RGBA8) decoded; fixes desync on coloured meshes |
+| Per-PObj culling | GX cull modes + clockwise front faces; Master Hand renders solid |
 | GX display lists | Strips/triangles/quads decoded; clean opcode histogram (only 0x80/0x90/0x98) |
 | Textures | 31 textures for Mario (CMPR + CI8), correct cap/overalls/face/eyes |
 | Materials | Per-DObj diffuse color as vertex color |
@@ -54,12 +57,16 @@ Ordered by impact.
 5. **Animated expressions not implemented.** The neutral pose is correct, but
    blinking/damage expressions need the animation system (P-201) to drive
    `ftParts_80074B0C` indices. Model visibility tables are already parsed.
-6. **TEV approximated.** Rendering is `texture * material color` with fixed
+6. **Game & Watch extra pieces.** His visibility tables leave a stack of
+   collinear flat pieces (x=0, y 13.6..21.9) visible; in-game they are hidden
+   through animation/joint state the port does not evaluate yet. Everything
+   else about him (colours, flat pieces) is correct. P-201/P-410.
+7. **TEV approximated.** Rendering is `texture * material color` with fixed
    function lighting. Multi-texture, toon ramps, alpha test thresholds and
    additive blends will not match the GameCube. Workstream P-204.
-7. **No audio, menus, items, stages, results, netplay, WASM.**
-8. **Non-Mario physics values** are demo defaults, not per-character data.
-9. **Windows/macOS untested.** Linux + Mesa is the only verified target.
+8. **No audio, menus, items, stages, results, netplay, WASM.**
+9. **Non-Mario physics values** are demo defaults, not per-character data.
+10. **Windows/macOS untested.** Linux + Mesa is the only verified target.
 
 ## Baseline commands
 

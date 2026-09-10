@@ -177,6 +177,10 @@ GX position-matrix slots in order, max 10.
   which is **the identity at bind pose** because `world * inverse_bind == I`.
 - If `right != NULL` (envelope-model node, not the skeleton root): additionally
   concat `right`. Implemented in `demo_model.c` (`joint_right`).
+- Blended groups are `sum_i weight_i * (M_i * inverseBind_i)`.  With
+  `M_i * inverseBind_i == I` at bind, the matrix is `(sum of weights) * I`.
+  Most groups sum to 1, but not all: do not assume identity.  (A group whose
+  first weight is 1 is rigid and uses only the first joint, ignoring the rest.)
 
 **Group selection:** the vertex's `PNMTXIDX` attribute is a GX matrix slot:
 `GX_PNMTX0..PNMTX9` live at indices `0, 3, 6, ..., 27`. Therefore
@@ -211,6 +215,18 @@ right == NULL  -> v' = M_j * v  (rigid)  or  v' = v  (blended)
 This is what places Link's sword and shield on his back instead of the floor.
 Applying `right` to PObjs on the skeleton root would break Mario; the root
 check is essential.
+
+## PObj types (`pobj->flags & 0x3000`)
+
+| Type | Value | Bind transform |
+|---|---|---|
+| `POBJ_SKIN` | 0 | `u.joint == NULL`: current joint's world. Otherwise two slots: PNMTX0 = current joint, PNMTX1 (`PNMTXIDX == 3`) = `u.joint` world |
+| `POBJ_SHAPEANIM` | 1 | current joint's world (shape sets select vertex data) |
+| `POBJ_ENVELOPE` | 2 | `right` if non-root, else the per-vertex envelope group matrix |
+
+`right` applies **only** to envelope PObjs; skin/shapeanim use the current (or
+shared) joint directly.  Mixing this up breaks characters that use skin PObjs
+(Kirby, Link, Game & Watch, Captain Falcon).
 
 ## Part visibility (faces)
 
