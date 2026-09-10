@@ -6,7 +6,8 @@ references, acceptance commands and risks is
 [`ROADMAP_DETAILS.md`](ROADMAP_DETAILS.md). Live work claims are in
 [`TASKS.md`](TASKS.md) and current behavior is in [`STATE.md`](STATE.md).
 
-**Current position: M1 (animation) is done; M2 (renderer fidelity) is next.**
+**Current position: M2 (renderer fidelity) is in progress — M2a (core-profile
+rewrite) is done, M2b (TEV/materials) has landed its first increments.**
 
 ---
 
@@ -61,32 +62,26 @@ spline (`HSD_A_J_PATH`) joints.
 
 ## M2 — Renderer fidelity (NEXT)
 
-The renderer is fixed-function OpenGL 2.1 with a `texture * material color`
-approximation. That was the right first choice (it runs headless and never
-crashed), but it cannot express GX's TEV: alpha test, additive/translucent
-parts, multi-texture, toon ramps and combiner math. Every screenshot currently
-loses something because of it.
+**M2a is done.** The renderer is OpenGL 3.3 core with GLSL 330 shaders written
+in an ES3/WebGL2-portable subset; per-batch VAO/VBOs replaced the display
+lists and the matrix stack (ADR-0009). Headless SDL `offscreen` + Mesa works
+and the pre-rewrite frames were reproduced pixel-for-pixel before the material
+work intentionally changed them.
 
-**Plan (two stages):**
+**M2b is underway.** The decomp's material state is now evaluated by the
+shader: `MObjMakeTExp`/`TObjMakeTExp` initial channel/material stage,
+TEV colormap/alphamap, the DIFFUSE/SPECULAR/EXT lightmap phases, alpha test,
+`RENDER_XLU` blend factors and GX Z state, plus TEX0+TEX1. Each fighter is
+scaled by its `ftData.model_scaling` (`Fighter_UpdateModelScale`). Still open:
+real `HSD_LObj` light values (stage code), lightmap repeat chains,
+`HSD_TObjTev` overrides, toon ramps, Game & Watch's `x34_scale.z`.
 
-1. **M2a — Renderer rewrite (P-211).** Move to OpenGL 3.3 core with GLSL 330
-   shaders written so the same code later compiles as GLSL ES 3.00 for a WASM /
-   WebGL2 build. Per-batch VBOs replace the display lists; lighting, texture
-   matrix and vertex colours become uniforms. This is a foundation change, so
-   we do it before any TEV work rather than writing fixed-function effects that
-   get thrown away.
-2. **M2b — TEV approximation (P-204).** With shaders in place, add the pieces
-   that matter most: alpha test, `RENDER_XLU` blending and draw order, material
-   colour/alpha, then two-texture cases and the common combiner modes. Full TEV
-   emulation can follow piecemeal.
+**Owner-visible:** Luigi's face, Bowser/Kirby proportions and Marth/Kirby
+materials now read correctly; translucent parts blend instead of drawing
+opaque.
 
-**Owner-visible:** transparent hair/capes/effects stop glitching, Master Hand's
-layered shells look solid, shields and flashes look right, screenshots start
-resembling Melee.
-
-**Main risk:** keeping headless verification working (SDL offscreen + Mesa).
-A spike confirms a 3.3 core context on the reference machine before committing
-to the rewrite.
+**Main risk:** exact lighting/specular depends on stage-created `HSD_LObj`
+data, so it will stay approximate until stages (M4) are ported.
 
 ## M3 — Faithful movement and fighter states
 

@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-10 (materials: HSD/GX TEV combiner + alpha test/blend)
+Last updated: 2026-09-10 (materials: TEV phases, model scaling, fixed viewer grid)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -19,8 +19,11 @@ per fighter. Animation runs through a literal port of the engine's FObj state
 machine, joint transforms and envelope/shared/rigid skinning. Movement uses
 real Mario attributes read from the disc. Rendering is OpenGL 3.3 core with
 GLSL shaders written in an ES3/WebGL2-portable subset (ADR-0009); the
-fixed-function/display-list path is gone and the pre-rewrite screenshots are
-reproduced to within a few 1/65535 RMSE units.
+fixed-function/display-list path is gone. Materials follow the decomp's
+`MObjMakeTExp`/`TObjMakeTExp` state (channel raster, TEV colormap/alphamap and
+lightmap phases, alpha test, XLU blend) and every fighter is scaled by its
+`ftData.model_scaling` like `Fighter_UpdateModelScale` (Bowser 0.69, Kirby
+0.92, Mario 1.10).
 
 ## Verified working
 

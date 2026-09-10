@@ -10,18 +10,24 @@ user input ──> main SDL loop ──> demo_physics ───────┘ (
 
 ## Layers
 
-1. **Platform layer** (`main.c`) — SDL2 window, OpenGL 2.1 context, input,
-   fixed 60 Hz accumulator, camera, HUD, screenshots, CLI flags.
+1. **Platform layer** (`main.c`) — SDL2 window, OpenGL 3.3 core context
+   (ADR-0009), input, fixed 60 Hz accumulator, camera, HUD, viewer, screenshots,
+   CLI flags. Shader sources live here.
 2. **Asset layer** (`demo_assets.c`) — CISO/ISO/GCM block reading, FST path
    lookup, archive public-symbol enumeration. Returns malloc'd file bytes.
 3. **Model layer** (`demo_model.c`) — parses HSD joints, DObj/PObj descriptors,
    vertex descriptors and GX display lists; reconstructs the bind pose using
-   envelope groups; decodes embedded textures via `demo_texture.c`; material
-   colors; fills a flat `DemoModelVertex` triangle list.
+   envelope groups; decodes embedded textures via `demo_texture.c`; parses
+   MObj/TObj materials and PE descriptors; re-skins the CPU vertex buffer per
+   animated frame.
 4. **Texture layer** (`demo_texture.c`) — GX tiled texture decode to RGBA8.
-5. **Data layer** (`demo_attributes.c`) — reads `ftDataMario` -> `ftCo_DatAttrs`
+5. **Parts layer** (`demo_parts.c`) — `ftData<Char>` part visibility tables and
+   the per-character `model_scaling`.
+6. **Animation layer** (`demo_aobj.c`, `demo_anim.c`) — literal ports of the
+   HSD FObj player and FigaTree node->joint binding.
+7. **Data layer** (`demo_attributes.c`) — reads `ftDataMario` -> `ftCo_DatAttrs`
    from `PlMr.dat` and maps fields into `DemoPhysicsAttrs`.
-6. **Simulation layer** (`demo_physics.c`) — demo-only movement/jump/attack/
+8. **Simulation layer** (`demo_physics.c`) — demo-only movement/jump/attack/
    shield/stocks. Approximates `ftCommon_*` formulas but is **not** the engine.
 
 ## Data flow in detail
@@ -39,10 +45,15 @@ main()
         apply rigid group matrix if any
         emit() -> DemoModelVertex[]
     find_or_add_texture()                    // imagedesc -> RGBA8
-  compile_model()                            // GL texture objects + display list
+    parse_material()                         // MObj/PE/TObj TEV state per batch
+  demo_parts_apply(disc, model)              // vis tables + model_scaling
+  demo_model_pose_apply(model)               // scale + re-skin bind pose
+  compile_model()                            // GL textures + per-batch VAO/VBOs
   per frame:
     demo_physics_step()                      // 60 Hz, real Mario attrs
-    draw_fighter() -> glCallList()           // textured bind-pose Mario
+    demo_anim_apply()                        // FObj playback -> joints
+    demo_model_pose_apply()                  // re-skin CPU vertices
+    draw_fighter() -> draw_batch()           // shader, GX material state
 ```
 
 ## Key invariants
@@ -60,18 +71,26 @@ main()
   rest. See `learnings/hsd_models_and_skinning.md`.
 - **Raw parser must stay 64-bit safe.** Never cast file offsets to host
   pointers. All reads go through `rb16/rb32/rf32` with bounds checks.
-- **No animation yet.** The joint matrices are evaluated once at bind pose. The
-  renderer currently bakes geometry into one GL display list, so adding
-  animation will require per-joint primitives (see `TASKS.md` P-201).
+- **Animation is a CPU re-skin.** `demo_anim_apply` poses the joints per 60 Hz
+  tick and `demo_model_pose_apply` rewrites the vertex buffer; the renderer
+  uploads that into a per-batch pose VBO. The bind pose lives in a separate
+  immutable VBO (ADR-0008).
+- **Materials follow the decomp.** `MObjMakeTExp`/`TObjMakeTExp` state
+  (channel raster, colormap/alphamap, lightmap phases, alpha test, blend) is
+  derived in `demo_model.c` and evaluated by the model shader; see
+  `learnings/hsd_tev_materials.md`.
 
 ## File map
 
 | File | Responsibility |
 |---|---|
-| `native/main.c` | SDL/GL platform, input, camera, HUD, CLI, viewer mode |
+| `native/main.c` | SDL/GL platform, shaders, input, camera, HUD, CLI, viewer |
 | `native/demo_assets.c/.h` | Disc image + FST + archive symbol enumeration |
-| `native/demo_model.c/.h` | HSD model decode, skinning, materials, textures |
+| `native/demo_model.c/.h` | HSD model decode, skinning, materials/TEV, textures |
 | `native/demo_texture.c/.h` | GX texture formats -> RGBA8 |
+| `native/demo_parts.c/.h` | `ftData<Char>` visibility tables + `model_scaling` |
+| `native/demo_aobj.c/.h` | Literal HSD FObj player (`fobj.c`) |
+| `native/demo_anim.c/.h` | FigaTree clips, node->joint binding, pose evaluation |
 | `native/demo_attributes.c/.h` | `ftDataMario` -> `DemoPhysicsAttrs` |
 | `native/demo_physics.c/.h` | Demo fighter sandbox |
 | `native/demo_text.h` | 5x7 bitmap font for the HUD |
@@ -79,10 +98,10 @@ main()
 
 ## Deliberate constraints
 
-- **OpenGL 2.1 fixed function.** Chosen because it runs on old laptops, in
-  Mesa softpipe/llvmpipe and under SDL's offscreen driver, which is how CI and
-  agents verify rendering. Do not move to core profiles without a decision
-  entry and a headless fallback.
+- **OpenGL 3.3 core + GLSL.** ADR-0009 replaced the fixed-function path so TEV
+  can be expressed at all; shader bodies stay in an ES3/WebGL2-portable subset.
+  The headless guarantee (SDL `offscreen` + Mesa) is part of the decision —
+  keep verifying with `SDL_VIDEODRIVER=offscreen`.
 - **No engine code compiled yet.** The decomp sources drag in the GameCube
   toolchain and 32-bit assumptions. The path to using them is staged: first
   reuse pure math and data tables, then HSD subsystems, then the fighter state

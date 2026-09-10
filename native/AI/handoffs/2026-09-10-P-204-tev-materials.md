@@ -38,11 +38,16 @@ ASan+UBSan runs clean; `--inspect` bounds/triangles unchanged (textures
 ## Output changes (intentional)
 
 - `--inspect` textures: **31 -> 32** (the TEX1 TObj image is now decoded).
+- `--inspect` Mario bounds: **`[-7.56 -0.28 -2.70]..[7.57 14.21 3.58]` ->
+  `[-8.31 -0.31 -2.97]..[8.32 15.63 3.94]`** because `ftData.model_scaling`
+  (Mario 1.10) is now applied like `Fighter_UpdateModelScale`.
   `TESTING.md` and `STATE.md` updated.
+- The viewer grid is a fixed world-space grid (1.5-unit cells at y=0) so
+  character sizes are comparable and it no longer rescales during animation.
 - Appearance: per-vertex `CLR0` is no longer multiplied into every material;
-  materials use the decomp's channel/colormap state. This is closer to the
-  game (Kirby/Fox/Pikachu/Marth screenshots in `/tmp/opencode/p211/after/`,
-  not committed).
+  materials use the decomp's channel/colormap/lightmap state, and specular
+  lightmaps no longer tint the diffuse colour. Closer to the game
+  (screenshots in `/tmp/opencode/p211/after/`, not committed).
 
 ## Exact next action
 

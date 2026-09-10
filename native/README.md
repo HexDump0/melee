@@ -84,7 +84,8 @@ can also drive player 1.
 ```
 
 The viewer orbits any character model loaded from the disc with perspective
-projection and a ground grid.
+projection and a fixed world-space ground grid (1.5-unit cells at y=0), so
+character sizes are directly comparable.
 
 | Viewer control | Action |
 |---|---|

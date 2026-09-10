@@ -142,3 +142,8 @@ Decoding the TEX1 TObj adds one texture to `PlMrNr.dat` (31 -> 32), so the
 - **Per-scene `HSD_LObj` setup and fog**: render-side state that lives in game
   code, not the model archive. The shader currently uses the viewer's
   stand-in light set for the channel equation.
+- **Runtime material swaps**: metal, invisibility, giant/mushroom and damage
+  flashes do not live in `Pl*Nr.dat`. `ftMaterial_800BF2B8`
+  (`src/melee/ft/ftmaterial.c`) swaps in `ft_804D6580`/`ft_804D6588` and ORs
+  `RENDER_XLU | RENDER_NO_ZUPDATE`; `ftmetal.c` reads `is_metal`. A raw model
+  viewer will never show the metal look — that needs the fighter state (M3).

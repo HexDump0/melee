@@ -19,10 +19,14 @@ are decode bugs.
 ```sh
 ./build/native/melee-demo --inspect
 ./build/native/melee-demo --inspect --list-parts
+./build/native/melee-demo --dump-tev        # per-batch GX material state
 ```
 
-- Triangle count and bounds must match `STATE.md` for Mario.
+- Triangle count and bounds must match `STATE.md` for Mario (bounds include the
+  `model_scaling` factor).
 - Does the part list show geometry where you expect it?
+- Does the batch's `rm`/`flags`/colormap match the decomp's `MObjMakeTExp`
+  branch? `learnings/hsd_tev_materials.md` has the mappings (G-042..G-044).
 
 ## 3. Isolate
 

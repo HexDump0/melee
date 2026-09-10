@@ -60,21 +60,25 @@ would be thrown away. ADR-0004's fixed-function decision is superseded.
 
 ---
 
-## P-204 — TEV approximation (after P-211)
+## P-204 — TEV approximation (in progress)
 
-**Scope.** Alpha test (`discard`), `RENDER_XLU` blend factors and opaque-first
-draw order, material colour/alpha, `TObj` colour-map flags, then two-texture
-cases and common TEV ops (modulate/replace/interpolate/add/sub). Source of
-truth: `src/sysdolphin/baselib/tev.c`, `tobj.c`, `mobj.c`, `pobj.c`, and the
-`TObjDesc`/`MObjDesc` fields already parsed in `demo_model.c`.
+**Landed (see `learnings/hsd_tev_materials.md`).** `MObjMakeTExp` /
+`TObjMakeTExp` state derivation in `demo_model.c` + shader evaluation:
+material-vs-RAS initial stage, `TEX_COLORMAP_*`/`TEX_ALPHAMAP_*`,
+DIFFUSE/SPECULAR/EXT lightmap phases (specular accumulates into
+`mat.specular`, multiplied by the specular channel), `RENDER_DIFFUSE`, GX
+channel lighting, `HSD_SetupPEMode` alpha compare/blend/Z, TEX0+TEX1, and
+`ftData.model_scaling` applied as the root joint scale
+(`Fighter_UpdateModelScale`). `--dump-tev` prints the parsed state.
 
-**Acceptance.** Transparent parts blend instead of drawing opaque black;
-Master Hand's shells layer correctly; hair/capes/faces do not glitch; no
-regressions in the M2a parity harness.
+**Remaining.** Real light colours/directions from `HSD_LObj` (`lobj.c`, stage
+light lists); lightmap `repeat` chains; `HSD_TObjTev` active overrides (all 0
+in the tested fighters); toon ramps; `x34_scale.z` (Game & Watch flattening,
+mushroom/Giant scaling).
 
-**Note.** "Approximation" here means staged: each commit should move the
-shader closer to the decomp's TEV state, with the state derivation copied from
-`tev.c`, not guessed from screenshots.
+**Source of truth.** `src/sysdolphin/baselib/tev.c`, `tobj.c`, `mobj.c`,
+`state.c`, `pobj.c`, and the `TObjDesc`/`MObjDesc` fields parsed in
+`demo_model.c`. Derive state from those, never from screenshots.
 
 ---
 

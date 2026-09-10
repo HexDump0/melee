@@ -32,6 +32,8 @@ something the next agent must know, or finish a task that changes interfaces.
 | 2026-09-10 | P-107 bind-pose fix | follow-up | _this entry is the code itself; no separate note_ |
 | 2026-09-10 | P-201 animation start | opencode (deepseek-flash) | [`2026-09-10-P-201-animation-start.md`](handoffs/2026-09-10-P-201-animation-start.md) |
 | 2026-09-10 | P-201 animation landed | opencode (deepseek-flash) | [`2026-09-10-P-201-animation-done.md`](handoffs/2026-09-10-P-201-animation-done.md) |
+| 2026-09-10 | P-211 renderer rewrite | opencode (deepseek-flash) | [`2026-09-10-P-211-renderer-core-profile.md`](handoffs/2026-09-10-P-211-renderer-core-profile.md) |
+| 2026-09-10 | P-204 TEV materials (in progress) | opencode (deepseek-flash) | [`2026-09-10-P-204-tev-materials.md`](handoffs/2026-09-10-P-204-tev-materials.md) |
 
 ## Template
 
