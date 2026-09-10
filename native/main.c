@@ -1108,19 +1108,15 @@ static void viewer_frame_batch(Viewer *vs,const Visual *v,size_t batch)
     viewer_frame_bounds(vs,mn,mx);
 }
 
-static void viewer_grid(const Visual *v,const Mat4 mvp)
+/* Fixed world-space floor grid at y = 0 with 1.5-unit cells: it never
+ * depends on the model, the pose or the animation frame. */
+static void viewer_grid(const Mat4 mvp)
 {
-    float y=v->model.bounds_min[1];
-    float extent=0.0f;
-    float step;
+    const float y=0.0f;
+    const float extent=15.0f;
+    const float step=1.5f;
     float x;
     int i;
-    for(i=0;i<3;++i) {
-        float s=v->model.bounds_max[i]-v->model.bounds_min[i];
-        if(s>extent)extent=s;
-    }
-    extent*=1.1f;
-    step=extent/10.0f;
     ov_set_mvp(mvp);
     ov_color4f(.30f,.38f,.50f,.55f);
     ov_begin(GL_LINES);
@@ -1251,7 +1247,7 @@ static void render_viewer(const Visual *v,const Viewer *vs,int w,int h,
         reset_material_state();
         glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);
         apply_cull(0);
-        if(vs->grid)viewer_grid(v,mvp);
+        if(vs->grid)viewer_grid(mvp);
     }
     glDisable(GL_DEPTH_TEST);
     viewer_hud(w,h,v,vs,name,index,total);
