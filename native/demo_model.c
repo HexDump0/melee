@@ -1,5 +1,6 @@
 #include "demo_model.h"
 
+#include "demo_aobj.h"
 #include "demo_texture.h"
 
 #include <math.h>
@@ -71,30 +72,12 @@ typedef struct RawVertex {
     float uv[2];
     uint8_t color[4];
     int matrix;
+    int skin_sel;
     int has_pos;
     int has_nrm;
     int has_uv;
     int has_color;
 } RawVertex;
-
-typedef struct JointInfo {
-    size_t offset; /* host offset of the HSD_Joint */
-    float world[3][4];
-    float scale_world[3];
-    uint32_t flags;
-    int parent; /* index into JointTable, -1 for the root */
-} JointInfo;
-
-typedef struct JointTable {
-    JointInfo joints[HSD_MAX_JOINTS];
-    size_t count;
-} JointTable;
-
-typedef struct EnvGroup {
-    int rigid;
-    float scale; /* blended groups: sum of weights (M_i * inverseBind == I) */
-    float matrix[3][4];
-} EnvGroup;
 
 static uint32_t rb32(const uint8_t *d, size_t n, size_t o)
 {
@@ -251,11 +234,11 @@ static int mtx_invert(const float *m, float *out)
 }
 
 /* Index of a joint by host offset, or -1. */
-static int joint_index_of(const JointTable *table, size_t offset)
+static int joint_index_of(const DemoModel *m, size_t offset)
 {
     size_t i;
-    for (i = 0; i < table->count; ++i) {
-        if (table->joints[i].offset == offset) {
+    for (i = 0; i < m->joint_count; ++i) {
+        if (m->joints[i].offset == offset) {
             return (int) i;
         }
     }
@@ -263,50 +246,79 @@ static int joint_index_of(const JointTable *table, size_t offset)
 }
 
 /* Nearest ancestor (including self) flagged JOBJ_SKELETON or JOBJ_SKELETON_ROOT. */
-static int joint_find_skeleton(const JointTable *table, int index)
+static int joint_find_skeleton(const DemoModel *m, int index)
 {
     while (index >= 0) {
-        uint32_t flags = table->joints[index].flags;
+        uint32_t flags = m->joints[index].flags;
         if (flags & (HSD_FLAG_SKELETON | HSD_FLAG_SKELETON_ROOT)) {
             return index;
         }
-        index = table->joints[index].parent;
+        index = m->joints[index].parent;
     }
     return -1;
 }
 
-/*
- * HSD's _HSD_mkEnvelopeModelNodeMtx, evaluated at bind pose.  Returns 0 when
- * HSD would return NULL (the joint is the skeleton root), otherwise writes the
- * 3x4 `right` matrix.  With this, a PObj hung off any joint is placed by
- * `right` at bind pose, because every envelope group matrix is the identity.
- */
-static int joint_right(const JointTable *table, int m_index, float right[3][4])
+/* E_j: the joint's inverse bind matrix, from the archive or derived. */
+static int joint_env_mtx(const DemoModel *m, int index, float out[3][4])
 {
-    const JointInfo *m;
+    if (index < 0 || (size_t) index >= m->joint_count) {
+        return 0;
+    }
+    if (m->joints[index].has_inv_bind) {
+        memcpy(out, m->joints[index].inv_bind, sizeof(m->joints[index].inv_bind));
+        return 1;
+    }
+    return mtx_invert(&m->joints[index].world_bind[0][0], &out[0][0]);
+}
+
+/*
+ * HSD's _HSD_mkEnvelopeModelNodeMtx.  Returns 0 when HSD would return NULL
+ * (the joint is the skeleton root), otherwise writes the 3x4 `right` matrix.
+ * Unlike the bind-pose shortcut, the skeleton-root and deep-skeleton cases
+ * depend on the current world matrices, so this runs every pose.
+ */
+static int batch_right(const DemoModel *m, int m_index, float right[3][4])
+{
     int x;
-    if (m_index < 0 || (size_t) m_index >= table->count) {
+    if (m_index < 0 || (size_t) m_index >= m->joint_count) {
         return 0;
     }
-    m = &table->joints[m_index];
-    if (m->flags & HSD_FLAG_SKELETON_ROOT) {
+    if (m->joints[m_index].flags & HSD_FLAG_SKELETON_ROOT) {
         return 0;
     }
-    x = joint_find_skeleton(table, m_index);
+    x = joint_find_skeleton(m, m_index);
     if (x < 0) {
         return 0;
     }
     if (x == m_index) {
-        memcpy(right, m->world, sizeof(float) * 12);
-    } else if (table->joints[x].flags & HSD_FLAG_SKELETON_ROOT) {
-        float inverse[3][4];
-        if (!mtx_invert(&table->joints[x].world[0][0], &inverse[0][0])) {
+        /* inverse(E_x): the joint's bind world matrix. */
+        float env[3][4];
+        if (!joint_env_mtx(m, x, env)) {
             return 0;
         }
-        mtx_concat(&inverse[0][0], &m->world[0][0], &right[0][0]);
+        if (!mtx_invert(&env[0][0], &right[0][0])) {
+            return 0;
+        }
+    } else if (m->joints[x].flags & HSD_FLAG_SKELETON_ROOT) {
+        float inverse[3][4];
+        if (!mtx_invert(&m->joints[x].world[0][0], &inverse[0][0])) {
+            return 0;
+        }
+        mtx_concat(&inverse[0][0], &m->joints[m_index].world[0][0],
+                   &right[0][0]);
     } else {
-        /* x.world * inverseBind(x) == identity at bind pose. */
-        memcpy(right, m->world, sizeof(float) * 12);
+        float env[3][4];
+        float n[3][4];
+        float inverse[3][4];
+        if (!joint_env_mtx(m, x, env)) {
+            return 0;
+        }
+        mtx_concat(&m->joints[x].world[0][0], &env[0][0], &n[0][0]);
+        if (!mtx_invert(&n[0][0], &inverse[0][0])) {
+            return 0;
+        }
+        mtx_concat(&inverse[0][0], &m->joints[m_index].world[0][0],
+                   &right[0][0]);
     }
     return 1;
 }
@@ -366,23 +378,24 @@ static void make_local_mtx(float m[3][4], const float scale[3],
 }
 
 static void joint_table_add(const uint8_t *d, size_t n, size_t jo, int parent,
-                            JointTable *table, int depth)
+                            DemoModel *m, int depth)
 {
     float rot[3];
     float scale[3];
     float pos[3];
     float local[3][4];
     uint32_t flags;
-    JointInfo *info;
+    size_t mtx_field;
+    DemoJoint *info;
     size_t child;
     size_t next;
     size_t i;
     if (jo == SIZE_MAX || depth > HSD_MAX_JOINT_DEPTH ||
-        table->count >= HSD_MAX_JOINTS || !range_ok(jo, 0x40, n)) {
+        m->joint_count >= HSD_MAX_JOINTS || !range_ok(jo, 0x40, n)) {
         return;
     }
-    for (i = 0; i < table->count; ++i) {
-        if (table->joints[i].offset == jo) {
+    for (i = 0; i < m->joint_count; ++i) {
+        if (m->joints[i].offset == jo) {
             return;
         }
     }
@@ -396,58 +409,65 @@ static void joint_table_add(const uint8_t *d, size_t n, size_t jo, int parent,
     pos[0] = rf32(d, n, jo + 0x2c);
     pos[1] = rf32(d, n, jo + 0x30);
     pos[2] = rf32(d, n, jo + 0x34);
-    info = &table->joints[table->count];
+    info = &m->joints[m->joint_count];
+    memset(info, 0, sizeof(*info));
     info->offset = jo;
     info->flags = flags;
     info->parent = parent;
+    memcpy(info->rotation_bind, rot, sizeof(rot));
+    memcpy(info->scale_bind, scale, sizeof(scale));
+    memcpy(info->position_bind, pos, sizeof(pos));
     {
         const float *parent_scale = NULL;
         if (parent >= 0) {
-            parent_scale = table->joints[parent].scale_world;
+            parent_scale = m->joints[parent].scale_world;
         }
         make_local_mtx(local, scale, rot, pos, parent_scale);
     }
     if (parent >= 0) {
-        mtx_concat(&table->joints[parent].world[0][0], &local[0][0],
-                   &info->world[0][0]);
+        mtx_concat(&m->joints[parent].world_bind[0][0], &local[0][0],
+                   &info->world_bind[0][0]);
     } else {
-        memcpy(info->world, local, sizeof(local));
+        memcpy(info->world_bind, local, sizeof(local));
     }
     if (parent >= 0 && (flags & HSD_FLAG_SCL_INHERIT)) {
-        memcpy(info->scale_world, table->joints[parent].scale_world,
+        memcpy(info->scale_world, m->joints[parent].scale_world,
                sizeof(info->scale_world));
     } else if (parent >= 0) {
-        info->scale_world[0] = scale[0] * table->joints[parent].scale_world[0];
-        info->scale_world[1] = scale[1] * table->joints[parent].scale_world[1];
-        info->scale_world[2] = scale[2] * table->joints[parent].scale_world[2];
+        info->scale_world[0] = scale[0] * m->joints[parent].scale_world[0];
+        info->scale_world[1] = scale[1] * m->joints[parent].scale_world[1];
+        info->scale_world[2] = scale[2] * m->joints[parent].scale_world[2];
     } else {
         memcpy(info->scale_world, scale, sizeof(info->scale_world));
     }
+    /* HSD_Joint.mtx is the inverse bind world matrix (verified per joint). */
+    mtx_field = rptr(d, n, jo + 0x38);
+    if (mtx_field != SIZE_MAX && range_ok(mtx_field, 48, n)) {
+        int r;
+        int c;
+        for (r = 0; r < 3; ++r) {
+            for (c = 0; c < 4; ++c) {
+                info->inv_bind[r][c] = rf32(d, n, mtx_field + (r * 4 + c) * 4);
+            }
+        }
+        info->has_inv_bind = 1;
+    }
     {
-        int index = (int) table->count;
-        table->count++;
+        int index = (int) m->joint_count;
+        m->joint_count++;
         child = rptr(d, n, jo + 8);
         while (child != SIZE_MAX) {
-            joint_table_add(d, n, child, index, table, depth + 1);
+            joint_table_add(d, n, child, index, m, depth + 1);
             child = rptr(d, n, child + 12);
         }
         next = rptr(d, n, jo + 12);
         if (next != SIZE_MAX) {
-            joint_table_add(d, n, next, parent, table, depth);
+            joint_table_add(d, n, next, parent, m, depth);
         }
     }
 }
 
-static const JointInfo *joint_lookup(const JointTable *table, size_t offset)
-{
-    size_t i;
-    for (i = 0; i < table->count; ++i) {
-        if (table->joints[i].offset == offset) {
-            return &table->joints[i];
-        }
-    }
-    return NULL;
-}
+
 
 static size_t attr_comp_count(uint32_t attr, uint32_t cnt)
 {
@@ -829,12 +849,15 @@ static int find_or_add_texture(DemoModel *m, const uint8_t *d, size_t n,
 static void emit(DemoModel *m, const RawVertex *v, int texture)
 {
     DemoModelVertex *out;
-    size_t k;
+    size_t index;
     if (m->vertex_count >= m->vertex_capacity || !v->has_pos) {
         return;
     }
-    out = &m->vertices[m->vertex_count++];
-    memcpy(out->position, v->pos, sizeof(out->position));
+    index = m->vertex_count++;
+    out = &m->vertices[index];
+    out->position[0] = v->pos[0];
+    out->position[1] = v->pos[1];
+    out->position[2] = v->pos[2];
     if (v->has_nrm) {
         memcpy(out->normal, v->nrm, sizeof(out->normal));
     } else {
@@ -858,19 +881,34 @@ static void emit(DemoModel *m, const RawVertex *v, int texture)
         out->color[3] = 255;
     }
     out->texture = (int16_t) texture;
-    for (k = 0; k < 3; ++k) {
-        if (v->pos[k] < m->bounds_min[k]) {
-            m->bounds_min[k] = v->pos[k];
+    if (m->raw != NULL) {
+        float *raw = &m->raw[index * 6];
+        raw[0] = v->pos[0];
+        raw[1] = v->pos[1];
+        raw[2] = v->pos[2];
+        if (v->has_nrm) {
+            raw[3] = v->nrm[0];
+            raw[4] = v->nrm[1];
+            raw[5] = v->nrm[2];
+        } else {
+            raw[3] = 0.0f;
+            raw[4] = 1.0f;
+            raw[5] = 0.0f;
         }
-        if (v->pos[k] > m->bounds_max[k]) {
-            m->bounds_max[k] = v->pos[k];
-        }
+    }
+    if (m->skin != NULL) {
+        m->skin[index] = (uint8_t) (v->skin_sel < 0 ? 255 : v->skin_sel);
     }
 }
 
+/*
+ * HSD_PObjDesc.u.envelope_p is an array of group pointers (NULL terminated),
+ * each group an array of {joint, weight} pairs terminated by joint == 0.
+ * A group whose first weight >= 1 is rigid; the rest are blended influences.
+ */
 static void load_env_groups(const uint8_t *d, size_t n, size_t po,
-                            const JointTable *table,
-                            EnvGroup groups[HSD_MAX_ENV_GROUPS],
+                            const DemoModel *m,
+                            DemoEnvGroup groups[HSD_MAX_ENV_GROUPS],
                             size_t *out_group_count)
 {
     uint32_t env_value = rb32(d, n, po + 0x14);
@@ -884,8 +922,8 @@ static void load_env_groups(const uint8_t *d, size_t n, size_t po,
     for (i = 0; i < HSD_MAX_ENV_GROUPS; ++i) {
         uint32_t group_value;
         size_t group;
-        uint32_t joint_value;
-        float weight;
+        DemoEnvGroup *g = &groups[i];
+        size_t e;
         if (!range_ok(env + i * 4, 4, n)) {
             break;
         }
@@ -894,43 +932,29 @@ static void load_env_groups(const uint8_t *d, size_t n, size_t po,
             break;
         }
         group = (size_t) group_value + HSD_DATA_BASE;
-        if (!range_ok(group, 8, n)) {
-            break;
-        }
-        joint_value = rb32(d, n, group);
-        weight = rf32(d, n, group + 4);
-        if (joint_value == 0) {
-            break;
-        }
-        groups[i].rigid = weight >= (1.0f - 1e-6f);
-        groups[i].scale = 1.0f;
-        if (groups[i].rigid) {
-            const JointInfo *info =
-                joint_lookup(table, joint_value + HSD_DATA_BASE);
-            if (info != NULL) {
-                memcpy(groups[i].matrix, info->world, sizeof(float) * 12);
-            } else {
-                mtx_identity(groups[i].matrix);
-                groups[i].rigid = 0;
-                groups[i].scale = 1.0f;
+        memset(g, 0, sizeof(*g));
+        for (e = 0; e < DEMO_MAX_ENV_INFLUENCES; ++e) {
+            uint32_t joint_value;
+            float weight;
+            int index;
+            if (!range_ok(group + e * 8, 8, n)) {
+                break;
             }
-        } else {
-            /* Blended group: at bind pose each M_joint * inverseBind is the
-             * identity, so the group matrix is (sum of weights) * I. */
-            size_t e;
-            groups[i].scale = 0.0f;
-            for (e = 0; e < 16; ++e) {
-                uint32_t joint;
-                if (!range_ok(group + e * 8, 8, n)) {
-                    break;
-                }
-                joint = rb32(d, n, group + e * 8);
-                if (joint == 0) {
-                    break;
-                }
-                groups[i].scale += rf32(d, n, group + e * 8 + 4);
+            joint_value = rb32(d, n, group + e * 8);
+            if (joint_value == 0) {
+                break;
             }
-            mtx_identity(groups[i].matrix);
+            weight = rf32(d, n, group + e * 8 + 4);
+            index = joint_index_of(m, (size_t) joint_value + HSD_DATA_BASE);
+            if (index < 0) {
+                continue;
+            }
+            if (e == 0) {
+                g->rigid = weight >= 1.0f;
+            }
+            g->joints[g->count] = (int16_t) index;
+            g->weights[g->count] = weight;
+            g->count++;
         }
         *out_group_count = i + 1;
     }
@@ -1026,14 +1050,12 @@ static void make_texture_mtx(const uint8_t *d, size_t n, size_t td,
 }
 
 static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
-                       const JointTable *table, const float *right,
-                       const float *current_world, size_t dobj_index,
-                       uint8_t color[4], int texture, uint8_t wrap_s,
-                       uint8_t wrap_t, uint32_t rendermode,
-                       const float texmtx[16])
+                       int current_joint, size_t dobj_index, uint8_t color[4],
+                       int texture, uint8_t wrap_s, uint8_t wrap_t,
+                       uint32_t rendermode, const float texmtx[16])
 {
     RawDesc descs[32];
-    EnvGroup groups[HSD_MAX_ENV_GROUPS];
+    DemoEnvGroup groups[HSD_MAX_ENV_GROUPS];
     size_t group_count = 0;
     size_t desc_count = 0;
     size_t first_vertex = m->vertex_count;
@@ -1045,7 +1067,7 @@ static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
     uint16_t pobj_flags;
     unsigned int pobj_type;
     unsigned int cull_mode;
-    const float *shared_world = NULL;
+    int shared_joint = -1;
     if (!range_ok(po, 0x18, n)) {
         return;
     }
@@ -1070,16 +1092,13 @@ static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
         m->pobj_type_count[pobj_type]++;
     }
     if (pobj_type == 2) {
-        load_env_groups(d, n, po, table, groups, &group_count);
+        load_env_groups(d, n, po, m, groups, &group_count);
     } else if (pobj_type == 0) {
         /* POBJ_SKIN: a non-null joint means two matrix slots (GX_PNMTX0 =
          * current joint, GX_PNMTX1 = this joint), selected per vertex. */
         size_t shared = rptr(d, n, po + 0x14);
         if (shared != SIZE_MAX) {
-            const JointInfo *info = joint_lookup(table, shared);
-            if (info != NULL) {
-                shared_world = &info->world[0][0];
-            }
+            shared_joint = joint_index_of(m, shared);
         }
     }
     cur = dl;
@@ -1106,46 +1125,15 @@ static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
             if (!verts[i].has_color) {
                 memcpy(verts[i].color, color, 4);
             }
-            {
-                const float *matrix = NULL;
-                if (pobj_type == 2) {
-                    /* Envelope: `right` for non-root joints, otherwise rigid
-                     * groups use their joint and blended groups are identity. */
-                    if (right != NULL) {
-                        matrix = right;
-                    } else {
-                        size_t group = (size_t) (verts[i].matrix / 3);
-                        if (group < group_count && groups[group].rigid) {
-                            matrix = &groups[group].matrix[0][0];
-                        } else if (group < group_count &&
-                                   groups[group].scale != 1.0f &&
-                                   verts[i].has_pos) {
-                            /* Blended at bind: uniform scale by weight sum. */
-                            float sum = groups[group].scale;
-                            verts[i].pos[0] *= sum;
-                            verts[i].pos[1] *= sum;
-                            verts[i].pos[2] *= sum;
-                        }
-                    }
-                } else if (pobj_type == 0) {
-                    /* Skin: slot 0 = current joint, slot 1 (GX_PNMTX1) = shared. */
-                    matrix = (verts[i].matrix == 3 && shared_world != NULL)
-                                 ? shared_world
-                                 : current_world;
-                } else {
-                    /* Shape animation: rigid to the current joint at bind. */
-                    matrix = current_world;
-                }
-                if (matrix != NULL && verts[i].has_pos) {
-                    float moved[3];
-                    mtx_transform_point(matrix, verts[i].pos, moved);
-                    memcpy(verts[i].pos, moved, sizeof(moved));
-                    if (verts[i].has_nrm) {
-                        float normal[3];
-                        mtx_transform_normal(matrix, verts[i].nrm, normal);
-                        memcpy(verts[i].nrm, normal, sizeof(normal));
-                    }
-                }
+            /* Record which matrix slot skins this vertex; the transform is
+             * applied by demo_model_pose_apply so it can follow animation. */
+            if (pobj_type == 2) {
+                size_t group = (size_t) (verts[i].matrix / 3);
+                verts[i].skin_sel = group < group_count ? (int) group : -1;
+            } else if (pobj_type == 0) {
+                verts[i].skin_sel = verts[i].matrix; /* 0 slot 0, 3 slot 1 */
+            } else {
+                verts[i].skin_sel = 0;
             }
         }
         if (!complete) {
@@ -1201,7 +1189,8 @@ static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
         }
     }
     if (m->vertex_count > first_vertex && m->batch_count < DEMO_MAX_BATCHES) {
-        DemoModelBatch *batch = &m->batches[m->batch_count++];
+        DemoModelBatch *batch = &m->batches[m->batch_count];
+        DemoBatchSkin *skin = &m->batch_skin[m->batch_count];
         batch->first_vertex = first_vertex;
         batch->vertex_count = m->vertex_count - first_vertex;
         batch->object_index = m->object_count ? m->object_count - 1 : 0;
@@ -1214,11 +1203,19 @@ static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
         batch->wrap_t = wrap_t;
         batch->translucent =
             (color[3] != 255) ? 1 : 0;
+        memset(skin, 0, sizeof(*skin));
+        skin->pobj_type = (uint8_t) pobj_type;
+        skin->current_joint = (int16_t) current_joint;
+        skin->shared_joint = (int16_t) shared_joint;
+        skin->group_count = (uint8_t) group_count;
+        memcpy(skin->groups, groups,
+               group_count * sizeof(DemoEnvGroup));
+        m->batch_count++;
     }
 }
 
 static void walk_joint(DemoModel *m, const uint8_t *d, size_t n, size_t jo,
-                       const JointTable *table, int depth)
+                       int depth)
 {
     size_t dobj;
     size_t child;
@@ -1233,11 +1230,7 @@ static void walk_joint(DemoModel *m, const uint8_t *d, size_t n, size_t jo,
         dobj = SIZE_MAX; /* HSD_JObjDispDObj skips hidden joints */
     }
     {
-        float right[3][4];
-        int m_index = joint_index_of(table, jo);
-        int has_right = joint_right(table, m_index, right);
-        const float *current_world =
-            m_index >= 0 ? &table->joints[m_index].world[0][0] : NULL;
+        int m_index = joint_index_of(m, jo);
         while (dobj != SIZE_MAX && range_ok(dobj, 0x10, n)) {
             size_t dobj_index = m->dobj_count < DEMO_MAX_DOBJS ? m->dobj_count : DEMO_MAX_DOBJS;
             size_t pobj = rptr(d, n, dobj + 12);
@@ -1273,10 +1266,8 @@ static void walk_joint(DemoModel *m, const uint8_t *d, size_t n, size_t jo,
             }
             while (pobj != SIZE_MAX && range_ok(pobj, 0x18, n)) {
                 m->object_count++;
-                parse_pobj(m, d, n, pobj, table,
-                           has_right ? &right[0][0] : NULL, current_world,
-                           dobj_index, color, texture, wrap_s, wrap_t,
-                           mobj_rendermode, texmtx);
+                parse_pobj(m, d, n, pobj, m_index, dobj_index, color, texture,
+                           wrap_s, wrap_t, mobj_rendermode, texmtx);
                 pobj = rptr(d, n, pobj + 4);
             }
             if (m->dobj_count < DEMO_MAX_DOBJS) {
@@ -1285,8 +1276,8 @@ static void walk_joint(DemoModel *m, const uint8_t *d, size_t n, size_t jo,
             dobj = rptr(d, n, dobj + 4);
         }
     }
-    walk_joint(m, d, n, child, table, depth + 1);
-    walk_joint(m, d, n, next, table, depth);
+    walk_joint(m, d, n, child, depth + 1);
+    walk_joint(m, d, n, next, depth);
 }
 
 
@@ -1374,6 +1365,10 @@ void demo_model_free(DemoModel *m)
         m->textures[i].rgba = NULL;
     }
     m->texture_count = 0;
+    free(m->raw);
+    m->raw = NULL;
+    free(m->skin);
+    m->skin = NULL;
 }
 
 int demo_model_batch_visible(const DemoModel *model, size_t batch_index)
@@ -1389,11 +1384,277 @@ int demo_model_batch_visible(const DemoModel *model, size_t batch_index)
     return model->dobj_hidden[dobj] == 0;
 }
 
+int demo_model_batch_pose_visible(const DemoModel *model, size_t batch_index)
+{
+    int joint;
+    if (!demo_model_batch_visible(model, batch_index)) {
+        return 0;
+    }
+    joint = model->batch_skin[batch_index].current_joint;
+    if (joint < 0 || (size_t) joint >= model->joint_count) {
+        return 1;
+    }
+    return model->joints[joint].hidden_dyn == 0;
+}
+
+void demo_model_pose_reset(DemoModel *m)
+{
+    size_t j;
+    for (j = 0; j < m->joint_count; ++j) {
+        DemoJoint *joint = &m->joints[j];
+        memcpy(joint->rotation, joint->rotation_bind, sizeof(joint->rotation));
+        memcpy(joint->scale, joint->scale_bind, sizeof(joint->scale));
+        memcpy(joint->position, joint->position_bind,
+               sizeof(joint->position));
+        joint->hidden_dyn = 0;
+    }
+}
+
+/* 1 when `joint` is `ancestor` or one of its descendants. */
+static int joint_in_subtree(const DemoModel *m, size_t joint, size_t ancestor)
+{
+    while (joint < m->joint_count) {
+        if (joint == ancestor) {
+            return 1;
+        }
+        if (m->joints[joint].parent < 0) {
+            return 0;
+        }
+        joint = (size_t) m->joints[joint].parent;
+    }
+    return 0;
+}
+
+void demo_model_pose_channel(DemoModel *m, size_t joint, int channel,
+                             float value)
+{
+    DemoJoint *jt;
+    if (joint >= m->joint_count) {
+        return;
+    }
+    jt = &m->joints[joint];
+    switch (channel) {
+    case DEMO_A_J_ROTX:
+    case DEMO_A_J_ROTY:
+    case DEMO_A_J_ROTZ:
+        jt->rotation[channel - DEMO_A_J_ROTX] = value;
+        break;
+    case DEMO_A_J_TRAX:
+    case DEMO_A_J_TRAY:
+    case DEMO_A_J_TRAZ:
+        jt->position[channel - DEMO_A_J_TRAX] = value;
+        break;
+    case DEMO_A_J_SCAX:
+    case DEMO_A_J_SCAY:
+    case DEMO_A_J_SCAZ:
+        /* JObjUpdateFunc clamps near-zero scales to 1e-3. */
+        if (fabsf(value) < 1e-3f) {
+            value = 1e-3f;
+        }
+        jt->scale[channel - DEMO_A_J_SCAX] = value;
+        break;
+    case DEMO_A_J_NODE:
+        jt->hidden_dyn = value > 0.5f ? 0 : 1;
+        break;
+    case DEMO_A_J_BRANCH: {
+        size_t j;
+        for (j = 0; j < m->joint_count; ++j) {
+            if (joint_in_subtree(m, j, joint)) {
+                m->joints[j].hidden_dyn = value > 0.5f ? 0 : 1;
+            }
+        }
+        break;
+    }
+    default:
+        /* HSD_A_J_PATH and the SETBYTE/SETFLOAT event channels are not
+         * consumed by the port yet. */
+        break;
+    }
+}
+
+/* Normal transform: inverse-transpose of the 3x3 block, then normalize. */
+static void mtx_transform_normal_it(const float *m, const float in[3],
+                                    float out[3])
+{
+    float inv[3][4];
+    float x;
+    float y;
+    float z;
+    float length;
+    if (!mtx_invert(m, &inv[0][0])) {
+        mtx_transform_normal(m, in, out);
+        return;
+    }
+    x = inv[0][0] * in[0] + inv[1][0] * in[1] + inv[2][0] * in[2];
+    y = inv[0][1] * in[0] + inv[1][1] * in[1] + inv[2][1] * in[2];
+    z = inv[0][2] * in[0] + inv[1][2] * in[1] + inv[2][2] * in[2];
+    length = sqrtf(x * x + y * y + z * z);
+    if (length > 1e-8f) {
+        x /= length;
+        y /= length;
+        z /= length;
+    }
+    out[0] = x;
+    out[1] = y;
+    out[2] = z;
+}
+
+void demo_model_pose_apply(DemoModel *m)
+{
+    size_t j;
+    size_t b;
+    size_t i;
+    m->bounds_min[0] = m->bounds_min[1] = m->bounds_min[2] = 1e30f;
+    m->bounds_max[0] = m->bounds_max[1] = m->bounds_max[2] = -1e30f;
+    if (m->raw == NULL) {
+        return;
+    }
+    /* HSD_JObjMakeMatrix traversal: parents always come first (the joint table
+     * is built parent-before-child). */
+    for (j = 0; j < m->joint_count; ++j) {
+        DemoJoint *jt = &m->joints[j];
+        float local[3][4];
+        const float *parent_scale = NULL;
+        if (jt->parent >= 0) {
+            parent_scale = m->joints[jt->parent].scale_world;
+            make_local_mtx(local, jt->scale, jt->rotation, jt->position,
+                           parent_scale);
+            mtx_concat(&m->joints[jt->parent].world[0][0], &local[0][0],
+                       &jt->world[0][0]);
+        } else {
+            make_local_mtx(local, jt->scale, jt->rotation, jt->position, NULL);
+            memcpy(jt->world, local, sizeof(local));
+        }
+        if (jt->parent >= 0 && (jt->flags & HSD_FLAG_SCL_INHERIT)) {
+            memcpy(jt->scale_world, m->joints[jt->parent].scale_world,
+                   sizeof(jt->scale_world));
+        } else if (jt->parent >= 0) {
+            jt->scale_world[0] =
+                jt->scale[0] * m->joints[jt->parent].scale_world[0];
+            jt->scale_world[1] =
+                jt->scale[1] * m->joints[jt->parent].scale_world[1];
+            jt->scale_world[2] =
+                jt->scale[2] * m->joints[jt->parent].scale_world[2];
+        } else {
+            memcpy(jt->scale_world, jt->scale, sizeof(jt->scale_world));
+        }
+    }
+    for (b = 0; b < m->batch_count; ++b) {
+        const DemoBatchSkin *bs = &m->batch_skin[b];
+        const DemoModelBatch *batch = &m->batches[b];
+        float right[3][4];
+        float group_mtx[DEMO_MAX_ENV_GROUPS][3][4];
+        float identity[3][4];
+        int has_right;
+        size_t g;
+        if (bs->pobj_type == 2) {
+            has_right = batch_right(m, bs->current_joint, right);
+        } else {
+            has_right = 0;
+        }
+        mtx_identity(identity);
+        for (g = 0; g < DEMO_MAX_ENV_GROUPS; ++g) {
+            const DemoEnvGroup *eg = &bs->groups[g];
+            float base[3][4];
+            if (bs->pobj_type != 2 || g >= bs->group_count || eg->count == 0) {
+                memcpy(group_mtx[g], identity, sizeof(identity));
+                continue;
+            }
+            if (eg->rigid) {
+                memcpy(base, m->joints[eg->joints[0]].world, sizeof(base));
+                if (has_right) {
+                    float env[3][4];
+                    float tmp[3][4];
+                    if (!joint_env_mtx(m, eg->joints[0], env)) {
+                        mtx_identity(env);
+                    }
+                    mtx_concat(&base[0][0], &env[0][0], &tmp[0][0]);
+                    mtx_concat(&tmp[0][0], &right[0][0], &group_mtx[g][0][0]);
+                } else {
+                    memcpy(group_mtx[g], base, sizeof(base));
+                }
+            } else {
+                size_t e;
+                memset(base, 0, sizeof(base));
+                for (e = 0; e < eg->count; ++e) {
+                    float env[3][4];
+                    float tmp[3][4];
+                    float weight = eg->weights[e];
+                    if (!joint_env_mtx(m, eg->joints[e], env)) {
+                        continue;
+                    }
+                    mtx_concat(&m->joints[eg->joints[e]].world[0][0],
+                               &env[0][0], &tmp[0][0]);
+                    base[0][0] += weight * tmp[0][0];
+                    base[0][1] += weight * tmp[0][1];
+                    base[0][2] += weight * tmp[0][2];
+                    base[0][3] += weight * tmp[0][3];
+                    base[1][0] += weight * tmp[1][0];
+                    base[1][1] += weight * tmp[1][1];
+                    base[1][2] += weight * tmp[1][2];
+                    base[1][3] += weight * tmp[1][3];
+                    base[2][0] += weight * tmp[2][0];
+                    base[2][1] += weight * tmp[2][1];
+                    base[2][2] += weight * tmp[2][2];
+                    base[2][3] += weight * tmp[2][3];
+                }
+                if (has_right) {
+                    mtx_concat(&base[0][0], &right[0][0],
+                               &group_mtx[g][0][0]);
+                } else {
+                    memcpy(group_mtx[g], base, sizeof(base));
+                }
+            }
+        }
+        for (i = 0; i < batch->vertex_count; ++i) {
+            size_t index = batch->first_vertex + i;
+            const float *raw = &m->raw[index * 6];
+            const float *matrix;
+            float moved[3];
+            float normal[3];
+            DemoModelVertex *out = &m->vertices[index];
+            uint8_t selector = m->skin[index];
+            if (selector == 255) {
+                matrix = identity[0];
+            } else if (bs->pobj_type == 2) {
+                matrix = selector < bs->group_count
+                             ? group_mtx[selector < DEMO_MAX_ENV_GROUPS
+                                             ? selector
+                                             : 0][0]
+                             : identity[0];
+            } else if (bs->pobj_type == 0 && selector == 3 &&
+                       bs->shared_joint >= 0) {
+                matrix = m->joints[bs->shared_joint].world[0];
+            } else if (bs->current_joint >= 0 &&
+                       (size_t) bs->current_joint < m->joint_count) {
+                matrix = m->joints[bs->current_joint].world[0];
+            } else {
+                matrix = identity[0];
+            }
+            mtx_transform_point(matrix, raw, moved);
+            out->position[0] = moved[0];
+            out->position[1] = moved[1];
+            out->position[2] = moved[2];
+            mtx_transform_normal_it(matrix, &raw[3], normal);
+            out->normal[0] = normal[0];
+            out->normal[1] = normal[1];
+            out->normal[2] = normal[2];
+            for (j = 0; j < 3; ++j) {
+                if (out->position[j] < m->bounds_min[j]) {
+                    m->bounds_min[j] = out->position[j];
+                }
+                if (out->position[j] > m->bounds_max[j]) {
+                    m->bounds_max[j] = out->position[j];
+                }
+            }
+        }
+    }
+}
+
 int demo_model_load(DemoModel *m, const uint8_t *d, size_t n, size_t root_offset,
                     char *err, size_t errn)
 {
     size_t root;
-    JointTable table;
     if (err != NULL && errn != 0) {
         err[0] = 0;
     }
@@ -1412,21 +1673,31 @@ int demo_model_load(DemoModel *m, const uint8_t *d, size_t n, size_t root_offset
         seterr(err, errn, "no HSD joint root found");
         return 0;
     }
-    memset(&table, 0, sizeof(table));
-    joint_table_add(d, n, root, -1, &table, 0);
-    m->joint_count = table.count;
+    joint_table_add(d, n, root, -1, m, 0);
+    {
+        /* Raw skin inputs: 6 floats (position + normal) and one selector byte
+         * per vertex, filled while the display lists are parsed. */
+        m->raw = calloc(m->vertex_capacity * 6, sizeof(float));
+        m->skin = calloc(m->vertex_capacity, sizeof(uint8_t));
+        if (m->raw == NULL || m->skin == NULL) {
+            seterr(err, errn, "out of memory for skin data");
+            return 0;
+        }
+    }
     {
         size_t ji;
-        for (ji = 0; ji < table.count; ++ji) {
-            if (table.joints[ji].flags & HSD_FLAG_INSTANCE) {
+        for (ji = 0; ji < m->joint_count; ++ji) {
+            if (m->joints[ji].flags & HSD_FLAG_INSTANCE) {
                 m->instance_count++;
             }
         }
     }
-    walk_joint(m, d, n, root, &table, 0);
+    walk_joint(m, d, n, root, 0);
     if (m->triangle_count == 0) {
         seterr(err, errn, "joint graph contained no supported triangles");
         return 0;
     }
+    demo_model_pose_reset(m);
+    demo_model_pose_apply(m);
     return 1;
 }
