@@ -72,7 +72,7 @@ headless-compatible path.
 **Consequences.** Fast iteration and reliable screenshots. The renderer is not
 extensible to real TEV; that work is scheduled as P-204/M3.
 
-**Status:** accepted (2026-09-09).
+**Status:** superseded by ADR-0009 (2026-09-10).
 
 ---
 
@@ -142,3 +142,45 @@ Per-joint GPU matrices would not express blended envelope groups without
 splitting batches, so the CPU path is also the simplest faithful one.
 
 **Status:** accepted (2026-09-10).
+
+---
+
+## ADR-0009: OpenGL 3.3 core with ES3-portable GLSL for the renderer
+
+**Context.** ADR-0004 chose fixed-function OpenGL 2.1 because it was quick to
+bring up and reliable headless. It cannot express GX's TEV state: alpha test,
+additive/translucent parts, multi-texture and combiner math (P-204). Writing
+those effects against fixed-function would be thrown away. The port also wants
+a future WASM/WebGL2 target (ADR-0007), so shader sources should be usable as
+GLSL ES 3.00 without a second implementation.
+
+**Decision.** Target the OpenGL 3.3 **core profile** (`SDL_GL_CONTEXT_PROFILE_
+CORE`, major/minor 3/3; fail loudly if unavailable) with GLSL sources written
+in an ES3/WebGL2-portable subset:
+
+- The `#version` line and ES precision declarations come from a small header
+  selected at compile time (`#if defined(DEMO_GL_ES)`); the shader bodies are
+  shared and use only `layout(location=N)` attributes, `in`/`out`, `texture()`,
+  `gl_FrontFacing` and `discard` -- no `gl_FragColor`, no built-in vertex
+  state, no texture-matrix stack.
+- Two programs: a model program (position/normal/colour/uv attributes, texture
+  sample, material colour, per-vertex two-sided directional lighting matching
+  the old `GL_LIGHT0`/`glColorMaterial` look, optional alpha test) and a flat
+  overlay program for HUD, grid and platform geometry.
+- Model geometry lives in per-batch VAO/VBOs built from `DemoModelBatch`
+  vertex ranges: one immutable bind-pose buffer and one dynamically uploaded
+  pose buffer per batch. Display lists and `glBegin`/`glVertex` are removed
+  from the draw path.
+- `make_texture_mtx` results are passed as a `mat4` uniform; mipmaps use
+  `glGenerateMipmap` (the core-profile replacement for `GL_GENERATE_MIPMAP`).
+- Function prototypes come from `SDL_opengl.h` with `GL_GLEXT_PROTOTYPES`;
+  no loader dependency is added.
+
+**Consequences.** The renderer is extensible to TEV (P-204) and the shader
+bodies are candidates for GLSL ES 3.00 when a WASM build starts. Requires a
+GL 3.3 core driver; the reference machine's SDL `offscreen` + Mesa gives 4.6
+core (P-211 spike: `4.6 (Core Profile) Mesa 26.1.6`, radeonsi, triangle OK).
+`GL_GLEXT_PROTOTYPES` is a desktop convenience a future loader may replace.
+Any fixed-function or display-list call left in the draw path is a regression.
+
+**Status:** accepted (2026-09-10). Supersedes ADR-0004.
