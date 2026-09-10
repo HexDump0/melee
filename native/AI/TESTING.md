@@ -19,7 +19,9 @@ cmake --build build/native -j4
 Expected tail:
 
 ```
-Decoded PlMrNr.dat: 6328 triangles, 31 textures; bounds [-7.56 -0.28 -2.70] to [7.57 14.21 3.58]
+Decoded PlMrNr.dat: 6328 triangles, 32 textures; bounds [-7.56 -0.28 -2.70] to [7.57 14.21 3.58]
+
+`32` (was `31`) since P-204 decodes the TEX1 TObj; see `STATE.md`.
 ```
 
 ```sh

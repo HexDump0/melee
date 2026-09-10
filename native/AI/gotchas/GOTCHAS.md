@@ -347,3 +347,28 @@ the lit colour in `[0, ~1.7]` and clamps only at the framebuffer produces
 values above 1 that survive scaling by texture values < 1.
 **Fix:** `clamp(color * (ambient + diffuse * NdotL), 0.0, 1.0)` per vertex, not
 per fragment. Same clamp for the two-sided back colour.
+
+## G-042: the GX TEV equation is `d + (1-c)*a + c*b`, not `(a-b)*c + d`
+
+**Symptom:** TEV combiner modes come out wrong: MODULATE results in
+`-prev*texture`, ALPHA_MASK looks like a subtraction.
+**Cause:** copying a generic `(a-b)*c+d` combiner. GX evaluates
+`out = d + (1-c)*a + c*b` (with `GX_TEV_SUB` subtracting the middle term),
+which is why `TObjMakeTExp`'s MODULATE (`a=ZERO, b=prev, c=TEXC`) means
+`prev*texture`.
+**Fix:** use the GX ordering in the shader (`mix(prev, texture, c)`); see
+`learnings/hsd_tev_materials.md`.
+
+## G-043: GX channel lighting uses the registered material colour, not CLR0
+
+**Symptom:** characters render with wrong tints; e.g. Mario's gloves looked
+cream instead of the texture's blue-white, and colours shifted everywhere.
+**Cause:** the renderer multiplied `CLR0` into every material. In GX the
+raster colour is `mat_ambient * light_ambient + Σ light*N·L` for
+`rendermode & 7 == 4` (`HSD_SetupChannelMode` case 4, white `mat_color`), and
+the initial TEV stage uses the material `diffuse` constant unless
+`RENDER_VERTEX` (1<<1) is set. Most fighter materials do **not** set
+`RENDER_VERTEX`, so per-vertex colours are ignored.
+**Fix:** derive `channel_lit`/`initial_ras`/`diffuse_mul` from `rendermode`
+and evaluate exactly that; per-vertex colour is only the raster when the
+channel is unlit. See `native/demo_model.c:parse_material`.

@@ -18,6 +18,7 @@
 #define DEMO_MAX_JOINTS 512
 #define DEMO_MAX_ENV_GROUPS 10
 #define DEMO_MAX_ENV_INFLUENCES 8
+#define DEMO_MAX_TOBJS 2
 
 /* HSD_Joint flags (jobj.h). */
 #define DEMO_JOBJ_SKELETON 0x1u
@@ -29,7 +30,8 @@
 typedef struct DemoModelVertex {
     float position[3];
     float normal[3];
-    float uv[2];
+    float uv[2];  /* GX_VA_TEX0 */
+    float uv2[2]; /* GX_VA_TEX1, used by two-texture TEV stages */
     uint8_t color[4];
     int16_t texture; /* index into DemoModel::textures, -1 when untextured */
 } DemoModelVertex;
@@ -43,6 +45,64 @@ typedef struct DemoModelTexture {
     uint32_t format;
 } DemoModelTexture;
 
+/* One TObjDesc from the material's texture chain (mobj->texdesc->next...).
+ * `flags` is HSD_TObjDesc.blend_flags: colormap/alphamap/lightmap bits. */
+typedef struct DemoTobjInfo {
+    int16_t texture;     /* index into DemoModel::textures, -1 when untagged */
+    uint8_t id;          /* GXTexMapID */
+    uint8_t src;         /* GXTexGenSrc */
+    uint8_t wrap_s, wrap_t;
+    uint32_t flags;
+    float blending;
+    uint8_t has_tev;
+    /* HSD_TObjTevDesc: explicit per-texture TEV override. */
+    uint8_t tev_color_op, tev_alpha_op;
+    uint8_t tev_color_bias, tev_alpha_bias;
+    uint8_t tev_color_scale, tev_alpha_scale;
+    uint8_t tev_color_clamp, tev_alpha_clamp;
+    uint8_t tev_color_a, tev_color_b, tev_color_c, tev_color_d;
+    uint8_t tev_alpha_a, tev_alpha_b, tev_alpha_c, tev_alpha_d;
+    uint8_t tev_konst[4], tev_tev0[4], tev_tev1[4];
+    uint32_t tev_active;
+} DemoTobjInfo;
+
+/* Everything HSD_MObjSetup feeds to the GX state for one material. */
+typedef struct DemoBatchMaterial {
+    uint32_t rendermode; /* HSD RENDER_* bits, including the forced RENDER_TOON */
+    uint8_t ambient[4];
+    uint8_t diffuse[4];
+    uint8_t specular[4];
+    float alpha;
+    float shininess;
+    uint8_t pe_present;
+    uint8_t pe_flags, pe_ref0, pe_ref1, pe_dst_alpha, pe_type;
+    uint8_t pe_src_factor, pe_dst_factor, pe_logic_op, pe_z_comp;
+    uint8_t pe_alpha_comp0, pe_alpha_op, pe_alpha_comp1;
+    uint8_t tobj_count;
+    DemoTobjInfo tobjs[DEMO_MAX_TOBJS];
+    /*
+     * Derived GX state, all from the decomp:
+     *   channel_lit   HSD_SetupChannelMode(rendermode & 7) == 4 -> lit channel
+     *   initial_ras   MObjMakeTExp uses RAS as the initial TEV input when
+     *                 RENDER_VERTEX is set, else the material constant
+     *   diffuse_mul   RENDER_DIFFUSE adds a final TEV stage multiplying by RAS
+     *   specular      RENDER_SPECULAR adds the specular TEV path
+     *   alpha_test/z/blend come from HSD_SetupPEMode (or HSD_PEDesc when set)
+     */
+    uint8_t channel_lit;
+    uint8_t initial_ras;
+    uint8_t diffuse_mul;
+    uint8_t specular_tev;
+    uint8_t z_enable;
+    uint8_t z_func;  /* GXCompare */
+    uint8_t z_update;
+    uint8_t alpha_test;
+    uint8_t alpha_comp0, alpha_ref0, alpha_op, alpha_comp1, alpha_ref1;
+    uint8_t blend;   /* GXBlendMode */
+    uint8_t blend_src, blend_dst; /* GXBlendFactor */
+    uint8_t blend_op; /* GXBlendOp for GX_BM_SUBTRACT (rare) */
+} DemoBatchMaterial;
+
 /* One drawable piece, usually a single PObj display list.  The viewer can
  * isolate these to inspect individual body/face parts. */
 typedef struct DemoModelBatch {
@@ -54,9 +114,11 @@ typedef struct DemoModelBatch {
     uint8_t cull_mode;   /* 0 none, 1 front, 2 back, 3 both (not drawn) */
     uint32_t rendermode; /* HSD RENDER_* bits (z-mode, xlu, ...) */
     float texmtx[16];    /* HSD MakeTextureMtx result, column-major for GL */
+    float texmtx2[16];   /* second TObj's matrix, for TEX1 stages */
     uint8_t wrap_s;      /* GX wrap: 0 clamp, 1 repeat, 2 mirror */
     uint8_t wrap_t;
     uint8_t translucent;
+    DemoBatchMaterial material;
 } DemoModelBatch;
 
 /*

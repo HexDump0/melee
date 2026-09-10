@@ -131,6 +131,9 @@ SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --view --animate \
 # List the mesh parts of a model (index, vertex count, bounds)
 ./build/native/melee-demo --inspect --list-parts
 
+# Dump the per-batch GX material state (rendermode, PEDesc, TObj chain)
+./build/native/melee-demo --dump-tev
+
 # Render an isolated view to a BMP, optionally isolating one part
 ./build/native/melee-demo --view --angle 180 --screenshot /tmp/mario.bmp
 ./build/native/melee-demo --view --part 21 --part-mode only --frames 3 \

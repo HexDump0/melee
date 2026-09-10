@@ -38,6 +38,7 @@
 #define GX_VA_CLR0 11
 #define GX_VA_CLR1 12
 #define GX_VA_TEX0 13
+#define GX_VA_TEX1 14
 #define GX_VA_TEX7 20
 #define GX_VA_NULL 0xff
 
@@ -70,12 +71,14 @@ typedef struct RawVertex {
     float pos[3];
     float nrm[3];
     float uv[2];
+    float uv2[2];
     uint8_t color[4];
     int matrix;
     int skin_sel;
     int has_pos;
     int has_nrm;
     int has_uv;
+    int has_uv2;
     int has_color;
 } RawVertex;
 
@@ -707,6 +710,13 @@ static int read_vertex(const uint8_t *d, size_t n, const RawDesc *descs,
                                          offset + i * step);
             }
             out->has_uv = 1;
+        } else if (desc->attr == GX_VA_TEX1) {
+            size_t step = ctype_size(desc->ctype);
+            for (i = 0; i < comps && i < 2; ++i) {
+                out->uv2[i] = decode_comp(desc->ctype, desc->frac, source, n,
+                                          offset + i * step);
+            }
+            out->has_uv2 = 1;
         } else if (is_color) {
             if (!out->has_color) {
                 decode_color(desc->ctype, source, n, offset, out->color);
@@ -871,6 +881,13 @@ static void emit(DemoModel *m, const RawVertex *v, int texture)
     } else {
         out->uv[0] = 0.0f;
         out->uv[1] = 0.0f;
+    }
+    if (v->has_uv2) {
+        out->uv2[0] = v->uv2[0];
+        out->uv2[1] = v->uv2[1];
+    } else {
+        out->uv2[0] = out->uv[0];
+        out->uv2[1] = out->uv[1];
     }
     if (v->has_color) {
         memcpy(out->color, v->color, sizeof(out->color));
@@ -1049,10 +1066,139 @@ static void make_texture_mtx(const uint8_t *d, size_t n, size_t td,
     }
 }
 
+/*
+ * HSD_MObjDesc + HSD_Material + HSD_MObjDesc.pedesc + the TObjDesc chain.
+ * Offsets mirror mobj.h/tobj.h: rendermode +4, texdesc +8, mat +0xC,
+ * pedesc +0x14; TObjDesc id +8, src +0xC, wrap +0x34/+0x38, flags +0x40,
+ * blending +0x44, imagedesc +0x4C, tlutdesc +0x50, tev +0x58.
+ * MObjLoad forces RENDER_TOON on every material (mobj.c:158).
+ */
+static void parse_material(DemoModel *m, const uint8_t *d, size_t n,
+                           size_t mobj, DemoBatchMaterial *out)
+{
+    size_t mat;
+    size_t texdesc;
+    size_t td;
+    int i;
+    memset(out, 0, sizeof(*out));
+    out->alpha = 1.0f;
+    if (mobj == SIZE_MAX || !range_ok(mobj, 0x18, n)) {
+        return;
+    }
+    out->rendermode = rb32(d, n, mobj + 4) | 0x1000u; /* RENDER_TOON */
+    texdesc = rptr(d, n, mobj + 8);
+    mat = rptr(d, n, mobj + 0xc);
+    if (mat != SIZE_MAX && range_ok(mat, 0x14, n)) {
+        memcpy(out->ambient, d + mat, 4);
+        memcpy(out->diffuse, d + mat + 4, 4);
+        memcpy(out->specular, d + mat + 8, 4);
+        out->alpha = rf32(d, n, mat + 0xc);
+        out->shininess = rf32(d, n, mat + 0x10);
+    }
+    {
+        size_t pe = rptr(d, n, mobj + 0x14);
+        if (pe != SIZE_MAX && range_ok(pe, 12, n)) {
+            out->pe_present = 1;
+            out->pe_flags = d[pe + 0];
+            out->pe_ref0 = d[pe + 1];
+            out->pe_ref1 = d[pe + 2];
+            out->pe_dst_alpha = d[pe + 3];
+            out->pe_type = d[pe + 4];
+            out->pe_src_factor = d[pe + 5];
+            out->pe_dst_factor = d[pe + 6];
+            out->pe_logic_op = d[pe + 7];
+            out->pe_z_comp = d[pe + 8];
+            out->pe_alpha_comp0 = d[pe + 9];
+            out->pe_alpha_op = d[pe + 10];
+            out->pe_alpha_comp1 = d[pe + 11];
+        }
+    }
+    for (i = 0, td = texdesc;
+         i < DEMO_MAX_TOBJS && td != SIZE_MAX && range_ok(td, 0x5c, n);
+         ++i)
+    {
+        DemoTobjInfo *t = &out->tobjs[out->tobj_count];
+        size_t tev;
+        t->texture = (int16_t) find_or_add_texture(m, d, n, td);
+        t->id = (uint8_t) rb32(d, n, td + 8);
+        t->src = (uint8_t) rb32(d, n, td + 0xc);
+        t->wrap_s = (uint8_t) rb32(d, n, td + 0x34);
+        t->wrap_t = (uint8_t) rb32(d, n, td + 0x38);
+        t->flags = rb32(d, n, td + 0x40);
+        t->blending = rf32(d, n, td + 0x44);
+        tev = rptr(d, n, td + 0x58);
+        if (tev != SIZE_MAX && range_ok(tev, 0x28, n)) {
+            t->has_tev = 1;
+            t->tev_color_op = d[tev + 0];
+            t->tev_alpha_op = d[tev + 1];
+            t->tev_color_bias = d[tev + 2];
+            t->tev_alpha_bias = d[tev + 3];
+            t->tev_color_scale = d[tev + 4];
+            t->tev_alpha_scale = d[tev + 5];
+            t->tev_color_clamp = d[tev + 6];
+            t->tev_alpha_clamp = d[tev + 7];
+            t->tev_color_a = d[tev + 8];
+            t->tev_color_b = d[tev + 9];
+            t->tev_color_c = d[tev + 10];
+            t->tev_color_d = d[tev + 11];
+            t->tev_alpha_a = d[tev + 12];
+            t->tev_alpha_b = d[tev + 13];
+            t->tev_alpha_c = d[tev + 14];
+            t->tev_alpha_d = d[tev + 15];
+            memcpy(t->tev_konst, d + tev + 16, 4);
+            memcpy(t->tev_tev0, d + tev + 20, 4);
+            memcpy(t->tev_tev1, d + tev + 24, 4);
+            t->tev_active = rb32(d, n, tev + 28);
+        }
+        out->tobj_count++;
+        td = rptr(d, n, td + 4);
+    }
+
+    /* HSD_SetupChannelMode(arg0 & 7): case 4 lights the raster through the
+     * diffuse channel; cases 2 and default leave the channel disabled. */
+    out->channel_lit = (out->rendermode & 7u) == 4u;
+    out->initial_ras = (out->rendermode & 0x2u) != 0;  /* RENDER_VERTEX */
+    out->diffuse_mul = (out->rendermode & 0x4u) != 0;  /* RENDER_DIFFUSE */
+    out->specular_tev = (out->rendermode & 0x8u) != 0; /* RENDER_SPECULAR */
+    out->z_enable = 1;
+    out->z_func = (out->rendermode & 0x08000000u) ? 7 : 3; /* ALWAYS / LEQUAL */
+    out->z_update = (out->rendermode & 0x20000000u) == 0;
+    out->blend = (out->rendermode & 0x40000000u) ? 1 : 0; /* XLU: GX_BM_BLEND */
+    out->blend_src = 4; /* GX_BL_SRCALPHA */
+    out->blend_dst = 5; /* GX_BL_INVSRCALPHA */
+    out->blend_op = 0;
+    if (out->blend && out->z_update) {
+        /* HSD_SetupPEMode default: discard alpha == 0 (GX_GREATER, ref 0). */
+        out->alpha_test = 1;
+        out->alpha_comp0 = 4;
+        out->alpha_ref0 = 0;
+        out->alpha_op = 0;
+        out->alpha_comp1 = 4;
+        out->alpha_ref1 = 0;
+    }
+    if (out->pe_present) {
+        out->blend = out->pe_type;
+        out->blend_src = out->pe_src_factor;
+        out->blend_dst = out->pe_dst_factor;
+        out->blend_op = out->pe_logic_op;
+        out->z_enable = (out->pe_flags & 0x10) != 0;
+        out->z_func = out->pe_z_comp;
+        out->z_update = (out->pe_flags & 0x20) != 0;
+        out->alpha_test = 1;
+        out->alpha_comp0 = out->pe_alpha_comp0;
+        out->alpha_ref0 = out->pe_ref0;
+        out->alpha_op = out->pe_alpha_op;
+        out->alpha_comp1 = out->pe_alpha_comp1;
+        out->alpha_ref1 = out->pe_ref1;
+    }
+}
+
 static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
                        int current_joint, size_t dobj_index, uint8_t color[4],
                        int texture, uint8_t wrap_s, uint8_t wrap_t,
-                       uint32_t rendermode, const float texmtx[16])
+                       uint32_t rendermode, const float texmtx[16],
+                       const float texmtx2[16],
+                       const DemoBatchMaterial *material)
 {
     RawDesc descs[32];
     DemoEnvGroup groups[HSD_MAX_ENV_GROUPS];
@@ -1199,10 +1345,14 @@ static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
         batch->cull_mode = (uint8_t) cull_mode;
         batch->rendermode = rendermode;
         memcpy(batch->texmtx, texmtx, sizeof(batch->texmtx));
+        memcpy(batch->texmtx2, texmtx2, sizeof(batch->texmtx2));
         batch->wrap_s = wrap_s;
         batch->wrap_t = wrap_t;
         batch->translucent =
             (color[3] != 255) ? 1 : 0;
+        if (material != NULL) {
+            batch->material = *material;
+        }
         memset(skin, 0, sizeof(*skin));
         skin->pobj_type = (uint8_t) pobj_type;
         skin->current_joint = (int16_t) current_joint;
@@ -1241,23 +1391,32 @@ static void walk_joint(DemoModel *m, const uint8_t *d, size_t n, size_t jo,
             uint32_t mobj_rendermode = 0;
             int texture = -1;
             float texmtx[16];
+            float texmtx2[16];
+            DemoBatchMaterial material;
+            memset(&material, 0, sizeof(material));
             make_texture_mtx(d, n, SIZE_MAX, texmtx);
+            make_texture_mtx(d, n, SIZE_MAX, texmtx2);
             if (mobj != SIZE_MAX && range_ok(mobj, 0x18, n)) {
-                size_t mat = rptr(d, n, mobj + 0xc);
                 size_t texdesc = rptr(d, n, mobj + 8);
                 mobj_rendermode = rb32(d, n, mobj + 4);
+                parse_material(m, d, n, mobj, &material);
                 make_texture_mtx(d, n, texdesc, texmtx);
-                if (mat != SIZE_MAX && range_ok(mat, 8, n)) {
-                    color[0] = d[mat + 4];
-                    color[1] = d[mat + 5];
-                    color[2] = d[mat + 6];
-                    color[3] = d[mat + 7];
-                }
                 if (texdesc != SIZE_MAX && range_ok(texdesc, 0x5c, n)) {
+                    size_t texdesc2 = rptr(d, n, texdesc + 4);
                     wrap_s = (uint8_t) rb32(d, n, texdesc + 0x34);
                     wrap_t = (uint8_t) rb32(d, n, texdesc + 0x38);
                     texture = find_or_add_texture(m, d, n, texdesc);
+                    make_texture_mtx(d, n, texdesc2, texmtx2);
                 }
+            }
+            memcpy(color, material.diffuse, 4);
+            if (color[0] == 0 && color[1] == 0 && color[2] == 0 &&
+                color[3] == 0)
+            {
+                color[0] = 205;
+                color[1] = 145;
+                color[2] = 70;
+                color[3] = 255;
             }
             /* RENDER_XLU (1<<30) marks a blended material; opaque parts ignore
              * the material alpha so they never render see-through. */
@@ -1267,7 +1426,8 @@ static void walk_joint(DemoModel *m, const uint8_t *d, size_t n, size_t jo,
             while (pobj != SIZE_MAX && range_ok(pobj, 0x18, n)) {
                 m->object_count++;
                 parse_pobj(m, d, n, pobj, m_index, dobj_index, color, texture,
-                           wrap_s, wrap_t, mobj_rendermode, texmtx);
+                           wrap_s, wrap_t, mobj_rendermode, texmtx, texmtx2,
+                           &material);
                 pobj = rptr(d, n, pobj + 4);
             }
             if (m->dobj_count < DEMO_MAX_DOBJS) {

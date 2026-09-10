@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-10 (renderer: OpenGL 3.3 core + ES3-portable shaders)
+Last updated: 2026-09-10 (materials: HSD/GX TEV combiner + alpha test/blend)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -32,7 +32,7 @@ reproduced to within a few 1/65535 RMSE units.
 | Bind-pose envelope skinning | Rendered Mario is a coherent T-pose; bounds `[-7.56 -0.28 -2.70]..[7.57 14.21 3.58]` |
 | `right` matrix | Link's sword/scabbard/shield sit on his back instead of the floor (bounds y-min rose from -6.14 to -0.01) |
 | Part visibility | Mario hides 16 of 59 DObjs, Link 32 of 83; faces render in neutral pose |
-| CI4/CI8 + TLUT | Mario eye atlas (190x190 CI8, palette RGB565) decodes; 31 textures total |
+| CI4/CI8 + TLUT | Mario eye atlas (190x190 CI8, palette RGB565) decodes; 32 textures total (incl. one TEX1 map) |
 | PObj types | SKIN (shared two-slot and rigid) and SHAPEANIM handled; Kirby, Link, Falcon, Game & Watch colors correct |
 | Vertex colours | GX colour enum (RGB565/RGB8/RGBX8/RGBA4/RGBA6/RGBA8) decoded; fixes desync on coloured meshes |
 | Per-PObj culling | GX cull modes + clockwise front faces; Master Hand renders solid |
@@ -44,8 +44,11 @@ reproduced to within a few 1/65535 RMSE units.
 | Render parity | Bind/anim/back-view screenshots RMSE <= 3.2e-6 vs the pre-rewrite build; scripted 88/1,024,000 pixels (HUD alpha) |
 | Visibility slots | `FtPartsVis` slot semantics documented; viewer `B` / `--vis-slot N` cycles them |
 | GX display lists | Strips/triangles/quads decoded; clean opcode histogram (only 0x80/0x90/0x98) |
-| Textures | 31 textures for Mario (CMPR + CI8), correct cap/overalls/face/eyes |
-| Materials | Per-DObj diffuse color as vertex color |
+| Textures | 32 textures for Mario (CMPR + CI8 + TEX1), correct cap/overalls/face/eyes |
+| Materials | `MObjMakeTExp`/`TObjMakeTExp` common path: material constant/RAS initial stage, colormap/alphamap, RENDER_DIFFUSE lit stage |
+| GX channels | `HSD_SetupChannelMode` case 4 lighting (`mat_ambient*ambient + light*N·L`), unlit vertex-colour default |
+| Alpha/blend/Z | `HSD_SetupPEMode`: XLU blend factors, alpha->0 discard, custom `PEDesc`, per-material Z func/update |
+| Multi-texture | TEX0+TEX1 decoded; second TObj colormap/alphamap + its `MakeTextureMtx` uniformly sampled |
 | Cross-character | Fox 6658 tris/34 tex, Pikachu 4989/10, Young Link 7381/42 |
 | Model enumeration | `--list-models` finds 33 `Pl*Nr.dat`; `--all-models` finds 273 |
 | 3D viewer | Orbit/zoom, ground grid, wireframe, culling, auto-spin, screenshots |
@@ -75,12 +78,12 @@ Ordered by impact.
    recognisable, but a few thin edge-on pieces remain (x=0, y 13.6..21.9) that
    in-game are hidden through animation/joint state the port does not evaluate
    yet. P-201/P-412.
-4. **TEV approximated.** The shader does `texture * material color` with a
-   fixed-function-equivalent directional light. Multi-texture (TEX1+), toon
-   ramps, alpha test thresholds and additive blends still do not match the
-   GameCube, which is visible on Master Hand's layered shells. The P-211
-   rewrite puts the TEV state (material/alpha-test/multi-tex uniforms) in
-   place for workstream P-204.
+4. **TEV partially ported.** The common `MObjMakeTExp`/`TObjMakeTExp` path is
+   in (material/RAS initial stage, colormap/alphamap, `RENDER_DIFFUSE`,
+   alpha-test/blend/Z, TEX0+TEX1), but specular (`RENDER_SPECULAR`) needs the
+   scene's specular lights (`HSD_LObj`, not ported), lightmap repeat chains
+   and `HSD_TObjTev` overrides are ignored, and toon textures are per-stage
+   state. See `learnings/hsd_tev_materials.md`. Still P-204.
 5. **No audio, menus, items, stages, results, netplay, WASM.**
 6. **Non-Mario physics values** are demo defaults, not per-character data.
 7. **Windows/macOS untested.** Linux + Mesa is the only verified target.
@@ -104,7 +107,7 @@ SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --scripted --frames 240 \
 Expected `--inspect` tail:
 
 ```
-Decoded PlMrNr.dat: 6328 triangles, 31 textures; bounds [-7.56 -0.28 -2.70] to [7.57 14.21 3.58]
+Decoded PlMrNr.dat: 6328 triangles, 32 textures; bounds [-7.56 -0.28 -2.70] to [7.57 14.21 3.58]
 ```
 
 If those numbers move, say why in the commit and update this file.

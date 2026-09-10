@@ -352,56 +352,135 @@ static void draw_text(float x,float y,float size,const char *s)
 #define DEMO_GLSL_HEADER "#version 330\n"
 #endif
 
+/*
+ * Model shader, a direct transcription of the common HSD/GX material paths:
+ *   - MObjMakeTExp initial stage: RAS when RENDER_VERTEX, else the material
+ *     diffuse/alpha constant.
+ *   - TObjMakeTExp colormap/alphamap per texture (TEX_COLORMAP_* values).
+ *   - RENDER_DIFFUSE final stage multiplies by the raster colour.
+ *   - HSD_SetupPEMode alpha compare (GXCompare/GXAlphaOp) with discard.
+ * The channel raster is `mat_ambient * light_ambient + light_diffuse*N.L`
+ * (HSD_SetupChannelMode case 4 -> GX_Chan _60), not vertex_color * light:
+ * the GX channel uses the registered material colour, not per-vertex colour.
+ */
 static const char *MODEL_VS =
     "layout(location=0) in vec3 a_position;\n"
     "layout(location=1) in vec3 a_normal;\n"
     "layout(location=2) in vec4 a_color;\n"
     "layout(location=3) in vec2 a_uv;\n"
+    "layout(location=4) in vec2 a_uv2;\n"
     "uniform mat4 u_mvp;\n"
     "uniform mat3 u_normal_mtx;\n"
-    "uniform mat4 u_texmtx;\n"
-    "uniform vec3 u_ambient;\n"
-    "uniform vec3 u_diffuse;\n"
+    "uniform mat4 u_texmtx[2];\n"
+    "uniform vec3 u_ambient_light;\n"
+    "uniform vec3 u_diffuse_light;\n"
     "uniform vec3 u_light_dir;\n"
+    "uniform vec3 u_mat_ambient;\n"
     "uniform int u_lighting;\n"
-    "out vec4 v_color_front;\n"
-    "out vec4 v_color_back;\n"
+    "out vec4 v_vertex;\n"
+    "out vec3 v_lit_front;\n"
+    "out vec3 v_lit_back;\n"
     "out vec2 v_uv;\n"
+    "out vec2 v_uv2;\n"
     "void main() {\n"
     "    gl_Position = u_mvp * vec4(a_position, 1.0);\n"
-    "    v_uv = (u_texmtx * vec4(a_uv, 0.0, 1.0)).xy;\n"
+    "    v_uv = (u_texmtx[0] * vec4(a_uv, 0.0, 1.0)).xy;\n"
+    "    v_uv2 = (u_texmtx[1] * vec4(a_uv2, 0.0, 1.0)).xy;\n"
+    "    v_vertex = a_color;\n"
     "    if (u_lighting != 0) {\n"
     "        vec3 n = normalize(u_normal_mtx * a_normal);\n"
     "        vec3 l = normalize(u_light_dir);\n"
-    "        float front = max(dot(n, l), 0.0);\n"
-    "        float back = max(dot(-n, l), 0.0);\n"
-    "        v_color_front = vec4(clamp(a_color.rgb * (u_ambient + u_diffuse * front), 0.0, 1.0), a_color.a);\n"
-    "        v_color_back = vec4(clamp(a_color.rgb * (u_ambient + u_diffuse * back), 0.0, 1.0), a_color.a);\n"
+    "        v_lit_front = clamp(u_mat_ambient * u_ambient_light + u_diffuse_light * max(dot(n, l), 0.0), 0.0, 1.0);\n"
+    "        v_lit_back = clamp(u_mat_ambient * u_ambient_light + u_diffuse_light * max(dot(-n, l), 0.0), 0.0, 1.0);\n"
     "    } else {\n"
-    "        v_color_front = a_color;\n"
-    "        v_color_back = a_color;\n"
+    "        v_lit_front = vec3(1.0);\n"
+    "        v_lit_back = vec3(1.0);\n"
     "    }\n"
     "}\n";
 
 static const char *MODEL_FS =
-    "uniform sampler2D u_texture;\n"
-    "uniform int u_use_texture;\n"
+    "uniform sampler2D u_tex0;\n"
+    "uniform sampler2D u_tex1;\n"
+    "uniform int u_tex_count;\n"
+    "uniform int u_texsrc[2];\n"
+    "uniform int u_cmap[2];\n"
+    "uniform int u_amap[2];\n"
+    "uniform float u_tex_blend[2];\n"
+    "uniform int u_ras_lit;\n"
+    "uniform int u_initial_ras;\n"
+    "uniform int u_diffuse_mul;\n"
     "uniform vec4 u_material;\n"
-    "uniform float u_alpha_test;\n"
-    "in vec4 v_color_front;\n"
-    "in vec4 v_color_back;\n"
+    "uniform int u_alpha_test;\n"
+    "uniform int u_acomp[2];\n"
+    "uniform float u_aref[2];\n"
+    "uniform int u_aop;\n"
+    "in vec4 v_vertex;\n"
+    "in vec3 v_lit_front;\n"
+    "in vec3 v_lit_back;\n"
     "in vec2 v_uv;\n"
+    "in vec2 v_uv2;\n"
     "out vec4 frag_color;\n"
+    /* GX TEV: out = (d + (1-c)*a + c*b), clamped; the HSD colormap/alphamap
+     * branches map to a=prev, b=texture, c=texture/alpha/blend as below. */
+    "vec3 tev_colormap(int mode, float blend, vec3 prev, vec4 t) {\n"
+    "    if (mode == 1) return clamp(mix(prev, t.rgb, t.a), 0.0, 1.0);\n"
+    "    if (mode == 2) return clamp(mix(prev, t.rgb * t.rgb, t.rgb), 0.0, 1.0);\n"
+    "    if (mode == 3) return clamp(mix(prev, t.rgb, blend), 0.0, 1.0);\n"
+    "    if (mode == 4) return clamp(prev * t.rgb, 0.0, 1.0);\n"
+    "    if (mode == 5) return t.rgb;\n"
+    "    if (mode == 7) return clamp(prev + t.rgb, 0.0, 1.0);\n"
+    "    if (mode == 8) return clamp(prev - t.rgb, 0.0, 1.0);\n"
+    "    return prev;\n"
+    "}\n"
+    "float tev_alphamap(int mode, float blend, float prev, vec4 t) {\n"
+    "    if (mode == 1) return clamp(mix(prev, t.a * t.a, t.a), 0.0, 1.0);\n"
+    "    if (mode == 2) return clamp(mix(prev, t.a, blend), 0.0, 1.0);\n"
+    "    if (mode == 3) return clamp(prev * t.a, 0.0, 1.0);\n"
+    "    if (mode == 4) return t.a;\n"
+    "    if (mode == 6) return clamp(prev + t.a, 0.0, 1.0);\n"
+    "    if (mode == 7) return clamp(prev - t.a, 0.0, 1.0);\n"
+    "    return prev;\n"
+    "}\n"
+    "bool gx_compare(int func, int a, int ref) {\n"
+    "    if (func == 0) return false;\n"
+    "    if (func == 1) return a < ref;\n"
+    "    if (func == 2) return a == ref;\n"
+    "    if (func == 3) return a <= ref;\n"
+    "    if (func == 4) return a > ref;\n"
+    "    if (func == 5) return a != ref;\n"
+    "    if (func == 6) return a >= ref;\n"
+    "    return true;\n"
+    "}\n"
     "void main() {\n"
-    "    vec4 color = gl_FrontFacing ? v_color_front : v_color_back;\n"
-    "    vec4 base = color * u_material;\n"
-    "    if (u_use_texture != 0) {\n"
-    "        base *= texture(u_texture, v_uv);\n"
+    "    vec3 lit = gl_FrontFacing ? v_lit_front : v_lit_back;\n"
+    "    vec4 ras = vec4(u_ras_lit != 0 ? lit : v_vertex.rgb, v_vertex.a);\n"
+    "    vec4 color = u_initial_ras != 0 ? ras : u_material;\n"
+    "    if (u_tex_count > 0) {\n"
+    "        vec2 uv = (u_texsrc[0] == 5) ? v_uv2 : v_uv;\n"
+    "        vec4 t = texture(u_tex0, uv);\n"
+    "        color = vec4(tev_colormap(u_cmap[0], u_tex_blend[0], color.rgb, t),\n"
+    "                     tev_alphamap(u_amap[0], u_tex_blend[0], color.a, t));\n"
     "    }\n"
-    "    if (u_alpha_test >= 0.0 && base.a < u_alpha_test) {\n"
-    "        discard;\n"
+    "    if (u_tex_count > 1) {\n"
+    "        vec2 uv = (u_texsrc[1] == 5) ? v_uv2 : v_uv;\n"
+    "        vec4 t = texture(u_tex1, uv);\n"
+    "        color = vec4(tev_colormap(u_cmap[1], u_tex_blend[1], color.rgb, t),\n"
+    "                     tev_alphamap(u_amap[1], u_tex_blend[1], color.a, t));\n"
     "    }\n"
-    "    frag_color = base;\n"
+    "    if (u_diffuse_mul != 0) {\n"
+    "        color.rgb = clamp(color.rgb * ras.rgb, 0.0, 1.0);\n"
+    "        color.a = clamp(color.a * ras.a, 0.0, 1.0);\n"
+    "    }\n"
+    "    if (u_alpha_test != 0) {\n"
+    "        int av = int(color.a * 255.0 + 0.5);\n"
+    "        bool p0 = gx_compare(u_acomp[0], av, int(u_aref[0] + 0.5));\n"
+    "        bool p1 = gx_compare(u_acomp[1], av, int(u_aref[1] + 0.5));\n"
+    "        bool pass = (u_aop == 1) ? (p0 || p1) :\n"
+    "                    (u_aop == 2) ? (p0 != p1) :\n"
+    "                    (u_aop == 3) ? (p0 == p1) : (p0 && p1);\n"
+    "        if (!pass) discard;\n"
+    "    }\n"
+    "    frag_color = color;\n"
     "}\n";
 
 static const char *OVERLAY_VS =
@@ -423,15 +502,26 @@ typedef struct ModelShader {
     GLuint program;
     GLint mvp;
     GLint normal_mtx;
-    GLint texmtx;
-    GLint texture;
-    GLint use_texture;
-    GLint lighting;
-    GLint ambient;
-    GLint diffuse;
+    GLint texmtx;        /* u_texmtx[0], two matrices per draw */
+    GLint tex[2];
+    GLint tex_count;
+    GLint texsrc;        /* u_texsrc[0], two ints */
+    GLint cmap;
+    GLint amap;
+    GLint tex_blend;
+    GLint ambient_light;
+    GLint diffuse_light;
     GLint light_dir;
+    GLint mat_ambient;
+    GLint lighting;
+    GLint ras_lit;
+    GLint initial_ras;
+    GLint diffuse_mul;
     GLint material;
     GLint alpha_test;
+    GLint acomp;
+    GLint aref;
+    GLint aop;
 } ModelShader;
 
 static ModelShader g_model;
@@ -484,19 +574,30 @@ static int renderer_init(void)
     if(!g_model.program)return 0;
     g_model.mvp=glGetUniformLocation(g_model.program,"u_mvp");
     g_model.normal_mtx=glGetUniformLocation(g_model.program,"u_normal_mtx");
-    g_model.texmtx=glGetUniformLocation(g_model.program,"u_texmtx");
-    g_model.texture=glGetUniformLocation(g_model.program,"u_texture");
-    g_model.use_texture=glGetUniformLocation(g_model.program,"u_use_texture");
-    g_model.lighting=glGetUniformLocation(g_model.program,"u_lighting");
-    g_model.ambient=glGetUniformLocation(g_model.program,"u_ambient");
-    g_model.diffuse=glGetUniformLocation(g_model.program,"u_diffuse");
+    g_model.texmtx=glGetUniformLocation(g_model.program,"u_texmtx[0]");
+    g_model.tex[0]=glGetUniformLocation(g_model.program,"u_tex0");
+    g_model.tex[1]=glGetUniformLocation(g_model.program,"u_tex1");
+    g_model.tex_count=glGetUniformLocation(g_model.program,"u_tex_count");
+    g_model.texsrc=glGetUniformLocation(g_model.program,"u_texsrc[0]");
+    g_model.cmap=glGetUniformLocation(g_model.program,"u_cmap[0]");
+    g_model.amap=glGetUniformLocation(g_model.program,"u_amap[0]");
+    g_model.tex_blend=glGetUniformLocation(g_model.program,"u_tex_blend[0]");
+    g_model.ambient_light=glGetUniformLocation(g_model.program,"u_ambient_light");
+    g_model.diffuse_light=glGetUniformLocation(g_model.program,"u_diffuse_light");
     g_model.light_dir=glGetUniformLocation(g_model.program,"u_light_dir");
+    g_model.mat_ambient=glGetUniformLocation(g_model.program,"u_mat_ambient");
+    g_model.lighting=glGetUniformLocation(g_model.program,"u_lighting");
+    g_model.ras_lit=glGetUniformLocation(g_model.program,"u_ras_lit");
+    g_model.initial_ras=glGetUniformLocation(g_model.program,"u_initial_ras");
+    g_model.diffuse_mul=glGetUniformLocation(g_model.program,"u_diffuse_mul");
     g_model.material=glGetUniformLocation(g_model.program,"u_material");
     g_model.alpha_test=glGetUniformLocation(g_model.program,"u_alpha_test");
+    g_model.acomp=glGetUniformLocation(g_model.program,"u_acomp[0]");
+    g_model.aref=glGetUniformLocation(g_model.program,"u_aref[0]");
+    g_model.aop=glGetUniformLocation(g_model.program,"u_aop");
     glUseProgram(g_model.program);
-    glUniform1i(g_model.texture,0);
-    glUniform1f(g_model.alpha_test,-1.0f);
-    glUniform4f(g_model.material,1,1,1,1);
+    glUniform1i(g_model.tex[0],0);
+    glUniform1i(g_model.tex[1],1);
 
     vs=compile_shader(GL_VERTEX_SHADER,OVERLAY_VS);
     fs=compile_shader(GL_FRAGMENT_SHADER,OVERLAY_FS);
@@ -519,8 +620,8 @@ static int renderer_init(void)
     return 1;
 }
 
-/* Lighting constants of the old fixed-function path (main() setup).  Kept
- * identical so the rewrite is pixel-for-pixel comparable. */
+/* Light colours are the viewer's stand-in light set; the GX channel consumes
+ * them as ambient/diffuse light colours (HSD_SetupChannelMode). */
 static void model_set_view(const Mat4 mvp,const Mat4 mv,const float light_dir[3],
                            int lighting)
 {
@@ -530,9 +631,74 @@ static void model_set_view(const Mat4 mvp,const Mat4 mv,const float light_dir[3]
     glUniformMatrix4fv(g_model.mvp,1,GL_FALSE,mvp);
     glUniformMatrix3fv(g_model.normal_mtx,1,GL_FALSE,normal);
     glUniform1i(g_model.lighting,lighting);
-    glUniform3f(g_model.ambient,.78f,.78f,.82f);
-    glUniform3f(g_model.diffuse,.9f,.88f,.82f);
+    glUniform3f(g_model.ambient_light,.78f,.78f,.82f);
+    glUniform3f(g_model.diffuse_light,.9f,.88f,.82f);
     glUniform3f(g_model.light_dir,light_dir[0],light_dir[1],light_dir[2]);
+}
+
+static GLenum gx_blend_factor(uint8_t f)
+{
+    switch(f) {
+    case 0: return GL_ZERO;                /* GX_BL_ZERO */
+    case 1: return GL_ONE;                 /* GX_BL_ONE */
+    case 2: return GL_SRC_COLOR;           /* GX_BL_SRCCLR */
+    case 3: return GL_ONE_MINUS_SRC_COLOR; /* GX_BL_INVSRCCLR */
+    case 4: return GL_SRC_ALPHA;           /* GX_BL_SRCALPHA */
+    case 5: return GL_ONE_MINUS_SRC_ALPHA; /* GX_BL_INVSRCALPHA */
+    case 6: return GL_DST_ALPHA;           /* GX_BL_DSTALPHA */
+    case 7: return GL_ONE_MINUS_DST_ALPHA; /* GX_BL_INVDSTALPHA */
+    default: return GL_ONE;
+    }
+}
+
+static GLenum gx_depth_func(uint8_t f)
+{
+    switch(f) {
+    case 0: return GL_NEVER;
+    case 1: return GL_LESS;
+    case 2: return GL_EQUAL;
+    case 3: return GL_LEQUAL;
+    case 4: return GL_GREATER;
+    case 5: return GL_NOTEQUAL;
+    case 6: return GL_GEQUAL;
+    case 7: return GL_ALWAYS;
+    default: return GL_LEQUAL;
+    }
+}
+
+/* HSD_MObjSetup -> HSD_SetupRenderModeWithCustomPE -> HSD_SetupPEMode. */
+static void apply_material_state(const DemoBatchMaterial *mat)
+{
+    if(mat->blend==1||mat->blend==3) {
+        glDisable(GL_COLOR_LOGIC_OP);
+        glEnable(GL_BLEND);
+        glBlendFunc(gx_blend_factor(mat->blend_src),
+                    gx_blend_factor(mat->blend_dst));
+        glBlendEquation(mat->blend==3?GL_FUNC_REVERSE_SUBTRACT:GL_FUNC_ADD);
+    } else if(mat->blend==2) {
+        glDisable(GL_BLEND);
+        glEnable(GL_COLOR_LOGIC_OP);
+        glLogicOp((GLenum)(0x1500+mat->blend_op)); /* GX_LO_* == GL order */
+    } else {
+        glDisable(GL_BLEND);
+        glDisable(GL_COLOR_LOGIC_OP);
+        glBlendEquation(GL_FUNC_ADD);
+    }
+    if(mat->z_enable)glEnable(GL_DEPTH_TEST);else glDisable(GL_DEPTH_TEST);
+    glDepthFunc(gx_depth_func(mat->z_func));
+    glDepthMask(mat->z_update?GL_TRUE:GL_FALSE);
+}
+
+/* Restore the default state overlays and the HUD expect. */
+static void reset_material_state(void)
+{
+    glDisable(GL_COLOR_LOGIC_OP);
+    glBlendEquation(GL_FUNC_ADD);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glDepthMask(GL_TRUE);
 }
 
 static int symbol_log(const char *name, unsigned int off, void *user)
@@ -629,6 +795,9 @@ static void bind_batch_attribs(void)
     glEnableVertexAttribArray(3);
     glVertexAttribPointer(3,2,GL_FLOAT,GL_FALSE,sizeof(DemoModelVertex),
                           (const void*)(uintptr_t)offsetof(DemoModelVertex,uv));
+    glEnableVertexAttribArray(4);
+    glVertexAttribPointer(4,2,GL_FLOAT,GL_FALSE,sizeof(DemoModelVertex),
+                          (const void*)(uintptr_t)offsetof(DemoModelVertex,uv2));
 }
 
 static void upload_batch(const Visual *v,size_t bi,int pose)
@@ -640,28 +809,68 @@ static void upload_batch(const Visual *v,size_t bi,int pose)
                     v->model.vertices+b->first_vertex);
 }
 
-/* One draw per PObj batch; the decomp's display list had exactly one texture
- * per batch, so the texture/wrap state is bound once. */
+/*
+ * One draw per PObj batch.  The material state is HSD_MObjSetup's: textures
+ * and per-TObj TEV inputs, the raster colour (channel lit or vertex), the
+ * material constant, alpha test and GX blend/z state.
+ */
 static void draw_batch(const Visual *v,size_t bi,int pose,int textured)
 {
     const DemoModelBatch *b=&v->model.batches[bi];
+    const DemoBatchMaterial *mat=&b->material;
+    int texsrc[2]={4,5};
+    int cmap[2]={0,0};
+    int amap[2]={0,0};
+    float blend[2]={0.0f,0.0f};
+    float mtx[32];
+    int acomp[2];
+    float aref[2];
+    int count=0;
+    int i;
     glBindVertexArray(pose?v->pose_vao[bi]:v->batch_vao[bi]);
-    if(textured&&b->texture>=0&&(size_t)b->texture<v->model.texture_count&&
-       v->textures[b->texture]) {
-        glBindTexture(GL_TEXTURE_2D,v->textures[b->texture]);
-        apply_wrap(b->wrap_s,b->wrap_t);
-        glUniform1i(g_model.use_texture,1);
-    } else {
-        glBindTexture(GL_TEXTURE_2D,0);
-        glUniform1i(g_model.use_texture,0);
+    if(textured) {
+        for(i=0;i<mat->tobj_count&&i<2;++i) {
+            const DemoTobjInfo *t=&mat->tobjs[i];
+            if(t->texture<0||(size_t)t->texture>=v->model.texture_count||
+               !v->textures[t->texture])
+                continue; /* HSD skips TObjs with no image (id == NULL) */
+            glActiveTexture(GL_TEXTURE0+(GLenum)count);
+            glBindTexture(GL_TEXTURE_2D,v->textures[t->texture]);
+            apply_wrap(t->wrap_s,t->wrap_t);
+            texsrc[count]=t->src==5?5:4; /* GX_TG_TEX0 / GX_TG_TEX1 */
+            cmap[count]=(int)((t->flags>>16)&0xf);
+            amap[count]=(int)((t->flags>>20)&0xf);
+            blend[count]=t->blending;
+            count++;
+        }
+        glActiveTexture(GL_TEXTURE0);
     }
-    glUniformMatrix4fv(g_model.texmtx,1,GL_FALSE,b->texmtx);
-    if(b->rendermode&(1u<<27))glDepthFunc(GL_ALWAYS);
-    if(b->rendermode&(1u<<29))glDepthMask(GL_FALSE);
+    memcpy(mtx,b->texmtx,sizeof(b->texmtx));
+    memcpy(mtx+16,b->texmtx2,sizeof(b->texmtx2));
+    acomp[0]=mat->alpha_comp0;
+    acomp[1]=mat->alpha_comp1;
+    aref[0]=(float)mat->alpha_ref0;
+    aref[1]=(float)mat->alpha_ref1;
+    glUniformMatrix4fv(g_model.texmtx,2,GL_FALSE,mtx);
+    glUniform1iv(g_model.texsrc,2,texsrc);
+    glUniform1iv(g_model.cmap,2,cmap);
+    glUniform1iv(g_model.amap,2,amap);
+    glUniform1fv(g_model.tex_blend,2,blend);
+    glUniform1i(g_model.tex_count,count);
+    glUniform1i(g_model.ras_lit,mat->channel_lit);
+    glUniform1i(g_model.initial_ras,mat->initial_ras);
+    glUniform1i(g_model.diffuse_mul,mat->diffuse_mul);
+    glUniform4f(g_model.material,mat->diffuse[0]/255.0f,mat->diffuse[1]/255.0f,
+                mat->diffuse[2]/255.0f,mat->alpha);
+    glUniform3f(g_model.mat_ambient,mat->ambient[0]/255.0f,
+                mat->ambient[1]/255.0f,mat->ambient[2]/255.0f);
+    glUniform1iv(g_model.acomp,2,acomp);
+    glUniform1fv(g_model.aref,2,aref);
+    glUniform1i(g_model.alpha_test,mat->alpha_test);
+    glUniform1i(g_model.aop,mat->alpha_op);
+    apply_material_state(mat);
     if(pose)upload_batch(v,bi,1);
     glDrawArrays(GL_TRIANGLES,0,(GLsizei)b->vertex_count);
-    glDepthFunc(GL_LEQUAL);
-    glDepthMask(GL_TRUE);
 }
 
 static void compile_model(Visual *v)
@@ -979,6 +1188,7 @@ static void render_viewer(const Visual *v,const Viewer *vs,int w,int h,
                 }
             }
         }
+        reset_material_state();
         glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);
         apply_cull(0);
         if(vs->grid)viewer_grid(v,mvp);
@@ -1038,6 +1248,7 @@ static void draw_fighter(const Visual *v,const DemoPhysicsFighter *f,
     float r=player?.35f:1, g=player?.66f:.35f, b=player?1:.40f;
     Mat4 mv,mvp;
     int animated=v->anim_loaded&&anim->clip>=0;
+    reset_material_state();
     ov_color4f(r,g,b,.28f);
     memcpy(mv,base,sizeof(Mat4));
     m4_mul_translate(mv,f->x,f->y+.12f,0);
@@ -1069,6 +1280,7 @@ static void draw_fighter(const Visual *v,const DemoPhysicsFighter *f,
         }
         apply_cull(0);
     }
+    reset_material_state();
     if(f->shield) {
         m4_mul(mvp,proj,base);
         ov_set_mvp(mvp);
@@ -1175,7 +1387,7 @@ int main(int argc,char **argv)
     const char *dump_textures=NULL;
     const char *extract_file=NULL,*extract_out=NULL;
     const char *clip_name="Wait1",*anim_file=NULL,*dump_clip=NULL;
-    int animate=0,list_clips=0,force_no_cull=0;
+    int animate=0,list_clips=0,force_no_cull=0,dump_tev=0;
     float view_angle=25.0f,view_elev=-12.0f,view_zoom=1.0f;
     float anim_frame=-1.0f,anim_speed=1.0f;
     for(int i=1;i<argc;++i) {
@@ -1195,6 +1407,7 @@ int main(int argc,char **argv)
         else if(!strcmp(argv[i],"--no-visibility"))no_visibility=1;
         else if(!strcmp(argv[i],"--dump-textures")&&i+1<argc)dump_textures=argv[++i];
         else if(!strcmp(argv[i],"--no-cull"))force_no_cull=1;
+        else if(!strcmp(argv[i],"--dump-tev"))dump_tev=1;
         else if(!strcmp(argv[i],"--animate"))animate=1;
         else if(!strcmp(argv[i],"--clip")&&i+1<argc)clip_name=argv[++i];
         else if(!strcmp(argv[i],"--anim-frame")&&i+1<argc)anim_frame=(float)atof(argv[++i]);
@@ -1314,6 +1527,41 @@ int main(int argc,char **argv)
             fclose(f);
         }
         printf("Dumped %zu textures\n",max);
+        demo_model_free(&visuals[0].model);free(visuals[0].model.vertices);return 0;
+    }
+    if(dump_tev) {
+        size_t bi,ti;
+        printf("batches: %zu\n",visuals[0].model.batch_count);
+        for(bi=0;bi<visuals[0].model.batch_count;++bi) {
+            DemoModelBatch *b=&visuals[0].model.batches[bi];
+            DemoBatchMaterial *mat=&b->material;
+            printf("batch %-3zu rm=%#010x tex=%-3d amb=%3u,%3u,%3u mat=%3u,%3u,%3u spe=%3u,%3u,%3u,a=%.2f sh=%.1f tobjs=%u",
+                   bi,(unsigned)mat->rendermode,(int)b->texture,
+                   mat->ambient[0],mat->ambient[1],mat->ambient[2],
+                   mat->diffuse[0],mat->diffuse[1],mat->diffuse[2],
+                   mat->specular[0],mat->specular[1],mat->specular[2],
+                   (double)mat->alpha,(double)mat->shininess,mat->tobj_count);
+            if(mat->pe_present) {
+                printf(" pe=fl%02x r%u/%u t%u s%u d%u op%u z%u c%u/%u/%u",
+                       mat->pe_flags,mat->pe_ref0,mat->pe_ref1,mat->pe_type,
+                       mat->pe_src_factor,mat->pe_dst_factor,mat->pe_logic_op,
+                       mat->pe_z_comp,mat->pe_alpha_comp0,mat->pe_alpha_op,
+                       mat->pe_alpha_comp1);
+            }
+            for(ti=0;ti<mat->tobj_count;++ti) {
+                DemoTobjInfo *t=&mat->tobjs[ti];
+                printf(" | t%zu tex=%d id=%u src=%u flags=%#x cm=%u am=%u tev=%u",
+                       ti,(int)t->texture,t->id,t->src,(unsigned)t->flags,
+                       (unsigned)((t->flags>>16)&0xf),
+                       (unsigned)((t->flags>>20)&0xf),t->has_tev);
+                if(t->has_tev) {
+                    printf("(c=%u/%u a=%u/%u act=%#x)",t->tev_color_op,
+                           t->tev_alpha_op,t->tev_color_a,t->tev_alpha_a,
+                           (unsigned)t->tev_active);
+                }
+            }
+            printf("\n");
+        }
         demo_model_free(&visuals[0].model);free(visuals[0].model.vertices);return 0;
     }
     if(inspect){

@@ -27,6 +27,7 @@ data.
 | [`disc_assets.md`](disc_assets.md) | CISO/ISO/GCM, FST, DOL, file naming, where characters live |
 | [`fighter_data.md`](fighter_data.md) | `ftData`, `ftCo_DatAttrs`, attribute offsets |
 | [`gl_shaders.md`](gl_shaders.md) | GL 3.3 core setup, ES3-portable shaders, per-batch VBOs, fixed-function parity traps |
+| [`hsd_tev_materials.md`](hsd_tev_materials.md) | HSD MObj/TObj descriptors, GX channels, TEV combiner, alpha test/blend/Z |
 
 ## Writing a new entry
 
