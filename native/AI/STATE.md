@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-10 (hidden joints, z-mode, decals)
+Last updated: 2026-09-10 (texture matrix: mirrored logos correct)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -32,6 +32,7 @@ attributes read from the disc.
 | Per-PObj culling | GX cull modes + clockwise front faces; Master Hand renders solid |
 | Hidden joints | `JOBJ_HIDDEN` skipped; fixes Mario's cap emblem/face smear and cuts most of Game & Watch's extra pieces |
 | Material z-mode | `RENDER_ZMODE_ALWAYS` / `RENDER_NO_ZUPDATE` honoured per batch |
+| Texture matrix | `MakeTextureMtx` (`repeat_s/t`, scale, rotate, translate) applied per batch; Mario's mirrored cap "M" is complete |
 | GX display lists | Strips/triangles/quads decoded; clean opcode histogram (only 0x80/0x90/0x98) |
 | Textures | 31 textures for Mario (CMPR + CI8), correct cap/overalls/face/eyes |
 | Materials | Per-DObj diffuse color as vertex color |

@@ -115,10 +115,13 @@ static void apply_cull(int cull)
     }
 }
 
-static void list_vertices(Visual *v,size_t first,size_t count,int wrap_s,int wrap_t,uint32_t rendermode)
+static void list_vertices(Visual *v,size_t first,size_t count,int wrap_s,int wrap_t,uint32_t rendermode,const float *texmtx)
 {
     int current=-2;
     size_t i;
+    glMatrixMode(GL_TEXTURE);
+    glLoadMatrixf(texmtx);
+    glMatrixMode(GL_MODELVIEW);
     if(rendermode&(1u<<27))glDepthFunc(GL_ALWAYS);
     if(rendermode&(1u<<29))glDepthMask(GL_FALSE);
     for(i=0;i<count;++i) {
@@ -179,7 +182,7 @@ static void compile_model(Visual *v)
         v->batch_lists[i]=glGenLists(1);
         glNewList(v->batch_lists[i],GL_COMPILE);
         list_vertices(v,b->first_vertex,b->vertex_count,b->wrap_s,b->wrap_t,
-                      b->rendermode);
+                      b->rendermode,b->texmtx);
         glEndList();
     }
     compile_full_list(v);
@@ -240,7 +243,7 @@ static void viewer_frame_batch(Viewer *vs,const Visual *v,size_t batch)
 {
     float mn[3]={1e30f,1e30f,1e30f},mx[3]={-1e30f,-1e30f,-1e30f};
     size_t i,k;
-    DemoModelBatch *b;
+    const DemoModelBatch *b;
     if(batch>=v->model.batch_count)return;
     b=&v->model.batches[batch];
     for(i=0;i<b->vertex_count;++i) {

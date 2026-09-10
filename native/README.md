@@ -24,6 +24,7 @@ unchanged and remains available.
 | Per-PObj GX culling (front/back/both) | Works |
 | `JOBJ_HIDDEN` joints and material z-mode bits | Works |
 | GX vertex colours (RGB565/RGB8/RGBX8/RGBA4/RGBA6/RGBA8) | Works |
+| GX texture matrices (`MakeTextureMtx`: repeat/scale/rotate/translate) | Works |
 | GX texture decode (I4/I8/IA4/IA8/RGB565/RGB5A3/RGBA8/CMPR/CI4/CI8+TLUT) | Works |
 | Mario movement attributes from `PlMr.dat` | Works |
 | Sandbox movement, jumping, shield, one attack | Works |

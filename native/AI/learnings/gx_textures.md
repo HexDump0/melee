@@ -105,7 +105,30 @@ Mario overalls: `image_ptr` data offset `0x1AD40` (file `0x1AD60`),
    via `demo_texture_decode_ci`.
 4. Upload as RGBA8; no GX palette emulation needed.
 
-## Texture wrap modes (not yet applied)
+## Texture matrix (`MakeTextureMtx`, implemented)
+
+HSD builds a texture matrix per TObj from `repeat_s`/`repeat_t`, `scale`,
+`rotate` and `translate` (`tobj.c:MakeTextureMtx`):
+
+```
+scale.x  = repeat_s / tobj.scale.x
+scale.y  = repeat_t / tobj.scale.y
+trans.x  = -translate.x
+trans.y  = -(translate.y + (wrap_t == GX_MIRROR ? 1/(repeat_t/scale.y) : 0))
+M        = S * R * T
+```
+
+`repeat_s`/`repeat_t` are **not** just metadata: they scale the UVs. This is
+how Melee stores half textures that mirror into a whole; Mario's cap "M" is a
+64x128 half texture with `repeat_s=2` and `wrap_s=GX_MIRROR`, so the texture
+matrix doubles U and the mirror completes the logo. Ignoring the matrix
+leaves Mario with half an "M" (and tiled textures wrong elsewhere).
+
+The port computes this matrix per batch and loads it with `glMatrixMode(
+GL_TEXTURE)` / `glLoadMatrixf` (GL column-major; HSD's 3x4 transforms like a
+column vector).
+
+## Texture wrap modes (applied per batch)
 
 `TObjDesc.wrap_s/wrap_t` (+0x34/+0x38) are GX_CLAMP/GX_REPEAT/GX_MIRROR. The
 port always uses `GL_REPEAT`; switch per batch if edge bleeding shows up.

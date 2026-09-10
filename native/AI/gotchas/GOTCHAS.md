@@ -241,6 +241,16 @@ the static visibility picture together with `FtPartsVis` (G-025).
 **Fix:** map them to `glDepthFunc(GL_ALWAYS)` / `glDepthMask(GL_FALSE)` while
 drawing the batch, restoring afterwards.
 
+## G-034: repeat_s/repeat_t scale texture coordinates
+
+**Symptom:** half of a mirrored logo is missing (Mario's cap "M"), or tiled
+textures appear at the wrong size.
+**Cause:** `TObjDesc.repeat_s/repeat_t` feed `MakeTextureMtx`
+(`scale = repeat/scale`, plus a mirror offset in T), so they scale the UVs.
+The port decoded UVs raw and ignored them.
+**Fix:** build HSD's texture matrix per batch and apply it with the GL texture
+matrix. See `learnings/gx_textures.md`.
+
 ## G-020: do not judge geometry from a flat-color render
 
 **Symptom:** hours lost thinking the parser is broken.

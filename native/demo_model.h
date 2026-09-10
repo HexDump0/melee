@@ -43,6 +43,7 @@ typedef struct DemoModelBatch {
     int16_t texture;
     uint8_t cull_mode;   /* 0 none, 1 front, 2 back, 3 both (not drawn) */
     uint32_t rendermode; /* HSD RENDER_* bits (z-mode, xlu, ...) */
+    float texmtx[16];    /* HSD MakeTextureMtx result, column-major for GL */
     uint8_t wrap_s;      /* GX wrap: 0 clamp, 1 repeat, 2 mirror */
     uint8_t wrap_t;
     uint8_t translucent;

@@ -936,11 +936,101 @@ static void load_env_groups(const uint8_t *d, size_t n, size_t po,
     }
 }
 
+/*
+ * HSD's MakeTextureMtx (tobj.c): texture matrix = S * R * T where
+ *   scale.x = repeat_s / tobj.scale.x, scale.y = repeat_t / tobj.scale.y,
+ *   trans.x = -translate.x,
+ *   trans.y = -(translate.y + (wrap_t == GX_MIRROR ? 1/(repeat_t/scale.y) : 0)),
+ * and R comes from the Euler rotate (with rot.z negated).  This is what makes
+ * half textures with GX_MIRROR (Mario's cap "M") mirror into a whole logo.
+ */
+static void make_texture_mtx(const uint8_t *d, size_t n, size_t td,
+                             float out[16])
+{
+    float sx;
+    float sy;
+    float sz;
+    float tx;
+    float ty;
+    float rot[3];
+    unsigned int repeat_s;
+    unsigned int repeat_t;
+    uint32_t wrap_t;
+    float scale[3];
+    float trans[3];
+    float sin_x;
+    float cos_x;
+    float sin_y;
+    float cos_y;
+    float sin_z;
+    float cos_z;
+    float m[4][4];
+    int r;
+    int c;
+    for (r = 0; r < 4; ++r) {
+        for (c = 0; c < 4; ++c) {
+            out[c * 4 + r] = (r == c) ? 1.0f : 0.0f;
+        }
+    }
+    if (td == SIZE_MAX || !range_ok(td, 0x40, n)) {
+        return;
+    }
+    sx = rf32(d, n, td + 0x1c);
+    sy = rf32(d, n, td + 0x20);
+    sz = rf32(d, n, td + 0x24);
+    tx = rf32(d, n, td + 0x28);
+    ty = rf32(d, n, td + 0x2c);
+    rot[0] = rf32(d, n, td + 0x10);
+    rot[1] = rf32(d, n, td + 0x14);
+    rot[2] = -rf32(d, n, td + 0x18);
+    repeat_s = d[td + 0x3c];
+    repeat_t = d[td + 0x3d];
+    wrap_t = rb32(d, n, td + 0x38);
+    scale[0] = fabsf(sx) < 1e-6f ? 0.0f : (float) repeat_s / sx;
+    scale[1] = fabsf(sy) < 1e-6f ? 0.0f : (float) repeat_t / sy;
+    scale[2] = sz;
+    trans[0] = -tx;
+    trans[1] = -(ty + (wrap_t == 2 && fabsf(sy) > 1e-6f
+                           ? 1.0f / ((float) repeat_t / sy)
+                           : 0.0f));
+    trans[2] = rf32(d, n, td + 0x30);
+    /* R * T, then scale by S. */
+    sin_x = sinf(rot[0]);
+    cos_x = cosf(rot[0]);
+    sin_y = sinf(rot[1]);
+    cos_y = cosf(rot[1]);
+    sin_z = sinf(rot[2]);
+    cos_z = cosf(rot[2]);
+    m[0][0] = cos_y * cos_z;
+    m[1][0] = cos_y * sin_z;
+    m[2][0] = -sin_y;
+    m[0][1] = (cos_z * (sin_x * sin_y)) - (cos_x * sin_z);
+    m[1][1] = (sin_z * (sin_x * sin_y)) + (cos_x * cos_z);
+    m[2][1] = sin_x * cos_y;
+    m[0][2] = (cos_z * (cos_x * sin_y)) + (sin_x * sin_z);
+    m[1][2] = (sin_z * (cos_x * sin_y)) - (sin_x * cos_z);
+    m[2][2] = cos_x * cos_y;
+    for (r = 0; r < 3; ++r) {
+        float t = m[r][0] * trans[0] + m[r][1] * trans[1] + m[r][2] * trans[2];
+        m[r][0] *= scale[0];
+        m[r][1] *= scale[1];
+        m[r][2] *= scale[2];
+        m[r][3] = t * scale[r];
+    }
+    /* GL consumes column-major; HSD matrices transform like column vectors. */
+    for (r = 0; r < 4; ++r) {
+        for (c = 0; c < 4; ++c) {
+            out[c * 4 + r] = (r < 3 && c < 4) ? m[r][c] : (r == 3 && c == 3 ? 1.0f : 0.0f);
+        }
+    }
+}
+
 static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
                        const JointTable *table, const float *right,
                        const float *current_world, size_t dobj_index,
                        uint8_t color[4], int texture, uint8_t wrap_s,
-                       uint8_t wrap_t, uint32_t rendermode)
+                       uint8_t wrap_t, uint32_t rendermode,
+                       const float texmtx[16])
 {
     RawDesc descs[32];
     EnvGroup groups[HSD_MAX_ENV_GROUPS];
@@ -1119,6 +1209,7 @@ static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
         batch->texture = (int16_t) texture;
         batch->cull_mode = (uint8_t) cull_mode;
         batch->rendermode = rendermode;
+        memcpy(batch->texmtx, texmtx, sizeof(batch->texmtx));
         batch->wrap_s = wrap_s;
         batch->wrap_t = wrap_t;
         batch->translucent =
@@ -1156,10 +1247,13 @@ static void walk_joint(DemoModel *m, const uint8_t *d, size_t n, size_t jo,
             uint8_t wrap_t = 0;
             uint32_t mobj_rendermode = 0;
             int texture = -1;
+            float texmtx[16];
+            make_texture_mtx(d, n, SIZE_MAX, texmtx);
             if (mobj != SIZE_MAX && range_ok(mobj, 0x18, n)) {
                 size_t mat = rptr(d, n, mobj + 0xc);
                 size_t texdesc = rptr(d, n, mobj + 8);
                 mobj_rendermode = rb32(d, n, mobj + 4);
+                make_texture_mtx(d, n, texdesc, texmtx);
                 if (mat != SIZE_MAX && range_ok(mat, 8, n)) {
                     color[0] = d[mat + 4];
                     color[1] = d[mat + 5];
@@ -1182,7 +1276,7 @@ static void walk_joint(DemoModel *m, const uint8_t *d, size_t n, size_t jo,
                 parse_pobj(m, d, n, pobj, table,
                            has_right ? &right[0][0] : NULL, current_world,
                            dobj_index, color, texture, wrap_s, wrap_t,
-                           mobj_rendermode);
+                           mobj_rendermode, texmtx);
                 pobj = rptr(d, n, pobj + 4);
             }
             if (m->dobj_count < DEMO_MAX_DOBJS) {
