@@ -93,6 +93,8 @@ projection and a ground grid.
 | `N` / `P` | Next / previous character model |
 | `[` / `]` | Select previous / next mesh part |
 | `V` | Part mode: all / only selected / hide selected |
+| `B` | Cycle visibility slot (body / reflection / metal) |
+| `X` | Reveal hidden parts |
 | `T` / `L` / `W` / `C` | Toggle textures / lighting / wireframe / culling |
 | `G` / `Space` | Toggle grid / auto-spin |
 | `R` | Reset camera |
@@ -122,6 +124,14 @@ isolation is still useful to inspect individual meshes.
 ./build/native/melee-demo --view --angle 180 --screenshot /tmp/mario.bmp
 ./build/native/melee-demo --view --part 21 --part-mode only --frames 3 \
     --screenshot /tmp/part.bmp
+
+# Frame one part, zoom in, inspect hidden parts or a visibility slot
+./build/native/melee-demo --view --part 23 --part-mode only --zoom 0.5
+./build/native/melee-demo --view --no-cull --show-hidden --vis-slot 1
+
+# Extract a disc file / dump decoded textures for offline analysis
+./build/native/melee-demo --extract PlCo.dat /tmp/PlCo.dat
+./build/native/melee-demo --dump-textures /tmp/tex
 
 # Run a fixed number of frames headlessly (SDL offscreen video driver)
 SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --scripted --frames 240 \

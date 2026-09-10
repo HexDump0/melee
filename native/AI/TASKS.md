@@ -27,7 +27,7 @@ Status values: `open`, `claimed`, `blocked`, `review`, `done`.
 | ID | Task | Status | Agent | Files | Notes / acceptance |
 |---|---|---|---|---|---|
 | P-108 | Per-part isolation for the viewer (`DemoModelBatch`, batch lists) | done | follow-up | `native/demo_model.*`, `native/main.c` | Added with the viewer; see Completed. |
-| P-201 | Animation foundation: evaluate HSD `AObj` and drive joint matrices per frame; then set expression indices via `ftParts_80074B0C` | open | — | `native/demo_model.*`, `native/main.c` | Renderer must stop baking one display list; joint matrices must be recomputed per tick. Acceptance: a looping idle animation plays for `PlMrNr.dat` with no ASan errors. |
+| P-201 | Animation foundation: evaluate HSD `AObj` and drive joint matrices per frame; then set expression indices via `ftParts_80074B0C` | **next** | — | `native/demo_model.*`, `native/main.c` | See the brief below. Acceptance: a looping idle animation plays for `PlMrNr.dat` with no ASan errors. |
 | P-204 | TEV approximation pass: alpha test, additive/translucent PObjs | open | — | `native/main.c`, `native/demo_model.c` | Use `POBJ_CULLFRONT/CULLBACK`, `RENDER_XLU`, material alpha, `TObj` colormap flags. Acceptance: no opaque black borders around transparent parts. |
 | P-205 | Per-TObj texture matrices (scale/translate/rotate) | open | — | `native/demo_model.c` | `HSD_TObjDesc` at +0x10..+0x30. Fixes facial/eye UV offsets if they turn out to be wrong. |
 | P-206 | Camera polish: zoom-to-fit both fighters, stage bounds, ledge visibility | open | — | `native/main.c` | Keep it headless-screenshot verifiable. |
@@ -40,6 +40,41 @@ Status values: `open`, `claimed`, `blocked`, `review`, `done`.
 | P-403 | Document GX formats actually present in `Pl*.dat` | open | — | `native/AI/learnings/gx_textures.md` | Enumerate format counts across all 26 characters. |
 | P-501 | Audio backend design memo | open | — | `native/AI/DECISIONS.md` | Options: reimplement AX/DSP, use an existing AX emulator, or replace with per-game mixer. Write an ADR before coding. |
 | P-502 | WASM feasibility memo | open | — | `native/AI/DECISIONS.md` | Emscripten + SDL2 + WebGL1. Identify blockers: synchronous disc read, threading, file access. |
+
+## P-201 implementation brief (for the next session)
+
+**Goal:** play an HSD animation on a fighter and drive joint world matrices per
+frame instead of baking one static batch list.
+
+**Data:** each `Pl<Char>.dat` public table has an animation root (for Mario:
+`PlyMario5K_Share_matanim_joint`); `Pl*AJ.dat` archives hold standalone anims.
+`HSD_AnimJoint` -> `HSD_AObjDesc` -> `HSD_AObjKey`/`HSD_AObj` (`src/sysdolphin/
+baselib/aobj.c/.h`). Evaluate keys with `HSD_AObjReqAnim`/`HSD_AObjAnim`
+semantics (curve types: step/linear/bezier). Joints get rotation/translation/
+scale tracks.
+
+**Decomp reading:** `aobj.c` (`HSD_AObjSetFlags`, curves), `jobj.c`
+(`HSD_JObjMakeMatrix` already ported as `make_local_mtx`, `HSD_JObjAnimAll`),
+`ftanim.c`/`ftdrawcommon.c` for per-frame part visibility
+(`ftParts_80074B0C`, `ftParts_800750C8`).
+
+**Renderer change:** tag each `DemoModelBatch` with its DObj index (already
+stored) and compile one list per batch (already done). At draw time, compute
+each joint's world matrix for the current frame, then draw each batch with its
+joint/group matrix via `glPushMatrix`/`glMultMatrixf` around its batch list.
+Keep the bind-pose fast path for `--view`.
+
+**Acceptance:**
+- `--view --animate` (or a new flag) plays a looping clip; screenshots at two
+  different times show different poses.
+- The match uses the animated pose.
+- `--inspect` numbers unchanged; 600-frame scripted run ASan-clean.
+
+**Watch out:** joint matrices are 3x4 column-vector convention (`p' = M*p`);
+envelope PObjs already bake group matrices into vertices, so animating joints
+means either rebaking on the CPU or applying the delta per joint. Prefer the
+latter: store per-batch `mix` matrix = `currentJoint * inverseBindJoint * right`
+and multiply at draw time.
 
 ## Blocked / needs a human
 
@@ -67,3 +102,6 @@ Status values: `open`, `claimed`, `blocked`, `review`, `done`.
 | P-112 | Static part visibility from `ftData` (`demo_parts.c`), neutral face | follow-up | _pending_ | 2026-09-10 |
 | P-113 | TLUT + CI4/CI8 texture decode (Mario eye atlas) | follow-up | _pending_ | 2026-09-10 |
 | P-114 | PObj SKIN/SHAPEANIM transforms + per-PObj culling + GX colour enum fix | follow-up | _pending_ | 2026-09-10 |
+| P-115 | `JOBJ_HIDDEN`, material z-mode, `MakeTextureMtx` (mirrored logos), mipmapped LOD | follow-up | _pending_ | 2026-09-10 |
+| P-116 | Visibility slot cycling (`B`, `--vis-slot`), part framing, `--extract`, `--zoom`, `--no-cull` | follow-up | _pending_ | 2026-09-10 |
+| P-117 | Fix invisible player 2 (Visual copied before GL lists existed) | follow-up | `5ba65adde` | 2026-09-10 |

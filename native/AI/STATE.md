@@ -33,6 +33,8 @@ attributes read from the disc.
 | Hidden joints | `JOBJ_HIDDEN` skipped; fixes Mario's cap emblem/face smear and cuts most of Game & Watch's extra pieces |
 | Material z-mode | `RENDER_ZMODE_ALWAYS` / `RENDER_NO_ZUPDATE` honoured per batch |
 | Texture matrix | `MakeTextureMtx` (`repeat_s/t`, scale, rotate, translate) applied per batch; Mario's mirrored cap "M" is complete |
+| Texture filtering | Mipmapped trilinear (`GL_GENERATE_MIPMAP`), matching HSD's default `GX_LIN_MIP_LIN` |
+| Visibility slots | `FtPartsVis` slot semantics documented; viewer `B` / `--vis-slot N` cycles them |
 | GX display lists | Strips/triangles/quads decoded; clean opcode histogram (only 0x80/0x90/0x98) |
 | Textures | 31 textures for Mario (CMPR + CI8), correct cap/overalls/face/eyes |
 | Materials | Per-DObj diffuse color as vertex color |
@@ -51,25 +53,22 @@ Ordered by impact.
 
 1. **No animation.** Fighters are frozen in bind pose. HSD `AObj` curves in the
    `*_matanim_joint` / animation joints are not evaluated, and the renderer
-   bakes geometry into a single display list, which blocks per-joint transforms.
-   Workstream P-200/P-201.
-2. **`right` matrix not implemented.** For PObjs attached to non-skeleton-root
-   joints, HSD multiplies by `_HSD_mkEnvelopeModelNodeMtx`. All Melee fighter
-   DObjs hang off the skeleton root today, so it is unobservable, but any asset
-   with a different topology needs it. Workstream P-202.
-5. **Animated expressions not implemented.** The neutral pose is correct, but
+   bakes geometry into one static batch list, which blocks per-joint transforms.
+   This is the top priority: P-201.
+2. **Animated expressions not implemented.** The neutral pose is correct, but
    blinking/damage expressions need the animation system (P-201) to drive
    `ftParts_80074B0C` indices. Model visibility tables are already parsed.
-6. **Game & Watch residual slivers.** After honouring hidden joints he is
+3. **Game & Watch residual slivers.** After honouring hidden joints he is
    recognisable, but a few thin edge-on pieces remain (x=0, y 13.6..21.9) that
    in-game are hidden through animation/joint state the port does not evaluate
    yet. P-201/P-412.
-7. **TEV approximated.** Rendering is `texture * material color` with fixed
-   function lighting. Multi-texture, toon ramps, alpha test thresholds and
-   additive blends will not match the GameCube. Workstream P-204.
-8. **No audio, menus, items, stages, results, netplay, WASM.**
-9. **Non-Mario physics values** are demo defaults, not per-character data.
-10. **Windows/macOS untested.** Linux + Mesa is the only verified target.
+4. **TEV approximated.** Rendering is `texture * material color` with fixed
+   function lighting. Multi-texture (TEX1+), toon ramps, alpha test thresholds
+   and additive blends will not match the GameCube, which is visible on Master
+   Hand's layered shells. Workstream P-204.
+5. **No audio, menus, items, stages, results, netplay, WASM.**
+6. **Non-Mario physics values** are demo defaults, not per-character data.
+7. **Windows/macOS untested.** Linux + Mesa is the only verified target.
 
 ## Baseline commands
 
