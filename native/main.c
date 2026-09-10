@@ -111,11 +111,10 @@ static void apply_cull(int cull)
     }
 }
 
-static void list_vertices(Visual *v,size_t first,size_t count,int wrap_s,int wrap_t,int cull,uint32_t rendermode)
+static void list_vertices(Visual *v,size_t first,size_t count,int wrap_s,int wrap_t,uint32_t rendermode)
 {
     int current=-2;
     size_t i;
-    apply_cull(cull);
     if(rendermode&(1u<<27))glDepthFunc(GL_ALWAYS);
     if(rendermode&(1u<<29))glDepthMask(GL_FALSE);
     for(i=0;i<count;++i) {
@@ -137,7 +136,7 @@ static void list_vertices(Visual *v,size_t first,size_t count,int wrap_s,int wra
         glVertex3fv(p->position);
     }
     if(current!=-2)glEnd();
-    glDepthFunc(GL_LESS);
+    glDepthFunc(GL_LEQUAL);
     glDepthMask(GL_TRUE);
 }
 
@@ -163,7 +162,7 @@ static void compile_model(Visual *v)
         v->batch_lists[i]=glGenLists(1);
         glNewList(v->batch_lists[i],GL_COMPILE);
         list_vertices(v,b->first_vertex,b->vertex_count,b->wrap_s,b->wrap_t,
-                      b->cull_mode,b->rendermode);
+                      b->rendermode);
         glEndList();
     }
     v->list=glGenLists(1);
@@ -334,10 +333,14 @@ static void render_viewer(const Visual *v,const Viewer *vs,int w,int h,
                         (vs->show_hidden||demo_model_batch_visible(&v->model,bi));
             int visible=allowed&&(vs->mode==0||(vs->mode==1&&(int)bi==vs->batch)||
                         (vs->mode==2&&(int)bi!=vs->batch));
-            if(visible&&v->batch_lists[bi])glCallList(v->batch_lists[bi]);
+            if(visible&&v->batch_lists[bi]) {
+                apply_cull(vs->culling?(int)v->model.batches[bi].cull_mode:0);
+                glCallList(v->batch_lists[bi]);
+            }
         }
     }
     glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);
+    apply_cull(0);
     if(vs->grid)viewer_grid(v);
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
@@ -407,7 +410,15 @@ static void draw_fighter(const Visual *v, const DemoPhysicsFighter *f,
                  -(v->model.bounds_min[2]+v->model.bounds_max[2])*.5f);
     glEnable(GL_LIGHTING);
     glEnable(GL_TEXTURE_2D);
-    glCallList(v->list);
+    {
+        size_t bi;
+        for(bi=0;bi<v->model.batch_count&&bi<DEMO_MAX_BATCHES;++bi) {
+            if(!v->batch_lists[bi]||!demo_model_batch_visible(&v->model,bi))continue;
+            apply_cull((int)v->model.batches[bi].cull_mode);
+            glCallList(v->batch_lists[bi]);
+        }
+        apply_cull(0);
+    }
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
     glPopMatrix();
@@ -501,7 +512,8 @@ int main(int argc,char **argv)
     int frames=0,inspect=0,scripted=0,view=0;
     int list_models=0,all_models=0,model_index=-1,view_part=-1,view_part_mode=0,list_parts=0,show_hidden=0,no_visibility=0;
     const char *dump_textures=NULL;
-    float view_angle=25.0f,view_elev=-12.0f;
+    int force_no_cull=0;
+    float view_angle=25.0f,view_elev=-12.0f,view_zoom=1.0f;
     for(int i=1;i<argc;++i) {
         if(!strcmp(argv[i],"--disc")&&i+1<argc)disc=argv[++i];
         else if(!strcmp(argv[i],"--model")&&i+1<argc)model_file=argv[++i];
@@ -518,12 +530,14 @@ int main(int argc,char **argv)
         else if(!strcmp(argv[i],"--show-hidden"))show_hidden=1;
         else if(!strcmp(argv[i],"--no-visibility"))no_visibility=1;
         else if(!strcmp(argv[i],"--dump-textures")&&i+1<argc)dump_textures=argv[++i];
+        else if(!strcmp(argv[i],"--no-cull"))force_no_cull=1;
         else if(!strcmp(argv[i],"--part-mode")&&i+1<argc) {
             const char *m=argv[++i];
             view_part_mode=!strcmp(m,"only")?1:(!strcmp(m,"hide")?2:0);
         }
         else if(!strcmp(argv[i],"--angle")&&i+1<argc)view_angle=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--elevation")&&i+1<argc)view_elev=(float)atof(argv[++i]);
+        else if(!strcmp(argv[i],"--zoom")&&i+1<argc)view_zoom=(float)atof(argv[++i]);
         else {printf("Usage: %s [--disc IMAGE] [--model PlMrNr.dat] [--model-index N] [--part N] [--part-mode all|only|hide] [--list-models] [--all-models] [--inspect] [--view [--angle DEG] [--elevation DEG]] [--frames N] [--screenshot FILE.bmp] [--scripted]\n",argv[0]);return strcmp(argv[i],"--help")!=0;}
     }
     DemoAssetList models={0};
@@ -593,8 +607,8 @@ int main(int argc,char **argv)
                     if(p[0]<xmin)xmin=p[0];
                     if(p[0]>xmax)xmax=p[0];
                 }
-                printf("%-4zu %-6zu dobj=%-3zu rm=%#08x cull=%u w=%u,%u %-8s y[%6.2f %6.2f] x[%6.2f %6.2f]",
-                       bi,b->vertex_count,b->dobj_index,(unsigned)b->rendermode,b->cull_mode,b->wrap_s,b->wrap_t,
+                printf("%-4zu %-6zu dobj=%-3zu tex=%-3d rm=%#08x cull=%u w=%u,%u %-8s y[%6.2f %6.2f] x[%6.2f %6.2f]",
+                       bi,b->vertex_count,b->dobj_index,(int)b->texture,(unsigned)b->rendermode,b->cull_mode,b->wrap_s,b->wrap_t,
                        demo_model_batch_visible(&visuals[0].model,bi)?"visible":"HIDDEN",
                        ymin,ymax,xmin,xmax);
                 if(b->texture>=0&&(size_t)b->texture<visuals[0].model.texture_count) {
@@ -621,6 +635,7 @@ int main(int argc,char **argv)
     printf("Renderer: %s\n",glGetString(GL_RENDERER));
     compile_model(&visuals[0]);visuals[1].list=visuals[0].list;
     glFrontFace(GL_CW);
+    glDepthFunc(GL_LEQUAL);
     glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_NORMALIZE);glEnable(GL_COLOR_MATERIAL);
     glColorMaterial(GL_FRONT_AND_BACK,GL_AMBIENT_AND_DIFFUSE);
@@ -639,10 +654,12 @@ int main(int argc,char **argv)
         vs.pitch=-view_elev*PI/180.0f;
         vs.textures=1;vs.lighting=1;vs.culling=0;vs.grid=1;vs.help=0;
         vs.show_hidden=show_hidden;
+        if(force_no_cull)vs.culling=0;
         vs.batch=view_part>=0?view_part:0;vs.mode=view_part_mode;
         for(mi=0;mi<models.count;++mi)
             if(!strcmp(models.names[mi],model_file)){index=(int)mi;break;}
         viewer_frame_model(&vs,&visuals[0]);
+        vs.distance*=view_zoom>0.01f?view_zoom:1.0f;
         while(running) {
             SDL_Event e;
             float dt;
