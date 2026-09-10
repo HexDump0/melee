@@ -27,7 +27,7 @@ Status values: `open`, `claimed`, `blocked`, `review`, `done`.
 | ID | Task | Status | Agent | Files | Notes / acceptance |
 |---|---|---|---|---|---|
 | P-108 | Per-part isolation for the viewer (`DemoModelBatch`, batch lists) | done | follow-up | `native/demo_model.*`, `native/main.c` | Added with the viewer; see Completed. |
-| P-207 | Animation expressions: handle `SETBYTE`/`SETFLOAT` channels and drive `ftParts_80074B0C` visibility | open | — | `native/demo_aobj.c`, `native/demo_anim.c` | Fixes blinking/damage faces and NODE/BRANCH part toggles. Mario Wait/Damage first. |
+| P-207 | Expression/part visibility events: port the per-kind `ftData_UnkIntBoolFunc0.model_events` path (`ftParts_80074B0C`/`ftParts_80074A4C`) | open | — | `native/demo_model.c`, `native/main.c` | `SETBYTE`/`SETFLOAT` FObj channels have no callback registration in the decomp (`jobj.c` `ufc_callbacks` is a dead list), so expressions come from action code, not the figatree. Blinking/damage faces, Pichu/Zelda variant parts. |
 | P-208 | Resolve IK joints (`resolveIKJoint1/2`, `JOBJ_JOINT`/`EFFECTOR`) during pose evaluation | open | — | `native/demo_model.c` | Foot/hand planting in landing and ledge clips. |
 | P-209 | Material animation (`HSD_MatAnimJoint`) from `Pl*Nr.dat` / AJ clips | open | — | `native/demo_model.c` | Texture scrolls/fades; `matanim_joint` public symbol is parsed but unused. |
 | P-210 | Per-action animation rate (`frame_speed_mul`) instead of fixed 1.0 | open | — | `native/main.c` | Rate currently 1.0, matching Wait; other actions can be 0.5/2.0. |

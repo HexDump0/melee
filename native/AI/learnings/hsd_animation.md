@@ -116,7 +116,11 @@ channels 5/6/7, so do not use it for normal playback.
 
 ## 7. Not yet ported
 
-- `SETBYTE`/`SETFLOAT` callbacks -> `ftParts_80074B0C` expression/visibility.
+- Expression/visibility events.  Contrary to first guess, fighters do **not**
+  get expressions from `SETBYTE`/`SETFLOAT` FObj channels: `jobj.c`'s
+  `ufc_callbacks` list has no registration API in the decomp.  Expressions come
+  from action code calling `ftParts_80074B0C`/`ftParts_80074A4C` and the
+  per-kind `ftData_UnkIntBoolFunc0.model_events` table.  Port that path.
 - `HSD_A_J_PATH` (spline joint attachment), IK (`resolveIKJoint1/2`).
 - Material animation (`HSD_MatAnimJoint`), shape sets (`POBJ_SHAPEANIM` data).
 - Animation blending (`x8A4_animBlendFrames`), per-action rate tables.
