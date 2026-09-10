@@ -7,6 +7,7 @@
 #include "demo_assets.h"
 #include "demo_attributes.h"
 #include "demo_model.h"
+#include "demo_parts.h"
 #include "demo_physics.h"
 #include "demo_text.h"
 
@@ -73,6 +74,14 @@ static int load_model(Visual *v, const char *disc, const char *file)
            v->model.bounds_min[2],v->model.bounds_max[0],v->model.bounds_max[1],v->model.bounds_max[2]);
     float height = v->model.bounds_max[1]-v->model.bounds_min[1];
     v->scale = height > .001f ? 11.0f/height : 1;
+    {
+        char parts_error[128];
+        int parts = demo_parts_apply(disc,file,&v->model,parts_error,
+                                     sizeof(parts_error));
+        if(parts==0)printf("Parts visibility: %zu of %zu objects hidden (neutral pose)\n",
+                           demo_parts_hidden_count(&v->model),v->model.dobj_count);
+        else if(parts<0)fprintf(stderr,"Parts visibility failed: %s\n",parts_error);
+    }
     return 1;
 }
 
@@ -104,6 +113,7 @@ static void compile_model(Visual *v)
     size_t i;
     for(i=0;i<v->model.texture_count&&i<DEMO_MAX_TEXTURES;++i) {
         DemoModelTexture *t=&v->model.textures[i];
+        if(t->rgba==NULL)continue;
         glGenTextures(1,&v->textures[i]);
         glBindTexture(GL_TEXTURE_2D,v->textures[i]);
         glPixelStorei(GL_UNPACK_ALIGNMENT,1);
@@ -124,7 +134,8 @@ static void compile_model(Visual *v)
     v->list=glGenLists(1);
     glNewList(v->list,GL_COMPILE);
     for(i=0;i<v->model.batch_count&&i<DEMO_MAX_BATCHES;++i) {
-        if(v->batch_lists[i])glCallList(v->batch_lists[i]);
+        if(v->batch_lists[i]&&demo_model_batch_visible(&v->model,i))
+            glCallList(v->batch_lists[i]);
     }
     glEndList();
 }
@@ -154,6 +165,7 @@ static void look_at(const float eye[3], const float target[3])
 typedef struct Viewer {
     float yaw,pitch,distance,radius,target[3];
     int wireframe,textures,lighting,culling,grid,spin,help;
+    int show_hidden;
     int batch,mode; /* mode: 0 = all, 1 = only selected, 2 = hide selected */
 } Viewer;
 
@@ -230,14 +242,14 @@ static void viewer_hud(int w,int h,const Visual *v,const Viewer *vs,
     }
     glColor3f(.68f,.73f,.84f);
     demo_text(24*s,h-56*s,1.4f*s,"DRAG: ORBIT   WHEEL: ZOOM   ARROWS: ORBIT   N/P: MODEL   R: RESET");
-    demo_text(24*s,h-34*s,1.4f*s,"T:TEX L:LIGHT W:WIRE C:CULL G:GRID V:PART-MODE [ ]:SELECT PART SPACE:SPIN F12:SAVE H:HELP ESC:QUIT");
+    demo_text(24*s,h-34*s,1.4f*s,"T:TEX L:LIGHT W:WIRE C:CULL G:GRID V:MODE [ ]:PART X:HIDDEN SPACE:SPIN F12:SAVE H:HELP ESC:QUIT");
     glColor3f(.39f,.8f,.77f);
     demo_text(w-388*s,h-56*s,1.4f*s,vs->textures?"TEX ON":"TEX OFF");
     demo_text(w-288*s,h-56*s,1.4f*s,vs->lighting?"LIGHT ON":"LIGHT OFF");
     demo_text(w-168*s,h-56*s,1.4f*s,vs->wireframe?"WIRE":"SOLID");
     demo_text(w-388*s,h-34*s,1.4f*s,vs->culling?"CULL ON":"CULL OFF");
     demo_text(w-288*s,h-34*s,1.4f*s,vs->grid?"GRID ON":"GRID OFF");
-    demo_text(w-168*s,h-34*s,1.4f*s,vs->spin?"SPIN":"STILL");
+    demo_text(w-168*s,h-34*s,1.4f*s,vs->show_hidden?"HIDDEN ON":"HIDDEN OFF");
     if(vs->help) {
         glColor4f(.02f,.03f,.05f,.85f);rect(w*.5f-300*s,h*.5f-120*s,600*s,240*s);
         glColor3f(1,1,1);demo_text(w*.5f-250*s,h*.5f-90*s,2.4f*s,"VIEWER CONTROLS");
@@ -283,8 +295,9 @@ static void render_viewer(const Visual *v,const Viewer *vs,int w,int h,
     {
         size_t bi;
         for(bi=0;bi<v->model.batch_count&&bi<DEMO_MAX_BATCHES;++bi) {
-            int visible=vs->mode==0||(vs->mode==1&&(int)bi==vs->batch)||
-                        (vs->mode==2&&(int)bi!=vs->batch);
+            int allowed=vs->show_hidden||demo_model_batch_visible(&v->model,bi);
+            int visible=allowed&&(vs->mode==0||(vs->mode==1&&(int)bi==vs->batch)||
+                        (vs->mode==2&&(int)bi!=vs->batch));
             if(visible&&v->batch_lists[bi])glCallList(v->batch_lists[bi]);
         }
     }
@@ -450,7 +463,7 @@ int main(int argc,char **argv)
 {
     const char *disc=DEFAULT_DISC,*capture=NULL,*model_file="PlMrNr.dat";
     int frames=0,inspect=0,scripted=0,view=0;
-    int list_models=0,all_models=0,model_index=-1,view_part=-1,view_part_mode=0,list_parts=0;
+    int list_models=0,all_models=0,model_index=-1,view_part=-1,view_part_mode=0,list_parts=0,show_hidden=0,no_visibility=0;
     float view_angle=210.0f,view_elev=-15.0f;
     for(int i=1;i<argc;++i) {
         if(!strcmp(argv[i],"--disc")&&i+1<argc)disc=argv[++i];
@@ -465,6 +478,8 @@ int main(int argc,char **argv)
         else if(!strcmp(argv[i],"--model-index")&&i+1<argc)model_index=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--part")&&i+1<argc)view_part=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--list-parts"))list_parts=1;
+        else if(!strcmp(argv[i],"--show-hidden"))show_hidden=1;
+        else if(!strcmp(argv[i],"--no-visibility"))no_visibility=1;
         else if(!strcmp(argv[i],"--part-mode")&&i+1<argc) {
             const char *m=argv[++i];
             view_part_mode=!strcmp(m,"only")?1:(!strcmp(m,"hide")?2:0);
@@ -491,13 +506,18 @@ int main(int argc,char **argv)
     }
     Visual visuals[2];
     memset(visuals,0,sizeof(visuals));
+    if(no_visibility) {
+        /* Applied after load below. */
+    }
     if(!load_model(&visuals[0],disc,model_file))return 1;
+    if(no_visibility)demo_parts_show_all(&visuals[0].model);
+    if(show_hidden)demo_parts_show_all(&visuals[0].model);
     /* Two instances of the same decoded costume during renderer bring-up. */
     visuals[0].label="P1 / MARIO";visuals[1]=visuals[0];visuals[1].label="P2 / MARIO";
     if(inspect){
         if(list_parts) {
             size_t bi;
-            printf("%-4s %-8s %-8s %-10s %s\n","#","verts","texture","y-range","x-range");
+            printf("%-4s %-8s %-8s %-8s %s\n","#","verts","texture","state","y/x-range");
             for(bi=0;bi<visuals[0].model.batch_count;++bi) {
                 DemoModelBatch *b=&visuals[0].model.batches[bi];
                 float ymin=1e30f,ymax=-1e30f,xmin=1e30f,xmax=-1e30f;
@@ -509,10 +529,18 @@ int main(int argc,char **argv)
                     if(p[0]<xmin)xmin=p[0];
                     if(p[0]>xmax)xmax=p[0];
                 }
-                if(b->texture>=0&&(size_t)b->texture<visuals[0].model.texture_count)
-                    printf("%-4zu %-8zu %-8s y[%6.2f %6.2f] x[%6.2f %6.2f]\n",bi,b->vertex_count,"tex",ymin,ymax,xmin,xmax);
-                else
-                    printf("%-4zu %-8zu %-8s y[%6.2f %6.2f] x[%6.2f %6.2f]\n",bi,b->vertex_count,"none",ymin,ymax,xmin,xmax);
+                if(b->texture>=0&&(size_t)b->texture<visuals[0].model.texture_count) {
+                    DemoModelTexture *t=&visuals[0].model.textures[b->texture];
+                    printf("%-4zu %-8zu %#-8x %-8s y[%6.2f %6.2f] x[%6.2f %6.2f]  %dx%d f%d\n",
+                           bi,b->vertex_count,(unsigned)t->source_offset,
+                           demo_model_batch_visible(&visuals[0].model,bi)?"visible":"HIDDEN",
+                           ymin,ymax,xmin,xmax,t->width,t->height,t->format);
+                } else {
+                    printf("%-4zu %-8zu %-8s %-8s y[%6.2f %6.2f] x[%6.2f %6.2f]\n",
+                           bi,b->vertex_count,"-",
+                           demo_model_batch_visible(&visuals[0].model,bi)?"visible":"HIDDEN",
+                           ymin,ymax,xmin,xmax);
+                }
             }
             printf("%zu parts\n",visuals[0].model.batch_count);
         }
@@ -548,6 +576,7 @@ int main(int argc,char **argv)
         vs.yaw=view_angle*PI/180.0f;
         vs.pitch=-view_elev*PI/180.0f;
         vs.textures=1;vs.lighting=1;vs.culling=0;vs.grid=1;vs.help=0;
+        vs.show_hidden=show_hidden;
         vs.batch=view_part>=0?view_part:0;vs.mode=view_part_mode;
         for(mi=0;mi<models.count;++mi)
             if(!strcmp(models.names[mi],model_file)){index=(int)mi;break;}
@@ -579,6 +608,7 @@ int main(int argc,char **argv)
                     case SDLK_h:vs.help=!vs.help;break;
                     case SDLK_SPACE:vs.spin=!vs.spin;break;
                     case SDLK_v:vs.mode=(vs.mode+1)%3;break;
+                    case SDLK_x:vs.show_hidden=!vs.show_hidden;break;
                     case SDLK_LEFTBRACKET:vs.batch--;break;
                     case SDLK_RIGHTBRACKET:vs.batch++;break;
                     case SDLK_F12:want_shot=1;break;

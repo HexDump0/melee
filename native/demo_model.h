@@ -14,6 +14,7 @@
 
 #define DEMO_MAX_TEXTURES 128
 #define DEMO_MAX_BATCHES 512
+#define DEMO_MAX_DOBJS 256
 
 typedef struct DemoModelVertex {
     float position[3];
@@ -27,7 +28,8 @@ typedef struct DemoModelTexture {
     uint8_t *rgba;
     uint16_t width;
     uint16_t height;
-    size_t source_offset; /* data-relative offset of the GX image */
+    size_t source_offset;  /* data-relative offset of the GX image */
+    size_t palette_offset; /* data-relative offset of the TLUT, 0 when none */
     uint32_t format;
 } DemoModelTexture;
 
@@ -37,6 +39,7 @@ typedef struct DemoModelBatch {
     size_t first_vertex;
     size_t vertex_count;
     size_t object_index;
+    size_t dobj_index;
     int16_t texture;
 } DemoModelBatch;
 
@@ -53,6 +56,8 @@ typedef struct DemoModel {
     DemoModelTexture textures[DEMO_MAX_TEXTURES];
     size_t batch_count;
     DemoModelBatch batches[DEMO_MAX_BATCHES];
+    size_t dobj_count; /* DObjs in HSD traversal order (parts visibility) */
+    uint8_t dobj_hidden[DEMO_MAX_DOBJS];
 } DemoModel;
 
 /* Forward declaration keeps the native build independent of the HSD headers. */
@@ -68,5 +73,8 @@ int demo_model_load(DemoModel *model, const uint8_t *data, size_t size,
 
 /* Releases decoded texture data. Vertex storage is owned by the caller. */
 void demo_model_free(DemoModel *model);
+
+/* 1 when the batch's drawable object is hidden by the model's parts table. */
+int demo_model_batch_visible(const DemoModel *model, size_t batch_index);
 
 #endif

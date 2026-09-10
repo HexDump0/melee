@@ -50,6 +50,7 @@
 #define GX_TRIANGLEFAN 0xa0
 
 #define HSD_FLAG_SCL_INHERIT 0x8
+#define HSD_FLAG_SKELETON 0x1
 #define HSD_FLAG_SKELETON_ROOT 0x2
 
 typedef struct RawDesc {
@@ -78,6 +79,8 @@ typedef struct JointInfo {
     size_t offset; /* host offset of the HSD_Joint */
     float world[3][4];
     float scale_world[3];
+    uint32_t flags;
+    int parent; /* index into JointTable, -1 for the root */
 } JointInfo;
 
 typedef struct JointTable {
@@ -210,6 +213,101 @@ static void mtx_transform_normal(const float *m, const float in[3],
     out[2] = z;
 }
 
+/* Inverse of an affine 3x4 matrix (rotation/scale block plus translation). */
+static int mtx_invert(const float *m, float *out)
+{
+    float a = m[0], b = m[1], c = m[2];
+    float d = m[4], e = m[5], f = m[6];
+    float g = m[8], h = m[9], i = m[10];
+    float det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+    float inv[12];
+    float tx;
+    float ty;
+    float tz;
+    if (fabsf(det) < 1e-20f) {
+        return 0;
+    }
+    det = 1.0f / det;
+    inv[0] = (e * i - f * h) * det;
+    inv[1] = (c * h - b * i) * det;
+    inv[2] = (b * f - c * e) * det;
+    inv[4] = (f * g - d * i) * det;
+    inv[5] = (a * i - c * g) * det;
+    inv[6] = (c * d - a * f) * det;
+    inv[8] = (d * h - e * g) * det;
+    inv[9] = (b * g - a * h) * det;
+    inv[10] = (a * e - b * d) * det;
+    tx = m[3];
+    ty = m[7];
+    tz = m[11];
+    inv[3] = -(inv[0] * tx + inv[1] * ty + inv[2] * tz);
+    inv[7] = -(inv[4] * tx + inv[5] * ty + inv[6] * tz);
+    inv[11] = -(inv[8] * tx + inv[9] * ty + inv[10] * tz);
+    memcpy(out, inv, sizeof(inv));
+    return 1;
+}
+
+/* Index of a joint by host offset, or -1. */
+static int joint_index_of(const JointTable *table, size_t offset)
+{
+    size_t i;
+    for (i = 0; i < table->count; ++i) {
+        if (table->joints[i].offset == offset) {
+            return (int) i;
+        }
+    }
+    return -1;
+}
+
+/* Nearest ancestor (including self) flagged JOBJ_SKELETON or JOBJ_SKELETON_ROOT. */
+static int joint_find_skeleton(const JointTable *table, int index)
+{
+    while (index >= 0) {
+        uint32_t flags = table->joints[index].flags;
+        if (flags & (HSD_FLAG_SKELETON | HSD_FLAG_SKELETON_ROOT)) {
+            return index;
+        }
+        index = table->joints[index].parent;
+    }
+    return -1;
+}
+
+/*
+ * HSD's _HSD_mkEnvelopeModelNodeMtx, evaluated at bind pose.  Returns 0 when
+ * HSD would return NULL (the joint is the skeleton root), otherwise writes the
+ * 3x4 `right` matrix.  With this, a PObj hung off any joint is placed by
+ * `right` at bind pose, because every envelope group matrix is the identity.
+ */
+static int joint_right(const JointTable *table, int m_index, float right[3][4])
+{
+    const JointInfo *m;
+    int x;
+    if (m_index < 0 || (size_t) m_index >= table->count) {
+        return 0;
+    }
+    m = &table->joints[m_index];
+    if (m->flags & HSD_FLAG_SKELETON_ROOT) {
+        return 0;
+    }
+    x = joint_find_skeleton(table, m_index);
+    if (x < 0) {
+        return 0;
+    }
+    if (x == m_index) {
+        memcpy(right, m->world, sizeof(float) * 12);
+    } else if (table->joints[x].flags & HSD_FLAG_SKELETON_ROOT) {
+        float inverse[3][4];
+        if (!mtx_invert(&table->joints[x].world[0][0], &inverse[0][0])) {
+            return 0;
+        }
+        mtx_concat(&inverse[0][0], &m->world[0][0], &right[0][0]);
+    } else {
+        /* x.world * inverseBind(x) == identity at bind pose. */
+        memcpy(right, m->world, sizeof(float) * 12);
+    }
+    return 1;
+}
+
 /* HSD_MtxSRT: scale, Euler rotation, translation, parent scale correction. */
 static void make_local_mtx(float m[3][4], const float scale[3],
                            const float rot[3], const float pos[3],
@@ -297,6 +395,8 @@ static void joint_table_add(const uint8_t *d, size_t n, size_t jo, int parent,
     pos[2] = rf32(d, n, jo + 0x34);
     info = &table->joints[table->count];
     info->offset = jo;
+    info->flags = flags;
+    info->parent = parent;
     {
         const float *parent_scale = NULL;
         if (parent >= 0) {
@@ -532,10 +632,53 @@ static int read_vertex(const uint8_t *d, size_t n, const RawDesc *descs,
     return out->has_pos;
 }
 
+static uint8_t expand4(unsigned int v) { return (uint8_t) ((v << 4) | v); }
+static uint8_t expand5(unsigned int v) { return (uint8_t) ((v * 255u) / 31u); }
+static uint8_t expand6(unsigned int v) { return (uint8_t) ((v * 255u) / 63u); }
+
+static void decode_palette_entry(uint16_t raw, uint32_t format, uint8_t out[4])
+{
+    if (format == 0) { /* IA8 */
+        out[0] = out[1] = out[2] = (uint8_t) (raw >> 8);
+        out[3] = (uint8_t) (raw & 0xFF);
+    } else if (format == 1) { /* RGB565 */
+        out[0] = expand5((raw >> 11) & 31);
+        out[1] = expand6((raw >> 5) & 63);
+        out[2] = expand5(raw & 31);
+        out[3] = 255;
+    } else if (format == 2) { /* RGB5A3 */
+        if (raw & 0x8000) {
+            out[0] = expand5((raw >> 10) & 31);
+            out[1] = expand5((raw >> 5) & 31);
+            out[2] = expand5(raw & 31);
+            out[3] = 255;
+        } else {
+            out[0] = expand4((raw >> 8) & 15);
+            out[1] = expand4((raw >> 4) & 15);
+            out[2] = expand4(raw & 15);
+            out[3] = (uint8_t) ((((raw >> 12) & 7) * 255u) / 7u);
+        }
+    } else {
+        out[0] = out[1] = out[2] = 255;
+        out[3] = (raw & 0xFF) ? 255 : 0;
+    }
+}
+
 /* Decodes an embedded GX texture once and returns its index, or -1. */
 static int find_or_add_texture(DemoModel *m, const uint8_t *d, size_t n,
-                               size_t imagedesc)
+                               size_t texdesc)
 {
+    size_t imagedesc;
+    size_t tlutdesc;
+    uint32_t palette_value = 0;
+    if (texdesc == SIZE_MAX || !range_ok(texdesc, 0x60, n)) {
+        return -1;
+    }
+    imagedesc = rptr(d, n, texdesc + 0x4c);
+    tlutdesc = rptr(d, n, texdesc + 0x50);
+    if (tlutdesc != SIZE_MAX && range_ok(tlutdesc, 0x10, n)) {
+        palette_value = rb32(d, n, tlutdesc);
+    }
     uint32_t image_value;
     uint32_t format;
     size_t image;
@@ -558,21 +701,60 @@ static int find_or_add_texture(DemoModel *m, const uint8_t *d, size_t n,
     image = (size_t) image_value + HSD_DATA_BASE;
     for (i = 0; i < m->texture_count; ++i) {
         DemoModelTexture *tex = &m->textures[i];
-        if (tex->source_offset == image_value && tex->format == format) {
+        if (tex->source_offset == image_value && tex->format == format &&
+            tex->palette_offset == palette_value) {
             return (int) i;
         }
     }
     if (m->texture_count >= DEMO_MAX_TEXTURES) {
         return -1;
     }
-    if (demo_texture_decode(d + image, n - image, width, height, (int) format,
-                            &rgba, error, sizeof(error)) != 0) {
-        return -1;
+    {
+        int decoded;
+        if ((format == 8 || format == 9) &&
+            palette_value != 0 && palette_value <= n - HSD_DATA_BASE &&
+            tlutdesc != SIZE_MAX && range_ok(tlutdesc, 0x10, n)) {
+            uint32_t palette_format = rb32(d, n, tlutdesc + 4);
+            uint16_t palette_entries = rb16(d, n, tlutdesc + 0xc);
+            size_t palette = (size_t) palette_value + HSD_DATA_BASE;
+            if (palette_entries > 0 && palette_entries <= 512 &&
+                range_ok(palette, (size_t) palette_entries * 2, n)) {
+                uint8_t *palette_rgba =
+                    malloc((size_t) palette_entries * 4);
+                if (palette_rgba != NULL) {
+                    size_t pi;
+                    for (pi = 0; pi < palette_entries; ++pi) {
+                        decode_palette_entry(rb16(d, n, palette + pi * 2),
+                                             palette_format,
+                                             &palette_rgba[pi * 4]);
+                    }
+                    decoded = demo_texture_decode_ci(
+                        d + image, n - image, width, height, (int) format,
+                        palette_rgba, palette_entries, &rgba, error,
+                        sizeof(error));
+                    free(palette_rgba);
+                } else {
+                    decoded = -1;
+                }
+            } else {
+                decoded = -1;
+            }
+        } else {
+            decoded = demo_texture_decode(d + image, n - image, width, height,
+                                          (int) format, &rgba, error,
+                                          sizeof(error));
+        }
+        if (decoded != 0) {
+            /* Unsupported formats are recorded so the viewer can report them;
+             * rgba stays NULL and they render untextured. */
+            rgba = NULL;
+        }
     }
     m->textures[m->texture_count].rgba = rgba;
     m->textures[m->texture_count].width = width;
     m->textures[m->texture_count].height = height;
     m->textures[m->texture_count].source_offset = image_value;
+    m->textures[m->texture_count].palette_offset = palette_value;
     m->textures[m->texture_count].format = format;
     m->texture_count++;
     return (int) (m->texture_count - 1);
@@ -673,7 +855,8 @@ static void load_env_groups(const uint8_t *d, size_t n, size_t po,
 }
 
 static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
-                       const JointTable *table, uint8_t color[4], int texture)
+                       const JointTable *table, const float *right,
+                       size_t dobj_index, uint8_t color[4], int texture)
 {
     RawDesc descs[32];
     EnvGroup groups[HSD_MAX_ENV_GROUPS];
@@ -727,8 +910,21 @@ static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
             if (!verts[i].has_color) {
                 memcpy(verts[i].color, color, 4);
             }
-            /* Envelope matrix slots are GX_PNMTX0..9 at 3-index strides. */
-            {
+            if (right != NULL) {
+                /* PObj on a non-skeleton-root joint: at bind pose the group
+                 * matrix is identity and `right` places the vertices. */
+                if (verts[i].has_pos) {
+                    float moved[3];
+                    mtx_transform_point(right, verts[i].pos, moved);
+                    memcpy(verts[i].pos, moved, sizeof(moved));
+                    if (verts[i].has_nrm) {
+                        float normal[3];
+                        mtx_transform_normal(right, verts[i].nrm, normal);
+                        memcpy(verts[i].nrm, normal, sizeof(normal));
+                    }
+                }
+            } else {
+                /* Envelope matrix slots are GX_PNMTX0..9 at 3-index strides. */
                 size_t group = (size_t) (verts[i].matrix / 3);
                 if (group < group_count && groups[group].rigid &&
                     verts[i].has_pos) {
@@ -802,6 +998,7 @@ static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
         batch->first_vertex = first_vertex;
         batch->vertex_count = m->vertex_count - first_vertex;
         batch->object_index = m->object_count ? m->object_count - 1 : 0;
+        batch->dobj_index = dobj_index;
         batch->texture = (int16_t) texture;
     }
 }
@@ -818,35 +1015,46 @@ static void walk_joint(DemoModel *m, const uint8_t *d, size_t n, size_t jo,
     child = rptr(d, n, jo + 8);
     next = rptr(d, n, jo + 12);
     dobj = rptr(d, n, jo + 16);
-    while (dobj != SIZE_MAX && range_ok(dobj, 0x10, n)) {
-        size_t pobj = rptr(d, n, dobj + 12);
-        size_t mobj = rptr(d, n, dobj + 8);
-        uint8_t color[4] = { 205, 145, 70, 255 };
-        int texture = -1;
-        if (mobj != SIZE_MAX && range_ok(mobj, 0x18, n)) {
-            size_t mat = rptr(d, n, mobj + 0xc);
-            size_t texdesc = rptr(d, n, mobj + 8);
-            if (mat != SIZE_MAX && range_ok(mat, 8, n)) {
-                color[0] = d[mat + 4];
-                color[1] = d[mat + 5];
-                color[2] = d[mat + 6];
-                color[3] = d[mat + 7];
+    {
+        float right[3][4];
+        int m_index = joint_index_of(table, jo);
+        int has_right = joint_right(table, m_index, right);
+        while (dobj != SIZE_MAX && range_ok(dobj, 0x10, n)) {
+            size_t dobj_index = m->dobj_count < DEMO_MAX_DOBJS ? m->dobj_count : DEMO_MAX_DOBJS;
+            size_t pobj = rptr(d, n, dobj + 12);
+            size_t mobj = rptr(d, n, dobj + 8);
+            uint8_t color[4] = { 205, 145, 70, 255 };
+            int texture = -1;
+            if (mobj != SIZE_MAX && range_ok(mobj, 0x18, n)) {
+                size_t mat = rptr(d, n, mobj + 0xc);
+                size_t texdesc = rptr(d, n, mobj + 8);
+                if (mat != SIZE_MAX && range_ok(mat, 8, n)) {
+                    color[0] = d[mat + 4];
+                    color[1] = d[mat + 5];
+                    color[2] = d[mat + 6];
+                    color[3] = d[mat + 7];
+                }
+                if (texdesc != SIZE_MAX && range_ok(texdesc, 0x5c, n)) {
+                    texture = find_or_add_texture(m, d, n, texdesc);
+                }
             }
-            if (texdesc != SIZE_MAX && range_ok(texdesc, 0x5c, n)) {
-                size_t imagedesc = rptr(d, n, texdesc + 0x4c);
-                texture = find_or_add_texture(m, d, n, imagedesc);
+            while (pobj != SIZE_MAX && range_ok(pobj, 0x18, n)) {
+                m->object_count++;
+                parse_pobj(m, d, n, pobj, table,
+                           has_right ? &right[0][0] : NULL, dobj_index, color,
+                           texture);
+                pobj = rptr(d, n, pobj + 4);
             }
+            if (m->dobj_count < DEMO_MAX_DOBJS) {
+                m->dobj_count++;
+            }
+            dobj = rptr(d, n, dobj + 4);
         }
-        while (pobj != SIZE_MAX && range_ok(pobj, 0x18, n)) {
-            m->object_count++;
-            parse_pobj(m, d, n, pobj, table, color, texture);
-            pobj = rptr(d, n, pobj + 4);
-        }
-        dobj = rptr(d, n, dobj + 4);
     }
     walk_joint(m, d, n, child, table, depth + 1);
     walk_joint(m, d, n, next, table, depth);
 }
+
 
 /*
  * Picks a root joint from the archive's public symbol table.  Model archives
@@ -932,6 +1140,19 @@ void demo_model_free(DemoModel *m)
         m->textures[i].rgba = NULL;
     }
     m->texture_count = 0;
+}
+
+int demo_model_batch_visible(const DemoModel *model, size_t batch_index)
+{
+    size_t dobj;
+    if (batch_index >= model->batch_count) {
+        return 0;
+    }
+    dobj = model->batches[batch_index].dobj_index;
+    if (dobj >= DEMO_MAX_DOBJS) {
+        return 1;
+    }
+    return model->dobj_hidden[dobj] == 0;
 }
 
 int demo_model_load(DemoModel *m, const uint8_t *d, size_t n, size_t root_offset,

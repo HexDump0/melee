@@ -158,8 +158,7 @@ static void decode_cmpr(const uint8_t* src, uint8_t* dst, int w, int h)
 int demo_texture_decode(const void* pixels, size_t pixel_length,
                         int width, int height, int format,
                         uint8_t** out_rgba, char* error, size_t error_length)
-{
-    size_t blocks_x, blocks_y, bytes_per_block, expected, output_size;
+{    size_t blocks_x, blocks_y, bytes_per_block, expected, output_size;
     if (out_rgba) *out_rgba = NULL;
     if (!out_rgba || !pixels || width <= 0 || height <= 0) {
         fail(error, error_length, "invalid texture dimensions or output"); return -1;
@@ -191,5 +190,86 @@ int demo_texture_decode(const void* pixels, size_t pixel_length,
     case DEMO_TF_RGBA8: decode_rgba8(pixels, *out_rgba, width, height); break;
     case DEMO_TF_CMPR: decode_cmpr(pixels, *out_rgba, width, height); break;
     }
+    return 0;
+}
+
+int demo_texture_decode_ci(const void* indices, size_t index_length,
+                           int width, int height, int format,
+                           const uint8_t* palette, size_t palette_entries,
+                           uint8_t** out_rgba, char* error, size_t error_length)
+{
+    size_t output_size;
+    size_t expected;
+    size_t blocks_x;
+    size_t blocks_y;
+    const uint8_t* src = (const uint8_t*) indices;
+    uint8_t* dst;
+    int by;
+    int bx;
+    if (out_rgba) *out_rgba = NULL;
+    if (!out_rgba || !indices || !palette || width <= 0 || height <= 0 ||
+        palette_entries == 0) {
+        fail(error, error_length, "invalid CI texture arguments");
+        return -1;
+    }
+    if (format != DEMO_TF_CI4 && format != DEMO_TF_CI8) {
+        fail(error, error_length, "not an indexed GX texture format");
+        return -1;
+    }
+    blocks_x = (size_t)(width + 7) / 8;
+    blocks_y = format == DEMO_TF_CI4 ? (size_t)(height + 7) / 8
+                                     : (size_t)(height + 3) / 4;
+    expected = blocks_x * blocks_y * 32;
+    if (index_length < expected) {
+        fail(error, error_length, "truncated CI texture data");
+        return -1;
+    }
+    if ((size_t) width > SIZE_MAX / (size_t) height ||
+        (size_t) width * (size_t) height > SIZE_MAX / 4) {
+        fail(error, error_length, "texture size overflow");
+        return -1;
+    }
+    output_size = (size_t) width * (size_t) height * 4;
+    dst = (uint8_t*) malloc(output_size);
+    if (!dst) {
+        fail(error, error_length, "RGBA8 allocation failed");
+        return -1;
+    }
+    memset(dst, 0, output_size);
+    for (by = 0; by < (height + (format == DEMO_TF_CI4 ? 7 : 3)) /
+                         (format == DEMO_TF_CI4 ? 8 : 4);
+         ++by) {
+        for (bx = 0; bx < (width + 7) / 8; ++bx) {
+            int y;
+            int rows = format == DEMO_TF_CI4 ? 8 : 4;
+            for (y = 0; y < rows; ++y) {
+                int x;
+                if (format == DEMO_TF_CI4) {
+                    for (x = 0; x < 8; x += 2) {
+                        unsigned int packed = *src++;
+                        unsigned int hi = (packed >> 4) & 0xF;
+                        unsigned int lo = packed & 0xF;
+                        if (hi < palette_entries) {
+                            put(dst, width, height, bx * 8 + x, by * 8 + y,
+                                palette + hi * 4);
+                        }
+                        if (lo < palette_entries) {
+                            put(dst, width, height, bx * 8 + x + 1,
+                                by * 8 + y, palette + lo * 4);
+                        }
+                    }
+                } else {
+                    for (x = 0; x < 8; ++x) {
+                        unsigned int index = *src++;
+                        if (index < palette_entries) {
+                            put(dst, width, height, bx * 8 + x, by * 4 + y,
+                                palette + index * 4);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    *out_rgba = dst;
     return 0;
 }
