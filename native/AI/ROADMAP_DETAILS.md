@@ -126,6 +126,15 @@ symbol) and evaluate its FObjs with `TObj`/`MObj` update semantics (`tobj.c`,
 `mobj.c`, `ftanim.c:ftAnim_80070200`). Acceptance: a clip with texture/material
 motion animates (e.g. Sheik/Zelda effects, stage-independent demos).
 
+## P-212 — Visual render interpolation (deferred by the owner)
+
+**Scope.** Presentation only; after the faithful 60 Hz port is complete. The
+simulation keeps stepping at 1/60 and stays deterministic; render frames mix
+the previous and current tick's skinned vertices (or joint transforms) by
+`alpha = accumulator / (1/60)`. One tick of display latency, `--no-interp`
+for the authentic cadence, `--scripted` always off. Needs an ADR first (the
+presentation-vs-faithfulness decision). Not on the critical path.
+
 ## Blending / shape sets / HSD_A_J_PATH
 
 - **Blending** (`x8A4_animBlendFrames`): pose two skeletons (`parts[].joint` and

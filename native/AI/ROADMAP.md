@@ -137,6 +137,7 @@ macOS builds, and a netplay experiment (rollback) as a stretch.
 | Workstream | Why |
 |---|---|
 | P-301 compile real HSD math from `src/` | Removes hand-written math; prerequisite for M3 |
+| P-212 visual interpolation (after parity) | Smooth 120/180 Hz motion without changing 60 Hz logic |
 | P-401/P-402 CI + parser fuzzing | Keeps the tree honest without a disc |
 | P-403 GX format census | Cheap documentation that helps M2b |
 | P-411 per-character attributes | Small, improves non-Mario fighters |
