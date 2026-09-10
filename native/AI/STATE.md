@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-10 (fighter animation: FigaTree playback + pose skinning)
+Last updated: 2026-09-10 (renderer: OpenGL 3.3 core + ES3-portable shaders)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -17,7 +17,10 @@ play their real `Pl<Char>AJ.dat` FigaTree clips: the viewer can play, pause,
 scrub and cycle clips, and the sandbox switches Wait/Walk/Dash/Jump/Fall clips
 per fighter. Animation runs through a literal port of the engine's FObj state
 machine, joint transforms and envelope/shared/rigid skinning. Movement uses
-real Mario attributes read from the disc.
+real Mario attributes read from the disc. Rendering is OpenGL 3.3 core with
+GLSL shaders written in an ES3/WebGL2-portable subset (ADR-0009); the
+fixed-function/display-list path is gone and the pre-rewrite screenshots are
+reproduced to within a few 1/65535 RMSE units.
 
 ## Verified working
 
@@ -36,7 +39,9 @@ real Mario attributes read from the disc.
 | Hidden joints | `JOBJ_HIDDEN` skipped; fixes Mario's cap emblem/face smear and cuts most of Game & Watch's extra pieces |
 | Material z-mode | `RENDER_ZMODE_ALWAYS` / `RENDER_NO_ZUPDATE` honoured per batch |
 | Texture matrix | `MakeTextureMtx` (`repeat_s/t`, scale, rotate, translate) applied per batch; Mario's mirrored cap "M" is complete |
-| Texture filtering | Mipmapped trilinear (`GL_GENERATE_MIPMAP`), matching HSD's default `GX_LIN_MIP_LIN` |
+| Texture filtering | Mipmapped trilinear (`glGenerateMipmap`), matching HSD's default `GX_LIN_MIP_LIN` |
+| Renderer | OpenGL 3.3 core, GLSL 330 in an ES3 subset; per-batch VAO/VBOs, no display lists/immediate mode |
+| Render parity | Bind/anim/back-view screenshots RMSE <= 3.2e-6 vs the pre-rewrite build; scripted 88/1,024,000 pixels (HUD alpha) |
 | Visibility slots | `FtPartsVis` slot semantics documented; viewer `B` / `--vis-slot N` cycles them |
 | GX display lists | Strips/triangles/quads decoded; clean opcode histogram (only 0x80/0x90/0x98) |
 | Textures | 31 textures for Mario (CMPR + CI8), correct cap/overalls/face/eyes |
@@ -70,10 +75,12 @@ Ordered by impact.
    recognisable, but a few thin edge-on pieces remain (x=0, y 13.6..21.9) that
    in-game are hidden through animation/joint state the port does not evaluate
    yet. P-201/P-412.
-4. **TEV approximated.** Rendering is `texture * material color` with fixed
-   function lighting. Multi-texture (TEX1+), toon ramps, alpha test thresholds
-   and additive blends will not match the GameCube, which is visible on Master
-   Hand's layered shells. Workstream P-204.
+4. **TEV approximated.** The shader does `texture * material color` with a
+   fixed-function-equivalent directional light. Multi-texture (TEX1+), toon
+   ramps, alpha test thresholds and additive blends still do not match the
+   GameCube, which is visible on Master Hand's layered shells. The P-211
+   rewrite puts the TEV state (material/alpha-test/multi-tex uniforms) in
+   place for workstream P-204.
 5. **No audio, menus, items, stages, results, netplay, WASM.**
 6. **Non-Mario physics values** are demo defaults, not per-character data.
 7. **Windows/macOS untested.** Linux + Mesa is the only verified target.
@@ -105,9 +112,10 @@ If those numbers move, say why in the commit and update this file.
 ## Environment assumptions
 
 - Linux, GCC/Clang, CMake, pkg-config, SDL2 dev, Mesa (`libEGL_mesa`,
-  `libGL`), OpenGL math.
+  `libGL`), OpenGL math. The renderer needs a GL 3.3 core driver.
 - Disc image at `iso/Super Smash Bros. Melee (USA) (En,Ja) (Rev 2).ciso` for
   default runs. `iso/` is locally excluded from git.
 - `ACGC-PC-Port/` is a local, untracked reference checkout.
-- The offscreen SDL driver + Mesa `radeonsi`/llvmpipe renders correctly; there
-  is no X11 server available to agents on this machine.
+- The offscreen SDL driver + Mesa `radeonsi`/llvmpipe renders correctly (Mesa
+  26.1.6 reports a 4.6 core context); there is no X11 server available to
+  agents on this machine.

@@ -320,3 +320,30 @@ window instead of printing.
 **Cause:** without `--inspect`, `--view`, `--list-clips`, etc. the default mode
 is the playable sandbox.
 **Fix:** always pass a headless mode flag when probing assets.
+
+## G-040: `glFrustum`'s bottom-right element is 0, not 1
+
+**Symptom:** after moving the camera matrices to the CPU (core profile), the
+whole scene is shifted about one pixel; every edge shows a one-pixel halo and
+the parity RMSE is ~0.05 (normalized) even though the geometry looks right.
+**Cause:** `glFrustum` produces a matrix whose `m[15]` (column 3, row 3) is 0,
+because the perspective divide is `w' = -z`. A hand-written `m4_frustum` that
+starts from identity leaves `m[15] = 1`, so `w' = 1 - z` and the projection
+shifts.
+**Fix:** set `m[15] = 0` in the frustum helper. Verify by comparing against
+`glGetFloatv(GL_PROJECTION_MATRIX)` from a compatibility context (a throwaway
+differential test is the fastest way to catch this class of bug).
+See `learnings/gl_shaders.md`.
+
+## G-041: fixed-function lighting clamps the lit colour before texture modulate
+
+**Symptom:** with a custom shader that reproduces `GL_LIGHT0`/`glColorMaterial`
+with an ambient + diffuse term, textured surfaces (Mario's cap, clothes) are
+much brighter than the fixed-function build; the parity RMSE stays around 0.05
+after the projection is fixed.
+**Cause:** the GL lighting equation clamps the computed per-vertex colour to
+`[0,1]` *before* the texture environment multiplies it. A shader that leaves
+the lit colour in `[0, ~1.7]` and clamps only at the framebuffer produces
+values above 1 that survive scaling by texture values < 1.
+**Fix:** `clamp(color * (ambient + diffuse * NdotL), 0.0, 1.0)` per vertex, not
+per fragment. Same clamp for the two-sided back colour.

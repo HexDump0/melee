@@ -1,7 +1,11 @@
 #ifndef DEMO_TEXT_H
 #define DEMO_TEXT_H
 
-/* Tiny original 5x7 bitmap alphabet for the demo HUD; no font dependency. */
+/* Tiny original 5x7 bitmap alphabet for the demo HUD; no font dependency.
+ * The host renderer supplies demo_text_rect(), which emits one lit font pixel
+ * as a quad through whatever 2D path it uses (the port's shader overlay). */
+void demo_text_rect(float x, float y, float w, float h);
+
 static const unsigned char demo_glyphs[][7] = {
  {14,17,17,31,17,17,17}, {30,17,17,30,17,17,30},
  {14,17,16,16,16,17,14}, {30,17,17,17,17,17,30},
@@ -31,7 +35,6 @@ static const unsigned char demo_glyphs[][7] = {
 
 static void demo_text(float x, float y, float size, const char *s)
 {
-    glBegin(GL_QUADS);
     for (; *s; ++s, x += 6 * size) {
         int idx = -1;
         unsigned char c = (unsigned char)*s;
@@ -48,10 +51,8 @@ static void demo_text(float x, float y, float size, const char *s)
         for (int r = 0; r < 7; ++r) for (int col = 0; col < 5; ++col) {
             if (!(demo_glyphs[idx][r] & (16 >> col))) continue;
             float a = x + col * size, b = y + r * size;
-            glVertex2f(a,b); glVertex2f(a+size,b);
-            glVertex2f(a+size,b+size); glVertex2f(a,b+size);
+            demo_text_rect(a, b, size, size);
         }
     }
-    glEnd();
 }
 #endif
