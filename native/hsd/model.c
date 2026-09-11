@@ -2,6 +2,7 @@
 
 #include "hsd/aobj.h"
 #include "gx/texture.h"
+#include "decomp/decomp_math.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -326,58 +327,27 @@ static int batch_right(const HsdModel *m, int m_index, float right[3][4])
     return 1;
 }
 
-/* HSD_MtxSRT: scale, Euler rotation, translation, parent scale correction. */
+/* Thin type adapter for the compiled decomp HSD_MtxSRT (P-301,
+ * src/sysdolphin/baselib/mtx.c, built by the melee_decomp_math target).  The
+ * formula is no longer hand-copied; only the float[3] -> Vec3 marshalling is
+ * local.  Bind-pose output was verified bitwise against the deleted hand copy
+ * in tests/test_decomp_mtx.c. */
 static void make_local_mtx(float m[3][4], const float scale[3],
                            const float rot[3], const float pos[3],
                            const float *parent_scale)
 {
-    float sx = scale[0];
-    float sy = scale[1];
-    float sz = scale[2];
-    float vx2 = sx;
-    float vx1 = sx;
-    float vx = sx;
-    float vy2 = sy;
-    float vy1 = sy;
-    float vy = sy;
-    float vz2 = sz;
-    float vz1 = sz;
-    float vz = sz;
-    float sin_x;
-    float cos_x;
-    float sin_y;
-    float cos_y;
-    float sin_z;
-    float cos_z;
+    DecompVec3 scale_v = { scale[0], scale[1], scale[2] };
+    DecompVec3 rot_v = { rot[0], rot[1], rot[2] };
+    DecompVec3 pos_v = { pos[0], pos[1], pos[2] };
+    DecompVec3 parent_v;
+    DecompVec3 *parent_p = NULL;
     if (parent_scale != NULL) {
-        float t1 = 1.0f / parent_scale[0];
-        float t2 = 1.0f / parent_scale[1];
-        float t3 = 1.0f / parent_scale[2];
-        vy2 *= parent_scale[1] * t1;
-        vz2 *= parent_scale[2] * t1;
-        vx1 *= parent_scale[0] * t2;
-        vz1 *= parent_scale[2] * t2;
-        vx *= parent_scale[0] * t3;
-        vy *= parent_scale[1] * t3;
+        parent_v.x = parent_scale[0];
+        parent_v.y = parent_scale[1];
+        parent_v.z = parent_scale[2];
+        parent_p = &parent_v;
     }
-    sin_x = sinf(rot[0]);
-    cos_x = cosf(rot[0]);
-    sin_y = sinf(rot[1]);
-    cos_y = cosf(rot[1]);
-    sin_z = sinf(rot[2]);
-    cos_z = cosf(rot[2]);
-    m[0][0] = cos_z * (vx2 * cos_y);
-    m[1][0] = sin_z * (vx1 * cos_y);
-    m[2][0] = -vx * sin_y;
-    m[0][1] = vy2 * ((cos_z * (sin_x * sin_y)) - (cos_x * sin_z));
-    m[1][1] = vy1 * ((sin_z * (sin_x * sin_y)) + (cos_x * cos_z));
-    m[2][1] = cos_y * (vy * sin_x);
-    m[0][2] = vz2 * ((cos_z * (cos_x * sin_y)) + (sin_x * sin_z));
-    m[1][2] = vz1 * ((sin_z * (cos_x * sin_y)) - (sin_x * cos_z));
-    m[2][2] = cos_y * (vz * cos_x);
-    m[0][3] = pos[0];
-    m[1][3] = pos[1];
-    m[2][3] = pos[2];
+    HSD_MtxSRT(m, &scale_v, &rot_v, &pos_v, parent_p);
 }
 
 static void joint_table_add(const uint8_t *d, size_t n, size_t jo, int parent,

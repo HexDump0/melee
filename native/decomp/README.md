@@ -1,26 +1,42 @@
-# Compiled decompilation code (experiment)
+# Compiled decompilation code
 
-This directory is reserved for building code from `src/` (the decompilation)
-directly into the native port. It is empty until the first experiment lands.
+This directory builds selected files from `src/` (the decompilation) directly
+into the native port behind a shim.  The P-301 experiment landed `HSD_MtxSRT`
+and settled what is and is not compilable; read
+[`../AI/learnings/decomp_shim.md`](../AI/learnings/decomp_shim.md) before adding
+another source file.
 
-## Plan (P-301)
+## Status (P-301)
 
-1. Pick a self-contained source file with no hardware calls, starting with
-   `src/sysdolphin/baselib/mtx.c` and `vec.c`.
-2. Add a CMake target here that compiles those files with `-I` pointing at a
-   shim include directory (`native/decomp/shim/`). The shim provides the
-   GameCube headers the files include (`<dolphin/...>`, `Runtime/...>`,
-   `sysdolphin/...>`) as PC-compatible replacements. For pure math the shim
-   should be nearly empty.
-3. Add a differential test (`tests/`) that runs the compiled function and the
-   hand version in `gx/math.c` on the same inputs and compares results.
-4. If the boundary is clean, replace the hand version and repeat with the next
-   source file. If it is not, delete this experiment and keep hand-porting.
+- `src/sysdolphin/baselib/mtx.c` is compiled verbatim by the
+  `melee_decomp_math` object library (`shim/decomp_shim.h` force-included).
+  `HSD_MtxSRT` is the single source of truth for `hsd/model.c`'s local SRT;
+  `tests/test_decomp_mtx.c` proves bitwise parity with the deleted hand copy.
+- The SDK pair `extern/dolphin/src/dolphin/mtx/{mtx.c,vec.c}` **cannot** be
+  compiled: they are Metrowerks `asm` C.  The `C_MTX*`/`C_VEC*` pure-C twins
+  live in the same translation units, so they are unreachable too.  The ~15
+  primitives the HSD layer calls stay hand-ported.  Do not plan around
+  compiling those files without an ADR for a patched-copy + PC-backend
+  strategy.
+- Only the referenced function sections survive the link; a decomp TU is
+  compiled with `-ffunction-sections -fdata-sections` and the executables link
+  with `-Wl,--gc-sections`.
+
+## Adding the next file
+
+1. Check that the file has no Metrowerks asm (`rg '(^|\s)asm\s*(\{|void)'`).
+2. Add it to `melee_decomp_math`; if it needs a header from the shim, keep the
+   shim minimal and warning-free under `-Wall -Wextra -Wpedantic` (the upstream
+   TU itself compiles with `-w`).
+3. Add a differential CTest against a literal transcription of the current
+   hand copy before deleting that copy.
+4. Delete the hand copy and the call-site plumbing in the same commit as the
+   compiled version lands.
 
 ## Rules
 
 - One source of truth per function: when a compiled version lands, the hand
   copy is deleted in the same commit.
-- Never modify `src/`.
+- Never modify `src/` or `extern/dolphin/`.
 - The GCN build (`configure.py` + ninja) must stay green.
 - The shim is portable C11, not platform-specific code injected into `src/`.

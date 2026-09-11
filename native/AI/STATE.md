@@ -68,7 +68,8 @@ lightmap phases, alpha test, XLU blend) and every fighter is scaled by its
 | Match animation | Both fighters pose independently; `Wait1`/`WalkMiddle`/`Dash`/`JumpF`/`Fall` by movement |
 | Headless verify | `SDL_VIDEODRIVER=offscreen ... --frames N --screenshot` works |
 | Sanitizers | 600-frame scripted run clean under ASan+UBSan (leaks disabled) |
-| Unit tests | `ctest --test-dir build/native` (matrix math) |
+| Unit tests | `ctest --test-dir build/native` (hand matrix math + compiled `HSD_MtxSRT` bitwise parity) |
+| Compiled decomp math | `HSD_MtxSRT` built verbatim from `src/sysdolphin/baselib/mtx.c` behind `native/decomp/shim/`; SDK mtx/vec pairs are Metrowerks asm and stay hand-ported (P-301, `learnings/decomp_shim.md`). Bind/animate/scripted BMPs byte-identical |
 | Owner visual checks | 180 Hz viewer animation speed confirmed correct; face texture artifact gone (2026-09-11) |
 
 ## Known issues / gaps
