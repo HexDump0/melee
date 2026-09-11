@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-10
 **Agent:** opencode (deepseek-flash)
-**Evidence:** `native/hsd/model.c` (`parse_material`), `native/main.c`
+**Evidence:** `native/hsd/model.c` (`parse_material`), `native/gx/render.c`
 (MODEL_VS/MODEL_FS, `draw_batch`), `--dump-tev` on 9 `Pl*Nr.dat` archives,
 screenshots under `/tmp/opencode/p211/after/` (not committed). Sources:
 `src/sysdolphin/baselib/mobj.c` (`MObjLoad`, `MObjMakeTExp`), `tobj.c`

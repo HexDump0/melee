@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-10
 **Agent:** opencode (deepseek-flash)
-**Evidence:** `main.c` draw path; parity harness in
+**Evidence:** `gx/render.c`/`gx/overlay.c` draw path; parity harness in
 `/tmp/opencode/p211/` (`before/` vs `after/` BMPs, `magick compare -metric
 RMSE`); P-211 spike output `4.6 (Core Profile) Mesa 26.1.6-arch1.1`, renderer
 `AMD Radeon RX 580 2048SP (radeonsi, polaris10, ACO)`.
@@ -39,7 +39,7 @@ The pieces that matter:
 
 ### Geometry
 
-- Per batch (`HsdBatch` vertex range) two VAO+VBO pairs: an immutable
+- Per batch (`HsdBatch` vertex range, `gx/render.c`) two VAO+VBO pairs: an immutable
   bind-pose buffer (uploaded in `compile_model`) and a pose buffer
   (`GL_DYNAMIC_DRAW`) that `upload_batch` refreshes each animated frame from
   the CPU-skinned `HsdModel::vertices`. Static draws use the bind VAO, so an
@@ -51,7 +51,7 @@ The pieces that matter:
   (`ov_begin`/`ov_vertex3f`/`ov_end`); `GL_QUADS`/`GL_TRIANGLE_FAN` are
   converted to `GL_TRIANGLES` on the CPU using Mesa's `(0,1,2),(0,2,3)`
   quad decomposition. `GL_LINES`/`GL_LINE_LOOP`/`GL_LINE_STRIP` pass through.
-- `extras/font.h` now calls `font_rect`; `main.c` emits the quad.
+- `extras/font.h` now calls `font_rect`; `gx/overlay.c` emits the quad.
 
 ### Exactness traps (all found by the parity harness)
 

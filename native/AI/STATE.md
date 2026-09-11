@@ -68,6 +68,7 @@ lightmap phases, alpha test, XLU blend) and every fighter is scaled by its
 | Match animation | Both fighters pose independently; `Wait1`/`WalkMiddle`/`Dash`/`JumpF`/`Fall` by movement |
 | Headless verify | `SDL_VIDEODRIVER=offscreen ... --frames N --screenshot` works |
 | Sanitizers | 600-frame scripted run clean under ASan+UBSan (leaks disabled) |
+| Unit tests | `ctest --test-dir build/native` (matrix math) |
 | Owner visual checks | 180 Hz viewer animation speed confirmed correct; face texture artifact gone (2026-09-11) |
 
 ## Known issues / gaps

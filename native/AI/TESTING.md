@@ -14,6 +14,9 @@ cmake --build build/native -j4
 
 # Parser test, no window, no GPU needed
 ./build/native/melee --inspect
+
+# Unit tests (CTest; currently the matrix math)
+ctest --test-dir build/native --output-on-failure
 ```
 
 Expected tail:
