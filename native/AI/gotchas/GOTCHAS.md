@@ -386,3 +386,15 @@ last. Treating a SPECULAR map as a normal blend texture mixes its grey
 highlight map straight into the lit colour.
 **Fix:** classify each TObj into a phase (0 diffuse, 1 specular, 2 ext) and
 route it in the shader; see `learnings/hsd_tev_materials.md`.
+
+## G-045: the viewer grid shows through `RENDER_NO_ZUPDATE` parts
+
+**Symptom:** translucent model parts (Master Hand's wrist/forearm connector)
+appear "broken" because the floor grid is visible through them, even though the
+grid is behind the model.
+**Cause:** `RENDER_NO_ZUPDATE` materials draw with `glDepthMask(GL_FALSE)`
+(matching GX). The viewer grid is drawn after the model, so it passes the depth
+test wherever the translucent part did not write depth. This is a viewer
+artifact; the game has no grid, so the same part blends correctly there.
+**Fix:** use `--no-grid` (or `G` in the viewer) when inspecting translucent
+parts, and don't "fix" the blend state — it matches `HSD_SetupPEMode`.
