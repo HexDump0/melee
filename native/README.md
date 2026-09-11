@@ -78,7 +78,8 @@ Pass `--disc /path/to/image.ciso` to use another image.
 | Shield | `L` |
 
 `F2` toggles the CPU, `P` pauses, `R` respawns, `Esc` quits. A game controller
-can also drive player 1.
+can also drive player 1 (keyboard wins while a movement key is held; pass
+`--no-controller` if a pad reports a stuck axis).
 
 ### 3D model viewer
 

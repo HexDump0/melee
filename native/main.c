@@ -450,7 +450,7 @@ int main(int argc,char **argv)
     const char *dump_textures=NULL;
     const char *extract_file=NULL,*extract_out=NULL;
     const char *clip_name="Wait1",*anim_file=NULL,*dump_clip=NULL;
-    int animate=0,list_clips=0,force_no_cull=0,dump_tev=0,dump_lights=0,no_grid=0,dump_joints=0;
+    int animate=0,list_clips=0,force_no_cull=0,dump_tev=0,dump_lights=0,no_grid=0,dump_joints=0,no_controller=0;
     float view_angle=25.0f,view_elev=-12.0f,view_zoom=1.0f;
     float anim_frame=-1.0f,anim_speed=1.0f;
     for(int i=1;i<argc;++i) {
@@ -473,6 +473,7 @@ int main(int argc,char **argv)
         else if(!strcmp(argv[i],"--dump-tev"))dump_tev=1;
         else if(!strcmp(argv[i],"--dump-lights"))dump_lights=1;
         else if(!strcmp(argv[i],"--no-grid"))no_grid=1;
+        else if(!strcmp(argv[i],"--no-controller"))no_controller=1;
         else if(!strcmp(argv[i],"--dump-joints"))dump_joints=1;
         else if(!strcmp(argv[i],"--animate"))animate=1;
         else if(!strcmp(argv[i],"--clip")&&i+1<argc)clip_name=argv[++i];
@@ -491,7 +492,7 @@ int main(int argc,char **argv)
         else if(!strcmp(argv[i],"--angle")&&i+1<argc)view_angle=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--elevation")&&i+1<argc)view_elev=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--zoom")&&i+1<argc)view_zoom=(float)atof(argv[++i]);
-        else {printf("Usage: %s [--disc IMAGE] [--model PlMrNr.dat] [--model-index N] [--part N] [--part-mode all|only|hide] [--list-models] [--all-models] [--inspect] [--view [--angle DEG] [--elevation DEG]] [--animate [--clip NAME|N] [--anim-frame F] [--anim-speed S] [--anim-file PlMrAJ.dat] [--list-clips]] [--frames N] [--screenshot FILE.bmp] [--scripted]\n",argv[0]);return strcmp(argv[i],"--help")!=0;}
+        else {printf("Usage: %s [--disc IMAGE] [--model PlMrNr.dat] [--model-index N] [--part N] [--part-mode all|only|hide] [--list-models] [--all-models] [--inspect] [--view [--angle DEG] [--elevation DEG]] [--animate [--clip NAME|N] [--anim-frame F] [--anim-speed S] [--anim-file PlMrAJ.dat] [--list-clips]] [--frames N] [--screenshot FILE.bmp] [--scripted] [--no-controller]\n",argv[0]);return strcmp(argv[i],"--help")!=0;}
     }
     if(dump_lights) {
         SceneLights lights;
@@ -961,14 +962,17 @@ int main(int argc,char **argv)
     }
     for(int i=0;i<2;++i){sandbox_reset(&fighters[i],&world);fighters[i].x=i?20:-20;fighters[i].facing=i?-1:1;}
     SDL_GameController *pad=NULL;
-    for(int i=0;i<SDL_NumJoysticks();++i)if(SDL_IsGameController(i)){pad=SDL_GameControllerOpen(i);break;}
+    if(!no_controller)
+        for(int i=0;i<SDL_NumJoysticks();++i)if(SDL_IsGameController(i)){pad=SDL_GameControllerOpen(i);break;}
     int run=1,cpu=1,paused=0,rendered=0;
+    int pad_axis_seen=0;
     unsigned tick=0;double previous=SDL_GetPerformanceCounter()/(double)SDL_GetPerformanceFrequency(),accumulator=0;
     SandboxInput pending[2]={{0}};int previous_pad_jump=0,previous_pad_attack=0;
     while(run) {
         SDL_Event e;
         while(SDL_PollEvent(&e)) {
             if(e.type==SDL_QUIT)run=0;
+            if(e.type==SDL_CONTROLLERAXISMOTION)pad_axis_seen=1;
             if(e.type==SDL_KEYDOWN&&!e.key.repeat) {
                 SDL_Keycode k=e.key.keysym.sym;
                 if(k==SDLK_ESCAPE)run=0;
@@ -982,11 +986,17 @@ int main(int argc,char **argv)
             }
         }
         const Uint8 *keys=SDL_GetKeyboardState(NULL);
-        pending[0].axis=(float)(keys[SDL_SCANCODE_D]-keys[SDL_SCANCODE_A]);pending[0].shield=keys[SDL_SCANCODE_G];
+        float keyboard_axis=(float)(keys[SDL_SCANCODE_D]-keys[SDL_SCANCODE_A]);
+        pending[0].axis=keyboard_axis;pending[0].shield=keys[SDL_SCANCODE_G];
         pending[1].axis=(float)(keys[SDL_SCANCODE_RIGHT]-keys[SDL_SCANCODE_LEFT]);pending[1].shield=keys[SDL_SCANCODE_L];
         if(pad&&SDL_GameControllerGetAttached(pad)) {
+            /* Only trust the stick after it has produced a motion event:
+             * some cheap pads report a stuck axis from power-on and would
+             * otherwise walk the fighter left forever.  Keyboard wins while
+             * a movement key is held. */
             float axis=SDL_GameControllerGetAxis(pad,SDL_CONTROLLER_AXIS_LEFTX)/32767.0f;
-            if(fabsf(axis)>.2f)pending[0].axis=axis;
+            if(pad_axis_seen&&fabsf(keyboard_axis)<0.01f&&fabsf(axis)>.2f)
+                pending[0].axis=axis;
             int j=SDL_GameControllerGetButton(pad,SDL_CONTROLLER_BUTTON_A),a=SDL_GameControllerGetButton(pad,SDL_CONTROLLER_BUTTON_X);
             pending[0].jump_pressed|=j&&!previous_pad_jump;pending[0].attack_pressed|=a&&!previous_pad_attack;
             previous_pad_jump=j;previous_pad_attack=a;

@@ -398,3 +398,15 @@ test wherever the translucent part did not write depth. This is a viewer
 artifact; the game has no grid, so the same part blends correctly there.
 **Fix:** use `--no-grid` (or `G` in the viewer) when inspecting translucent
 parts, and don't "fix" the blend state — it matches `HSD_SetupPEMode`.
+
+## G-046: cheap gamepads report a stuck axis from power-on
+
+**Symptom:** in the sandbox, P1 walks left forever and `A`/`D` do nothing,
+even though the keyboard works. Reproduces with a "shanwan Android GamePad"
+(`/dev/input/js0`): `SDL_GameControllerGetAxis(LEFTX)` is `-32768` from the
+moment it is opened and it emits **zero** `SDL_CONTROLLERAXISMOTION` events.
+**Cause:** the loop read the stick every frame and let any value outside a 0.2
+deadzone override the keyboard, so the stuck axis won.
+**Fix:** only use the stick after at least one axis-motion event has been seen,
+and let keyboard movement win while a key is held. `--no-controller` disables
+pad input entirely. See the sandbox input block in `native/main.c`.
