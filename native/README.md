@@ -138,6 +138,12 @@ SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --view --animate \
 # Dump the scene lights/fog the viewer uses (character-select table)
 ./build/native/melee-demo --dump-lights
 
+# Dump the model's joints (index, parent, flags, bind SRT)
+./build/native/melee-demo --model PlKpNr.dat --dump-joints
+
+# Viewer without the floor grid (clean XLU/transparency screenshots)
+./build/native/melee-demo --view --no-grid --frames 1 --screenshot /tmp/v.bmp
+
 # Render an isolated view to a BMP, optionally isolating one part
 ./build/native/melee-demo --view --angle 180 --screenshot /tmp/mario.bmp
 ./build/native/melee-demo --view --part 21 --part-mode only --frames 3 \

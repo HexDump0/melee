@@ -1690,7 +1690,7 @@ int main(int argc,char **argv)
     const char *dump_textures=NULL;
     const char *extract_file=NULL,*extract_out=NULL;
     const char *clip_name="Wait1",*anim_file=NULL,*dump_clip=NULL;
-    int animate=0,list_clips=0,force_no_cull=0,dump_tev=0,dump_lights=0;
+    int animate=0,list_clips=0,force_no_cull=0,dump_tev=0,dump_lights=0,no_grid=0,dump_joints=0;
     float view_angle=25.0f,view_elev=-12.0f,view_zoom=1.0f;
     float anim_frame=-1.0f,anim_speed=1.0f;
     for(int i=1;i<argc;++i) {
@@ -1712,6 +1712,8 @@ int main(int argc,char **argv)
         else if(!strcmp(argv[i],"--no-cull"))force_no_cull=1;
         else if(!strcmp(argv[i],"--dump-tev"))dump_tev=1;
         else if(!strcmp(argv[i],"--dump-lights"))dump_lights=1;
+        else if(!strcmp(argv[i],"--no-grid"))no_grid=1;
+        else if(!strcmp(argv[i],"--dump-joints"))dump_joints=1;
         else if(!strcmp(argv[i],"--animate"))animate=1;
         else if(!strcmp(argv[i],"--clip")&&i+1<argc)clip_name=argv[++i];
         else if(!strcmp(argv[i],"--anim-frame")&&i+1<argc)anim_frame=(float)atof(argv[++i]);
@@ -1877,6 +1879,19 @@ int main(int argc,char **argv)
         }
         demo_model_free(&visuals[0].model);free(visuals[0].model.vertices);return 0;
     }
+    if(dump_joints) {
+        size_t ji;
+        for(ji=0;ji<visuals[0].model.joint_count;++ji) {
+            const DemoJoint *j=&visuals[0].model.joints[ji];
+            printf("joint %-3zu parent=%-4d flags=%#06x pos=[%7.3f %7.3f %7.3f] rot=[%7.3f %7.3f %7.3f]\n",
+                   ji,j->parent,(unsigned)j->flags,
+                   (double)j->position_bind[0],(double)j->position_bind[1],
+                   (double)j->position_bind[2],
+                   (double)j->rotation_bind[0],(double)j->rotation_bind[1],
+                   (double)j->rotation_bind[2]);
+        }
+        demo_model_free(&visuals[0].model);free(visuals[0].model.vertices);return 0;
+    }
     if(inspect){
         if(list_parts) {
             size_t bi;
@@ -1957,7 +1972,7 @@ int main(int argc,char **argv)
         memset(&vs,0,sizeof(vs));
         vs.yaw=view_angle*PI/180.0f;
         vs.pitch=-view_elev*PI/180.0f;
-        vs.textures=1;vs.lighting=1;vs.culling=0;vs.grid=1;vs.help=0;
+        vs.textures=1;vs.lighting=1;vs.culling=0;vs.grid=no_grid?0:1;vs.help=0;
         vs.show_hidden=show_hidden;
         vs.vis_slot=g_vis_slot;
         vs.speed=anim_speed;

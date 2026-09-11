@@ -114,7 +114,35 @@ channels 5/6/7, so do not use it for normal playback.
 - Expected poses: Kirby's Melee idle turns him around to look back
   (SmashWiki: "Hops a bit to look back"), so that is not a bug.
 
-## 7. Not yet ported
+## 7. Debugging an animated pose that "looks wrong"
+
+Checklist from the Bowser `Wait1` hair investigation (2026-09-10), all
+verified on the retail Rev 2 `PlKpNr.dat`:
+
+1. **Does the clip actually move that piece?** `--dump-clip Wait1` and filter
+   by joint/type. Bowser's mohawk joints (42, 46) have *constant* rotations
+   (`3.141`, `1.047`); only the body/neck moves. The bind-pose (`--view`) and
+   animated pose therefore differ mainly by the hunched spine.
+2. **NODE/BRANCH tracks?** Bowser's `Wait1` has none (types 11/12 absent), so
+   `hidden_dyn` visibility is not involved.
+3. **Node -> joint mapping.** `PlCo.dat`'s `ftPartsTable[kind].parts_num` is
+   76 for Bowser and the model has 76 joints; `flags_b0/b5` (skip bones) are
+   only set by runtime part swaps (`ftParts_800753D4`), so the port's
+   node i -> joint i mapping is valid for normal play.
+4. **Envelope `right` matrix.** Disabling it changed Bowser's frame 15 render
+   by 0 RMSE, and its formula matches `_HSD_EnvelopeModelNodeMtx`; not the
+   cause here.
+5. **Playback timing.** `demo_fobj_req_anim` uses `time = startframe + frame`
+   and `demo_anim_apply` resets to bind first; matches `HSD_JObjReqAnimAll`.
+6. **Then it is probably the authored pose.** `Wait1` bows the spine so the
+   shell rim and swept-back mohawk occupy the same screen area; a close
+   three-quarter view reads as overlap. Compare against a console/Dolphin
+   capture before "fixing" anything.
+
+Useful flags added for this: `--no-grid` (removes the viewer floor grid from
+screenshots) and `--dump-joints` (index, parent, flags, bind SRT).
+
+## 8. Not yet ported
 
 - Expression/visibility events.  Contrary to first guess, fighters do **not**
   get expressions from `SETBYTE`/`SETFLOAT` FObj channels: `jobj.c`'s
