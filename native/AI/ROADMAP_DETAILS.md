@@ -89,17 +89,24 @@ Flat Zone's `x7E4_scaleZ`.
 
 ## P-301 / P-302 — Real math and movement
 
-**P-301:** compile pure HSD math and containers from `src/sysdolphin` behind a
-thin platform shim (no GameCube headers in the port). Start with `mtx.c`,
-`vec.c`, then `spline.c`. Replace `make_local_mtx`/`mtx_concat`/
-`mtx_transform_*` in `hsd/model.c` with the real functions once the shim is
-proven (bind-pose bounds must stay identical).
+**P-301 — DONE (`c903e5282`), see `learnings/decomp_shim.md`.** Pure-C HSD math
+does compile behind a near-empty shim (`native/decomp/shim/decomp_shim.h`), and
+`HSD_MtxSRT` is now built verbatim from `src/sysdolphin/baselib/mtx.c` and
+replaced the hand copy in `hsd/model.c` (bitwise parity, screenshots
+byte-identical). However, `extern/dolphin/mtx/{mtx.c,vec.c}` are Metrowerks asm
+and **cannot** be compiled by GCC/Clang, so the SDK `PSMTX*`/`PSVEC*`
+primitives stay hand-ported. `mtx_concat`/`mtx_transform_*` still use the port's
+hand copies until a primitive backend exists.
 
 **P-302:** port `ftCommon_*` movement and the fighter action state machine.
-Blocked on an ADR about the `Fighter` struct: either compile decomp code with
-a platform shim (large dependency surface) or maintain a reduced port-side
-struct generated from `ft/types.h`. Whichever wins, per-action animation rate
-(P-210, `frame_speed_mul`) and input handling come from this port.
+Blocked on an ADR about the `Fighter` struct: either compile decomp code with a
+platform shim plus a hand-written SDK math backend, or maintain a reduced
+port-side struct generated from `ft/types.h`. Before betting on the compile
+path, run the scoped GX-light ft-file spike recommended in
+`learnings/decomp_shim.md` §5; only `jobj/gobj/dobj/aobj/fobj/spline` are
+GX-free, while `pobj/cobj/displayfunc` carry 118 GX call sites. Whichever wins,
+per-action animation rate (P-210, `frame_speed_mul`) and input handling come
+from this port.
 
 **Verification:** a scripted input sequence produces numerically identical
 positions to a reference run (or the deviation is documented). The current
