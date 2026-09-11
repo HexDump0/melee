@@ -189,8 +189,8 @@ without extra configuration.
 - `extras/physics.c` is the sandbox controller. It uses real Mario values where
   available and clearly marked sandbox approximations elsewhere. It is the
   first file to delete when the real movement code lands.
-- `extras/viewer.c` and `extras/sandbox.c` are port extras (they still live in
-  `main.c` until the next structural step).
+- `extras/viewer.c` and `extras/sandbox.c` are port extras: the model viewer
+  and the placeholder sandbox, separate from the game core.
 - `tests/` runs with `ctest --test-dir build/native`.
 
 ## Legal

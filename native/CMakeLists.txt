@@ -21,7 +21,9 @@ add_executable(melee
     hsd/parts.c
     hsd/light.c
     game/attributes.c
-    extras/physics.c)
+    extras/physics.c
+    extras/viewer.c
+    extras/sandbox.c)
 target_include_directories(melee PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_options(melee PRIVATE -Wall -Wextra -Wpedantic)
 target_link_libraries(melee PRIVATE PkgConfig::SDL2 OpenGL::GL m)

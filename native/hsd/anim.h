@@ -66,6 +66,10 @@ int anim_clip_find(const Anim *anim, const char *name);
 int anim_set_clip(Anim *anim, size_t index, HsdModel *model,
                        char *err, size_t errn);
 
+/* Finds `wanted` (falls back to "Wait1", then clip 0), binds it to `model`
+ * and returns its index, or -1. */
+int anim_select_clip(Anim *anim, HsdModel *model, const char *wanted);
+
 /* Length of the active clip in frames. */
 float anim_end_frame(const Anim *anim);
 

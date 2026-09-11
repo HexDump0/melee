@@ -26,7 +26,9 @@ native/
 │   └── texture.c/.h        GX texture decode
 ├── game/attributes.c/.h    ftData -> movement attributes
 ├── extras/                 port-only features, not the game
-│   ├── physics.c/.h        placeholder movement sandbox
+│   ├── viewer.c/.h         interactive model viewer
+│   ├── sandbox.c/.h        placeholder match loop
+│   ├── physics.c/.h        placeholder movement model
 │   └── font.h              5x7 HUD font
 ├── decomp/                 build glue + shims for src/ (P-301, empty)
 ├── tests/test_math.c       CTest math harness

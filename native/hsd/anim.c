@@ -550,3 +550,27 @@ void anim_apply(Anim *anim, HsdModel *model, float frame)
     }
     hsd_model_pose_apply(model);
 }
+
+/* Finds a clip by name (fallback Wait1, then 0), binds it and returns the
+ * index.  Shared by the viewer and the sandbox. */
+int anim_select_clip(Anim *anim, HsdModel *model, const char *wanted)
+{
+    int index;
+    if (anim == NULL || anim->data == NULL || anim->clip_count == 0) {
+        return -1;
+    }
+    index = anim_clip_find(anim, wanted);
+    if (index < 0) {
+        index = anim_clip_find(anim, "Wait1");
+    }
+    if (index < 0 && anim->clip_count > 0) {
+        index = 0;
+    }
+    if (index < 0) {
+        return -1;
+    }
+    if (anim_set_clip(anim, (size_t) index, model, NULL, 0) != 0) {
+        return -1;
+    }
+    return index;
+}

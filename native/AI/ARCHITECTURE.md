@@ -40,12 +40,13 @@ Two things to keep separate in your head:
 4. **`game/`** — game-domain data and logic. Today only `attributes.c` (Mario
    movement values); future home of fighter states, stages and menus.
 5. **`extras/`** — port-only features:
-   - `viewer.c`, `sandbox.c` (still in `main.c` for now; extraction pending),
-   - `physics.c` placeholder movement (delete when real movement lands),
+   - `viewer.c` interactive model viewer,
+   - `sandbox.c` placeholder match loop; `physics.c` its movement model
+     (delete when real movement lands),
    - `font.h` HUD bitmap font.
 6. **`decomp/`** — build glue and shims for compiling `src/` files natively.
    Starts with `mtx.c`/`vec.c` behind an almost-empty shim (P-301).
-7. **`main.c`** — entry point, CLI parsing and mode dispatch.
+7. **`main.c`** — entry point and CLI; dispatches to the viewer or sandbox.
 
 ## Data flow
 
