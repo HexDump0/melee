@@ -46,6 +46,7 @@ native/AI/
 ├── AGENTS.md              <- rules of engagement
 ├── ARCHITECTURE.md        <- design and data flow
 ├── STATE.md               <- as-built status snapshot (update it!)
+├── broken.md              <- owner tracker: what is broken/blocked now
 ├── TASKS.md               <- backlog + claims
 ├── ROADMAP.md             <- human-readable milestone overview
 ├── ROADMAP_DETAILS.md     <- agent-facing technical roadmap details
@@ -59,7 +60,11 @@ native/AI/
 │   ├── gx_display_lists.md
 │   ├── gx_textures.md
 │   ├── disc_assets.md
-│   └── fighter_data.md
+│   ├── fighter_data.md
+│   ├── hsd_animation.md
+│   ├── gl_shaders.md
+│   ├── hsd_tev_materials.md
+│   └── hsd_lights_fog.md
 ├── gotchas/
 │   ├── README.md
 │   └── GOTCHAS.md         <- numbered, symptom -> cause -> fix
