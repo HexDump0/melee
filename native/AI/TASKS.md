@@ -75,7 +75,7 @@ compiled render in S2/S4 instead.
 
 | ID | Task | Agent | Commit | Date |
 |---|---|---|---|---|
-| P-601 | Full-tree GCC compile census + shim hardening: 1021/1034 files compile; `ssize_t`/`intptr_t`, `STATIC_ASSERT`, `bool`=`int` shims | opencode (deepseek-flash) | _pending_ | 2026-09-11 |
+| P-601 | Full-tree GCC compile census + shim hardening: 1021/1034 files compile; `ssize_t`/`intptr_t`, `STATIC_ASSERT`, `bool`=`int` shims | opencode (deepseek-flash) | 543ff20b7 | 2026-09-11 |
 | P-301 | Compile pure HSD math behind a shim (SDK mtx/vec are asm; `HSD_MtxSRT` compiled, bitwise parity, hand copy deleted) | opencode (deepseek-flash) | `c903e5282` | 2026-09-11 |
 | P-213 | Extract the viewer and sandbox out of `main.c` into `extras/viewer.c`, `extras/sandbox.c` | opencode (deepseek-flash) | `d6dc4fc49` | 2026-09-11 |
 | P-211 | OpenGL 3.3 core + ES3-portable shaders; per-batch VAO/VBOs, no fixed function | opencode (deepseek-flash) | `4eb7c1f2d`, `b35dd102e` | 2026-09-10 |
