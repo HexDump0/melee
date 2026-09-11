@@ -9,7 +9,12 @@ find_package(OpenGL REQUIRED)
 add_executable(melee
     main.c
     platform/disc.c
+    platform/screenshot.c
     gx/texture.c
+    gx/math.c
+    gx/overlay.c
+    gx/render.c
+    gx/shader.c
     hsd/model.c
     hsd/aobj.c
     hsd/anim.c
