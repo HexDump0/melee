@@ -18,8 +18,11 @@ files already compile behind the P-301 shim — see
 Until S2/S3 land, **this file describes the prototype**, which stays runnable
 as the dev tool and the per-layer parity oracle. Hand-port engine work
 (P-204 leftovers, P-205..P-210, P-302, P-411, P-412) is `parked` in
-`TASKS.md`; the next milestone is **S0** (compile `HSD_ArchiveParse` +
-`HSD_JObjLoadJoint` against a real `PlMrNr.dat`).
+`TASKS.md`. **S0 passed (2026-09-11):** the compiled decomp's own
+`HSD_ArchiveParse` and `HSD_JObjLoadJoint` run on a retail `PlMrNr.dat` and
+reproduce the prototype's bind-pose world matrices bitwise (61/61 joints); see
+`learnings/decomp_port.md` §6. The port builds 32-bit for compiled code
+(ADR-0012); the next milestone is **S1** (boot skeleton, P-604).
 
 ## TL;DR
 

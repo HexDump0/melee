@@ -49,20 +49,20 @@ Full detail in `learnings/decomp_port.md`; summary:
 
 ### Milestones
 
-#### S0 — Feasibility spike (next, gate)
+#### S0 — Feasibility spike (DONE 2026-09-11, gate passed)
 
-- **Goal:** prove the decompilation's own data path runs on a 64-bit LE host.
-- **Deliverable:** additive probe targets (`melee_decomp_hsd`) that compile
-  `src/sysdolphin/baselib/archive.c` (+ allocator/class deps) and run
-  `HSD_ArchiveParse` on a real `PlMrNr.dat`; then `HSD_JObjLoadJoint` with a
-  host-endian conversion for the structural sections; joint world matrices
-  compared to the hand port.
-- **Exit:** symbol/joint tables match the hand parser; bind-pose world matrices
-  match within a documented tolerance; prototype binary and `--inspect`
-  untouched.
-- **Risks:** endianness strategy may need per-format work earlier than planned;
-  HSD allocator/class chain may pull more files than expected.
-- **Tasks:** P-601 (census/shim), P-602 (S0a parse), P-603 (S0b joint parity).
+- **Result:** compiled `HSD_ArchiveParse` + `HSD_JObjLoadJoint` run on a retail
+  `PlMrNr.dat`: 2/2 symbols and offsets match the hand parser; 61/61 joints
+  loaded and world matrices bitwise-equal to the hand pose math
+  (`tests/test_decomp_hsd.c`, ctest `decomp_hsd`). Full evidence in
+  `learnings/decomp_port.md` §6.
+- **Findings that shape S1:** the compiled port is **32-bit** (ADR-0012);
+  structural word-swap is enough for joint data, semantic conversion is S3;
+  bootstrap needs `HSD_ObjSetHeap` + `HSD_Vec/Mtx/ID InitAllocData` +
+  `JObjInfoInit` + OS heap/log/assert shims; linking the JObj loader drags the
+  GX/TEV/LObj display surface in through class method tables (62 symbols), so
+  `decomp/hsd_port_stubs.c` is probe-only and S1/S2 must replace it.
+- **Tasks:** P-601 (done), P-602 (done), P-603 (done); S1 starts at P-604.
 
 #### S1 — Boot skeleton
 

@@ -66,3 +66,43 @@ target_compile_options(test_decomp_mtx PRIVATE -Wall -Wextra -Wpedantic)
 target_link_libraries(test_decomp_mtx PRIVATE m melee_decomp_math)
 target_link_options(test_decomp_mtx PRIVATE "LINKER:--gc-sections")
 add_test(NAME decomp_mtx COMMAND test_decomp_mtx)
+
+# P-602 (S0a): run the compiled decomp HSD_ArchiveParse on a real PlMrNr.dat
+# and diff its symbol table against the hand parser.  Built 32-bit like the
+# eventual compiled port: archive.c relocates pointers into u32 slots and HSD
+# structs assume 4-byte pointers (ADR-0012).  Skips without a disc image.
+add_executable(test_decomp_hsd
+    tests/test_decomp_hsd.c
+    platform/disc.c
+    decomp/sdk_math.c
+    decomp/hsd_port_stubs.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/archive.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/aobj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/class.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/cobj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/dobj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/id.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/jobj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/list.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/memory.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/mobj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/mtx.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/object.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/objalloc.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/pobj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/robj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/spline.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/tobj.c)
+target_include_directories(test_decomp_hsd PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
+    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
+target_compile_options(test_decomp_hsd PRIVATE
+    -m32 -w -ffunction-sections -fdata-sections
+    -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
+target_link_libraries(test_decomp_hsd PRIVATE m)
+target_link_options(test_decomp_hsd PRIVATE -m32 "LINKER:--gc-sections")
+add_test(NAME decomp_hsd COMMAND test_decomp_hsd)
+set_tests_properties(decomp_hsd PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..)

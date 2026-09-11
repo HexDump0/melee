@@ -30,6 +30,12 @@ adding a source file.
   and `stdbool.h` (`bool` = `int`, matching `BOOL` and the x86-64 callback
   ABI). Only `src/MSL` (12 files) and `debug.c` (MSL `FILE` internals) are
   excluded. Details in `../AI/learnings/decomp_port.md`.
+- **S0 (done 2026-09-11):** `test_decomp_hsd` runs the compiled
+  `HSD_ArchiveParse` + `HSD_JObjLoadJoint` on a real `PlMrNr.dat` (32-bit,
+  ADR-0012): 2/2 symbols and offsets match the hand parser, and all 61 joint
+  world matrices match the port's pose math bitwise. `decomp/sdk_math.c` is the
+  portable SDK math backend (real); `decomp/hsd_port_stubs.c` is a
+  **probe-only** no-op display stub set — never link it into a product target.
 
 ## Adding the next file
 

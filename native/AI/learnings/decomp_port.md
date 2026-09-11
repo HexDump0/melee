@@ -140,3 +140,55 @@ done
 # decomp accuracy report (requires a local decomp build)
 python3 -c "import json;d=json.load(open('build/GALE01/report.json'));print(d['measures'])"
 ```
+
+## 6. S0 results (2026-09-11): the compiled HSD path runs on the host
+
+Probe: `tests/test_decomp_hsd.c`, ctest `decomp_hsd`, built **32-bit**
+(ADR-0012). Run from the repo root so it finds the disc; it SKIPs when the
+image is absent.
+
+```
+decomp_hsd: PlMrNr.dat size=473522 data=467728 reloc=1423 public=2 extern=0 hand_symbols=2
+decomp_hsd: S0a matched 2/2 symbols, 2 offsets correct
+decomp_hsd: S0b root=PlyMario5K_Share_joint descriptors=61 objects=61 posed=61 world_worst=0 pose_failures=0
+decomp_hsd: PASS
+```
+
+- **S0a (parse).** The decomp's own `HSD_ArchiveParse` parses a retail
+  `PlMrNr.dat`, runs the 1,423-entry relocation pass, and its public-symbol
+  table matches the hand parser exactly (names and data offsets).
+- **S0b (load + pose).** The decomp's `HSD_JObjLoadJoint` builds all 61 JObj
+  objects, and the world matrices after `HSD_JObjSetupMatrixSub` match a
+  literal transcription of the port's `make_local_mtx` + `mtx_concat` math
+  **bitwise** (worst error 0, 61/61). The go/no-go gate passes.
+- **Endianness recipe used.** Swap the u32 words of the structural prefix
+  (header + data section + relocation/public/extern tables), leave the symbols
+  section as bytes. That makes descriptor pointers and SRT floats correct.
+  Descriptor strings and u16 fields are corrupted by the word swap, so the
+  probe nulls `class_name`/`dobjdesc`/`robjdesc`/`mtx` before loading. Full
+  semantic conversion (strings, u16 fields, display lists, FObj streams,
+  textures) remains S3.
+- **Bootstrap required** (this is the seed of the S1 platform layer):
+  an arena via `HSD_ObjSetHeap`, `HSD_VecInitAllocData` /
+  `HSD_MtxInitAllocData` / `HSD_IDInitAllocData`, `JObjInfoInit()` for the
+  class chain, plus `OSAllocFromHeap` / `HSD_GetHeap` / `OSReport` /
+  `__assert` shims. `HSD_ObjAllocAddFree` divides by `data->size`, so a
+  missing `*InitAllocData` is an immediate SIGFPE.
+- **Closure finding.** Linking `HSD_JObjLoadJoint` drags in the whole display
+  surface (GX/TEV/LObj/bytecode/Perf: 62 undefined symbols) because class
+  method tables keep those functions reachable through function pointers, so
+  `--gc-sections` cannot prune them. `native/decomp/sdk_math.c` implements the
+  SDK math primitives for real (the pose check also validates `PSMTXConcat`
+  bitwise); `native/decomp/hsd_port_stubs.c` provides **probe-only** no-op
+  stubs for the display surface. Never link the stubs into a product target;
+  S1/S2 replace them.
+- **Pointer width.** The same probe on 64-bit truncates pointers in
+  `archive.c:Locate` and cannot overlay the 4-byte-pointer descriptors; hence
+  ADR-0012 (32-bit product build).
+
+## 7. S1 starting point
+
+First tasks, in order: (1) grow the platform layer out of the probe shims
+(OS heap/log/assert, init sequencing, `gmmain` boot with stubbed GX/DVD/VI);
+(2) replace `hsd_port_stubs.c` with real SDK math/GX-HLE increments; (3) keep
+the probe as the regression test for the compiled data path.

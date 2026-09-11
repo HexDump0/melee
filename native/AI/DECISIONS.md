@@ -264,3 +264,34 @@ patch list, and no untracked divergence. Patches must be reviewed like code:
 each one is a documented behavioral concession on the host, not a convenience.
 
 **Status:** accepted (2026-09-11).
+
+---
+
+## ADR-0012: The compiled port builds 32-bit (i686), not 64-bit
+
+**Context.** ADR-0010 compiles the decompilation on the host. The S0 spike
+(2026-09-11) found that the decomp is not pointer-width portable:
+
+- `src/sysdolphin/baselib/archive.c:Locate` relocates pointers in place into
+  u32 slots (`*ptr += (u32) archive->data`), and the HSD descriptors loaded
+  from archives store raw pointers inline. On a 64-bit host the cast truncates
+  and the descriptor layout (4-byte pointer fields) does not match the
+  compiled HSD structs.
+- Building the S0b probe with `-m32` links the compiled `HSD_JObjLoadJoint`
+  against a real `PlMrNr.dat` and reproduces the hand port's bind-pose world
+  matrices bitwise (61/61 joints, worst error 0).
+- `gcc -m32` + 32-bit glibc are available on the reference machine, and
+  ACGC-PC-Port uses the same i686 toolchain.
+
+**Decision.** Product builds of the compiled decompilation are 32-bit (i686 on
+x86). The existing 64-bit prototype (viewer/sandbox) stays 64-bit and separate
+until S2/S4 replace it. WASM32 and armeabi-v7a are 32-bit as well, so the
+pointer-width assumption holds on the future targets.
+
+**Consequences.** The port is limited to a 4 GB address space (irrelevant for
+Melee's 24 MB arenas) and cannot use 64-bit-only host libraries in product
+targets. Platform code must not assume 64-bit `long`/pointers. The prototype's
+`native/decomp` math test (`test_decomp_mtx`) stays 64-bit; only targets that
+compile upstream decomp code are 32-bit.
+
+**Status:** accepted (2026-09-11).

@@ -9,7 +9,9 @@ references, acceptance commands and risks is
 **Current position: the project pivoted on 2026-09-11 from the hand-written
 prototype to a decompilation-based full-game port (ADR-0010). The prototype
 (M0/M1/M2a) is done and becomes the platform backend. S0 — the feasibility
-spike — is next.**
+spike — passed the same day: the compiled decomp's own HSD parser and JObj
+loader run on a retail model and reproduce the prototype's bind-pose matrices
+bitwise (see `learnings/decomp_port.md` §6). S1 (boot skeleton) is next.**
 
 ---
 
@@ -56,8 +58,8 @@ What this changes:
 | # | Milestone | State | What it proves | Rough size |
 |---|---|---|---|---|
 | P0 | Prototype: asset sandbox, animation, renderer | done | disc → HSD → GL pipeline; M0/M1/M2a | — |
-| S0 | Feasibility spike | **next** | the compiled HSD data path runs on the host; endianness and 64-bit structs survive | 1–2 weeks |
-| S1 | Boot skeleton | later | the decomp's own `main()` runs with stubbed OS/DVD/GX to a triage log | 2–4 weeks |
+| S0 | Feasibility spike | **done 2026-09-11** | the compiled HSD data path runs on the host; endianness and 32-bit structs survive | — |
+| S1 | Boot skeleton | next | the decomp's own `main()` runs with stubbed OS/DVD/GX to a triage log | 2–4 weeks |
 | S2 | HSD runtime + GX HLE | later | the compiled game renders through its own HSD/GX path on GL | 4–8 weeks |
 | S3 | Asset pipeline | later | real disc assets load through compiled loaders | 3–6 weeks |
 | S4 | First match | later | compiled fighters/items/stages; the game's own match loop | 6–12 weeks |
@@ -82,23 +84,15 @@ renderer, the interactive viewer and the sandbox. Under ADR-0010 this is now:
 
 Feature work on hand-ported engine behavior is frozen; see "Frozen work".
 
-## S0 — Feasibility spike (NEXT)
+## S0 — Feasibility spike (done 2026-09-11)
 
-**Goal.** Prove the biggest unknown before betting the project on it: that the
-decompilation's own data path runs on a 64-bit little-endian host.
-
-**Deliverable.** An additive probe binary that uses the decomp's
-`HSD_ArchiveParse` / `HSD_JObjLoadJoint` to load a real `PlMrNr.dat` through
-`platform/disc.c`, plus a host-endian conversion for the structural parts of the
-archive. Joint world matrices are compared against the hand port.
-
-**Exit criteria.** Joint count and bind-pose world matrices match the hand
-port within a documented tolerance; `--inspect` and the prototype binary are
-untouched.
-
-**Risks.** Endianness handling could require a per-format converter sooner than
-planned; HSD allocator/class registration pulls more files than expected. This
-milestone is the gate: if it fails, stop and re-plan rather than push on.
+**Result: gate passed.** The decomp's own `HSD_ArchiveParse` parses a retail
+`PlMrNr.dat` (2/2 public symbols and offsets match the hand parser) and
+`HSD_JObjLoadJoint` loads all 61 joints with world matrices bitwise-identical
+to the prototype's pose math. The port builds 32-bit for compiled code
+(ADR-0012); endianness needs a semantic conversion (S3) but the structural
+word-swap is proven. Evidence: `learnings/decomp_port.md` §6, ctest
+`decomp_hsd`.
 
 ## S1 — Boot skeleton
 
