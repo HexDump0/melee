@@ -18,19 +18,19 @@
 #define FOBJ_LOAD_DATA 2
 #define FOBJ_LOAD_WAIT 3
 
-static uint8_t fobj_get_state(const DemoFobj *f)
+static uint8_t fobj_get_state(const Fobj *f)
 {
     return f->flags & 0xF;
 }
 
-static uint8_t fobj_set_state(DemoFobj *f, uint8_t state)
+static uint8_t fobj_set_state(Fobj *f, uint8_t state)
 {
     f->flags = (uint8_t) ((state & 0xF) | (f->flags & 0xF0));
     return state;
 }
 
 /* fobj.c parseFloat; the stream is little-endian. */
-static float parse_float(DemoFobj *f, uint8_t frac)
+static float parse_float(Fobj *f, uint8_t frac)
 {
     const uint8_t *ad = f->ad_head + f->ad_pos;
     if (frac == HSD_A_FRAC_FLOAT) {
@@ -74,13 +74,13 @@ static float parse_float(DemoFobj *f, uint8_t frac)
 }
 
 /* fobj.c parseOpCode. */
-static uint8_t parse_op_code(const DemoFobj *f)
+static uint8_t parse_op_code(const Fobj *f)
 {
     return f->ad_head[f->ad_pos] & 0xF;
 }
 
 /* fobj.c parsePackInfo. */
-static uint32_t parse_pack_info(DemoFobj *f)
+static uint32_t parse_pack_info(Fobj *f)
 {
     const uint8_t *ad = f->ad_head;
     uint8_t d = ad[f->ad_pos++];
@@ -98,7 +98,7 @@ static uint32_t parse_pack_info(DemoFobj *f)
 }
 
 /* fobj.c parseWait. */
-static int32_t parse_wait(DemoFobj *f)
+static int32_t parse_wait(Fobj *f)
 {
     const uint8_t *ad = f->ad_head;
     int32_t wait = 0;
@@ -113,7 +113,7 @@ static int32_t parse_wait(DemoFobj *f)
 }
 
 /* fobj.c FObjLaunchKeyData. */
-static void fobj_launch_key_data(DemoFobj *f)
+static void fobj_launch_key_data(Fobj *f)
 {
     if ((f->flags & 0x40) != 0) {
         f->op_intrp = f->op;
@@ -124,7 +124,7 @@ static void fobj_launch_key_data(DemoFobj *f)
 }
 
 /* fobj.c FObjLoadWait. */
-static uint8_t fobj_load_wait(DemoFobj *f)
+static uint8_t fobj_load_wait(Fobj *f)
 {
     if (f->ad_pos >= f->length) {
         return 6;
@@ -134,7 +134,7 @@ static uint8_t fobj_load_wait(DemoFobj *f)
     return fobj_set_state(f, FOBJ_LOAD_DATA);
 }
 
-static uint8_t fobj_anim_con(DemoFobj *f)
+static uint8_t fobj_anim_con(Fobj *f)
 {
     uint8_t st = fobj_get_state(f);
     f->p0 = f->p1;
@@ -146,7 +146,7 @@ static uint8_t fobj_anim_con(DemoFobj *f)
     return fobj_set_state(f, st == FOBJ_LOAD_DATA0 ? 3 : 4);
 }
 
-static uint8_t fobj_anim_linear(DemoFobj *f)
+static uint8_t fobj_anim_linear(Fobj *f)
 {
     uint8_t st = fobj_get_state(f);
     f->p0 = f->p1;
@@ -158,7 +158,7 @@ static uint8_t fobj_anim_linear(DemoFobj *f)
     return fobj_set_state(f, st == FOBJ_LOAD_DATA0 ? 3 : 4);
 }
 
-static uint8_t fobj_anim_spl0(DemoFobj *f)
+static uint8_t fobj_anim_spl0(Fobj *f)
 {
     uint8_t st = fobj_get_state(f);
     f->p0 = f->p1;
@@ -168,7 +168,7 @@ static uint8_t fobj_anim_spl0(DemoFobj *f)
     return fobj_set_state(f, st == FOBJ_LOAD_DATA0 ? 3 : 4);
 }
 
-static uint8_t fobj_anim_spl(DemoFobj *f)
+static uint8_t fobj_anim_spl(Fobj *f)
 {
     uint8_t st = fobj_get_state(f);
     f->p0 = f->p1;
@@ -178,14 +178,14 @@ static uint8_t fobj_anim_spl(DemoFobj *f)
     return fobj_set_state(f, st == FOBJ_LOAD_DATA0 ? 3 : 4);
 }
 
-static uint8_t fobj_anim_slp(DemoFobj *f)
+static uint8_t fobj_anim_slp(Fobj *f)
 {
     f->d0 = f->d1;
     f->d1 = parse_float(f, f->frac_slope);
     return fobj_get_state(f);
 }
 
-static uint8_t fobj_anim_key(DemoFobj *f)
+static uint8_t fobj_anim_key(Fobj *f)
 {
     uint8_t st = fobj_get_state(f);
     fobj_launch_key_data(f);
@@ -195,7 +195,7 @@ static uint8_t fobj_anim_key(DemoFobj *f)
 }
 
 /* fobj.c FObjLoadData. */
-static uint8_t fobj_load_data(DemoFobj *f)
+static uint8_t fobj_load_data(Fobj *f)
 {
     if (f->ad_pos >= f->length) {
         return 6;
@@ -207,17 +207,17 @@ static uint8_t fobj_load_data(DemoFobj *f)
     }
     f->nb_pack -= 1;
     switch (f->op) {
-    case DEMO_A_OP_CON:
+    case HSD_A_OP_CON:
         return fobj_anim_con(f);
-    case DEMO_A_OP_LIN:
+    case HSD_A_OP_LIN:
         return fobj_anim_linear(f);
-    case DEMO_A_OP_SPL0:
+    case HSD_A_OP_SPL0:
         return fobj_anim_spl0(f);
-    case DEMO_A_OP_SPL:
+    case HSD_A_OP_SPL:
         return fobj_anim_spl(f);
-    case DEMO_A_OP_SLP:
+    case HSD_A_OP_SLP:
         return fobj_anim_slp(f);
-    case DEMO_A_OP_KEY:
+    case HSD_A_OP_KEY:
         return fobj_anim_key(f);
     default:
         return 0;
@@ -241,20 +241,20 @@ static float spl_get_helmite(float fterm, float time, float p0, float p1,
 }
 
 /* fobj.c FObjUpdateAnim: writes one channel value when the curve emits it. */
-static int fobj_update_anim(DemoFobj *f, float *out)
+static int fobj_update_anim(Fobj *f, float *out)
 {
     switch (f->op_intrp) {
-    case DEMO_A_OP_KEY:
+    case HSD_A_OP_KEY:
         if (f->flags & 0x80) {
             *out = f->p0;
             f->flags &= (uint8_t) ~0x80;
             return 1;
         }
         return 0;
-    case DEMO_A_OP_CON:
+    case HSD_A_OP_CON:
         *out = (f->time >= f->fterm) ? f->p1 : f->p0;
         return 1;
-    case DEMO_A_OP_LIN:
+    case HSD_A_OP_LIN:
         if (f->flags & 0x20) {
             f->flags &= (uint8_t) ~0x20;
             if (f->fterm != 0) {
@@ -266,9 +266,9 @@ static int fobj_update_anim(DemoFobj *f, float *out)
         }
         *out = f->d0 * f->time + f->p0;
         return 1;
-    case DEMO_A_OP_SPL0:
-    case DEMO_A_OP_SPL:
-    case DEMO_A_OP_SLP:
+    case HSD_A_OP_SPL0:
+    case HSD_A_OP_SPL:
+    case HSD_A_OP_SLP:
         if (f->fterm != 0) {
             *out = spl_get_helmite(1.0f / f->fterm, f->time, f->p0, f->p1,
                                    f->d0, f->d1);
@@ -281,7 +281,7 @@ static int fobj_update_anim(DemoFobj *f, float *out)
     }
 }
 
-void demo_fobj_init(DemoFobj *f, const uint8_t *ad, size_t length,
+void fobj_init(Fobj *f, const uint8_t *ad, size_t length,
                     uint8_t obj_type, int16_t startframe, uint8_t frac_value,
                     uint8_t frac_slope)
 {
@@ -294,7 +294,7 @@ void demo_fobj_init(DemoFobj *f, const uint8_t *ad, size_t length,
     f->frac_slope = frac_slope;
 }
 
-void demo_fobj_req_anim(DemoFobj *f, float frame)
+void fobj_req_anim(Fobj *f, float frame)
 {
     f->ad_pos = 0;
     f->time = (float) f->startframe + frame;
@@ -310,7 +310,7 @@ void demo_fobj_req_anim(DemoFobj *f, float frame)
     fobj_set_state(f, 1);
 }
 
-int demo_fobj_interpret(DemoFobj *f, float rate, float *out)
+int fobj_interpret(Fobj *f, float rate, float *out)
 {
     float fterm = 0.0f;
     uint8_t state = fobj_get_state(f);

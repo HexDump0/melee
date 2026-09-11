@@ -117,7 +117,7 @@ static void clip_display_name(const char *symbol, char *out, size_t outn)
  * Pl<Char>AJ.dat is a sequence of 32-byte aligned HSD sub-archives, one per
  * clip, each exposing a `<name>_figatree` public symbol.
  */
-static int walk_clips(DemoAnim *anim, char *err, size_t errn)
+static int walk_clips(Anim *anim, char *err, size_t errn)
 {
     size_t off = 0;
     while (off + HSD_DATA_BASE <= anim->size) {
@@ -149,7 +149,7 @@ static int walk_clips(DemoAnim *anim, char *err, size_t errn)
                     rb32(anim->data, anim->size, public_table + i * 8 + 4);
                 size_t at = strings + symbol_offset;
                 const char *symbol;
-                DemoClipInfo *clip;
+                ClipInfo *clip;
                 if (at >= anim->size ||
                     memchr(anim->data + at, 0, anim->size - at) == NULL) {
                     continue;
@@ -158,7 +158,7 @@ static int walk_clips(DemoAnim *anim, char *err, size_t errn)
                 if (strstr(symbol, "_figatree") == NULL) {
                     continue;
                 }
-                if (anim->clip_count >= DEMO_MAX_CLIPS) {
+                if (anim->clip_count >= HSD_MAX_CLIPS) {
                     break;
                 }
                 clip = &anim->clips[anim->clip_count++];
@@ -182,10 +182,10 @@ static int walk_clips(DemoAnim *anim, char *err, size_t errn)
  * PlCo.dat ftLoadCommonData -> pData[4] (ftPartsTable) and pData[5]
  * (Fighter_804D6540 skip lists), copied so the asset can be freed.
  */
-static int load_common_tables(DemoAnim *anim, const char *disc, char *err,
+static int load_common_tables(Anim *anim, const char *disc, char *err,
                               size_t errn)
 {
-    DemoAsset asset = { 0 };
+    DiscFile asset = { 0 };
     const uint8_t *d;
     size_t n;
     size_t symbol;
@@ -193,8 +193,8 @@ static int load_common_tables(DemoAnim *anim, const char *disc, char *err,
     uint32_t parts_value;
     uint32_t skip_value;
     int kind;
-    if (demo_asset_load(disc, "PlCo.dat", &asset, err, errn) !=
-        DEMO_ASSET_OK) {
+    if (disc_load(disc, "PlCo.dat", &asset, err, errn) !=
+        DISC_OK) {
         return -1;
     }
     d = asset.data;
@@ -202,7 +202,7 @@ static int load_common_tables(DemoAnim *anim, const char *disc, char *err,
     symbol = find_public_symbol(d, n, 0, "ftLoadCommonData");
     if (symbol == SIZE_MAX || !range_ok(symbol, 23 * 4, n)) {
         seterr(err, errn, "PlCo.dat has no ftLoadCommonData");
-        demo_asset_free(&asset);
+        disc_free(&asset);
         return -1;
     }
     pdata = symbol;
@@ -258,7 +258,7 @@ static int load_common_tables(DemoAnim *anim, const char *disc, char *err,
             anim->skip_count[kind] = (uint8_t) count;
         }
     }
-    demo_asset_free(&asset);
+    disc_free(&asset);
     return 0;
 }
 
@@ -298,11 +298,11 @@ static void derive_anim_name(const char *model_file, char *out, size_t outn)
     snprintf(out, outn, "%.4sAJ.dat", model_file != NULL ? model_file : "PlMr");
 }
 
-int demo_anim_load(DemoAnim *anim, const char *disc, const char *model_file,
+int anim_load(Anim *anim, const char *disc, const char *model_file,
                    const char *anim_file, char *err, size_t errn)
 {
     char name[32];
-    DemoAsset asset = { 0 };
+    DiscFile asset = { 0 };
     if (anim == NULL) {
         return -1;
     }
@@ -315,18 +315,18 @@ int demo_anim_load(DemoAnim *anim, const char *disc, const char *model_file,
     } else {
         derive_anim_name(model_file, name, sizeof(name));
     }
-    if (demo_asset_load(disc, name, &asset, err, errn) != DEMO_ASSET_OK) {
+    if (disc_load(disc, name, &asset, err, errn) != DISC_OK) {
         return -1;
     }
     anim->data = asset.data;
     anim->size = asset.size;
     anim->kind = kind_for_model(model_file);
     if (walk_clips(anim, err, errn) != 0) {
-        demo_anim_free(anim);
+        anim_free(anim);
         return -1;
     }
     if (load_common_tables(anim, disc, err, errn) != 0) {
-        demo_anim_free(anim);
+        anim_free(anim);
         return -1;
     }
     {
@@ -337,7 +337,7 @@ int demo_anim_load(DemoAnim *anim, const char *disc, const char *model_file,
     return 0;
 }
 
-void demo_anim_free(DemoAnim *anim)
+void anim_free(Anim *anim)
 {
     if (anim == NULL) {
         return;
@@ -350,12 +350,12 @@ void demo_anim_free(DemoAnim *anim)
     anim->size = 0;
 }
 
-size_t demo_anim_clip_count(const DemoAnim *anim)
+size_t anim_clip_count(const Anim *anim)
 {
     return anim->clip_count;
 }
 
-const char *demo_anim_clip_name(const DemoAnim *anim, size_t index)
+const char *anim_clip_name(const Anim *anim, size_t index)
 {
     if (index >= anim->clip_count) {
         return "";
@@ -363,7 +363,7 @@ const char *demo_anim_clip_name(const DemoAnim *anim, size_t index)
     return anim->clips[index].name;
 }
 
-float demo_anim_clip_frames(const DemoAnim *anim, size_t index)
+float anim_clip_frames(const Anim *anim, size_t index)
 {
     size_t at;
     if (index >= anim->clip_count) {
@@ -376,7 +376,7 @@ float demo_anim_clip_frames(const DemoAnim *anim, size_t index)
     return rf32(anim->data, anim->size, at);
 }
 
-int demo_anim_clip_find(const DemoAnim *anim, const char *name)
+int anim_clip_find(const Anim *anim, const char *name)
 {
     size_t i;
     char *end;
@@ -409,10 +409,10 @@ int demo_anim_clip_find(const DemoAnim *anim, const char *name)
     return -1;
 }
 
-int demo_anim_set_clip(DemoAnim *anim, size_t index, DemoModel *model,
+int anim_set_clip(Anim *anim, size_t index, HsdModel *model,
                        char *err, size_t errn)
 {
-    const DemoClipInfo *clip;
+    const ClipInfo *clip;
     size_t base;
     size_t nodes;
     size_t tracks;
@@ -420,7 +420,7 @@ int demo_anim_set_clip(DemoAnim *anim, size_t index, DemoModel *model,
     size_t track_i = 0;
     size_t joint = 0;
     size_t bound = 0;
-    DemoFobj *fobjs = NULL;
+    Fobj *fobjs = NULL;
     size_t fobj_count = 0;
     if (anim == NULL || model == NULL || index >= anim->clip_count) {
         seterr(err, errn, "invalid clip");
@@ -468,7 +468,7 @@ int demo_anim_set_clip(DemoAnim *anim, size_t index, DemoModel *model,
                 uint8_t frac_slope;
                 uint32_t ad_value;
                 size_t ad;
-                DemoFobj *grown;
+                Fobj *grown;
                 if (!range_ok(t, 12, anim->size)) {
                     seterr(err, errn, "figatrack out of range");
                     goto fail;
@@ -493,7 +493,7 @@ int demo_anim_set_clip(DemoAnim *anim, size_t index, DemoModel *model,
                     goto fail;
                 }
                 fobjs = grown;
-                demo_fobj_init(&fobjs[fobj_count], anim->data + ad, length,
+                fobj_init(&fobjs[fobj_count], anim->data + ad, length,
                                obj_type, (int16_t) startframe, frac_value,
                                frac_slope);
                 fobj_count++;
@@ -520,16 +520,16 @@ fail:
     return -1;
 }
 
-float demo_anim_end_frame(const DemoAnim *anim)
+float anim_end_frame(const Anim *anim)
 {
     return anim != NULL ? anim->frames : 0.0f;
 }
 
-void demo_anim_apply(DemoAnim *anim, DemoModel *model, float frame)
+void anim_apply(Anim *anim, HsdModel *model, float frame)
 {
     size_t j;
     size_t k;
-    demo_model_pose_reset(model);
+    hsd_model_pose_reset(model);
     if (anim != NULL && anim->active) {
         for (j = 0; j < model->joint_count; ++j) {
             size_t first = anim->joint_first[j];
@@ -538,15 +538,15 @@ void demo_anim_apply(DemoAnim *anim, DemoModel *model, float frame)
                 continue;
             }
             for (k = 0; k < count; ++k) {
-                DemoFobj *f = &anim->fobjs[first + k];
+                Fobj *f = &anim->fobjs[first + k];
                 float value;
                 /* HSD_JObjReqAnimAll(jobj, frame) + HSD_JObjAnimAll. */
-                demo_fobj_req_anim(f, frame);
-                if (demo_fobj_interpret(f, 0.0f, &value)) {
-                    demo_model_pose_channel(model, j, f->obj_type, value);
+                fobj_req_anim(f, frame);
+                if (fobj_interpret(f, 0.0f, &value)) {
+                    hsd_model_pose_channel(model, j, f->obj_type, value);
                 }
             }
         }
     }
-    demo_model_pose_apply(model);
+    hsd_model_pose_apply(model);
 }

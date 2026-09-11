@@ -2,14 +2,14 @@
 
 #include <math.h>
 
-#define DEMO_FIGHTER_HALF_WIDTH 4.5f
-#define DEMO_FIGHTER_HEIGHT 11.0f
-#define DEMO_ATTACK_RANGE 14.0f
-#define DEMO_ATTACK_HEIGHT 14.0f
-#define DEMO_ATTACK_FRAMES 10
-#define DEMO_ATTACK_COOLDOWN 18
-#define DEMO_ATTACK_DAMAGE 8.0f
-#define DEMO_ATTACK_KNOCKBACK 5.5f
+#define SANDBOX_FIGHTER_HALF_WIDTH 4.5f
+#define SANDBOX_FIGHTER_HEIGHT 11.0f
+#define SANDBOX_ATTACK_RANGE 14.0f
+#define SANDBOX_ATTACK_HEIGHT 14.0f
+#define SANDBOX_ATTACK_FRAMES 10
+#define SANDBOX_ATTACK_COOLDOWN 18
+#define SANDBOX_ATTACK_DAMAGE 8.0f
+#define SANDBOX_ATTACK_KNOCKBACK 5.5f
 
 static float clampf(float value, float low, float high)
 {
@@ -30,7 +30,7 @@ static float approach_zero(float value, float amount)
     return value > 0.0f ? value - amount : value + amount;
 }
 
-void demo_physics_default_attrs(DemoPhysicsAttrs* attrs)
+void sandbox_default_attrs(FighterAttrs* attrs)
 {
     if (!attrs) {
         return;
@@ -52,7 +52,7 @@ void demo_physics_default_attrs(DemoPhysicsAttrs* attrs)
     attrs->max_jumps = 2;
 }
 
-void demo_physics_init_world(DemoPhysicsWorld* world)
+void sandbox_init_world(SandboxWorld* world)
 {
     if (!world) {
         return;
@@ -72,8 +72,8 @@ void demo_physics_init_world(DemoPhysicsWorld* world)
     world->death_y = -80.0f;
 }
 
-void demo_physics_reset(DemoPhysicsFighter* fighter,
-                        const DemoPhysicsWorld* world)
+void sandbox_reset(SandboxFighter* fighter,
+                        const SandboxWorld* world)
 {
     if (!fighter) {
         return;
@@ -93,19 +93,19 @@ void demo_physics_reset(DemoPhysicsFighter* fighter,
     fighter->stocks = 4;
 }
 
-static void land_on_platform(DemoPhysicsFighter* fighter,
-                             const DemoPhysicsWorld* world,
+static void land_on_platform(SandboxFighter* fighter,
+                             const SandboxWorld* world,
                              float old_y, int max_jumps)
 {
     int i;
     if (!world) {
         return;
     }
-    for (i = 0; i < world->platform_count && i < DEMO_PHYSICS_MAX_PLATFORMS;
+    for (i = 0; i < world->platform_count && i < SANDBOX_MAX_PLATFORMS;
          ++i) {
-        const DemoPhysicsPlatform* p = &world->platforms[i];
-        if (fighter->x + DEMO_FIGHTER_HALF_WIDTH < p->left ||
-            fighter->x - DEMO_FIGHTER_HALF_WIDTH > p->right) {
+        const SandboxPlatform* p = &world->platforms[i];
+        if (fighter->x + SANDBOX_FIGHTER_HALF_WIDTH < p->left ||
+            fighter->x - SANDBOX_FIGHTER_HALF_WIDTH > p->right) {
             continue;
         }
         /* One-way platforms: only a descending crossing lands. */
@@ -120,18 +120,18 @@ static void land_on_platform(DemoPhysicsFighter* fighter,
     }
 }
 
-static int has_platform_under(const DemoPhysicsFighter* fighter,
-                              const DemoPhysicsWorld* world)
+static int has_platform_under(const SandboxFighter* fighter,
+                              const SandboxWorld* world)
 {
     int i;
     if (!world) {
         return 0;
     }
-    for (i = 0; i < world->platform_count && i < DEMO_PHYSICS_MAX_PLATFORMS;
+    for (i = 0; i < world->platform_count && i < SANDBOX_MAX_PLATFORMS;
          ++i) {
-        const DemoPhysicsPlatform* p = &world->platforms[i];
-        if (fighter->x + DEMO_FIGHTER_HALF_WIDTH >= p->left &&
-            fighter->x - DEMO_FIGHTER_HALF_WIDTH <= p->right &&
+        const SandboxPlatform* p = &world->platforms[i];
+        if (fighter->x + SANDBOX_FIGHTER_HALF_WIDTH >= p->left &&
+            fighter->x - SANDBOX_FIGHTER_HALF_WIDTH <= p->right &&
             fabsf(fighter->y - p->top) < 0.01f) {
             return 1;
         }
@@ -139,10 +139,10 @@ static int has_platform_under(const DemoPhysicsFighter* fighter,
     return 0;
 }
 
-void demo_physics_step(DemoPhysicsFighter* fighter,
-                       const DemoPhysicsAttrs* attrs,
-                       const DemoPhysicsWorld* world,
-                       DemoPhysicsInput input)
+void sandbox_step(SandboxFighter* fighter,
+                       const FighterAttrs* attrs,
+                       const SandboxWorld* world,
+                       SandboxInput input)
 {
     float axis;
     float old_y;
@@ -199,8 +199,8 @@ void demo_physics_step(DemoPhysicsFighter* fighter,
     }
     if (input.attack_pressed && !fighter->shield &&
         fighter->attack_cooldown == 0) {
-        fighter->attack_timer = DEMO_ATTACK_FRAMES;
-        fighter->attack_cooldown = DEMO_ATTACK_COOLDOWN;
+        fighter->attack_timer = SANDBOX_ATTACK_FRAMES;
+        fighter->attack_cooldown = SANDBOX_ATTACK_COOLDOWN;
     }
 
     if (fighter->grounded) {
@@ -258,13 +258,13 @@ void demo_physics_step(DemoPhysicsFighter* fighter,
         if (fighter->stocks > 0) {
             --fighter->stocks;
         }
-        demo_physics_reset(fighter, world);
+        sandbox_reset(fighter, world);
         fighter->stocks = stocks > 0 ? stocks - 1 : 0;
     }
 }
 
-int demo_physics_try_hit(DemoPhysicsFighter* attacker,
-                         DemoPhysicsFighter* target)
+int sandbox_try_hit(SandboxFighter* attacker,
+                         SandboxFighter* target)
 {
     float dx;
     float dy;
@@ -275,12 +275,12 @@ int demo_physics_try_hit(DemoPhysicsFighter* attacker,
     dx = target->x - attacker->x;
     dy = fabsf(target->y - attacker->y);
     if (dx * (float) attacker->facing < 0.0f ||
-        fabsf(dx) > DEMO_ATTACK_RANGE || dy > DEMO_ATTACK_HEIGHT) {
+        fabsf(dx) > SANDBOX_ATTACK_RANGE || dy > SANDBOX_ATTACK_HEIGHT) {
         return 0;
     }
-    target->damage += DEMO_ATTACK_DAMAGE;
-    target->vx = (float) attacker->facing * DEMO_ATTACK_KNOCKBACK;
-    target->vy = DEMO_ATTACK_KNOCKBACK * 0.65f;
+    target->damage += SANDBOX_ATTACK_DAMAGE;
+    target->vx = (float) attacker->facing * SANDBOX_ATTACK_KNOCKBACK;
+    target->vy = SANDBOX_ATTACK_KNOCKBACK * 0.65f;
     target->grounded = 0;
     target->hitstun = 20;
     target->jumps = target->jumps > 0 ? target->jumps : 0;

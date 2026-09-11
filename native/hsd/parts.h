@@ -1,5 +1,5 @@
-#ifndef MELEE_NATIVE_DEMO_PARTS_H
-#define MELEE_NATIVE_DEMO_PARTS_H
+#ifndef MELEE_NATIVE_HSD_PARTS_H
+#define MELEE_NATIVE_HSD_PARTS_H
 
 #include <stddef.h>
 
@@ -22,15 +22,15 @@ extern "C" {
  * Returns 0 when visibility was applied, 1 when the archive has no visibility
  * data (the model stays fully visible), and -1 on a malformed archive.
  */
-int demo_parts_apply(const char *disc_image, const char *model_file,
-                     DemoModel *model, int slot, int variant, char *error,
+int parts_apply(const char *disc_image, const char *model_file,
+                     HsdModel *model, int slot, int variant, char *error,
                      size_t error_size);
 
 /* Marks every drawable object visible. */
-void demo_parts_show_all(DemoModel *model);
+void parts_show_all(HsdModel *model);
 
 /* Number of hidden drawable objects. */
-size_t demo_parts_hidden_count(const DemoModel *model);
+size_t parts_hidden_count(const HsdModel *model);
 
 #ifdef __cplusplus
 }

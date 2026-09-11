@@ -8,7 +8,7 @@
 #include <string.h>
 
 /*
- * Raw HSD model reader for the native demo.
+ * Raw HSD model reader for the native port.
  *
  * HSD archives store pointers as 32-bit offsets relative to the start of the
  * data section (immediately after the 0x20-byte archive header).  All accessors
@@ -237,7 +237,7 @@ static int mtx_invert(const float *m, float *out)
 }
 
 /* Index of a joint by host offset, or -1. */
-static int joint_index_of(const DemoModel *m, size_t offset)
+static int joint_index_of(const HsdModel *m, size_t offset)
 {
     size_t i;
     for (i = 0; i < m->joint_count; ++i) {
@@ -249,7 +249,7 @@ static int joint_index_of(const DemoModel *m, size_t offset)
 }
 
 /* Nearest ancestor (including self) flagged JOBJ_SKELETON or JOBJ_SKELETON_ROOT. */
-static int joint_find_skeleton(const DemoModel *m, int index)
+static int joint_find_skeleton(const HsdModel *m, int index)
 {
     while (index >= 0) {
         uint32_t flags = m->joints[index].flags;
@@ -262,7 +262,7 @@ static int joint_find_skeleton(const DemoModel *m, int index)
 }
 
 /* E_j: the joint's inverse bind matrix, from the archive or derived. */
-static int joint_env_mtx(const DemoModel *m, int index, float out[3][4])
+static int joint_env_mtx(const HsdModel *m, int index, float out[3][4])
 {
     if (index < 0 || (size_t) index >= m->joint_count) {
         return 0;
@@ -280,7 +280,7 @@ static int joint_env_mtx(const DemoModel *m, int index, float out[3][4])
  * Unlike the bind-pose shortcut, the skeleton-root and deep-skeleton cases
  * depend on the current world matrices, so this runs every pose.
  */
-static int batch_right(const DemoModel *m, int m_index, float right[3][4])
+static int batch_right(const HsdModel *m, int m_index, float right[3][4])
 {
     int x;
     if (m_index < 0 || (size_t) m_index >= m->joint_count) {
@@ -381,7 +381,7 @@ static void make_local_mtx(float m[3][4], const float scale[3],
 }
 
 static void joint_table_add(const uint8_t *d, size_t n, size_t jo, int parent,
-                            DemoModel *m, int depth)
+                            HsdModel *m, int depth)
 {
     float rot[3];
     float scale[3];
@@ -389,7 +389,7 @@ static void joint_table_add(const uint8_t *d, size_t n, size_t jo, int parent,
     float local[3][4];
     uint32_t flags;
     size_t mtx_field;
-    DemoJoint *info;
+    HsdJoint *info;
     size_t child;
     size_t next;
     size_t i;
@@ -761,7 +761,7 @@ static void decode_palette_entry(uint16_t raw, uint32_t format, uint8_t out[4])
 }
 
 /* Decodes an embedded GX texture once and returns its index, or -1. */
-static int find_or_add_texture(DemoModel *m, const uint8_t *d, size_t n,
+static int find_or_add_texture(HsdModel *m, const uint8_t *d, size_t n,
                                size_t texdesc)
 {
     size_t imagedesc;
@@ -796,13 +796,13 @@ static int find_or_add_texture(DemoModel *m, const uint8_t *d, size_t n,
     }
     image = (size_t) image_value + HSD_DATA_BASE;
     for (i = 0; i < m->texture_count; ++i) {
-        DemoModelTexture *tex = &m->textures[i];
+        HsdTexture *tex = &m->textures[i];
         if (tex->source_offset == image_value && tex->format == format &&
             tex->palette_offset == palette_value) {
             return (int) i;
         }
     }
-    if (m->texture_count >= DEMO_MAX_TEXTURES) {
+    if (m->texture_count >= HSD_MAX_TEXTURES) {
         return -1;
     }
     {
@@ -824,7 +824,7 @@ static int find_or_add_texture(DemoModel *m, const uint8_t *d, size_t n,
                                              palette_format,
                                              &palette_rgba[pi * 4]);
                     }
-                    decoded = demo_texture_decode_ci(
+                    decoded = gx_texture_decode_ci(
                         d + image, n - image, width, height, (int) format,
                         palette_rgba, palette_entries, &rgba, error,
                         sizeof(error));
@@ -836,7 +836,7 @@ static int find_or_add_texture(DemoModel *m, const uint8_t *d, size_t n,
                 decoded = -1;
             }
         } else {
-            decoded = demo_texture_decode(d + image, n - image, width, height,
+            decoded = gx_texture_decode(d + image, n - image, width, height,
                                           (int) format, &rgba, error,
                                           sizeof(error));
         }
@@ -857,9 +857,9 @@ static int find_or_add_texture(DemoModel *m, const uint8_t *d, size_t n,
     return (int) (m->texture_count - 1);
 }
 
-static void emit(DemoModel *m, const RawVertex *v, int texture)
+static void emit(HsdModel *m, const RawVertex *v, int texture)
 {
-    DemoModelVertex *out;
+    HsdVertex *out;
     size_t index;
     if (m->vertex_count >= m->vertex_capacity || !v->has_pos) {
         return;
@@ -925,8 +925,8 @@ static void emit(DemoModel *m, const RawVertex *v, int texture)
  * A group whose first weight >= 1 is rigid; the rest are blended influences.
  */
 static void load_env_groups(const uint8_t *d, size_t n, size_t po,
-                            const DemoModel *m,
-                            DemoEnvGroup groups[HSD_MAX_ENV_GROUPS],
+                            const HsdModel *m,
+                            HsdEnvGroup groups[HSD_MAX_ENV_GROUPS],
                             size_t *out_group_count)
 {
     uint32_t env_value = rb32(d, n, po + 0x14);
@@ -940,7 +940,7 @@ static void load_env_groups(const uint8_t *d, size_t n, size_t po,
     for (i = 0; i < HSD_MAX_ENV_GROUPS; ++i) {
         uint32_t group_value;
         size_t group;
-        DemoEnvGroup *g = &groups[i];
+        HsdEnvGroup *g = &groups[i];
         size_t e;
         if (!range_ok(env + i * 4, 4, n)) {
             break;
@@ -951,7 +951,7 @@ static void load_env_groups(const uint8_t *d, size_t n, size_t po,
         }
         group = (size_t) group_value + HSD_DATA_BASE;
         memset(g, 0, sizeof(*g));
-        for (e = 0; e < DEMO_MAX_ENV_INFLUENCES; ++e) {
+        for (e = 0; e < HSD_MAX_ENV_INFLUENCES; ++e) {
             uint32_t joint_value;
             float weight;
             int index;
@@ -1074,8 +1074,8 @@ static void make_texture_mtx(const uint8_t *d, size_t n, size_t td,
  * blending +0x44, imagedesc +0x4C, tlutdesc +0x50, tev +0x58.
  * MObjLoad forces RENDER_TOON on every material (mobj.c:158).
  */
-static void parse_material(DemoModel *m, const uint8_t *d, size_t n,
-                           size_t mobj, DemoBatchMaterial *out)
+static void parse_material(HsdModel *m, const uint8_t *d, size_t n,
+                           size_t mobj, HsdMaterial *out)
 {
     size_t mat;
     size_t texdesc;
@@ -1115,10 +1115,10 @@ static void parse_material(DemoModel *m, const uint8_t *d, size_t n,
         }
     }
     for (i = 0, td = texdesc;
-         i < DEMO_MAX_TOBJS && td != SIZE_MAX && range_ok(td, 0x5c, n);
+         i < HSD_MAX_TOBJS && td != SIZE_MAX && range_ok(td, 0x5c, n);
          ++i)
     {
-        DemoTobjInfo *t = &out->tobjs[out->tobj_count];
+        HsdTobj *t = &out->tobjs[out->tobj_count];
         size_t tev;
         t->texture = (int16_t) find_or_add_texture(m, d, n, td);
         t->id = (uint8_t) rb32(d, n, td + 8);
@@ -1207,15 +1207,15 @@ static void parse_material(DemoModel *m, const uint8_t *d, size_t n,
     }
 }
 
-static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
+static void parse_pobj(HsdModel *m, const uint8_t *d, size_t n, size_t po,
                        int current_joint, size_t dobj_index, uint8_t color[4],
                        int texture, uint8_t wrap_s, uint8_t wrap_t,
                        uint32_t rendermode, const float texmtx[16],
                        const float texmtx2[16],
-                       const DemoBatchMaterial *material)
+                       const HsdMaterial *material)
 {
     RawDesc descs[32];
-    DemoEnvGroup groups[HSD_MAX_ENV_GROUPS];
+    HsdEnvGroup groups[HSD_MAX_ENV_GROUPS];
     size_t group_count = 0;
     size_t desc_count = 0;
     size_t first_vertex = m->vertex_count;
@@ -1286,7 +1286,7 @@ static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
                 memcpy(verts[i].color, color, 4);
             }
             /* Record which matrix slot skins this vertex; the transform is
-             * applied by demo_model_pose_apply so it can follow animation. */
+             * applied by hsd_model_pose_apply so it can follow animation. */
             if (pobj_type == 2) {
                 size_t group = (size_t) (verts[i].matrix / 3);
                 verts[i].skin_sel = group < group_count ? (int) group : -1;
@@ -1348,9 +1348,9 @@ static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
             break;
         }
     }
-    if (m->vertex_count > first_vertex && m->batch_count < DEMO_MAX_BATCHES) {
-        DemoModelBatch *batch = &m->batches[m->batch_count];
-        DemoBatchSkin *skin = &m->batch_skin[m->batch_count];
+    if (m->vertex_count > first_vertex && m->batch_count < HSD_MAX_BATCHES) {
+        HsdBatch *batch = &m->batches[m->batch_count];
+        HsdBatchSkin *skin = &m->batch_skin[m->batch_count];
         batch->first_vertex = first_vertex;
         batch->vertex_count = m->vertex_count - first_vertex;
         batch->object_index = m->object_count ? m->object_count - 1 : 0;
@@ -1373,12 +1373,12 @@ static void parse_pobj(DemoModel *m, const uint8_t *d, size_t n, size_t po,
         skin->shared_joint = (int16_t) shared_joint;
         skin->group_count = (uint8_t) group_count;
         memcpy(skin->groups, groups,
-               group_count * sizeof(DemoEnvGroup));
+               group_count * sizeof(HsdEnvGroup));
         m->batch_count++;
     }
 }
 
-static void walk_joint(DemoModel *m, const uint8_t *d, size_t n, size_t jo,
+static void walk_joint(HsdModel *m, const uint8_t *d, size_t n, size_t jo,
                        int depth)
 {
     size_t dobj;
@@ -1396,7 +1396,7 @@ static void walk_joint(DemoModel *m, const uint8_t *d, size_t n, size_t jo,
     {
         int m_index = joint_index_of(m, jo);
         while (dobj != SIZE_MAX && range_ok(dobj, 0x10, n)) {
-            size_t dobj_index = m->dobj_count < DEMO_MAX_DOBJS ? m->dobj_count : DEMO_MAX_DOBJS;
+            size_t dobj_index = m->dobj_count < HSD_MAX_DOBJS ? m->dobj_count : HSD_MAX_DOBJS;
             size_t pobj = rptr(d, n, dobj + 12);
             size_t mobj = rptr(d, n, dobj + 8);
             uint8_t color[4] = { 205, 145, 70, 255 };
@@ -1406,7 +1406,7 @@ static void walk_joint(DemoModel *m, const uint8_t *d, size_t n, size_t jo,
             int texture = -1;
             float texmtx[16];
             float texmtx2[16];
-            DemoBatchMaterial material;
+            HsdMaterial material;
             memset(&material, 0, sizeof(material));
             make_texture_mtx(d, n, SIZE_MAX, texmtx);
             make_texture_mtx(d, n, SIZE_MAX, texmtx2);
@@ -1444,7 +1444,7 @@ static void walk_joint(DemoModel *m, const uint8_t *d, size_t n, size_t jo,
                            &material);
                 pobj = rptr(d, n, pobj + 4);
             }
-            if (m->dobj_count < DEMO_MAX_DOBJS) {
+            if (m->dobj_count < HSD_MAX_DOBJS) {
                 m->dobj_count++;
             }
             dobj = rptr(d, n, dobj + 4);
@@ -1516,7 +1516,7 @@ static size_t find_root_symbol(const uint8_t *d, size_t n)
     return first;
 }
 
-void demo_model_init(DemoModel *m, DemoModelVertex *storage, size_t capacity)
+void hsd_model_init(HsdModel *m, HsdVertex *storage, size_t capacity)
 {
     size_t i;
     memset(m, 0, sizeof(*m));
@@ -1530,7 +1530,7 @@ void demo_model_init(DemoModel *m, DemoModelVertex *storage, size_t capacity)
     }
 }
 
-void demo_model_free(DemoModel *m)
+void hsd_model_free(HsdModel *m)
 {
     size_t i;
     if (m == NULL) {
@@ -1547,23 +1547,23 @@ void demo_model_free(DemoModel *m)
     m->skin = NULL;
 }
 
-int demo_model_batch_visible(const DemoModel *model, size_t batch_index)
+int hsd_model_batch_visible(const HsdModel *model, size_t batch_index)
 {
     size_t dobj;
     if (batch_index >= model->batch_count) {
         return 0;
     }
     dobj = model->batches[batch_index].dobj_index;
-    if (dobj >= DEMO_MAX_DOBJS) {
+    if (dobj >= HSD_MAX_DOBJS) {
         return 1;
     }
     return model->dobj_hidden[dobj] == 0;
 }
 
-int demo_model_batch_pose_visible(const DemoModel *model, size_t batch_index)
+int hsd_model_batch_pose_visible(const HsdModel *model, size_t batch_index)
 {
     int joint;
-    if (!demo_model_batch_visible(model, batch_index)) {
+    if (!hsd_model_batch_visible(model, batch_index)) {
         return 0;
     }
     joint = model->batch_skin[batch_index].current_joint;
@@ -1573,11 +1573,11 @@ int demo_model_batch_pose_visible(const DemoModel *model, size_t batch_index)
     return model->joints[joint].hidden_dyn == 0;
 }
 
-void demo_model_pose_reset(DemoModel *m)
+void hsd_model_pose_reset(HsdModel *m)
 {
     size_t j;
     for (j = 0; j < m->joint_count; ++j) {
-        DemoJoint *joint = &m->joints[j];
+        HsdJoint *joint = &m->joints[j];
         memcpy(joint->rotation, joint->rotation_bind, sizeof(joint->rotation));
         memcpy(joint->scale, joint->scale_bind, sizeof(joint->scale));
         memcpy(joint->position, joint->position_bind,
@@ -1587,7 +1587,7 @@ void demo_model_pose_reset(DemoModel *m)
 }
 
 /* 1 when `joint` is `ancestor` or one of its descendants. */
-static int joint_in_subtree(const DemoModel *m, size_t joint, size_t ancestor)
+static int joint_in_subtree(const HsdModel *m, size_t joint, size_t ancestor)
 {
     while (joint < m->joint_count) {
         if (joint == ancestor) {
@@ -1601,38 +1601,38 @@ static int joint_in_subtree(const DemoModel *m, size_t joint, size_t ancestor)
     return 0;
 }
 
-void demo_model_pose_channel(DemoModel *m, size_t joint, int channel,
+void hsd_model_pose_channel(HsdModel *m, size_t joint, int channel,
                              float value)
 {
-    DemoJoint *jt;
+    HsdJoint *jt;
     if (joint >= m->joint_count) {
         return;
     }
     jt = &m->joints[joint];
     switch (channel) {
-    case DEMO_A_J_ROTX:
-    case DEMO_A_J_ROTY:
-    case DEMO_A_J_ROTZ:
-        jt->rotation[channel - DEMO_A_J_ROTX] = value;
+    case HSD_A_J_ROTX:
+    case HSD_A_J_ROTY:
+    case HSD_A_J_ROTZ:
+        jt->rotation[channel - HSD_A_J_ROTX] = value;
         break;
-    case DEMO_A_J_TRAX:
-    case DEMO_A_J_TRAY:
-    case DEMO_A_J_TRAZ:
-        jt->position[channel - DEMO_A_J_TRAX] = value;
+    case HSD_A_J_TRAX:
+    case HSD_A_J_TRAY:
+    case HSD_A_J_TRAZ:
+        jt->position[channel - HSD_A_J_TRAX] = value;
         break;
-    case DEMO_A_J_SCAX:
-    case DEMO_A_J_SCAY:
-    case DEMO_A_J_SCAZ:
+    case HSD_A_J_SCAX:
+    case HSD_A_J_SCAY:
+    case HSD_A_J_SCAZ:
         /* JObjUpdateFunc clamps near-zero scales to 1e-3. */
         if (fabsf(value) < 1e-3f) {
             value = 1e-3f;
         }
-        jt->scale[channel - DEMO_A_J_SCAX] = value;
+        jt->scale[channel - HSD_A_J_SCAX] = value;
         break;
-    case DEMO_A_J_NODE:
+    case HSD_A_J_NODE:
         jt->hidden_dyn = value > 0.5f ? 0 : 1;
         break;
-    case DEMO_A_J_BRANCH: {
+    case HSD_A_J_BRANCH: {
         size_t j;
         for (j = 0; j < m->joint_count; ++j) {
             if (joint_in_subtree(m, j, joint)) {
@@ -1675,7 +1675,7 @@ static void mtx_transform_normal_it(const float *m, const float in[3],
     out[2] = z;
 }
 
-void demo_model_pose_apply(DemoModel *m)
+void hsd_model_pose_apply(HsdModel *m)
 {
     size_t j;
     size_t b;
@@ -1688,7 +1688,7 @@ void demo_model_pose_apply(DemoModel *m)
     /* HSD_JObjMakeMatrix traversal: parents always come first (the joint table
      * is built parent-before-child). */
     for (j = 0; j < m->joint_count; ++j) {
-        DemoJoint *jt = &m->joints[j];
+        HsdJoint *jt = &m->joints[j];
         float local[3][4];
         /* x34_scale.z (Mr. Game & Watch's width) overrides X when set. */
         float root_scale[3] = {
@@ -1723,10 +1723,10 @@ void demo_model_pose_apply(DemoModel *m)
         }
     }
     for (b = 0; b < m->batch_count; ++b) {
-        const DemoBatchSkin *bs = &m->batch_skin[b];
-        const DemoModelBatch *batch = &m->batches[b];
+        const HsdBatchSkin *bs = &m->batch_skin[b];
+        const HsdBatch *batch = &m->batches[b];
         float right[3][4];
-        float group_mtx[DEMO_MAX_ENV_GROUPS][3][4];
+        float group_mtx[HSD_MAX_ENV_GROUPS][3][4];
         float identity[3][4];
         int has_right;
         size_t g;
@@ -1736,8 +1736,8 @@ void demo_model_pose_apply(DemoModel *m)
             has_right = 0;
         }
         mtx_identity(identity);
-        for (g = 0; g < DEMO_MAX_ENV_GROUPS; ++g) {
-            const DemoEnvGroup *eg = &bs->groups[g];
+        for (g = 0; g < HSD_MAX_ENV_GROUPS; ++g) {
+            const HsdEnvGroup *eg = &bs->groups[g];
             float base[3][4];
             if (bs->pobj_type != 2 || g >= bs->group_count || eg->count == 0) {
                 memcpy(group_mtx[g], identity, sizeof(identity));
@@ -1795,13 +1795,13 @@ void demo_model_pose_apply(DemoModel *m)
             const float *matrix;
             float moved[3];
             float normal[3];
-            DemoModelVertex *out = &m->vertices[index];
+            HsdVertex *out = &m->vertices[index];
             uint8_t selector = m->skin[index];
             if (selector == 255) {
                 matrix = identity[0];
             } else if (bs->pobj_type == 2) {
                 matrix = selector < bs->group_count
-                             ? group_mtx[selector < DEMO_MAX_ENV_GROUPS
+                             ? group_mtx[selector < HSD_MAX_ENV_GROUPS
                                              ? selector
                                              : 0][0]
                              : identity[0];
@@ -1834,7 +1834,7 @@ void demo_model_pose_apply(DemoModel *m)
     }
 }
 
-int demo_model_load(DemoModel *m, const uint8_t *d, size_t n, size_t root_offset,
+int hsd_model_load(HsdModel *m, const uint8_t *d, size_t n, size_t root_offset,
                     char *err, size_t errn)
 {
     size_t root;
@@ -1882,7 +1882,7 @@ int demo_model_load(DemoModel *m, const uint8_t *d, size_t n, size_t root_offset
         seterr(err, errn, "joint graph contained no supported triangles");
         return 0;
     }
-    demo_model_pose_reset(m);
-    demo_model_pose_apply(m);
+    hsd_model_pose_reset(m);
+    hsd_model_pose_apply(m);
     return 1;
 }

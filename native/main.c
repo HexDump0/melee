@@ -26,23 +26,23 @@ static int g_vis_variant = 0;
 
 /* Character-select scene lights/fog (MnSelectChrDataTable), used as the
  * viewer's reference scene until stage lights exist. */
-#define DEMO_MAX_SCENE_LIGHTS 4
-static DemoLightSet g_lights;
+#define MAX_SHADER_LIGHTS 4
+static SceneLights g_lights;
 static int g_lights_loaded = 0;
 
-#define DEMO_GL_ANISO_EXT 0x84FEu
+#define GL_ANISO_EXT 0x84FEu
 static int g_aniso_supported = 0;
 
 typedef struct Visual {
-    DemoModel model;
-    DemoAnim anim;
+    HsdModel model;
+    Anim anim;
     int anim_loaded;
     int shared; /* model/GL resources are owned by another Visual */
-    GLuint batch_vao[DEMO_MAX_BATCHES]; /* immutable bind-pose geometry */
-    GLuint batch_vbo[DEMO_MAX_BATCHES];
-    GLuint pose_vao[DEMO_MAX_BATCHES];  /* per-frame animated geometry */
-    GLuint pose_vbo[DEMO_MAX_BATCHES];
-    GLuint textures[DEMO_MAX_TEXTURES];
+    GLuint batch_vao[HSD_MAX_BATCHES]; /* immutable bind-pose geometry */
+    GLuint batch_vbo[HSD_MAX_BATCHES];
+    GLuint pose_vao[HSD_MAX_BATCHES];  /* per-frame animated geometry */
+    GLuint pose_vbo[HSD_MAX_BATCHES];
+    GLuint textures[HSD_MAX_TEXTURES];
     float scale;
     const char *label;
 } Visual;
@@ -345,8 +345,8 @@ static void circle(float x,float y,float z,float radius,int filled)
     ov_end();
 }
 
-/* demo_text.h calls this for every lit font pixel. */
-void demo_text_rect(float x,float y,float w,float h)
+/* font_draw.h calls this for every lit font pixel. */
+void font_rect(float x,float y,float w,float h)
 {
     ov_vertex2f(x,y);ov_vertex2f(x+w,y);
     ov_vertex2f(x+w,y+h);ov_vertex2f(x,y+h);
@@ -355,7 +355,7 @@ void demo_text_rect(float x,float y,float w,float h)
 static void draw_text(float x,float y,float size,const char *s)
 {
     ov_begin(GL_QUADS);
-    demo_text(x,y,size,s);
+    font_draw(x,y,size,s);
     ov_end();
 }
 
@@ -363,10 +363,10 @@ static void draw_text(float x,float y,float size,const char *s)
  * Shaders.  Bodies are ES3-portable: the desktop build prepends
  * "#version 330"; a GLES build would prepend "#version 300 es" plus precision.
  */
-#if defined(DEMO_GL_ES)
-#define DEMO_GLSL_HEADER "#version 300 es\nprecision highp float;\nprecision highp int;\n"
+#if defined(GL_ES)
+#define GLSL_HEADER "#version 300 es\nprecision highp float;\nprecision highp int;\n"
 #else
-#define DEMO_GLSL_HEADER "#version 330\n"
+#define GLSL_HEADER "#version 330\n"
 #endif
 
 /*
@@ -663,7 +663,7 @@ static ModelShader g_model;
 
 static GLuint compile_shader(GLenum type,const char *body,const char *body2)
 {
-    const char *sources[3]={DEMO_GLSL_HEADER,body,body2};
+    const char *sources[3]={GLSL_HEADER,body,body2};
     char log[2048];
     GLint ok=0;
     GLuint s=glCreateShader(type);
@@ -789,22 +789,22 @@ static void model_set_view(const Mat4 mvp,const Mat4 mv,const Mat4 light_mv,
 {
     float normal[9];
     float ambient[3]={.78f,.78f,.82f};
-    int light_type[DEMO_MAX_SCENE_LIGHTS]={0};
-    float light_color[DEMO_MAX_SCENE_LIGHTS*4]={0};
-    float light_pos[DEMO_MAX_SCENE_LIGHTS*3]={0};
-    int spec_type[DEMO_MAX_SCENE_LIGHTS]={0};
-    float spec_color[DEMO_MAX_SCENE_LIGHTS*4]={0};
-    float spec_pos[DEMO_MAX_SCENE_LIGHTS*3]={0};
+    int light_type[MAX_SHADER_LIGHTS]={0};
+    float light_color[MAX_SHADER_LIGHTS*4]={0};
+    float light_pos[MAX_SHADER_LIGHTS*3]={0};
+    int spec_type[MAX_SHADER_LIGHTS]={0};
+    float spec_color[MAX_SHADER_LIGHTS*4]={0};
+    float spec_pos[MAX_SHADER_LIGHTS*3]={0};
     int light_count=0,spec_count=0;
     size_t i;
     if(g_lights_loaded) {
-        demo_lights_ambient(&g_lights,ambient);
-        for(i=0;i<g_lights.count&&light_count<DEMO_MAX_SCENE_LIGHTS;++i) {
-            const DemoLight *l=&g_lights.lights[i];
+        lights_ambient(&g_lights,ambient);
+        for(i=0;i<g_lights.count&&light_count<MAX_SHADER_LIGHTS;++i) {
+            const SceneLight *l=&g_lights.lights[i];
             float p[3];
             int c;
-            if((l->flags&3u)==DEMO_LOBJ_AMBIENT||
-               (l->flags&DEMO_LOBJ_HIDDEN)||!(l->flags&DEMO_LOBJ_DIFFUSE))
+            if((l->flags&3u)==LOBJ_AMBIENT||
+               (l->flags&LOBJ_HIDDEN)||!(l->flags&LOBJ_DIFFUSE))
                 continue;
             c=light_count++;
             light_type[c]=(int)l->type;
@@ -812,19 +812,19 @@ static void model_set_view(const Mat4 mvp,const Mat4 mv,const Mat4 light_mv,
             light_color[c*4+1]=l->color[1]/255.0f;
             light_color[c*4+2]=l->color[2]/255.0f;
             light_color[c*4+3]=l->color[3]/255.0f;
-            if(l->type==DEMO_LOBJ_INFINITE) {
+            if(l->type==LOBJ_INFINITE) {
                 m4_transform_dir(p,light_mv,l->position);
             } else if(l->has_position) {
                 m4_transform_point(p,light_mv,l->position);
             }
             memcpy(&light_pos[c*3],p,sizeof(p));
         }
-        for(i=0;i<g_lights.count&&spec_count<DEMO_MAX_SCENE_LIGHTS;++i) {
-            const DemoLight *l=&g_lights.lights[i];
+        for(i=0;i<g_lights.count&&spec_count<MAX_SHADER_LIGHTS;++i) {
+            const SceneLight *l=&g_lights.lights[i];
             float p[3];
             int c;
-            if((l->flags&3u)==DEMO_LOBJ_AMBIENT||
-               (l->flags&DEMO_LOBJ_HIDDEN)||!(l->flags&DEMO_LOBJ_SPECULAR))
+            if((l->flags&3u)==LOBJ_AMBIENT||
+               (l->flags&LOBJ_HIDDEN)||!(l->flags&LOBJ_SPECULAR))
                 continue;
             c=spec_count++;
             spec_type[c]=(int)l->type;
@@ -832,7 +832,7 @@ static void model_set_view(const Mat4 mvp,const Mat4 mv,const Mat4 light_mv,
             spec_color[c*4+1]=l->color[1]/255.0f;
             spec_color[c*4+2]=l->color[2]/255.0f;
             spec_color[c*4+3]=l->color[3]/255.0f;
-            if(l->type==DEMO_LOBJ_INFINITE) {
+            if(l->type==LOBJ_INFINITE) {
                 m4_transform_dir(p,light_mv,l->position);
             } else if(l->has_position) {
                 m4_transform_point(p,light_mv,l->position);
@@ -844,8 +844,8 @@ static void model_set_view(const Mat4 mvp,const Mat4 mv,const Mat4 light_mv,
         const float world[3]={.35f,.6f,1.0f};
         light_count=1;
         spec_count=1;
-        light_type[0]=DEMO_LOBJ_INFINITE;
-        spec_type[0]=DEMO_LOBJ_INFINITE;
+        light_type[0]=LOBJ_INFINITE;
+        spec_type[0]=LOBJ_INFINITE;
         light_color[0]=light_color[1]=light_color[2]=.9f;
         spec_color[0]=spec_color[1]=spec_color[2]=.9f;
         light_color[3]=spec_color[3]=1.0f;
@@ -862,13 +862,13 @@ static void model_set_view(const Mat4 mvp,const Mat4 mv,const Mat4 light_mv,
     glUniform1i(g_model.lighting,lighting);
     glUniform3f(g_model.ambient_light,ambient[0],ambient[1],ambient[2]);
     glUniform1i(g_model.light_count,light_count);
-    glUniform1iv(g_model.light_type,DEMO_MAX_SCENE_LIGHTS,light_type);
-    glUniform4fv(g_model.light_color,DEMO_MAX_SCENE_LIGHTS,light_color);
-    glUniform3fv(g_model.light_pos,DEMO_MAX_SCENE_LIGHTS,light_pos);
+    glUniform1iv(g_model.light_type,MAX_SHADER_LIGHTS,light_type);
+    glUniform4fv(g_model.light_color,MAX_SHADER_LIGHTS,light_color);
+    glUniform3fv(g_model.light_pos,MAX_SHADER_LIGHTS,light_pos);
     glUniform1i(g_model.spec_count,spec_count);
-    glUniform1iv(g_model.spec_type,DEMO_MAX_SCENE_LIGHTS,spec_type);
-    glUniform4fv(g_model.spec_color,DEMO_MAX_SCENE_LIGHTS,spec_color);
-    glUniform3fv(g_model.spec_pos,DEMO_MAX_SCENE_LIGHTS,spec_pos);
+    glUniform1iv(g_model.spec_type,MAX_SHADER_LIGHTS,spec_type);
+    glUniform4fv(g_model.spec_color,MAX_SHADER_LIGHTS,spec_color);
+    glUniform3fv(g_model.spec_pos,MAX_SHADER_LIGHTS,spec_pos);
     if(g_lights_loaded&&g_lights.fog.present) {
         glUniform1i(g_model.fog_enable,1);
         glUniform1i(g_model.fog_type,(int)g_lights.fog.type);
@@ -912,7 +912,7 @@ static GLenum gx_depth_func(uint8_t f)
 }
 
 /* HSD_MObjSetup -> HSD_SetupRenderModeWithCustomPE -> HSD_SetupPEMode. */
-static void apply_material_state(const DemoBatchMaterial *mat)
+static void apply_material_state(const HsdMaterial *mat)
 {
     if(mat->blend==1||mat->blend==3) {
         glDisable(GL_COLOR_LOGIC_OP);
@@ -955,30 +955,30 @@ static int symbol_log(const char *name, unsigned int off, void *user)
 
 static int load_model(Visual *v, const char *disc, const char *file)
 {
-    DemoAsset asset = {0};
+    DiscFile asset = {0};
     char error[256];
-    if (demo_asset_load(disc,file,&asset,error,sizeof(error))) {
+    if (disc_load(disc,file,&asset,error,sizeof(error))) {
         fprintf(stderr,"%s: %s\n",file,error); return 0;
     }
     printf("Loaded %s: %zu bytes\n",file,asset.size);
-    demo_asset_enumerate_public_symbols(&asset,symbol_log,NULL,error,sizeof(error));
-    DemoModelVertex *storage = calloc(300000,sizeof(*storage));
-    if (!storage) { demo_asset_free(&asset); return 0; }
-    demo_model_init(&v->model,storage,300000);
-    int ok = demo_model_load(&v->model,asset.data,asset.size,0,error,sizeof(error));
-    demo_asset_free(&asset);
+    disc_enumerate_public_symbols(&asset,symbol_log,NULL,error,sizeof(error));
+    HsdVertex *storage = calloc(300000,sizeof(*storage));
+    if (!storage) { disc_free(&asset); return 0; }
+    hsd_model_init(&v->model,storage,300000);
+    int ok = hsd_model_load(&v->model,asset.data,asset.size,0,error,sizeof(error));
+    disc_free(&asset);
     if (!ok || !v->model.vertex_count) {
         fprintf(stderr,"Model %s: %s (%zu vertices)\n",file,error,v->model.vertex_count);
         free(storage); memset(v,0,sizeof(*v)); return 0;
     }
     {
         char parts_error[128];
-        int parts = demo_parts_apply(disc,file,&v->model,g_vis_slot,
+        int parts = parts_apply(disc,file,&v->model,g_vis_slot,
                                      g_vis_variant,parts_error,
                                      sizeof(parts_error));
-        /* demo_parts_apply reads ftData<Char>'s model_scaling; re-evaluate the
+        /* parts_apply reads ftData<Char>'s model_scaling; re-evaluate the
          * bind pose so the vertices and bounds include it. */
-        demo_model_pose_apply(&v->model);
+        hsd_model_pose_apply(&v->model);
         printf("Decoded %s: %zu triangles, %zu textures; bounds [%.2f %.2f %.2f] to [%.2f %.2f %.2f]\n",
                file,v->model.vertex_count/3,v->model.texture_count,v->model.bounds_min[0],v->model.bounds_min[1],
                v->model.bounds_min[2],v->model.bounds_max[0],v->model.bounds_max[1],v->model.bounds_max[2]);
@@ -986,7 +986,7 @@ static int load_model(Visual *v, const char *disc, const char *file)
                v->model.pobj_type_count[0],v->model.pobj_type_count[1],
                v->model.pobj_type_count[2],v->model.joint_count,v->model.instance_count);
         if(parts==0)printf("Parts visibility: %zu of %zu objects hidden (neutral pose; model scale %.4f, x %.4f)\n",
-                           demo_parts_hidden_count(&v->model),v->model.dobj_count,
+                           parts_hidden_count(&v->model),v->model.dobj_count,
                            (double)v->model.model_scale,
                            (double)(v->model.model_scale_x>0.0f
                                         ?v->model.model_scale_x
@@ -1003,8 +1003,8 @@ static int load_model(Visual *v, const char *disc, const char *file)
 static int load_anim(Visual *v,const char *disc,const char *file,const char *anim_file)
 {
     char error[256];
-    if(v->anim_loaded){demo_anim_free(&v->anim);v->anim_loaded=0;}
-    if(demo_anim_load(&v->anim,disc,file,anim_file,error,sizeof(error))!=0) {
+    if(v->anim_loaded){anim_free(&v->anim);v->anim_loaded=0;}
+    if(anim_load(&v->anim,disc,file,anim_file,error,sizeof(error))!=0) {
         fprintf(stderr,"Animation for %s: %s\n",file,error);
         return 0;
     }
@@ -1047,15 +1047,15 @@ static GLenum gx_mag_filter(uint8_t f)
     return f==0?GL_NEAREST:GL_LINEAR;
 }
 
-static void apply_tex_filter(const DemoTobjInfo *t,
-                             const DemoModelTexture *tex)
+static void apply_tex_filter(const HsdTobj *t,
+                             const HsdTexture *tex)
 {
     glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,
                     gx_min_filter(t->minfilt,tex->mipmap,tex->format));
     glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,
                     gx_mag_filter(t->magfilt));
     if(g_aniso_supported&&t->anisotropy>0&&t->anisotropy<4)
-        glTexParameterf(GL_TEXTURE_2D,DEMO_GL_ANISO_EXT,
+        glTexParameterf(GL_TEXTURE_2D,GL_ANISO_EXT,
                         (float)(1u<<t->anisotropy));
 }
 
@@ -1072,28 +1072,28 @@ static void apply_cull(int cull)
 static void bind_batch_attribs(void)
 {
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,sizeof(DemoModelVertex),
-                          (const void*)(uintptr_t)offsetof(DemoModelVertex,position));
+    glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,sizeof(HsdVertex),
+                          (const void*)(uintptr_t)offsetof(HsdVertex,position));
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1,3,GL_FLOAT,GL_FALSE,sizeof(DemoModelVertex),
-                          (const void*)(uintptr_t)offsetof(DemoModelVertex,normal));
+    glVertexAttribPointer(1,3,GL_FLOAT,GL_FALSE,sizeof(HsdVertex),
+                          (const void*)(uintptr_t)offsetof(HsdVertex,normal));
     glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2,4,GL_UNSIGNED_BYTE,GL_TRUE,sizeof(DemoModelVertex),
-                          (const void*)(uintptr_t)offsetof(DemoModelVertex,color));
+    glVertexAttribPointer(2,4,GL_UNSIGNED_BYTE,GL_TRUE,sizeof(HsdVertex),
+                          (const void*)(uintptr_t)offsetof(HsdVertex,color));
     glEnableVertexAttribArray(3);
-    glVertexAttribPointer(3,2,GL_FLOAT,GL_FALSE,sizeof(DemoModelVertex),
-                          (const void*)(uintptr_t)offsetof(DemoModelVertex,uv));
+    glVertexAttribPointer(3,2,GL_FLOAT,GL_FALSE,sizeof(HsdVertex),
+                          (const void*)(uintptr_t)offsetof(HsdVertex,uv));
     glEnableVertexAttribArray(4);
-    glVertexAttribPointer(4,2,GL_FLOAT,GL_FALSE,sizeof(DemoModelVertex),
-                          (const void*)(uintptr_t)offsetof(DemoModelVertex,uv2));
+    glVertexAttribPointer(4,2,GL_FLOAT,GL_FALSE,sizeof(HsdVertex),
+                          (const void*)(uintptr_t)offsetof(HsdVertex,uv2));
 }
 
 static void upload_batch(const Visual *v,size_t bi,int pose)
 {
-    const DemoModelBatch *b=&v->model.batches[bi];
+    const HsdBatch *b=&v->model.batches[bi];
     glBindBuffer(GL_ARRAY_BUFFER,pose?v->pose_vbo[bi]:v->batch_vbo[bi]);
     glBufferSubData(GL_ARRAY_BUFFER,0,
-                    (GLsizeiptr)(b->vertex_count*sizeof(DemoModelVertex)),
+                    (GLsizeiptr)(b->vertex_count*sizeof(HsdVertex)),
                     v->model.vertices+b->first_vertex);
 }
 
@@ -1104,8 +1104,8 @@ static void upload_batch(const Visual *v,size_t bi,int pose)
  */
 static void draw_batch(const Visual *v,size_t bi,int pose,int textured)
 {
-    const DemoModelBatch *b=&v->model.batches[bi];
-    const DemoBatchMaterial *mat=&b->material;
+    const HsdBatch *b=&v->model.batches[bi];
+    const HsdMaterial *mat=&b->material;
     int texsrc[2]={4,5};
     int cmap[2]={0,0};
     int amap[2]={0,0};
@@ -1122,7 +1122,7 @@ static void draw_batch(const Visual *v,size_t bi,int pose,int textured)
     glBindVertexArray(pose?v->pose_vao[bi]:v->batch_vao[bi]);
     if(textured) {
         for(i=0;i<mat->tobj_count&&i<2;++i) {
-            const DemoTobjInfo *t=&mat->tobjs[i];
+            const HsdTobj *t=&mat->tobjs[i];
             if(t->texture<0||(size_t)t->texture>=v->model.texture_count||
                !v->textures[t->texture])
                 continue; /* HSD skips TObjs with no image (id == NULL) */
@@ -1186,8 +1186,8 @@ static void draw_batch(const Visual *v,size_t bi,int pose,int textured)
 static void compile_model(Visual *v)
 {
     size_t i;
-    for(i=0;i<v->model.texture_count&&i<DEMO_MAX_TEXTURES;++i) {
-        DemoModelTexture *t=&v->model.textures[i];
+    for(i=0;i<v->model.texture_count&&i<HSD_MAX_TEXTURES;++i) {
+        HsdTexture *t=&v->model.textures[i];
         if(t->rgba==NULL)continue;
         glGenTextures(1,&v->textures[i]);
         glBindTexture(GL_TEXTURE_2D,v->textures[i]);
@@ -1202,8 +1202,8 @@ static void compile_model(Visual *v)
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_REPEAT);
     }
-    for(i=0;i<v->model.batch_count&&i<DEMO_MAX_BATCHES;++i) {
-        DemoModelBatch *b=&v->model.batches[i];
+    for(i=0;i<v->model.batch_count&&i<HSD_MAX_BATCHES;++i) {
+        HsdBatch *b=&v->model.batches[i];
         if(b->cull_mode==3)continue; /* POBJ_CULLFRONT|CULLBACK: never drawn */
         /* Immutable bind-pose copy. */
         glGenVertexArrays(1,&v->batch_vao[i]);
@@ -1211,7 +1211,7 @@ static void compile_model(Visual *v)
         glBindVertexArray(v->batch_vao[i]);
         glBindBuffer(GL_ARRAY_BUFFER,v->batch_vbo[i]);
         glBufferData(GL_ARRAY_BUFFER,
-                     (GLsizeiptr)(b->vertex_count*sizeof(DemoModelVertex)),
+                     (GLsizeiptr)(b->vertex_count*sizeof(HsdVertex)),
                      v->model.vertices+b->first_vertex,GL_STATIC_DRAW);
         bind_batch_attribs();
         /* Per-frame posed copy, refreshed by upload_batch. */
@@ -1220,7 +1220,7 @@ static void compile_model(Visual *v)
         glBindVertexArray(v->pose_vao[i]);
         glBindBuffer(GL_ARRAY_BUFFER,v->pose_vbo[i]);
         glBufferData(GL_ARRAY_BUFFER,
-                     (GLsizeiptr)(b->vertex_count*sizeof(DemoModelVertex)),
+                     (GLsizeiptr)(b->vertex_count*sizeof(HsdVertex)),
                      NULL,GL_DYNAMIC_DRAW);
         bind_batch_attribs();
     }
@@ -1243,7 +1243,7 @@ typedef struct Viewer {
 
 static float anim_wrap(const Visual *v,float t)
 {
-    float frames=v->anim_loaded?demo_anim_end_frame(&v->anim):0.0f;
+    float frames=v->anim_loaded?anim_end_frame(&v->anim):0.0f;
     if(frames<=0.0f)return 0.0f;
     while(t>=frames)t-=frames;
     while(t<0.0f)t+=frames;
@@ -1254,11 +1254,11 @@ static int anim_select_clip(Visual *v,const char *wanted)
 {
     int index;
     if(!v->anim_loaded)return -1;
-    index=demo_anim_clip_find(&v->anim,wanted);
-    if(index<0)index=demo_anim_clip_find(&v->anim,"Wait1");
+    index=anim_clip_find(&v->anim,wanted);
+    if(index<0)index=anim_clip_find(&v->anim,"Wait1");
     if(index<0&&v->anim.clip_count>0)index=0;
     if(index<0)return -1;
-    if(demo_anim_set_clip(&v->anim,(size_t)index,&v->model,NULL,0)!=0)return -1;
+    if(anim_set_clip(&v->anim,(size_t)index,&v->model,NULL,0)!=0)return -1;
     return index;
 }
 
@@ -1282,8 +1282,8 @@ typedef struct FighterAnim {
  * The names are real `Pl<Char>AJ.dat` clips; the state machine that chooses
  * them is still the sandbox's until the real fighter states are ported.
  */
-static const char *fighter_clip_name(const DemoPhysicsFighter *f,
-                                     const DemoPhysicsAttrs *attrs)
+static const char *fighter_clip_name(const SandboxFighter *f,
+                                     const FighterAttrs *attrs)
 {
     if(!f->grounded) {
         if(f->vy>0.0f)return "JumpF";
@@ -1295,23 +1295,23 @@ static const char *fighter_clip_name(const DemoPhysicsFighter *f,
 }
 
 static void fighter_anim_step(Visual *v,FighterAnim *fa,
-                              const DemoPhysicsFighter *f,
-                              const DemoPhysicsAttrs *attrs)
+                              const SandboxFighter *f,
+                              const FighterAttrs *attrs)
 {
     const char *want;
     int index;
     float end;
     if(!v->anim_loaded||fa->clip<0)return;
     want=fighter_clip_name(f,attrs);
-    index=demo_anim_clip_find(&v->anim,want);
+    index=anim_clip_find(&v->anim,want);
     if(index<0)index=fa->clip;
     if(index!=fa->clip&&
-       demo_anim_set_clip(&v->anim,(size_t)index,&v->model,NULL,0)==0) {
+       anim_set_clip(&v->anim,(size_t)index,&v->model,NULL,0)==0) {
         fa->clip=index;
         fa->frame=0.0f;
     }
     fa->frame+=1.0f;
-    end=demo_anim_end_frame(&v->anim);
+    end=anim_end_frame(&v->anim);
     if(end>0.0f) {
         while(fa->frame>=end)fa->frame-=end;
     }
@@ -1344,7 +1344,7 @@ static void viewer_frame_batch(Viewer *vs,const Visual *v,size_t batch)
 {
     float mn[3]={1e30f,1e30f,1e30f},mx[3]={-1e30f,-1e30f,-1e30f};
     size_t i,k;
-    const DemoModelBatch *b;
+    const HsdBatch *b;
     if(batch>=v->model.batch_count)return;
     b=&v->model.batches[batch];
     for(i=0;i<b->vertex_count;++i) {
@@ -1413,9 +1413,9 @@ static void viewer_hud(int w,int h,const Visual *v,const Viewer *vs,
         draw_text(w*.5f-140*s,66*s,1.3f*s,line);
     }
     if(vs->animate&&v->anim_loaded) {
-        float frames=demo_anim_end_frame(&v->anim);
+        float frames=anim_end_frame(&v->anim);
         snprintf(line,sizeof(line),"CLIP %s  %.0f/%.0f  %.2gx  %s",
-                 demo_anim_clip_name(&v->anim,(size_t)vs->clip),
+                 anim_clip_name(&v->anim,(size_t)vs->clip),
                  vs->anim_time,frames,(double)vs->speed,
                  vs->playing?"PLAY":"PAUSE");
         ov_color3f(.55f,.9f,.65f);
@@ -1477,12 +1477,12 @@ static void render_viewer(const Visual *v,const Viewer *vs,int w,int h,
         {
             size_t bi;
             int animated=vs->animate&&v->anim_loaded;
-            for(bi=0;bi<v->model.batch_count&&bi<DEMO_MAX_BATCHES;++bi) {
-                const DemoModelBatch *b=&v->model.batches[bi];
+            for(bi=0;bi<v->model.batch_count&&bi<HSD_MAX_BATCHES;++bi) {
+                const HsdBatch *b=&v->model.batches[bi];
                 int allowed=b->cull_mode!=3&&
                             (vs->show_hidden||
-                             (animated?demo_model_batch_pose_visible(&v->model,bi)
-                                      :demo_model_batch_visible(&v->model,bi)));
+                             (animated?hsd_model_batch_pose_visible(&v->model,bi)
+                                      :hsd_model_batch_visible(&v->model,bi)));
                 int visible=allowed&&(vs->mode==0||(vs->mode==1&&(int)bi==vs->batch)||
                             (vs->mode==2&&(int)bi!=vs->batch));
                 if(visible&&(animated||v->batch_vao[bi])) {
@@ -1510,7 +1510,7 @@ static int viewer_open_model(Visual *v,const char *disc,const char *file)
     return 1;
 }
 
-static int viewer_cycle(Visual *v,const char *disc,DemoAssetList *models,int *index,int dir)
+static int viewer_cycle(Visual *v,const char *disc,DiscFileList *models,int *index,int dir)
 {
     int attempts=(int)models->count;
     int i=*index;
@@ -1524,7 +1524,7 @@ static int viewer_cycle(Visual *v,const char *disc,DemoAssetList *models,int *in
     return 0;
 }
 
-static void platform(const DemoPhysicsPlatform *p,int main_stage,const Mat4 mvp)
+static void platform(const SandboxPlatform *p,int main_stage,const Mat4 mvp)
 {
     float l=p->left,r=p->right,y=p->top,d=main_stage?5:2,t=main_stage?3:1;
     ov_set_mvp(mvp);
@@ -1544,7 +1544,7 @@ static void platform(const DemoPhysicsPlatform *p,int main_stage,const Mat4 mvp)
     }
 }
 
-static void draw_fighter(const Visual *v,const DemoPhysicsFighter *f,
+static void draw_fighter(const Visual *v,const SandboxFighter *f,
                          int player,unsigned tick,const FighterAnim *anim,
                          const Mat4 proj,const Mat4 base)
 {
@@ -1572,11 +1572,11 @@ static void draw_fighter(const Visual *v,const DemoPhysicsFighter *f,
     model_set_view(mvp,mv,base,1);
     {
         size_t bi;
-        for(bi=0;bi<v->model.batch_count&&bi<DEMO_MAX_BATCHES;++bi) {
-            const DemoModelBatch *b=&v->model.batches[bi];
+        for(bi=0;bi<v->model.batch_count&&bi<HSD_MAX_BATCHES;++bi) {
+            const HsdBatch *b=&v->model.batches[bi];
             if(b->cull_mode==3)continue;
-            if(animated?(!demo_model_batch_pose_visible(&v->model,bi)):
-                        (!v->batch_vao[bi]||!demo_model_batch_visible(&v->model,bi)))
+            if(animated?(!hsd_model_batch_pose_visible(&v->model,bi)):
+                        (!v->batch_vao[bi]||!hsd_model_batch_visible(&v->model,bi)))
                 continue;
             apply_cull((int)b->cull_mode);
             draw_batch(v,bi,animated,1);
@@ -1616,7 +1616,7 @@ static void draw_fighter(const Visual *v,const DemoPhysicsFighter *f,
     }
 }
 
-static void hud(int w,int h,const DemoPhysicsFighter f[2], int cpu,int paused,
+static void hud(int w,int h,const SandboxFighter f[2], int cpu,int paused,
                 const Visual v[2])
 {
     float s=fmaxf(1.0f,w/1280.0f);
@@ -1666,18 +1666,18 @@ static int screenshot(const char *path,int w,int h)
 static void destroy_visual(Visual *v)
 {
     size_t i;
-    demo_anim_free(&v->anim);
+    anim_free(&v->anim);
     v->anim_loaded=0;
-    for(i=0;i<v->model.batch_count&&i<DEMO_MAX_BATCHES;++i) {
+    for(i=0;i<v->model.batch_count&&i<HSD_MAX_BATCHES;++i) {
         if(v->batch_vao[i])glDeleteVertexArrays(1,&v->batch_vao[i]);
         if(v->batch_vbo[i])glDeleteBuffers(1,&v->batch_vbo[i]);
         if(v->pose_vao[i])glDeleteVertexArrays(1,&v->pose_vao[i]);
         if(v->pose_vbo[i])glDeleteBuffers(1,&v->pose_vbo[i]);
     }
-    for(i=0;i<v->model.texture_count&&i<DEMO_MAX_TEXTURES;++i) {
+    for(i=0;i<v->model.texture_count&&i<HSD_MAX_TEXTURES;++i) {
         if(v->textures[i])glDeleteTextures(1,&v->textures[i]);
     }
-    demo_model_free(&v->model);
+    hsd_model_free(&v->model);
     free(v->model.vertices);
     v->model.vertices=NULL;
 }
@@ -1734,29 +1734,29 @@ int main(int argc,char **argv)
         else {printf("Usage: %s [--disc IMAGE] [--model PlMrNr.dat] [--model-index N] [--part N] [--part-mode all|only|hide] [--list-models] [--all-models] [--inspect] [--view [--angle DEG] [--elevation DEG]] [--animate [--clip NAME|N] [--anim-frame F] [--anim-speed S] [--anim-file PlMrAJ.dat] [--list-clips]] [--frames N] [--screenshot FILE.bmp] [--scripted]\n",argv[0]);return strcmp(argv[i],"--help")!=0;}
     }
     if(dump_lights) {
-        DemoLightSet lights;
+        SceneLights lights;
         char light_error[128];
-        if(demo_lights_load(disc,&lights,light_error,sizeof(light_error))!=0)
+        if(lights_load(disc,&lights,light_error,sizeof(light_error))!=0)
             fprintf(stderr,"Lights unavailable (%s)\n",light_error);
         else
-            demo_lights_dump(&lights);
+            lights_dump(&lights);
         return 0;
     }
     if(extract_file&&extract_out) {
-        DemoAsset a={0};char err[128];
-        if(demo_asset_load(disc,extract_file,&a,err,sizeof(err))!=DEMO_ASSET_OK) {
+        DiscFile a={0};char err[128];
+        if(disc_load(disc,extract_file,&a,err,sizeof(err))!=DISC_OK) {
             fprintf(stderr,"extract %s: %s\n",extract_file,err);return 1;
         }
         FILE *f=fopen(extract_out,"wb");
-        if(!f){fprintf(stderr,"cannot write %s\n",extract_out);demo_asset_free(&a);return 1;}
+        if(!f){fprintf(stderr,"cannot write %s\n",extract_out);disc_free(&a);return 1;}
         fwrite(a.data,1,a.size,f);fclose(f);
         printf("Wrote %s (%zu bytes)\n",extract_out,a.size);
-        demo_asset_free(&a);return 0;
+        disc_free(&a);return 0;
     }
-    DemoAssetList models={0};
+    DiscFileList models={0};
     if(view||list_models||model_index>=0) {
         char list_error[128];
-        if(demo_asset_list(disc,"Pl",all_models?".dat":"Nr.dat",&models,list_error,sizeof(list_error))!=DEMO_ASSET_OK) {
+        if(disc_list(disc,"Pl",all_models?".dat":"Nr.dat",&models,list_error,sizeof(list_error))!=DISC_OK) {
             fprintf(stderr,"Model list unavailable (%s)\n",list_error);
             if(list_models)return 1;
         }
@@ -1764,7 +1764,7 @@ int main(int argc,char **argv)
             size_t i;
             for(i=0;i<models.count;++i)printf("%s\n",models.names[i]);
             printf("%zu model archives\n",models.count);
-            demo_asset_list_free(&models);
+            disc_list_free(&models);
             return 0;
         }
         if(model_index>=0&&(size_t)model_index<models.count)model_file=models.names[model_index];
@@ -1775,25 +1775,25 @@ int main(int argc,char **argv)
         /* Applied after load below. */
     }
     if(!load_model(&visuals[0],disc,model_file))return 1;
-    if(no_visibility)demo_parts_show_all(&visuals[0].model);
-    if(show_hidden)demo_parts_show_all(&visuals[0].model);
+    if(no_visibility)parts_show_all(&visuals[0].model);
+    if(show_hidden)parts_show_all(&visuals[0].model);
     if(list_clips) {
         if(load_anim(&visuals[0],disc,model_file,anim_file)) {
             size_t ci;
-            for(ci=0;ci<demo_anim_clip_count(&visuals[0].anim);++ci)
+            for(ci=0;ci<anim_clip_count(&visuals[0].anim);++ci)
                 printf("%3zu  %-28s %6.1f frames\n",ci,
-                       demo_anim_clip_name(&visuals[0].anim,ci),
-                       demo_anim_clip_frames(&visuals[0].anim,ci));
+                       anim_clip_name(&visuals[0].anim,ci),
+                       anim_clip_frames(&visuals[0].anim,ci));
         }
-        demo_anim_free(&visuals[0].anim);
-        demo_model_free(&visuals[0].model);free(visuals[0].model.vertices);return 0;
+        anim_free(&visuals[0].anim);
+        hsd_model_free(&visuals[0].model);free(visuals[0].model.vertices);return 0;
     }
     if(dump_clip) {
         if(load_anim(&visuals[0],disc,model_file,anim_file)) {
-            int ci=demo_anim_clip_find(&visuals[0].anim,dump_clip);
+            int ci=anim_clip_find(&visuals[0].anim,dump_clip);
             if(ci<0)ci=0;
-            if(demo_anim_set_clip(&visuals[0].anim,(size_t)ci,&visuals[0].model,NULL,0)==0) {
-                float frames=demo_anim_end_frame(&visuals[0].anim);
+            if(anim_set_clip(&visuals[0].anim,(size_t)ci,&visuals[0].model,NULL,0)==0) {
+                float frames=anim_end_frame(&visuals[0].anim);
                 int f;
                 for(f=0;(float)f<=frames;++f) {
                     size_t j;
@@ -1802,26 +1802,26 @@ int main(int argc,char **argv)
                         size_t count=visuals[0].anim.joint_tracks[j];
                         size_t k;
                         for(k=0;k<count&&first+k<visuals[0].anim.fobj_count;++k) {
-                            DemoFobj *fo=&visuals[0].anim.fobjs[first+k];
+                            Fobj *fo=&visuals[0].anim.fobjs[first+k];
                             float value;
-                            demo_fobj_req_anim(fo,(float)f);
-                            if(demo_fobj_interpret(fo,0.0f,&value))
+                            fobj_req_anim(fo,(float)f);
+                            if(fobj_interpret(fo,0.0f,&value))
                                 printf("%d %zu %zu %u %.6f\n",f,j,k,
                                        fo->obj_type,value);
                         }
                     }
                 }
             }
-            demo_anim_free(&visuals[0].anim);
+            anim_free(&visuals[0].anim);
         }
-        demo_model_free(&visuals[0].model);free(visuals[0].model.vertices);return 0;
+        hsd_model_free(&visuals[0].model);free(visuals[0].model.vertices);return 0;
     }
     /* Two instances of the same decoded costume during renderer bring-up. */
     visuals[0].label="P1 / MARIO";
     if(dump_textures) {
         size_t ti,max=visuals[0].model.texture_count;
-        for(ti=0;ti<max&&ti<DEMO_MAX_TEXTURES;++ti) {
-            DemoModelTexture *t=&visuals[0].model.textures[ti];
+        for(ti=0;ti<max&&ti<HSD_MAX_TEXTURES;++ti) {
+            HsdTexture *t=&visuals[0].model.textures[ti];
             char path[512];
             if(t->rgba==NULL)continue;
             snprintf(path,sizeof(path),"%s/tex_%02zu.ppm",dump_textures,ti);
@@ -1842,14 +1842,14 @@ int main(int argc,char **argv)
             fclose(f);
         }
         printf("Dumped %zu textures\n",max);
-        demo_model_free(&visuals[0].model);free(visuals[0].model.vertices);return 0;
+        hsd_model_free(&visuals[0].model);free(visuals[0].model.vertices);return 0;
     }
     if(dump_tev) {
         size_t bi,ti;
         printf("batches: %zu\n",visuals[0].model.batch_count);
         for(bi=0;bi<visuals[0].model.batch_count;++bi) {
-            DemoModelBatch *b=&visuals[0].model.batches[bi];
-            DemoBatchMaterial *mat=&b->material;
+            HsdBatch *b=&visuals[0].model.batches[bi];
+            HsdMaterial *mat=&b->material;
             printf("batch %-3zu rm=%#010x tex=%-3d amb=%3u,%3u,%3u mat=%3u,%3u,%3u spe=%3u,%3u,%3u,a=%.2f sh=%.1f tobjs=%u",
                    bi,(unsigned)mat->rendermode,(int)b->texture,
                    mat->ambient[0],mat->ambient[1],mat->ambient[2],
@@ -1864,7 +1864,7 @@ int main(int argc,char **argv)
                        mat->pe_alpha_comp1);
             }
             for(ti=0;ti<mat->tobj_count;++ti) {
-                DemoTobjInfo *t=&mat->tobjs[ti];
+                HsdTobj *t=&mat->tobjs[ti];
                 printf(" | t%zu tex=%d id=%u src=%u flags=%#x cm=%u am=%u tev=%u",
                        ti,(int)t->texture,t->id,t->src,(unsigned)t->flags,
                        (unsigned)((t->flags>>16)&0xf),
@@ -1877,12 +1877,12 @@ int main(int argc,char **argv)
             }
             printf("\n");
         }
-        demo_model_free(&visuals[0].model);free(visuals[0].model.vertices);return 0;
+        hsd_model_free(&visuals[0].model);free(visuals[0].model.vertices);return 0;
     }
     if(dump_joints) {
         size_t ji;
         for(ji=0;ji<visuals[0].model.joint_count;++ji) {
-            const DemoJoint *j=&visuals[0].model.joints[ji];
+            const HsdJoint *j=&visuals[0].model.joints[ji];
             printf("joint %-3zu parent=%-4d flags=%#06x pos=[%7.3f %7.3f %7.3f] rot=[%7.3f %7.3f %7.3f]\n",
                    ji,j->parent,(unsigned)j->flags,
                    (double)j->position_bind[0],(double)j->position_bind[1],
@@ -1890,14 +1890,14 @@ int main(int argc,char **argv)
                    (double)j->rotation_bind[0],(double)j->rotation_bind[1],
                    (double)j->rotation_bind[2]);
         }
-        demo_model_free(&visuals[0].model);free(visuals[0].model.vertices);return 0;
+        hsd_model_free(&visuals[0].model);free(visuals[0].model.vertices);return 0;
     }
     if(inspect){
         if(list_parts) {
             size_t bi;
             printf("%-4s %-8s %-8s %-8s %s\n","#","verts","texture","state","y/x-range");
             for(bi=0;bi<visuals[0].model.batch_count;++bi) {
-                DemoModelBatch *b=&visuals[0].model.batches[bi];
+                HsdBatch *b=&visuals[0].model.batches[bi];
                 float ymin=1e30f,ymax=-1e30f,xmin=1e30f,xmax=-1e30f;
                 size_t vi;
                 for(vi=0;vi<b->vertex_count;++vi) {
@@ -1909,17 +1909,17 @@ int main(int argc,char **argv)
                 }
                 printf("%-4zu %-6zu dobj=%-3zu tex=%-3d rm=%#08x cull=%u w=%u,%u %-8s y[%6.2f %6.2f] x[%6.2f %6.2f]",
                        bi,b->vertex_count,b->dobj_index,(int)b->texture,(unsigned)b->rendermode,b->cull_mode,b->wrap_s,b->wrap_t,
-                       demo_model_batch_visible(&visuals[0].model,bi)?"visible":"HIDDEN",
+                       hsd_model_batch_visible(&visuals[0].model,bi)?"visible":"HIDDEN",
                        ymin,ymax,xmin,xmax);
                 if(b->texture>=0&&(size_t)b->texture<visuals[0].model.texture_count) {
-                    DemoModelTexture *t=&visuals[0].model.textures[b->texture];
+                    HsdTexture *t=&visuals[0].model.textures[b->texture];
                     printf("  %#x %dx%d f%d",(unsigned)t->source_offset,t->width,t->height,t->format);
                 }
                 printf("\n");
             }
             printf("%zu parts\n",visuals[0].model.batch_count);
         }
-        demo_model_free(&visuals[0].model);free(visuals[0].model.vertices);return 0;
+        hsd_model_free(&visuals[0].model);free(visuals[0].model.vertices);return 0;
     }
     if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMECONTROLLER|SDL_INIT_TIMER)) {
         fprintf(stderr,"SDL: %s\n",SDL_GetError());return 1;
@@ -1942,7 +1942,7 @@ int main(int argc,char **argv)
     }
     {
         char light_error[128];
-        if(demo_lights_load(disc,&g_lights,light_error,sizeof(light_error))==0) {
+        if(lights_load(disc,&g_lights,light_error,sizeof(light_error))==0) {
             g_lights_loaded=1;
             printf("Scene lights: character select (%zu lights, fog %s)\n",
                    g_lights.count,g_lights.fog.present?"on":"off");
@@ -2022,7 +2022,7 @@ int main(int argc,char **argv)
                         vs.vis_slot=(vs.vis_slot+1)%4;
                         {
                             char part_err[128];
-                            demo_parts_apply(disc,
+                            parts_apply(disc,
                                     index>=0&&(size_t)index<models.count?models.names[index]:model_file,
                                     &visuals[0].model,vs.vis_slot,0,part_err,
                                     sizeof(part_err));
@@ -2041,8 +2041,8 @@ int main(int argc,char **argv)
                             }
                             vs.playing=visuals[0].anim_loaded?1:0;
                         } else {
-                            demo_model_pose_reset(&visuals[0].model);
-                            demo_model_pose_apply(&visuals[0].model);
+                            hsd_model_pose_reset(&visuals[0].model);
+                            hsd_model_pose_apply(&visuals[0].model);
                         }
                         break;
                     case SDLK_COMMA:
@@ -2063,18 +2063,18 @@ int main(int argc,char **argv)
                         if(visuals[0].anim_loaded&&visuals[0].anim.clip_count>0) {
                             int c=(vs.clip-1+(int)visuals[0].anim.clip_count)%
                                   (int)visuals[0].anim.clip_count;
-                            if(demo_anim_set_clip(&visuals[0].anim,(size_t)c,&visuals[0].model,NULL,0)==0) {
+                            if(anim_set_clip(&visuals[0].anim,(size_t)c,&visuals[0].model,NULL,0)==0) {
                                 vs.clip=c;vs.anim_time=0;vs.animate=1;
-                                printf("Clip %s (%.0f frames)\n",demo_anim_clip_name(&visuals[0].anim,(size_t)c),demo_anim_end_frame(&visuals[0].anim));
+                                printf("Clip %s (%.0f frames)\n",anim_clip_name(&visuals[0].anim,(size_t)c),anim_end_frame(&visuals[0].anim));
                             }
                         }
                         break;
                     case SDLK_x:
                         if(visuals[0].anim_loaded&&visuals[0].anim.clip_count>0) {
                             int c=(vs.clip+1)%(int)visuals[0].anim.clip_count;
-                            if(demo_anim_set_clip(&visuals[0].anim,(size_t)c,&visuals[0].model,NULL,0)==0) {
+                            if(anim_set_clip(&visuals[0].anim,(size_t)c,&visuals[0].model,NULL,0)==0) {
                                 vs.clip=c;vs.anim_time=0;vs.animate=1;
-                                printf("Clip %s (%.0f frames)\n",demo_anim_clip_name(&visuals[0].anim,(size_t)c),demo_anim_end_frame(&visuals[0].anim));
+                                printf("Clip %s (%.0f frames)\n",anim_clip_name(&visuals[0].anim,(size_t)c),anim_end_frame(&visuals[0].anim));
                             }
                         }
                         break;
@@ -2110,7 +2110,7 @@ int main(int argc,char **argv)
                 } else {
                     anim_accumulator=0.0;
                 }
-                demo_anim_apply(&visuals[0].anim,&visuals[0].model,vs.anim_time);
+                anim_apply(&visuals[0].anim,&visuals[0].model,vs.anim_time);
             }
             if(vs.pitch>1.5f)vs.pitch=1.5f;
             if(vs.pitch<-1.5f)vs.pitch=-1.5f;
@@ -2120,11 +2120,11 @@ int main(int argc,char **argv)
             if((size_t)vs.batch>=visuals[0].model.batch_count&&visuals[0].model.batch_count>0)
                 vs.batch=(int)visuals[0].model.batch_count-1;
             if(next_model||prev_model) {
-                char want[DEMO_CLIP_NAME];
+                char want[CLIP_NAME_MAX];
                 want[0]=0;
                 if(visuals[0].anim_loaded)
                     snprintf(want,sizeof(want),"%s",
-                             demo_anim_clip_name(&visuals[0].anim,(size_t)vs.clip));
+                             anim_clip_name(&visuals[0].anim,(size_t)vs.clip));
                 if(models.count>0&&viewer_cycle(&visuals[0],disc,&models,&index,next_model?1:-1)) {
                     if(view_part>=0&&view_part_mode==1)viewer_frame_batch(&vs,&visuals[0],(size_t)view_part);
                     else viewer_frame_model(&vs,&visuals[0]);
@@ -2161,22 +2161,22 @@ int main(int argc,char **argv)
             }
             SDL_Delay(1);
         }
-        demo_asset_list_free(&models);
+        disc_list_free(&models);
         destroy_visual(&visuals[0]);
         free(g_ov_vertices);g_ov_vertices=NULL;
         SDL_GL_DeleteContext(context);SDL_DestroyWindow(window);SDL_Quit();return 0;
     }
-    DemoPhysicsWorld world;DemoPhysicsAttrs attrs;DemoPhysicsFighter fighters[2];
-    demo_physics_init_world(&world);demo_physics_default_attrs(&attrs);
+    SandboxWorld world;FighterAttrs attrs;SandboxFighter fighters[2];
+    sandbox_init_world(&world);sandbox_default_attrs(&attrs);
     {
         char attr_error[128];
-        if(demo_load_mario_attrs(disc,&attrs,attr_error,sizeof(attr_error))==DEMO_ASSET_OK) {
+        if(load_mario_attrs(disc,&attrs,attr_error,sizeof(attr_error))==DISC_OK) {
             printf("Mario attributes: accel %.3f friction %.3f run %.3f gravity %.3f terminal %.2f air %.3f jump %.2f jumps %d\n",
                    attrs.ground_accel,attrs.ground_friction,attrs.ground_max_speed,
                    attrs.gravity,attrs.terminal_velocity,attrs.air_accel,
                    attrs.jump_velocity,attrs.max_jumps);
         } else {
-            fprintf(stderr,"Mario attributes unavailable (%s); using demo defaults\n",attr_error);
+            fprintf(stderr,"Mario attributes unavailable (%s); using sandbox defaults\n",attr_error);
         }
     }
     /* Give P2 its own model and animation state so both fighters can be posed
@@ -2184,7 +2184,7 @@ int main(int argc,char **argv)
     {
         memset(&visuals[1],0,sizeof(visuals[1]));
         if(load_model(&visuals[1],disc,model_file)) {
-            if(no_visibility||show_hidden)demo_parts_show_all(&visuals[1].model);
+            if(no_visibility||show_hidden)parts_show_all(&visuals[1].model);
             visuals[1].label="P2 / MARIO";
             compile_model(&visuals[1]);
         } else {
@@ -2198,12 +2198,12 @@ int main(int argc,char **argv)
         if(load_anim(&visuals[i],disc,model_file,anim_file))
             fanim[i].clip=anim_select_clip(&visuals[i],"Wait1");
     }
-    for(int i=0;i<2;++i){demo_physics_reset(&fighters[i],&world);fighters[i].x=i?20:-20;fighters[i].facing=i?-1:1;}
+    for(int i=0;i<2;++i){sandbox_reset(&fighters[i],&world);fighters[i].x=i?20:-20;fighters[i].facing=i?-1:1;}
     SDL_GameController *pad=NULL;
     for(int i=0;i<SDL_NumJoysticks();++i)if(SDL_IsGameController(i)){pad=SDL_GameControllerOpen(i);break;}
     int run=1,cpu=1,paused=0,rendered=0;
     unsigned tick=0;double previous=SDL_GetPerformanceCounter()/(double)SDL_GetPerformanceFrequency(),accumulator=0;
-    DemoPhysicsInput pending[2]={{0}};int previous_pad_jump=0,previous_pad_attack=0;
+    SandboxInput pending[2]={{0}};int previous_pad_jump=0,previous_pad_attack=0;
     while(run) {
         SDL_Event e;
         while(SDL_PollEvent(&e)) {
@@ -2213,7 +2213,7 @@ int main(int argc,char **argv)
                 if(k==SDLK_ESCAPE)run=0;
                 if(k==SDLK_F2)cpu=!cpu;
                 if(k==SDLK_p)paused=!paused;
-                if(k==SDLK_r)for(int i=0;i<2;++i){demo_physics_reset(&fighters[i],&world);fighters[i].x=i?20:-20;}
+                if(k==SDLK_r)for(int i=0;i<2;++i){sandbox_reset(&fighters[i],&world);fighters[i].x=i?20:-20;}
                 if(k==SDLK_w||k==SDLK_SPACE)pending[0].jump_pressed=1;
                 if(k==SDLK_f)pending[0].attack_pressed=1;
                 if(k==SDLK_UP)pending[1].jump_pressed=1;
@@ -2248,8 +2248,8 @@ int main(int argc,char **argv)
                     pending[1].attack_pressed=fabsf(dx)<16&&tick%25==0;
                     pending[1].shield=tick%150>130&&fabsf(dx)<20;
                 }
-                for(int i=0;i<2;++i)demo_physics_step(&fighters[i],&attrs,&world,pending[i]);
-                demo_physics_try_hit(&fighters[0],&fighters[1]);demo_physics_try_hit(&fighters[1],&fighters[0]);
+                for(int i=0;i<2;++i)sandbox_step(&fighters[i],&attrs,&world,pending[i]);
+                sandbox_try_hit(&fighters[0],&fighters[1]);sandbox_try_hit(&fighters[1],&fighters[0]);
                 for(int i=0;i<2;++i)fighter_anim_step(&visuals[i],&fanim[i],&fighters[i],&attrs);
             }
             for(int i=0;i<2;++i)pending[i].jump_pressed=pending[i].attack_pressed=0;
@@ -2285,7 +2285,7 @@ int main(int argc,char **argv)
             for(int i=0;i<world.platform_count;++i)platform(&world.platforms[i],i==0,mvp);
             for(int i=0;i<2;++i)
                 if(visuals[i].anim_loaded&&fanim[i].clip>=0)
-                    demo_anim_apply(&visuals[i].anim,&visuals[i].model,fanim[i].frame);
+                    anim_apply(&visuals[i].anim,&visuals[i].model,fanim[i].frame);
             draw_fighter(&visuals[0],&fighters[0],0,tick,&fanim[0],proj,base);
             draw_fighter(&visuals[1],&fighters[1],1,tick,&fanim[1],proj,base);
             hud(w,h,fighters,cpu,paused,visuals);

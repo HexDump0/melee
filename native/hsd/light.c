@@ -86,7 +86,7 @@ static void read_wobj_pos(const uint8_t *d, size_t n, size_t wobj,
  * follows LObjLoad (lobj.c:951).
  */
 static void parse_light_desc(const uint8_t *d, size_t n, size_t desc,
-                             DemoLight *out)
+                             SceneLight *out)
 {
     size_t position;
     size_t interest;
@@ -107,7 +107,7 @@ static void parse_light_desc(const uint8_t *d, size_t n, size_t desc,
     if (u == SIZE_MAX || !range_ok(u, 0x18, n)) {
         return;
     }
-    if (out->type == DEMO_LOBJ_POINT) {
+    if (out->type == LOBJ_POINT) {
         if (out->attnflags & 1u) { /* LOBJ_LIGHT_ATTN: raw HSD_LightAttn */
             out->attn_a0 = bf32(d, n, u + 0);
             out->attn_a1 = bf32(d, n, u + 4);
@@ -120,7 +120,7 @@ static void parse_light_desc(const uint8_t *d, size_t n, size_t desc,
             out->ref_dist = bf32(d, n, u + 4);
             out->dist_func = be32(d, n, u + 8);
         }
-    } else if (out->type == DEMO_LOBJ_SPOT) {
+    } else if (out->type == LOBJ_SPOT) {
         if (out->attnflags != 0) { /* raw HSD_LightAttn */
             out->attn_a0 = bf32(d, n, u + 0);
             out->attn_a1 = bf32(d, n, u + 4);
@@ -139,11 +139,11 @@ static void parse_light_desc(const uint8_t *d, size_t n, size_t desc,
 }
 
 static void parse_light_chain(const uint8_t *d, size_t n, size_t desc,
-                              DemoLightSet *set)
+                              SceneLights *set)
 {
     int i;
     for (i = 0; i < HSD_MAX_CHAIN && desc != SIZE_MAX &&
-                set->count < DEMO_MAX_LOBS;
+                set->count < MAX_LOBS;
          ++i)
     {
         size_t next;
@@ -158,7 +158,7 @@ static void parse_light_chain(const uint8_t *d, size_t n, size_t desc,
 }
 
 static void parse_fog_desc(const uint8_t *d, size_t n, size_t fog,
-                           DemoFog *out)
+                           SceneFog *out)
 {
     memset(out, 0, sizeof(*out));
     if (fog == SIZE_MAX || !range_ok(fog, 0x14, n)) {
@@ -172,27 +172,27 @@ static void parse_fog_desc(const uint8_t *d, size_t n, size_t fog,
 }
 
 static int load_from_archive(const char *disc, const char *name,
-                             DemoLightSet *set, char *error, size_t error_size)
+                             SceneLights *set, char *error, size_t error_size)
 {
-    DemoAsset asset = {0};
+    DiscFile asset = {0};
     FindCtx ctx;
     const uint8_t *d;
     size_t n;
     size_t table;
 
-    if (demo_asset_load(disc, name, &asset, error, error_size) !=
-        DEMO_ASSET_OK) {
+    if (disc_load(disc, name, &asset, error, error_size) !=
+        DISC_OK) {
         return 0;
     }
     d = (const uint8_t *) asset.data;
     n = asset.size;
     memset(&ctx, 0, sizeof(ctx));
     ctx.name = "MnSelectChrDataTable";
-    if (demo_asset_enumerate_public_symbols(&asset, find_symbol, &ctx, error,
-                                            error_size) != DEMO_ASSET_OK ||
+    if (disc_enumerate_public_symbols(&asset, find_symbol, &ctx, error,
+                                            error_size) != DISC_OK ||
         !ctx.found)
     {
-        demo_asset_free(&asset);
+        disc_free(&asset);
         return 0;
     }
     table = DATA_BASE + (size_t) ctx.offset;
@@ -202,11 +202,11 @@ static int load_from_archive(const char *disc, const char *name,
         parse_light_chain(d, n, rptr(d, n, table + 8), set);
         parse_fog_desc(d, n, rptr(d, n, table + 0xc), &set->fog);
     }
-    demo_asset_free(&asset);
+    disc_free(&asset);
     return set->count != 0;
 }
 
-int demo_lights_load(const char *disc_image, DemoLightSet *set, char *error,
+int lights_load(const char *disc_image, SceneLights *set, char *error,
                      size_t error_size)
 {
     static const char *candidates[] = { "MnSlChr.usd", "MnSlChr.dat" };
@@ -227,7 +227,7 @@ int demo_lights_load(const char *disc_image, DemoLightSet *set, char *error,
     return 1;
 }
 
-void demo_lights_dump(const DemoLightSet *set)
+void lights_dump(const SceneLights *set)
 {
     size_t i;
     if (set == NULL) {
@@ -235,7 +235,7 @@ void demo_lights_dump(const DemoLightSet *set)
     }
     printf("lights: %zu\n", set->count);
     for (i = 0; i < set->count; ++i) {
-        const DemoLight *l = &set->lights[i];
+        const SceneLight *l = &set->lights[i];
         static const char *names[4] = { "AMBIENT", "INFINITE", "POINT",
                                         "SPOT" };
         printf("  [%zu] %-8s flags=%#06x attn=%u color=%u,%u,%u,%u pos=[%.3f %.3f %.3f]%s", i,
@@ -243,12 +243,12 @@ void demo_lights_dump(const DemoLightSet *set)
                l->color[0], l->color[1], l->color[2], l->color[3],
                (double)l->position[0], (double)l->position[1],
                (double)l->position[2], l->has_position ? "" : " (none)");
-        if (l->type == DEMO_LOBJ_POINT || l->type == DEMO_LOBJ_SPOT) {
+        if (l->type == LOBJ_POINT || l->type == LOBJ_SPOT) {
             printf(" ref_dist=%.3f ref_br=%.3f dist_func=%u",
                    (double)l->ref_dist, (double)l->ref_br,
                    (unsigned)l->dist_func);
         }
-        if (l->type == DEMO_LOBJ_SPOT) {
+        if (l->type == LOBJ_SPOT) {
             printf(" cutoff=%.3f spot_func=%u", (double)l->cutoff,
                    (unsigned)l->spot_func);
         }
@@ -264,7 +264,7 @@ void demo_lights_dump(const DemoLightSet *set)
     }
 }
 
-void demo_lights_ambient(const DemoLightSet *set, float out[3])
+void lights_ambient(const SceneLights *set, float out[3])
 {
     size_t i;
     out[0] = out[1] = out[2] = 0.0f;
@@ -272,10 +272,10 @@ void demo_lights_ambient(const DemoLightSet *set, float out[3])
         return;
     }
     for (i = 0; i < set->count; ++i) {
-        const DemoLight *l = &set->lights[i];
-        if ((l->flags & 3u) == DEMO_LOBJ_AMBIENT && !(l->flags & DEMO_LOBJ_HIDDEN)) {
+        const SceneLight *l = &set->lights[i];
+        if ((l->flags & 3u) == LOBJ_AMBIENT && !(l->flags & LOBJ_HIDDEN)) {
             /* HSD_SetupChannelMode case 4 only uses it with LOBJ_DIFFUSE. */
-            if (l->flags & DEMO_LOBJ_DIFFUSE) {
+            if (l->flags & LOBJ_DIFFUSE) {
                 out[0] = l->color[0] / 255.0f;
                 out[1] = l->color[1] / 255.0f;
                 out[2] = l->color[2] / 255.0f;
@@ -285,7 +285,7 @@ void demo_lights_ambient(const DemoLightSet *set, float out[3])
     }
 }
 
-size_t demo_lights_count(const DemoLightSet *set, uint16_t mask)
+size_t lights_count(const SceneLights *set, uint16_t mask)
 {
     size_t i;
     size_t count = 0;
@@ -293,11 +293,11 @@ size_t demo_lights_count(const DemoLightSet *set, uint16_t mask)
         return 0;
     }
     for (i = 0; i < set->count; ++i) {
-        const DemoLight *l = &set->lights[i];
-        if (l->flags & DEMO_LOBJ_HIDDEN) {
+        const SceneLight *l = &set->lights[i];
+        if (l->flags & LOBJ_HIDDEN) {
             continue;
         }
-        if ((l->flags & 3u) == DEMO_LOBJ_AMBIENT) {
+        if ((l->flags & 3u) == LOBJ_AMBIENT) {
             continue;
         }
         if (l->flags & mask) {

@@ -1,12 +1,12 @@
-#ifndef DEMO_TEXT_H
-#define DEMO_TEXT_H
+#ifndef MELEE_NATIVE_EXTRAS_FONT_H
+#define MELEE_NATIVE_EXTRAS_FONT_H
 
-/* Tiny original 5x7 bitmap alphabet for the demo HUD; no font dependency.
- * The host renderer supplies demo_text_rect(), which emits one lit font pixel
+/* Tiny original 5x7 bitmap alphabet for the HUD; no font dependency.
+ * The host renderer supplies font_rect(), which emits one lit font pixel
  * as a quad through whatever 2D path it uses (the port's shader overlay). */
-void demo_text_rect(float x, float y, float w, float h);
+void font_rect(float x, float y, float w, float h);
 
-static const unsigned char demo_glyphs[][7] = {
+static const unsigned char font_glyphs[][7] = {
  {14,17,17,31,17,17,17}, {30,17,17,30,17,17,30},
  {14,17,16,16,16,17,14}, {30,17,17,17,17,17,30},
  {31,16,16,30,16,16,31}, {31,16,16,30,16,16,16},
@@ -33,7 +33,7 @@ static const unsigned char demo_glyphs[][7] = {
  {0,4,4,31,4,4,0}, /* + */
 };
 
-static void demo_text(float x, float y, float size, const char *s)
+static void font_draw(float x, float y, float size, const char *s)
 {
     for (; *s; ++s, x += 6 * size) {
         int idx = -1;
@@ -49,9 +49,9 @@ static void demo_text(float x, float y, float size, const char *s)
         else if (c == '+') idx = 41;
         if (idx < 0) continue;
         for (int r = 0; r < 7; ++r) for (int col = 0; col < 5; ++col) {
-            if (!(demo_glyphs[idx][r] & (16 >> col))) continue;
+            if (!(font_glyphs[idx][r] & (16 >> col))) continue;
             float a = x + col * size, b = y + r * size;
-            demo_text_rect(a, b, size, size);
+            font_rect(a, b, size, size);
         }
     }
 }

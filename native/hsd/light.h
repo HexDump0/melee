@@ -1,8 +1,8 @@
-#ifndef DEMO_LIGHT_H
-#define DEMO_LIGHT_H
+#ifndef MELEE_NATIVE_HSD_LIGHT_H
+#define MELEE_NATIVE_HSD_LIGHT_H
 
 /*
- * Scene lights and fog for the native demo.
+ * Scene lights and fog for the native port.
  *
  * The game builds `HSD_LObj` objects from `HSD_LightDesc` chains and feeds
  * them to `HSD_SetupChannelMode` / `HSD_SetupChannel`.  The port only needs
@@ -16,23 +16,23 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define DEMO_MAX_LOBS 8
+#define MAX_LOBS 8
 
-#define DEMO_LOBJ_AMBIENT 0u
-#define DEMO_LOBJ_INFINITE 1u
-#define DEMO_LOBJ_POINT 2u
-#define DEMO_LOBJ_SPOT 3u
-#define DEMO_LOBJ_DIFFUSE 0x04u
-#define DEMO_LOBJ_SPECULAR 0x08u
-#define DEMO_LOBJ_ALPHA 0x10u
-#define DEMO_LOBJ_HIDDEN 0x20u
-#define DEMO_LOBJ_RAW_PARAM 0x40u
+#define LOBJ_AMBIENT 0u
+#define LOBJ_INFINITE 1u
+#define LOBJ_POINT 2u
+#define LOBJ_SPOT 3u
+#define LOBJ_DIFFUSE 0x04u
+#define LOBJ_SPECULAR 0x08u
+#define LOBJ_ALPHA 0x10u
+#define LOBJ_HIDDEN 0x20u
+#define LOBJ_RAW_PARAM 0x40u
 
-typedef struct DemoLight {
+typedef struct SceneLight {
     uint16_t flags;
     uint16_t attnflags;
     uint8_t color[4];
-    uint8_t type;      /* DEMO_LOBJ_* */
+    uint8_t type;      /* LOBJ_* */
     uint8_t has_position;
     uint8_t has_interest;
     float position[3]; /* HSD_WObjDesc.pos */
@@ -46,34 +46,34 @@ typedef struct DemoLight {
     float attn_k0, attn_k1, attn_k2;
     float cutoff;
     uint32_t spot_func;
-} DemoLight;
+} SceneLight;
 
-typedef struct DemoFog {
+typedef struct SceneFog {
     uint8_t present;
     uint32_t type; /* GX_FOG_* */
     float start;
     float end;
     uint8_t color[4];
-} DemoFog;
+} SceneFog;
 
-typedef struct DemoLightSet {
+typedef struct SceneLights {
     size_t count;
-    DemoLight lights[DEMO_MAX_LOBS];
-    DemoFog fog;
-} DemoLightSet;
+    SceneLight lights[MAX_LOBS];
+    SceneFog fog;
+} SceneLights;
 
 /* Loads MnSlChr.usd (fallback MnSlChr.dat) and parses
  * MnSelectChrDataTable's light0/light1 chains and fog. */
-int demo_lights_load(const char *disc_image, DemoLightSet *set, char *error,
+int lights_load(const char *disc_image, SceneLights *set, char *error,
                      size_t error_size);
 
-void demo_lights_dump(const DemoLightSet *set);
+void lights_dump(const SceneLights *set);
 
 /* The active ambient light used by HSD_SetupChannelMode case 4: the ambient
  * slot's colour when it carries LOBJ_DIFFUSE, else black. */
-void demo_lights_ambient(const DemoLightSet *set, float out[3]);
+void lights_ambient(const SceneLights *set, float out[3]);
 
-/* Number of non-ambient lights carrying `mask` (DEMO_LOBJ_DIFFUSE/SPECULAR). */
-size_t demo_lights_count(const DemoLightSet *set, uint16_t mask);
+/* Number of non-ambient lights carrying `mask` (LOBJ_DIFFUSE/SPECULAR). */
+size_t lights_count(const SceneLights *set, uint16_t mask);
 
 #endif

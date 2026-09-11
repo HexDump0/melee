@@ -1,8 +1,8 @@
-#ifndef MELEE_NATIVE_DEMO_MODEL_H
-#define MELEE_NATIVE_DEMO_MODEL_H
+#ifndef MELEE_NATIVE_HSD_MODEL_H
+#define MELEE_NATIVE_HSD_MODEL_H
 
 /*
- * Raw HSD model reader for the native demo.
+ * Raw HSD model reader for the native port.
  *
  * Melee character archives store GameCube GPU data.  This module expands the
  * bind-pose geometry, texture coordinates, material colors and the embedded
@@ -12,31 +12,31 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define DEMO_MAX_TEXTURES 128
-#define DEMO_MAX_BATCHES 512
-#define DEMO_MAX_DOBJS 256
-#define DEMO_MAX_JOINTS 512
-#define DEMO_MAX_ENV_GROUPS 10
-#define DEMO_MAX_ENV_INFLUENCES 8
-#define DEMO_MAX_TOBJS 2
+#define HSD_MAX_TEXTURES 128
+#define HSD_MAX_BATCHES 512
+#define HSD_MAX_DOBJS 256
+#define HSD_MAX_JOINTS 512
+#define HSD_MAX_ENV_GROUPS 10
+#define HSD_MAX_ENV_INFLUENCES 8
+#define HSD_MAX_TOBJS 2
 
 /* HSD_Joint flags (jobj.h). */
-#define DEMO_JOBJ_SKELETON 0x1u
-#define DEMO_JOBJ_SKELETON_ROOT 0x2u
-#define DEMO_JOBJ_CLASSICAL_SCALE 0x8u
-#define DEMO_JOBJ_HIDDEN 0x10u
-#define DEMO_JOBJ_INSTANCE 0x1000u
+#define HSD_JOBJ_SKELETON 0x1u
+#define HSD_JOBJ_SKELETON_ROOT 0x2u
+#define HSD_JOBJ_CLASSICAL_SCALE 0x8u
+#define HSD_JOBJ_HIDDEN 0x10u
+#define HSD_JOBJ_INSTANCE 0x1000u
 
-typedef struct DemoModelVertex {
+typedef struct HsdVertex {
     float position[3];
     float normal[3];
     float uv[2];  /* GX_VA_TEX0 */
     float uv2[2]; /* GX_VA_TEX1, used by two-texture TEV stages */
     uint8_t color[4];
-    int16_t texture; /* index into DemoModel::textures, -1 when untextured */
-} DemoModelVertex;
+    int16_t texture; /* index into HsdModel::textures, -1 when untextured */
+} HsdVertex;
 
-typedef struct DemoModelTexture {
+typedef struct HsdTexture {
     uint8_t *rgba;
     uint16_t width;
     uint16_t height;
@@ -44,12 +44,12 @@ typedef struct DemoModelTexture {
     size_t palette_offset; /* data-relative offset of the TLUT, 0 when none */
     uint32_t format;
     uint8_t mipmap; /* HSD_ImageDesc.mipmap */
-} DemoModelTexture;
+} HsdTexture;
 
 /* One TObjDesc from the material's texture chain (mobj->texdesc->next...).
  * `flags` is HSD_TObjDesc.blend_flags: colormap/alphamap/lightmap bits. */
-typedef struct DemoTobjInfo {
-    int16_t texture;     /* index into DemoModel::textures, -1 when untagged */
+typedef struct HsdTobj {
+    int16_t texture;     /* index into HsdModel::textures, -1 when untagged */
     uint8_t id;          /* GXTexMapID */
     uint8_t src;         /* GXTexGenSrc */
     uint8_t wrap_s, wrap_t;
@@ -70,10 +70,10 @@ typedef struct DemoTobjInfo {
     uint8_t tev_alpha_a, tev_alpha_b, tev_alpha_c, tev_alpha_d;
     uint8_t tev_konst[4], tev_tev0[4], tev_tev1[4];
     uint32_t tev_active;
-} DemoTobjInfo;
+} HsdTobj;
 
 /* Everything HSD_MObjSetup feeds to the GX state for one material. */
-typedef struct DemoBatchMaterial {
+typedef struct HsdMaterial {
     uint32_t rendermode; /* HSD RENDER_* bits, including the forced RENDER_TOON */
     uint8_t ambient[4];
     uint8_t diffuse[4];
@@ -85,7 +85,7 @@ typedef struct DemoBatchMaterial {
     uint8_t pe_src_factor, pe_dst_factor, pe_logic_op, pe_z_comp;
     uint8_t pe_alpha_comp0, pe_alpha_op, pe_alpha_comp1;
     uint8_t tobj_count;
-    DemoTobjInfo tobjs[DEMO_MAX_TOBJS];
+    HsdTobj tobjs[HSD_MAX_TOBJS];
     /*
      * Derived GX state, all from the decomp:
      *   channel_lit   HSD_SetupChannelMode(rendermode & 7) == 4 -> lit channel
@@ -107,11 +107,11 @@ typedef struct DemoBatchMaterial {
     uint8_t blend;   /* GXBlendMode */
     uint8_t blend_src, blend_dst; /* GXBlendFactor */
     uint8_t blend_op; /* GXBlendOp for GX_BM_SUBTRACT (rare) */
-} DemoBatchMaterial;
+} HsdMaterial;
 
 /* One drawable piece, usually a single PObj display list.  The viewer can
  * isolate these to inspect individual body/face parts. */
-typedef struct DemoModelBatch {
+typedef struct HsdBatch {
     size_t first_vertex;
     size_t vertex_count;
     size_t object_index;
@@ -124,33 +124,33 @@ typedef struct DemoModelBatch {
     uint8_t wrap_s;      /* GX wrap: 0 clamp, 1 repeat, 2 mirror */
     uint8_t wrap_t;
     uint8_t translucent;
-    DemoBatchMaterial material;
-} DemoModelBatch;
+    HsdMaterial material;
+} HsdBatch;
 
 /*
  * One envelope group from HSD_PObjDesc: a list of {joint, weight} influences.
  * `rigid` (first weight >= 1) means only the first influence is used and the
  * group matrix is that joint's world matrix, exactly like SetupEnvelopeModelMtx.
  */
-typedef struct DemoEnvGroup {
+typedef struct HsdEnvGroup {
     uint8_t rigid;
     uint8_t count;
-    int16_t joints[DEMO_MAX_ENV_INFLUENCES];
-    float weights[DEMO_MAX_ENV_INFLUENCES];
-} DemoEnvGroup;
+    int16_t joints[HSD_MAX_ENV_INFLUENCES];
+    float weights[HSD_MAX_ENV_INFLUENCES];
+} HsdEnvGroup;
 
 /* Per-PObj runtime matrix inputs, kept so animation can re-skin every frame. */
-typedef struct DemoBatchSkin {
+typedef struct HsdBatchSkin {
     uint8_t pobj_type; /* 0 skin, 1 shapeanim, 2 envelope */
     int16_t current_joint;
     int16_t shared_joint; /* POBJ_SKIN second matrix slot, -1 when unused */
     uint8_t group_count;
-    DemoEnvGroup groups[DEMO_MAX_ENV_GROUPS];
-} DemoBatchSkin;
+    HsdEnvGroup groups[HSD_MAX_ENV_GROUPS];
+} HsdBatchSkin;
 
-typedef struct DemoJoint {
+typedef struct HsdJoint {
     size_t offset; /* host offset of the HSD_Joint in the archive */
-    int parent;    /* index into DemoModel::joints, -1 for the root */
+    int parent;    /* index into HsdModel::joints, -1 for the root */
     uint32_t flags;
     float rotation[3]; /* animated local SRT (Euler radians) */
     float scale[3];
@@ -164,10 +164,10 @@ typedef struct DemoJoint {
     float world_bind[3][4]; /* bind world matrix (matrix at rest) */
     float world[3][4];     /* current world matrix (animated) */
     uint8_t hidden_dyn;    /* animation NODE/BRANCH hidden state */
-} DemoJoint;
+} HsdJoint;
 
-typedef struct DemoModel {
-    DemoModelVertex *vertices; /* three entries per triangle */
+typedef struct HsdModel {
+    HsdVertex *vertices; /* three entries per triangle */
     size_t vertex_count;
     size_t vertex_capacity;
     float bounds_min[3];
@@ -176,18 +176,18 @@ typedef struct DemoModel {
     size_t triangle_count;
     size_t skipped_primitives;
     size_t texture_count;
-    DemoModelTexture textures[DEMO_MAX_TEXTURES];
+    HsdTexture textures[HSD_MAX_TEXTURES];
     size_t batch_count;
-    DemoModelBatch batches[DEMO_MAX_BATCHES];
-    DemoBatchSkin batch_skin[DEMO_MAX_BATCHES];
+    HsdBatch batches[HSD_MAX_BATCHES];
+    HsdBatchSkin batch_skin[HSD_MAX_BATCHES];
     size_t dobj_count; /* DObjs in HSD traversal order (parts visibility) */
-    uint8_t dobj_hidden[DEMO_MAX_DOBJS];
+    uint8_t dobj_hidden[HSD_MAX_DOBJS];
     size_t pobj_type_count[3]; /* skin, shapeanim, envelope */
-    DemoJoint joints[DEMO_MAX_JOINTS];
+    HsdJoint joints[HSD_MAX_JOINTS];
     size_t joint_count;
     size_t instance_count;
     /* Fighter_UpdateModelScale: the game sets the root joint scale to
-     * x34_scale.y * co_attrs.model_scaling.  demo_parts_apply fills this from
+     * x34_scale.y * co_attrs.model_scaling.  parts_apply fills this from
      * ftData<Char>'s attribute table; 1.0 when unavailable.  model_scale_x is
      * the X override (x34_scale.z, nonzero only for Mr. Game & Watch). */
     float model_scale;
@@ -200,37 +200,37 @@ typedef struct DemoModel {
      * group's stored space) and one selector byte per vertex. */
     float *raw;
     uint8_t *skin;
-} DemoModel;
+} HsdModel;
 
 /* Forward declaration keeps the native build independent of the HSD headers. */
 struct HSD_JObj;
 
-void demo_model_init(DemoModel *model, DemoModelVertex *storage,
+void hsd_model_init(HsdModel *model, HsdVertex *storage,
                      size_t storage_vertices);
 
 /* Parses a raw HSD archive. root_offset is a data-relative offset; pass 0 to
  * select the first model joint from the archive's public symbol table. */
-int demo_model_load(DemoModel *model, const uint8_t *data, size_t size,
+int hsd_model_load(HsdModel *model, const uint8_t *data, size_t size,
                     size_t root_offset, char *error, size_t error_size);
 
 /* Releases decoded texture data. Vertex storage is owned by the caller. */
-void demo_model_free(DemoModel *model);
+void hsd_model_free(HsdModel *model);
 
 /* 1 when the batch's drawable object is hidden by the model's parts table. */
-int demo_model_batch_visible(const DemoModel *model, size_t batch_index);
+int hsd_model_batch_visible(const HsdModel *model, size_t batch_index);
 
 /* Static parts visibility plus the animation-driven joint hidden state. */
-int demo_model_batch_pose_visible(const DemoModel *model, size_t batch_index);
+int hsd_model_batch_pose_visible(const HsdModel *model, size_t batch_index);
 
 /*
- * Pose evaluation.  demo_model_pose_reset() restores every joint's local SRT
- * to the archive bind values, demo_model_pose_channel() applies one HSD_A_J_*
- * channel (JObjUpdateFunc semantics), and demo_model_pose_apply() recomputes
+ * Pose evaluation.  hsd_model_pose_reset() restores every joint's local SRT
+ * to the archive bind values, hsd_model_pose_channel() applies one HSD_A_J_*
+ * channel (JObjUpdateFunc semantics), and hsd_model_pose_apply() recomputes
  * all world matrices and re-skins the vertex buffer.
  */
-void demo_model_pose_reset(DemoModel *model);
-void demo_model_pose_channel(DemoModel *model, size_t joint, int channel,
+void hsd_model_pose_reset(HsdModel *model);
+void hsd_model_pose_channel(HsdModel *model, size_t joint, int channel,
                              float value);
-void demo_model_pose_apply(DemoModel *model);
+void hsd_model_pose_apply(HsdModel *model);
 
 #endif

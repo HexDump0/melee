@@ -114,7 +114,7 @@ static void decode_16(const uint8_t* src, uint8_t* dst, int w, int h, int fmt)
     for (by = 0; by < (h + 3) / 4; ++by) for (bx = 0; bx < (w + 3) / 4; ++bx)
         for (y = 0; y < 4; ++y) for (x = 0; x < 4; ++x) {
             uint8_t p[4]; uint16_t v = be16(src); src += 2;
-            if (fmt == DEMO_TF_RGB565) rgb565(v, p); else rgb5a3(v, p);
+            if (fmt == TEX_FMT_RGB565) rgb565(v, p); else rgb5a3(v, p);
             put(dst, w, h, bx * 4 + x, by * 4 + y, p);
         }
 }
@@ -155,7 +155,7 @@ static void decode_cmpr(const uint8_t* src, uint8_t* dst, int w, int h)
         }
 }
 
-int demo_texture_decode(const void* pixels, size_t pixel_length,
+int gx_texture_decode(const void* pixels, size_t pixel_length,
                         int width, int height, int format,
                         uint8_t** out_rgba, char* error, size_t error_length)
 {    size_t blocks_x, blocks_y, bytes_per_block, expected, output_size;
@@ -164,11 +164,11 @@ int demo_texture_decode(const void* pixels, size_t pixel_length,
         fail(error, error_length, "invalid texture dimensions or output"); return -1;
     }
     switch (format) {
-    case DEMO_TF_I4: bytes_per_block = 32; blocks_x = (size_t)(width + 7) / 8; blocks_y = (size_t)(height + 7) / 8; break;
-    case DEMO_TF_I8: case DEMO_TF_IA4: bytes_per_block = 32; blocks_x = (size_t)(width + 7) / 8; blocks_y = (size_t)(height + 3) / 4; break;
-    case DEMO_TF_IA8: case DEMO_TF_RGB565: case DEMO_TF_RGB5A3: bytes_per_block = 32; blocks_x = (size_t)(width + 3) / 4; blocks_y = (size_t)(height + 3) / 4; break;
-    case DEMO_TF_RGBA8: bytes_per_block = 64; blocks_x = (size_t)(width + 3) / 4; blocks_y = (size_t)(height + 3) / 4; break;
-    case DEMO_TF_CMPR: bytes_per_block = 32; blocks_x = (size_t)(width + 7) / 8; blocks_y = (size_t)(height + 7) / 8; break;
+    case TEX_FMT_I4: bytes_per_block = 32; blocks_x = (size_t)(width + 7) / 8; blocks_y = (size_t)(height + 7) / 8; break;
+    case TEX_FMT_I8: case TEX_FMT_IA4: bytes_per_block = 32; blocks_x = (size_t)(width + 7) / 8; blocks_y = (size_t)(height + 3) / 4; break;
+    case TEX_FMT_IA8: case TEX_FMT_RGB565: case TEX_FMT_RGB5A3: bytes_per_block = 32; blocks_x = (size_t)(width + 3) / 4; blocks_y = (size_t)(height + 3) / 4; break;
+    case TEX_FMT_RGBA8: bytes_per_block = 64; blocks_x = (size_t)(width + 3) / 4; blocks_y = (size_t)(height + 3) / 4; break;
+    case TEX_FMT_CMPR: bytes_per_block = 32; blocks_x = (size_t)(width + 7) / 8; blocks_y = (size_t)(height + 7) / 8; break;
     default: fail(error, error_length, "unsupported GX texture format (CI requires a palette)"); return -1;
     }
     if (blocks_x > SIZE_MAX / blocks_y || blocks_x * blocks_y > SIZE_MAX / bytes_per_block ||
@@ -182,18 +182,18 @@ int demo_texture_decode(const void* pixels, size_t pixel_length,
     if (!*out_rgba) { fail(error, error_length, "RGBA8 allocation failed"); return -1; }
     memset(*out_rgba, 0, output_size);
     switch (format) {
-    case DEMO_TF_I4: decode_i4(pixels, *out_rgba, width, height); break;
-    case DEMO_TF_I8: decode_i8(pixels, *out_rgba, width, height); break;
-    case DEMO_TF_IA4: decode_ia4(pixels, *out_rgba, width, height); break;
-    case DEMO_TF_IA8: decode_ia8(pixels, *out_rgba, width, height); break;
-    case DEMO_TF_RGB565: case DEMO_TF_RGB5A3: decode_16(pixels, *out_rgba, width, height, format); break;
-    case DEMO_TF_RGBA8: decode_rgba8(pixels, *out_rgba, width, height); break;
-    case DEMO_TF_CMPR: decode_cmpr(pixels, *out_rgba, width, height); break;
+    case TEX_FMT_I4: decode_i4(pixels, *out_rgba, width, height); break;
+    case TEX_FMT_I8: decode_i8(pixels, *out_rgba, width, height); break;
+    case TEX_FMT_IA4: decode_ia4(pixels, *out_rgba, width, height); break;
+    case TEX_FMT_IA8: decode_ia8(pixels, *out_rgba, width, height); break;
+    case TEX_FMT_RGB565: case TEX_FMT_RGB5A3: decode_16(pixels, *out_rgba, width, height, format); break;
+    case TEX_FMT_RGBA8: decode_rgba8(pixels, *out_rgba, width, height); break;
+    case TEX_FMT_CMPR: decode_cmpr(pixels, *out_rgba, width, height); break;
     }
     return 0;
 }
 
-int demo_texture_decode_ci(const void* indices, size_t index_length,
+int gx_texture_decode_ci(const void* indices, size_t index_length,
                            int width, int height, int format,
                            const uint8_t* palette, size_t palette_entries,
                            uint8_t** out_rgba, char* error, size_t error_length)
@@ -212,12 +212,12 @@ int demo_texture_decode_ci(const void* indices, size_t index_length,
         fail(error, error_length, "invalid CI texture arguments");
         return -1;
     }
-    if (format != DEMO_TF_CI4 && format != DEMO_TF_CI8) {
+    if (format != TEX_FMT_CI4 && format != TEX_FMT_CI8) {
         fail(error, error_length, "not an indexed GX texture format");
         return -1;
     }
     blocks_x = (size_t)(width + 7) / 8;
-    blocks_y = format == DEMO_TF_CI4 ? (size_t)(height + 7) / 8
+    blocks_y = format == TEX_FMT_CI4 ? (size_t)(height + 7) / 8
                                      : (size_t)(height + 3) / 4;
     expected = blocks_x * blocks_y * 32;
     if (index_length < expected) {
@@ -236,15 +236,15 @@ int demo_texture_decode_ci(const void* indices, size_t index_length,
         return -1;
     }
     memset(dst, 0, output_size);
-    for (by = 0; by < (height + (format == DEMO_TF_CI4 ? 7 : 3)) /
-                         (format == DEMO_TF_CI4 ? 8 : 4);
+    for (by = 0; by < (height + (format == TEX_FMT_CI4 ? 7 : 3)) /
+                         (format == TEX_FMT_CI4 ? 8 : 4);
          ++by) {
         for (bx = 0; bx < (width + 7) / 8; ++bx) {
             int y;
-            int rows = format == DEMO_TF_CI4 ? 8 : 4;
+            int rows = format == TEX_FMT_CI4 ? 8 : 4;
             for (y = 0; y < rows; ++y) {
                 int x;
-                if (format == DEMO_TF_CI4) {
+                if (format == TEX_FMT_CI4) {
                     for (x = 0; x < 8; x += 2) {
                         unsigned int packed = *src++;
                         unsigned int hi = (packed >> 4) & 0xF;

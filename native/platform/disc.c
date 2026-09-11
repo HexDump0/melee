@@ -110,22 +110,22 @@ static int fst_find(Disc *d, const char *wanted, uint32_t *off, uint32_t *size) 
     unsigned char head[12], ent[12];
     uint32_t fst, entries, strings, i;
     if (!disc_read(d, 0x1c, head, 4) || be32(head) != GC_MAGIC ||
-        !disc_read(d, 0x424, head, 4)) return DEMO_ASSET_NOT_A_DISC;
+        !disc_read(d, 0x424, head, 4)) return DISC_NOT_A_DISC;
     fst = be32(head);
-    if (!disc_read(d, (uint64_t)fst + 8, head, 4)) return DEMO_ASSET_CORRUPT_DISC;
+    if (!disc_read(d, (uint64_t)fst + 8, head, 4)) return DISC_CORRUPT_DISC;
     entries = be32(head);
     if (entries < 1 || entries > MAX_FST_ENTRIES ||
         !range_ok(fst, (uint64_t)entries * 12, d->ciso ? (uint64_t)CISO_MAP_SIZE * d->block_size : d->file_size))
-        return DEMO_ASSET_CORRUPT_DISC;
+        return DISC_CORRUPT_DISC;
     strings = fst + entries * 12;
     for (i = 1; i < entries; ++i) {
         uint32_t name_off, parent, end;
         char name[256];
-        if (!disc_read(d, (uint64_t)fst + i * 12, ent, 12)) return DEMO_ASSET_CORRUPT_DISC;
+        if (!disc_read(d, (uint64_t)fst + i * 12, ent, 12)) return DISC_CORRUPT_DISC;
         name_off = ((uint32_t)ent[1] << 16) | ((uint32_t)ent[2] << 8) | ent[3];
-        if (name_off >= 1u << 24) return DEMO_ASSET_CORRUPT_DISC;
+        if (name_off >= 1u << 24) return DISC_CORRUPT_DISC;
         { size_t j = 0; unsigned char c;
-          do { if (j + 1 >= sizeof(name) || !disc_read(d, (uint64_t)strings + name_off + j, &c, 1)) return DEMO_ASSET_CORRUPT_DISC; name[j++] = (char)c; } while (c != 0); }
+          do { if (j + 1 >= sizeof(name) || !disc_read(d, (uint64_t)strings + name_off + j, &c, 1)) return DISC_CORRUPT_DISC; name[j++] = (char)c; } while (c != 0); }
         if (ent[0] & 1) {
             /* Reconstructing paths from FST parent indices is unnecessary for
              * the common root file, but retain root and one-level directory
@@ -134,35 +134,35 @@ static int fst_find(Disc *d, const char *wanted, uint32_t *off, uint32_t *size) 
             continue;
         }
         if (strcmp(name, wanted) == 0 || (wanted[0] == '/' && strcmp(name, wanted + 1) == 0)) {
-            *off = be32(ent + 4); *size = be32(ent + 8); return DEMO_ASSET_OK;
+            *off = be32(ent + 4); *size = be32(ent + 8); return DISC_OK;
         }
     }
-    return DEMO_ASSET_FILE_NOT_FOUND;
+    return DISC_FILE_NOT_FOUND;
 }
 
-int demo_asset_load(const char *image_path, const char *disc_path, DemoAsset *out,
+int disc_load(const char *image_path, const char *disc_path, DiscFile *out,
                     char *error, size_t error_size) {
     Disc d; uint32_t off, size; int rc;
-    if (out == NULL || image_path == NULL || disc_path == NULL) { set_error(error,error_size,"bad argument"); return DEMO_ASSET_BAD_ARGUMENT; }
+    if (out == NULL || image_path == NULL || disc_path == NULL) { set_error(error,error_size,"bad argument"); return DISC_BAD_ARGUMENT; }
     out->data = NULL; out->size = 0;
-    if (!disc_open(&d, image_path)) { set_error(error,error_size,"cannot open disc image"); return DEMO_ASSET_OPEN_FAILED; }
+    if (!disc_open(&d, image_path)) { set_error(error,error_size,"cannot open disc image"); return DISC_OPEN_FAILED; }
     rc = fst_find(&d, disc_path, &off, &size);
-    if (rc == DEMO_ASSET_OK) {
+    if (rc == DISC_OK) {
         out->data = malloc(size ? size : 1);
-        if (out->data == NULL) rc = DEMO_ASSET_OUT_OF_MEMORY;
-        else if (!disc_read(&d, off, out->data, size)) { free(out->data); out->data=NULL; rc=DEMO_ASSET_IO_ERROR; }
+        if (out->data == NULL) rc = DISC_OUT_OF_MEMORY;
+        else if (!disc_read(&d, off, out->data, size)) { free(out->data); out->data=NULL; rc=DISC_IO_ERROR; }
         else out->size = size;
     }
     disc_close(&d);
-    set_error(error,error_size,demo_asset_error_string(rc));
+    set_error(error,error_size,disc_error_string(rc));
     return rc;
 }
-int demo_asset_load_default(const char *image_path, DemoAsset *out, char *error, size_t error_size) {
-    return demo_asset_load(image_path, "PlMrNr.dat", out, error, error_size);
+int disc_load_default(const char *image_path, DiscFile *out, char *error, size_t error_size) {
+    return disc_load(image_path, "PlMrNr.dat", out, error, error_size);
 }
-void demo_asset_free(DemoAsset *asset) { if (asset) { free(asset->data); asset->data=NULL; asset->size=0; } }
+void disc_free(DiscFile *asset) { if (asset) { free(asset->data); asset->data=NULL; asset->size=0; } }
 
-void demo_asset_list_free(DemoAssetList *list)
+void disc_list_free(DiscFileList *list)
 {
     size_t i;
     if (list == NULL) return;
@@ -173,7 +173,7 @@ void demo_asset_list_free(DemoAssetList *list)
     list->capacity = 0;
 }
 
-static int list_append(DemoAssetList *list, const char *name)
+static int list_append(DiscFileList *list, const char *name)
 {
     char *copy;
     if (list->count == list->capacity) {
@@ -223,8 +223,8 @@ static int fst_read_name(Disc *d, uint32_t strings, const unsigned char ent[12],
     return 1;
 }
 
-int demo_asset_list(const char *image_path, const char *prefix,
-                    const char *suffix, DemoAssetList *out, char *error,
+int disc_list(const char *image_path, const char *prefix,
+                    const char *suffix, DiscFileList *out, char *error,
                     size_t error_size)
 {
     Disc d;
@@ -236,31 +236,31 @@ int demo_asset_list(const char *image_path, const char *prefix,
     uint32_t i;
     size_t prefix_length = prefix ? strlen(prefix) : 0;
     size_t suffix_length = suffix ? strlen(suffix) : 0;
-    int rc = DEMO_ASSET_OK;
+    int rc = DISC_OK;
     if (out == NULL || image_path == NULL) {
         set_error(error, error_size, "bad argument");
-        return DEMO_ASSET_BAD_ARGUMENT;
+        return DISC_BAD_ARGUMENT;
     }
     memset(out, 0, sizeof(*out));
     if (!disc_open(&d, image_path)) {
         set_error(error, error_size, "cannot open disc image");
-        return DEMO_ASSET_OPEN_FAILED;
+        return DISC_OPEN_FAILED;
     }
     if (!disc_read(&d, 0x1c, head, 4) || be32(head) != GC_MAGIC ||
         !disc_read(&d, 0x424, head, 4)) {
-        rc = DEMO_ASSET_NOT_A_DISC;
+        rc = DISC_NOT_A_DISC;
         goto done;
     }
     fst = be32(head);
     if (!disc_read(&d, (uint64_t)fst + 8, head, 4)) {
-        rc = DEMO_ASSET_CORRUPT_DISC;
+        rc = DISC_CORRUPT_DISC;
         goto done;
     }
     entries = be32(head);
     if (entries < 1 || entries > MAX_FST_ENTRIES ||
         !range_ok(fst, (uint64_t)entries * 12,
                   d.ciso ? (uint64_t)CISO_MAP_SIZE * d.block_size : d.file_size)) {
-        rc = DEMO_ASSET_CORRUPT_DISC;
+        rc = DISC_CORRUPT_DISC;
         goto done;
     }
     strings = fst + entries * 12;
@@ -268,14 +268,14 @@ int demo_asset_list(const char *image_path, const char *prefix,
         char name[256];
         size_t length;
         if (!disc_read(&d, (uint64_t)fst + i * 12, ent, 12)) {
-            rc = DEMO_ASSET_CORRUPT_DISC;
+            rc = DISC_CORRUPT_DISC;
             goto done;
         }
         if (ent[0] & 1) {
             continue;
         }
         if (!fst_read_name(&d, strings, ent, name, sizeof(name))) {
-            rc = DEMO_ASSET_CORRUPT_DISC;
+            rc = DISC_CORRUPT_DISC;
             goto done;
         }
         length = strlen(name);
@@ -288,7 +288,7 @@ int demo_asset_list(const char *image_path, const char *prefix,
             continue;
         }
         if (!list_append(out, name)) {
-            rc = DEMO_ASSET_OUT_OF_MEMORY;
+            rc = DISC_OUT_OF_MEMORY;
             goto done;
         }
     }
@@ -297,16 +297,16 @@ int demo_asset_list(const char *image_path, const char *prefix,
     }
 done:
     disc_close(&d);
-    if (rc != DEMO_ASSET_OK) {
-        demo_asset_list_free(out);
+    if (rc != DISC_OK) {
+        disc_list_free(out);
     }
-    set_error(error, error_size, demo_asset_error_string(rc));
+    set_error(error, error_size, disc_error_string(rc));
     return rc;
 }
 
-int demo_asset_enumerate_public_symbols(const DemoAsset *a, DemoAssetSymbolFn cb, void *user, char *error, size_t n) {
+int disc_enumerate_public_symbols(const DiscFile *a, DiscSymbolFn cb, void *user, char *error, size_t n) {
     const unsigned char *p; uint32_t file_size,data_size,nrel,npub,next, i;
-    if (!a || !a->data || !cb) { set_error(error,n,"bad argument"); return DEMO_ASSET_BAD_ARGUMENT; }
+    if (!a || !a->data || !cb) { set_error(error,n,"bad argument"); return DISC_BAD_ARGUMENT; }
     if (a->size < 0x20) goto corrupt;
     p=(const unsigned char*)a->data; file_size=be32(p); data_size=be32(p+4); nrel=be32(p+8); npub=be32(p+12); next=be32(p+16);
     if (file_size != a->size || data_size > a->size-0x20 || nrel > (a->size-0x20)/4) goto corrupt;
@@ -317,7 +317,7 @@ int demo_asset_enumerate_public_symbols(const DemoAsset *a, DemoAssetSymbolFn cb
         }
       }
     }
-    set_error(error,n,"ok"); return DEMO_ASSET_OK;
-corrupt: set_error(error,n,"invalid HSD archive"); return DEMO_ASSET_CORRUPT_ARCHIVE;
+    set_error(error,n,"ok"); return DISC_OK;
+corrupt: set_error(error,n,"invalid HSD archive"); return DISC_CORRUPT_ARCHIVE;
 }
-const char *demo_asset_error_string(int c) { switch(c){case 0:return "ok";case 1:return "bad argument";case 2:return "cannot open disc image";case 3:return "not a GameCube disc";case 4:return "file not found";case 5:return "corrupt disc";case 6:return "out of memory";case 7:return "disc read error";case 8:return "corrupt HSD archive";default:return "unknown error";} }
+const char *disc_error_string(int c) { switch(c){case 0:return "ok";case 1:return "bad argument";case 2:return "cannot open disc image";case 3:return "not a GameCube disc";case 4:return "file not found";case 5:return "corrupt disc";case 6:return "out of memory";case 7:return "disc read error";case 8:return "corrupt HSD archive";default:return "unknown error";} }
