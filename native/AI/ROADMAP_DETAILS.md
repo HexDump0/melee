@@ -19,7 +19,7 @@ decompiled logic; do not invent equivalents.
 would be thrown away.
 
 **Deliverable.**
-- `main.c` draw path: per-batch VAO/VBOs built from `DemoModelBatch` vertex
+- `main.c` draw path: per-batch VAO/VBOs built from `HsdBatch` vertex
   ranges; one base shader (position, normal, colour, uv, texture sample,
   material colour, optional alpha test); uniforms for the HSD texture matrix
   (currently `glMatrixMode(GL_TEXTURE)`), material colour/alpha and
@@ -66,7 +66,7 @@ would be thrown away.
 ## P-204 — TEV approximation (in progress)
 
 **Landed (see `learnings/hsd_tev_materials.md`, `hsd_lights_fog.md`).**
-`MObjMakeTExp` / `TObjMakeTExp` state derivation in `demo_model.c` + shader
+`MObjMakeTExp` / `TObjMakeTExp` state derivation in `hsd/model.c` + shader
 evaluation: material-vs-RAS initial stage, `TEX_COLORMAP_*`/`TEX_ALPHAMAP_*`,
 DIFFUSE/SPECULAR/EXT lightmap phases (specular accumulates into
 `mat.specular`, multiplied by the specular channel), `RENDER_DIFFUSE`, GX
@@ -83,7 +83,7 @@ Flat Zone's `x7E4_scaleZ`.
 
 **Source of truth.** `src/sysdolphin/baselib/tev.c`, `tobj.c`, `mobj.c`,
 `state.c`, `pobj.c`, and the `TObjDesc`/`MObjDesc` fields parsed in
-`demo_model.c`. Derive state from those, never from screenshots.
+`hsd/model.c`. Derive state from those, never from screenshots.
 
 ---
 
@@ -92,7 +92,7 @@ Flat Zone's `x7E4_scaleZ`.
 **P-301:** compile pure HSD math and containers from `src/sysdolphin` behind a
 thin platform shim (no GameCube headers in the port). Start with `mtx.c`,
 `vec.c`, then `spline.c`. Replace `make_local_mtx`/`mtx_concat`/
-`mtx_transform_*` in `demo_model.c` with the real functions once the shim is
+`mtx_transform_*` in `hsd/model.c` with the real functions once the shim is
 proven (bind-pose bounds must stay identical).
 
 **P-302:** port `ftCommon_*` movement and the fighter action state machine.

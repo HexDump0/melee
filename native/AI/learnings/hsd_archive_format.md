@@ -53,7 +53,7 @@ Public entry layout (verified against `PlMrNr.dat`, which has 2 publics):
 | +0 | `data_offset` — offset from data base of the symbol |
 | +4 | `symbol` — offset into the strings blob |
 
-Root-selection heuristic used by `demo_model.c`: pick the first public whose
+Root-selection heuristic used by `hsd/model.c`: pick the first public whose
 name ends in `_joint` and does not contain `matanim`. For `PlMrNr.dat` that is
 `PlyMario5K_Share_joint @ 0x19400`.
 

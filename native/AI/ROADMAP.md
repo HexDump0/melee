@@ -85,7 +85,7 @@ data, so it will stay approximate until stages (M4) are ported.
 
 ## M3 — Faithful movement and fighter states
 
-Replace `demo_physics.c` (explicitly original sandbox code) with the real
+Replace `extras/physics.c` (explicitly original sandbox code) with the real
 engine: compile the pure HSD math from `src/sysdolphin` (P-301), then port
 `ftCommon_*` movement and the fighter action state machine (P-302). This is
 where per-action animation rates (P-210) come from for free, and where

@@ -32,7 +32,7 @@ cat native/AI/AGENTS.md native/AI/STATE.md native/AI/TASKS.md
 # 4. Build and verify the current baseline
 cmake -S native -B build/native -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build/native -j4
-./build/native/melee-demo --inspect
+./build/native/melee --inspect
 
 # 5. Do the work, verify per TESTING.md, write a learning/gotcha if you learned
 #    anything non-obvious, record a handoff if you stop mid-task, commit.

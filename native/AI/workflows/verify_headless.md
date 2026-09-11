@@ -10,21 +10,21 @@ cmake -S native -B build/native -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build/native -j4
 
 # 2. Parse-only (fastest, no GPU)
-./build/native/melee-demo --inspect
+./build/native/melee --inspect
 
 # 3. Model viewer frame(s) + screenshot
-SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --view --frames 3 \
+SDL_VIDEODRIVER=offscreen ./build/native/melee --view --frames 3 \
     --screenshot /tmp/view.bmp
 
 # 4. Gameplay frames + screenshot
-SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --scripted --frames 240 \
+SDL_VIDEODRIVER=offscreen ./build/native/melee --scripted --frames 240 \
     --screenshot /tmp/game.bmp
 
 # 5. Sanitizers (parser/memory changes)
-cmake -S native -B build/native-asan -DCMAKE_BUILD_TYPE=Debug -DDEMO_SANITIZE=ON
+cmake -S native -B build/native-asan -DCMAKE_BUILD_TYPE=Debug -DMELEE_SANITIZE=ON
 cmake --build build/native-asan -j4
 SDL_VIDEODRIVER=offscreen ASAN_OPTIONS=detect_leaks=0 \
-    ./build/native-asan/melee-demo --scripted --frames 600
+    ./build/native-asan/melee --scripted --frames 600
 ```
 
 ## Viewing the result

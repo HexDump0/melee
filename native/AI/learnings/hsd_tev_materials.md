@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-10
 **Agent:** opencode (deepseek-flash)
-**Evidence:** `native/demo_model.c` (`parse_material`), `native/main.c`
+**Evidence:** `native/hsd/model.c` (`parse_material`), `native/main.c`
 (MODEL_VS/MODEL_FS, `draw_batch`), `--dump-tev` on 9 `Pl*Nr.dat` archives,
 screenshots under `/tmp/opencode/p211/after/` (not committed). Sources:
 `src/sysdolphin/baselib/mobj.c` (`MObjLoad`, `MObjMakeTExp`), `tobj.c`
@@ -125,8 +125,8 @@ second TObj's `MakeTextureMtx` is uploaded as `u_texmtx[1]`.
 ## How to verify
 
 ```sh
-./build/native/melee-demo --dump-tev | head     # per-batch GX material state
-SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --view --frames 3 \
+./build/native/melee --dump-tev | head     # per-batch GX material state
+SDL_VIDEODRIVER=offscreen ./build/native/melee --view --frames 3 \
     --screenshot /tmp/view.bmp
 ```
 

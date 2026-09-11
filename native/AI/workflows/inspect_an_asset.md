@@ -10,12 +10,12 @@ bytes. Put probes in `/tmp/opencode` and port findings into `learnings/`.
 ## 1. Find the file
 
 ```sh
-./build/native/melee-demo --list-models            # Pl*Nr.dat
-./build/native/melee-demo --all-models --list-models
+./build/native/melee --list-models            # Pl*Nr.dat
+./build/native/melee --all-models --list-models
 ```
 
 For arbitrary names, write a short Python FST lister (see
-`learnings/disc_assets.md`) or extend `demo_asset_list` usage temporarily.
+`learnings/disc_assets.md`) or extend `disc_list` usage temporarily.
 
 ## 2. Extract it once
 
@@ -44,14 +44,14 @@ Fast iteration beats C compile cycles. Verify one non-obvious fact at a time.
 
 ## 5. Port the finding to C
 
-Add the minimal parser code to `native/demo_model.c` with bounds checks. Keep
+Add the minimal parser code to `native/hsd/model.c` with bounds checks. Keep
 the Python probe only if it is a test; otherwise delete it.
 
 ## 6. Verify with the tool
 
 ```sh
-./build/native/melee-demo --inspect --list-parts
-SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --view --frames 3 \
+./build/native/melee --inspect --list-parts
+SDL_VIDEODRIVER=offscreen ./build/native/melee --view --frames 3 \
     --screenshot /tmp/asset.bmp
 magick /tmp/asset.bmp /tmp/asset.png
 ```

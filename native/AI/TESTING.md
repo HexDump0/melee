@@ -13,7 +13,7 @@ cmake -S native -B build/native -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build/native -j4
 
 # Parser test, no window, no GPU needed
-./build/native/melee-demo --inspect
+./build/native/melee --inspect
 ```
 
 Expected tail:
@@ -26,8 +26,8 @@ Decoded PlMrNr.dat: 6328 triangles, 32 textures; bounds [-8.31 -0.31 -2.97] to [
 
 ```sh
 # Animation clip table and a deterministic animated frame
-./build/native/melee-demo --model PlMrNr.dat --list-clips | head
-SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --view --animate \
+./build/native/melee --model PlMrNr.dat --list-clips | head
+SDL_VIDEODRIVER=offscreen ./build/native/melee --view --animate \
     --clip Wait1 --anim-frame 25 --frames 1 --screenshot /tmp/anim.bmp
 ```
 
@@ -36,7 +36,7 @@ Expected: 195 clips for Mario (`Wait1` 50 frames), and
 
 ```sh
 # Full loop + render, headless
-SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --scripted --frames 240 \
+SDL_VIDEODRIVER=offscreen ./build/native/melee --scripted --frames 240 \
     --screenshot /tmp/smoke.bmp
 ```
 
@@ -47,14 +47,14 @@ If either output changes, explain why in the commit and update `STATE.md`.
 ## Sanitizer run (required for parser/memory changes)
 
 ```sh
-cmake -S native -B build/native-asan -DCMAKE_BUILD_TYPE=Debug -DDEMO_SANITIZE=ON
+cmake -S native -B build/native-asan -DCMAKE_BUILD_TYPE=Debug -DMELEE_SANITIZE=ON
 cmake --build build/native-asan -j4
 SDL_VIDEODRIVER=offscreen ASAN_OPTIONS=detect_leaks=0 \
-    ./build/native-asan/melee-demo --scripted --frames 600
+    ./build/native-asan/melee --scripted --frames 600
 ```
 
 Leaks are disabled because the GL driver leaks at exit; the port's own
-allocations are freed in `destroy_visual()` and `demo_model_free()`.
+allocations are freed in `destroy_visual()` and `hsd_model_free()`.
 Any ASan/UBSan report in port code is a release blocker.
 
 ## Visual verification (no X11 on the agent machine)
@@ -63,7 +63,7 @@ The reference machine has no display; SDL's `offscreen` driver plus Mesa works.
 Always capture a screenshot and inspect it:
 
 ```sh
-SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --view \
+SDL_VIDEODRIVER=offscreen ./build/native/melee --view \
     --angle 180 --elevation -5 --screenshot /tmp/model.bmp
 magick /tmp/model.bmp /tmp/model.png
 # then open/attach /tmp/model.png
@@ -74,7 +74,7 @@ Useful angles: `0` front, `90`/`270` sides, `180` back, `210` three-quarter.
 For gameplay framing:
 
 ```sh
-SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --scripted --frames 120 \
+SDL_VIDEODRIVER=offscreen ./build/native/melee --scripted --frames 120 \
     --screenshot /tmp/gameplay.bmp
 ```
 
@@ -84,7 +84,7 @@ Run before merging parser changes:
 
 ```sh
 for m in PlMrNr.dat PlFxNr.dat PlPkNr.dat PlClNr.dat PlDkNr.dat; do
-  ./build/native/melee-demo --model "$m" --inspect | tail -1
+  ./build/native/melee --model "$m" --inspect | tail -1
 done
 ```
 
@@ -108,7 +108,7 @@ Agents cannot judge feel. When a change affects controls, camera or timing,
 add a checklist to `TASKS.md` under "needs a human" and ask the owner to run:
 
 ```sh
-./build/native/melee-demo
+./build/native/melee
 ```
 
 Checklist format: exact keys, expected result, and what a regression looks like.

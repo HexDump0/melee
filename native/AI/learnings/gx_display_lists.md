@@ -76,6 +76,6 @@ triangles, wildly out-of-range positions. Checks:
 4. Compare positions of consecutive strip vertices: they should be spatially
    close for a coherent mesh.
 
-`native/demo_model.c` exposes no debug histogram; use a Python probe (see
+`native/hsd/model.c` exposes no debug histogram; use a Python probe (see
 `workflows/inspect_an_asset.md`) or add a temporary one and delete it before
 commit.

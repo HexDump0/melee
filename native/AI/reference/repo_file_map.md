@@ -7,15 +7,31 @@ decomp business.
 
 ```
 native/
-├── main.c                SDL/GL loop, sandbox, viewer, CLI, HUD
-├── demo_assets.c/.h      disc images, FST, archive symbol enumeration
-├── demo_model.c/.h       HSD parse, skinning, materials, textures, batches
-├── demo_texture.c/.h     GX texture decode
-├── demo_attributes.c/.h  ftData -> movement attributes
-├── demo_physics.c/.h     demo controller
-├── demo_text.h           5x7 HUD font
-├── CMakeLists.txt        build; -DDEMO_SANITIZE=ON
-└── AI/                   this knowledge base
+├── main.c                  entry point, CLI, mode dispatch
+├── platform/
+│   ├── disc.c/.h           disc images, FST, archive symbol enumeration
+│   └── screenshot.c/.h     framebuffer -> BMP
+├── hsd/                    hand-rebuilt engine layer
+│   ├── model.c/.h          HSD parse, skinning, materials, batches
+│   ├── aobj.c/.h           FObj curve player
+│   ├── anim.c/.h           FigaTree clips + joint binding
+│   ├── parts.c/.h          ftData visibility + model scaling
+│   └── light.c/.h          HSD_LightDesc / HSD_FogDesc
+├── gx/                     GX replacement (ours forever)
+│   ├── gl.h                OpenGL include point
+│   ├── shader.c/.h         GLSL compile/link + version header
+│   ├── render.c/.h         shaders, buffers, GX material state, Visual
+│   ├── overlay.c/.h        HUD/grid/debug geometry
+│   ├── math.c/.h           temporary hand matrix math (P-301 target)
+│   └── texture.c/.h        GX texture decode
+├── game/attributes.c/.h    ftData -> movement attributes
+├── extras/                 port-only features, not the game
+│   ├── physics.c/.h        placeholder movement sandbox
+│   └── font.h              5x7 HUD font
+├── decomp/                 build glue + shims for src/ (P-301, empty)
+├── tests/test_math.c       CTest math harness
+├── CMakeLists.txt          build; -DMELEE_SANITIZE=ON
+└── AI/                     this knowledge base
 ```
 
 ## Engine reference (read-only)

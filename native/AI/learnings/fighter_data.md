@@ -1,6 +1,6 @@
 # Fighter data (`ftData`, `ftCo_DatAttrs`)
 
-Verified: `demo_attributes.c` reads Mario's movement values from `PlMr.dat`
+Verified: `game/attributes.c` reads Mario's movement values from `PlMr.dat`
 (not `PlMrNr.dat`) and the demo prints plausible retail values.
 
 ## Where attributes live
@@ -62,8 +62,8 @@ HSD_JObjSetScale(root_joint, &scale);
 `x34_scale.y` is `Player_GetModelScale(slot)` (1.0 in normal play; mushroom /
 Giant Melee change it), so the constant per-character factor is
 `ftCo_DatAttrs.model_scaling` at **+0x8C**. The port applies it as the root
-joint scale in `demo_model_pose_apply` (`model->model_scale`), read by
-`demo_parts_apply`.
+joint scale in `hsd_model_pose_apply` (`model->model_scale`), read by
+`parts_apply`.
 
 Observed on retail Rev 2 (bounds height in game units after scaling):
 
@@ -84,7 +84,7 @@ Observed on retail Rev 2 (bounds height in game units after scaling):
 - **Mr. Game & Watch, always:** `ftGw_Init` (`ftgamewatch.c:536`) sets
   `x34_scale.z = ftGameWatchAttributes.x0_GAMEWATCH_WIDTH` (`ftData.ext_attr
   +0`, 0.01 by default), so his root X scale is 0.01 and he is paper flat.
-  The viewer reads it into `DemoModel.model_scale_x`.
+  The viewer reads it into `HsdModel.model_scale_x`.
 - **Flat Zone only:** `Fighter_80068E64` (`fighter.c:825`) sets
   `x34_scale.z = p_ftCommonData->x7E4_scaleZ` when
   `stage_info.grkind == Gr_Kind_Flatzone`. A bare model viewer has no stage,
@@ -93,7 +93,7 @@ Observed on retail Rev 2 (bounds height in game units after scaling):
 Runtime colour overrides also exist outside the model file: `ftGw_Init` picks
 `ftGameWatchAttributes.x4_GAMEWATCH_COLOR[costume]` (+4) and
 `ftMaterial_800BFB4C` copies it into every MObj diffuse. The viewer applies
-costume 0 (`DemoModel.override_diffuse`). G&W's black/white outline and face
+costume 0 (`HsdModel.override_diffuse`). G&W's black/white outline and face
 are a runtime outline TEV (`ftmaterial.c`, `fp->x610_color_rgba`), not ported
 (M3).
 
@@ -122,7 +122,7 @@ common fields; the demo avoids the giant `Fighter` struct entirely.
 ## Parts and visibility (verified, implemented)
 
 The static visibility lives in `Pl<Char>.dat` and is implemented by
-`native/demo_parts.c`.
+`native/hsd/parts.c`.
 
 ### Locating it
 
@@ -157,8 +157,8 @@ is always NULL.
 
 The vis tables index `fp->dobj_list`, built in joint-traversal order by
 `ftParts_SetupParts`. A DObj can own several PObjs, so the port stores the
-DObj index on every `DemoModelBatch` and tests visibility through
-`demo_model_batch_visible`. Never use the batch index directly.
+DObj index on every `HsdBatch` and tests visibility through
+`hsd_model_batch_visible`. Never use the batch index directly.
 
 ### Still missing
 

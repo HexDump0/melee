@@ -8,7 +8,7 @@ ASan+UBSan runs clean; `--inspect` bounds/triangles unchanged (textures
 
 ## What landed
 
-- `demo_model.h/.c`: parse `HSD_MObjDesc` material (ambient/diffuse/specular/
+- `hsd/model.h/.c`: parse `HSD_MObjDesc` material (ambient/diffuse/specular/
   alpha/shininess), `HSD_PEDesc`, and the full `HSD_TObjDesc` chain (id, src,
   wrap, `blend_flags`, `blending`, `HSD_TObjTevDesc`). Derived GX state:
   `channel_lit`, `initial_ras`, `diffuse_mul`, `specular_tev`, alpha-test,
@@ -25,9 +25,9 @@ ASan+UBSan runs clean; `--inspect` bounds/triangles unchanged (textures
 - Mr. Game & Watch: `ftGameWatchAttributes.x0` flattening (root X = 0.01) and
   the costume-0 diffuse override (`ftMaterial_800BFB4C`). His outline/face TEV
   is runtime state and still missing.
-- Per-character model scale: `demo_parts_apply` now reads
+- Per-character model scale: `parts_apply` now reads
   `ftCo_DatAttrs.model_scaling` (+0x8C) from `ftData<Char>` and
-  `demo_model_pose_apply` applies it to the root joint, matching
+  `hsd_model_pose_apply` applies it to the root joint, matching
   `Fighter_UpdateModelScale`. Before this, Bowser/DK rendered at raw archive
   size (Bowser 1.8x too tall) and Kirby/Pikachu too big. Mario's scale is
   1.10, so `--inspect` bounds changed to
@@ -74,14 +74,14 @@ ASan+UBSan runs clean; `--inspect` bounds/triangles unchanged (textures
 
 ```
 cmake --build build/native --clean-first -j4     # warning-free
-./build/native/melee-demo --inspect              # 6328 tris, 32 textures
-./build/native/melee-demo --dump-tev | head
-SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --view --frames 3 \
+./build/native/melee --inspect              # 6328 tris, 32 textures
+./build/native/melee --dump-tev | head
+SDL_VIDEODRIVER=offscreen ./build/native/melee --view --frames 3 \
     --screenshot /tmp/view.bmp
-SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --scripted --frames 240
+SDL_VIDEODRIVER=offscreen ./build/native/melee --scripted --frames 240
 # Completed 240 render frames, 240 simulation ticks
 SDL_VIDEODRIVER=offscreen ASAN_OPTIONS=detect_leaks=0 \
-    ./build/native-asan/melee-demo --scripted --frames 600
+    ./build/native-asan/melee --scripted --frames 600
 # Completed 600 render frames, 600 simulation ticks
 ```
 ```

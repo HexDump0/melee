@@ -14,7 +14,7 @@ section base (`0x20`), not from the file start.
 **Cause:** `0` means NULL for link pointers, but it also means "data offset 0"
 for array-base pointers.
 **Fix:** use the NULL-aware accessor for links and the base-aware accessor for
-arrays. `demo_model.c` has both (`rptr`/`rbase`).
+arrays. `hsd/model.c` has both (`rptr`/`rbase`).
 
 ## G-003: direct attributes are read relative to a moved pointer
 
@@ -160,14 +160,14 @@ and sanity-check `model_num`/`vis_table` before using it.
 **Cause:** CI4/CI8 store palette indices; the palette lives in the model's
 `HSD_TlutDesc`, not separately. Skipping it loses the eye atlas.
 **Fix:** parse `TObjDesc+0x50`, expand the palette, use
-`demo_texture_decode_ci`. See `learnings/gx_textures.md`.
+`gx_texture_decode_ci`. See `learnings/gx_textures.md`.
 
 ## G-025: visibility indices are DObj indices, not PObj/batch indices
 
 **Symptom:** wrong parts disappear when applying `FtPartsVis`.
 **Cause:** the tables index `fp->dobj_list`; one DObj may own several PObjs.
-**Fix:** record `dobj_index` on every `DemoModelBatch` and test visibility via
-`demo_model_batch_visible`.
+**Fix:** record `dobj_index` on every `HsdBatch` and test visibility via
+`hsd_model_batch_visible`.
 
 ## G-026: the `right` matrix must not apply to the skeleton root
 
@@ -195,7 +195,7 @@ like Mr. Game & Watch are unreadable.
 `GX_U8..GX_F32`. Reading it as a scalar makes each vertex 1 byte too long and
 desyncs everything after it.
 **Fix:** size and decode colours with the colour enum (`color_attribute_size`,
-`decode_color` in `demo_model.c`).
+`decode_color` in `hsd/model.c`).
 
 ## G-029: POBJ_SKIN has two matrix slots, SHAPEANIM is rigid
 
@@ -290,7 +290,7 @@ a clip (values like `-6e32`), or KEY/SPL tracks never match the game.
 **Cause:** rewriting `fobj.c`'s compressed curve playback as a "parse once,
 evaluate at t" model. The stream is read incrementally; pack counts, waits,
 slope bookkeeping and the end-of-data state 6 all matter.
-**Fix:** port the state machine literally (see `demo_aobj.c`). Seek with
+**Fix:** port the state machine literally (see `hsd/aobj.c`). Seek with
 `ReqAnim(frame)` + `Interpret(rate = 0)`, which is exactly what
 `HSD_JObjReqAnimAll` + `HSD_JObjAnimAll` do. Differential-test against a
 transcription of `fobj.c` if you change it.
@@ -301,7 +301,7 @@ transcription of `fobj.c` if you change it.
 animate with wrong/offset limbs if the skip list is treated as a joint filter.
 **Cause:** the skip list inserts phantom part slots for item attachments; the
 i-th figatree node still drives the i-th joint in HSD traversal order.
-**Fix:** bind node i to model joint i (see `demo_anim_set_clip`); use the skip
+**Fix:** bind node i to model joint i (see `anim_set_clip`); use the skip
 list only for part-index bookkeeping.
 
 ## G-038: animation time must step on the 60 Hz tick
@@ -315,7 +315,7 @@ game does (`HSD_AObjSetRate` is frames per 60 Hz tick).
 
 ## G-039: `--model` alone opens the interactive sandbox
 
-**Symptom:** running `melee-demo --model PlKbNr.dat` from a terminal pops a
+**Symptom:** running `melee --model PlKbNr.dat` from a terminal pops a
 window instead of printing.
 **Cause:** without `--inspect`, `--view`, `--list-clips`, etc. the default mode
 is the playable sandbox.
@@ -371,7 +371,7 @@ the initial TEV stage uses the material `diffuse` constant unless
 `RENDER_VERTEX`, so per-vertex colours are ignored.
 **Fix:** derive `channel_lit`/`initial_ras`/`diffuse_mul` from `rendermode`
 and evaluate exactly that; per-vertex colour is only the raster when the
-channel is unlit. See `native/demo_model.c:parse_material`.
+channel is unlit. See `native/hsd/model.c:parse_material`.
 
 ## G-044: a TObj's lightmap flag selects its TEV phase, not just its texture
 

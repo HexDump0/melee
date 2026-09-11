@@ -17,9 +17,9 @@ are decode bugs.
 ## 2. Data-first checks
 
 ```sh
-./build/native/melee-demo --inspect
-./build/native/melee-demo --inspect --list-parts
-./build/native/melee-demo --dump-tev        # per-batch GX material state
+./build/native/melee --inspect
+./build/native/melee --inspect --list-parts
+./build/native/melee --dump-tev        # per-batch GX material state
 ```
 
 - Triangle count and bounds must match `STATE.md` for Mario (bounds include the
@@ -32,11 +32,11 @@ are decode bugs.
 
 ```sh
 # one part, textured
-SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --view \
+SDL_VIDEODRIVER=offscreen ./build/native/melee --view \
     --part 12 --part-mode only --frames 3 --screenshot /tmp/p12.bmp
 
 # hide a suspect part
-SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --view \
+SDL_VIDEODRIVER=offscreen ./build/native/melee --view \
     --part 12 --part-mode hide --frames 3 --screenshot /tmp/nohide.bmp
 ```
 
@@ -60,8 +60,8 @@ Especially useful for: pointer bases, stride, matrix conventions. Never guess.
 After the fix:
 
 ```sh
-./build/native/melee-demo --inspect                       # numbers
-SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --scripted --frames 240 \
+./build/native/melee --inspect                       # numbers
+SDL_VIDEODRIVER=offscreen ./build/native/melee --scripted --frames 240 \
     --screenshot /tmp/regression.bmp
 ```
 

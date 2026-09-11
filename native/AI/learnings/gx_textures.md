@@ -1,6 +1,6 @@
 # GX textures
 
-Source: `src/sysdolphin/baselib/tobj.h`, `demo_texture.c`. Verified by decoding
+Source: `src/sysdolphin/baselib/tobj.h`, `gx/texture.c`. Verified by decoding
 Mario's 128x128 CMPR overalls texture to a correct denim image.
 
 ## Descriptor chain
@@ -58,8 +58,8 @@ The palette **is** in the model archive for fighter models. Verified with
 Mario's eye atlas: 190x190 CI8 image at `0x2C9C0`, palette at `0x359C0`
 (256 entries, RGB565), immediately after the image data.
 
-`demo_texture_decode_ci` expands the indices with a palette already converted
-to RGBA8; `demo_model.c` reads the tlutdesc, converts the palette with
+`gx_texture_decode_ci` expands the indices with a palette already converted
+to RGBA8; `hsd/model.c` reads the tlutdesc, converts the palette with
 `decode_palette_entry`, and calls it for formats 8 (CI4) and 9 (CI8).
 
 ## Formats and encoded size
@@ -77,7 +77,7 @@ to RGBA8; `demo_model.c` reads the tlutdesc, converts the palette with
 | CI8 | 9 | 32 bytes | 8x4 indices | needs TLUT |
 | CMPR | 14 | 32 bytes | 8x8 (4 sub-blocks) | DXT1-like |
 
-Byte count = `blocks_x * blocks_y * block_size`. `demo_texture.c` validates
+Byte count = `blocks_x * blocks_y * block_size`. `gx/texture.c` validates
 `pixel_length >= expected` before decoding, which also makes it safe to pass
 `file_size - image_offset` as the input length.
 
@@ -86,7 +86,7 @@ Byte count = `blocks_x * blocks_y * block_size`. `demo_texture.c` validates
 GX textures are stored as 8x8 (or 8x4 / 4x4) tiles, in tile raster order:
 left to right, then top to bottom. Within a 4x4 sub-block, RGBA8 pixels are
 stored in a strided layout: 16 AR bytes, then 32 GB bytes; the decoder in
-`demo_texture.c` handles it. CMPR has four 4x4 sub-blocks per 8x8 tile in the
+`gx/texture.c` handles it. CMPR has four 4x4 sub-blocks per 8x8 tile in the
 order TL, TR, BL, BR; each sub-block is `c0 u16, c1 u16, 4 index bytes`.
 RGB565 colors compare numerically to choose the 3-color vs 4-color mode,
 matching GX.
@@ -102,7 +102,7 @@ Mario overalls: `image_ptr` data offset `0x1AD40` (file `0x1AD60`),
 1. `TObjDesc +0x50` -> `HSD_TlutDesc`.
 2. Convert `n_entries` palette words using `GXTlutFmt`.
 3. Expand CI4/CI8 indices (CI4: 8x8 blocks, 4 bpp; CI8: 8x4 blocks, 8 bpp)
-   via `demo_texture_decode_ci`.
+   via `gx_texture_decode_ci`.
 4. Upload as RGBA8; no GX palette emulation needed.
 
 ## Texture matrix (`MakeTextureMtx`, implemented)

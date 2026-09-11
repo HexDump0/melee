@@ -67,7 +67,7 @@ channels 5/6/7, so do not use it for normal playback.
   - `ReqAnim(frame)` resets the stream and sets `time = startframe + frame`.
   - The next `Interpret(rate=0)` fast-forwards to that time and emits the
     current value (this is how `HSD_JObjReqAnimAll` seeks).
-  - `AOBJ_LOOP` wrap is handled by the caller in the port (`demo_anim`).
+  - `AOBJ_LOOP` wrap is handled by the caller in the port (`hsd/anim`).
 - A stateless "parse the stream once, evaluate at t" rewrite is tempting but
   was wrong in practice (end-of-stream garbage, KEY boundaries).  Port the
   state machine.
@@ -101,13 +101,13 @@ channels 5/6/7, so do not use it for normal playback.
 - `POBJ_SKIN` rigid/shared: `current.world`, or the shared joint's `world`
   for `PNMTXIDX == 3`.
 - The port keeps a raw copy of every vertex (6 floats: position, normal) plus
-  a selector byte, and re-skins into `DemoModel::vertices` per evaluated
+  a selector byte, and re-skins into `HsdModel::vertices` per evaluated
   frame.  The static display lists remain the bind-pose fast path.
 
 ## 6. Verification
 
 - Differential test: a literal Python transcription of `fobj.c` was compared
-  against `native/demo_aobj.c` for every track of Mario `Wait1`
+  against `native/hsd/aobj.c` for every track of Mario `Wait1`
   (111 tracks x 51 frames = 5661 samples): 0 mismatches, worst absolute
   difference 6.4e-7 (float rounding).  Repeat this when touching the player.
   The Python probe lives in `/tmp/opencode/anim/` (not committed).
@@ -132,8 +132,8 @@ verified on the retail Rev 2 `PlKpNr.dat`:
 4. **Envelope `right` matrix.** Disabling it changed Bowser's frame 15 render
    by 0 RMSE, and its formula matches `_HSD_EnvelopeModelNodeMtx`; not the
    cause here.
-5. **Playback timing.** `demo_fobj_req_anim` uses `time = startframe + frame`
-   and `demo_anim_apply` resets to bind first; matches `HSD_JObjReqAnimAll`.
+5. **Playback timing.** `fobj_req_anim` uses `time = startframe + frame`
+   and `anim_apply` resets to bind first; matches `HSD_JObjReqAnimAll`.
 6. **Then it is probably the authored pose.** `Wait1` bows the spine so the
    shell rim and swept-back mohawk occupy the same screen area; a close
    three-quarter view reads as overlap. Compare against a console/Dolphin

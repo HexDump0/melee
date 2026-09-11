@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-10
 **Agent:** opencode (deepseek-flash)
-**Evidence:** `native/demo_light.c`, `--dump-lights`, rendered viewer shots.
+**Evidence:** `native/hsd/light.c`, `--dump-lights`, rendered viewer shots.
 Sources: `src/sysdolphin/baselib/lobj.h` / `lobj.c` (`HSD_LObjSetupInit`,
 `setup_*_lightobj`), `state.c` (`HSD_SetupChannelMode`, `HSD_SetupChannel`),
 `fog.h` / `fog.c` (`HSD_FogSet`), `src/melee/mn/mncharsel.c:4292` (scene load).
@@ -90,8 +90,8 @@ background exists.
 ## How to verify
 
 ```sh
-./build/native/melee-demo --dump-lights
-SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --view --frames 3 \
+./build/native/melee --dump-lights
+SDL_VIDEODRIVER=offscreen ./build/native/melee --view --frames 3 \
     --screenshot /tmp/view.bmp
 ```
 

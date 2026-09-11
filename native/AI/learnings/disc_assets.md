@@ -4,7 +4,7 @@ Verified against `Super Smash Bros. Melee (USA) (En,Ja) (Rev 2).ciso`.
 
 ## Container formats
 
-`demo_assets.c` accepts CISO, ISO and GCM.
+`platform/disc.c` accepts CISO, ISO and GCM.
 
 - **CISO**: 0x8000 header. `u32 LE` magic `CISO` at 0, `u32 LE` block size at
   4 (0x200000 for this disc), then a 0x7FF8-byte block map at 8. Map entry 0
@@ -37,7 +37,7 @@ read (it made FST enumeration unusably slow).
   - For directories: `parentOrOffset` = parent entry index, `sizeOrNext` =
     index one past the directory's subtree.
 - String table base = `fst + entries * 12`; names are NUL-terminated.
-- `demo_asset_list(prefix, suffix)` enumerates all **file** entries and filters
+- `disc_list(prefix, suffix)` enumerates all **file** entries and filters
   by name; it does not need directory reconstruction.
 
 Observed: 1209 files, 273 `Pl*.dat`, 71 `Gr*.dat`.

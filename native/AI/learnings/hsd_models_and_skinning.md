@@ -176,7 +176,7 @@ GX position-matrix slots in order, max 10.
 - Otherwise: matrix = `sum_i weight_i * (joint_i.world * joint_i.inverse_bind)`,
   which is **the identity at bind pose** because `world * inverse_bind == I`.
 - If `right != NULL` (envelope-model node, not the skeleton root): additionally
-  concat `right`. Implemented in `demo_model.c` (`joint_right`).
+  concat `right`. Implemented in `hsd/model.c` (`joint_right`).
 - Blended groups are `sum_i weight_i * (M_i * inverseBind_i)`.  With
   `M_i * inverseBind_i == I` at bind, the matrix is `(sum of weights) * I`.
   Most groups sum to 1, but not all: do not assume identity.  (A group whose
@@ -256,7 +256,7 @@ currently honours the depth-related ones while drawing a batch:
 Model archives contain no default visibility.  The fighter's `ftData` has a
 `FtPartsDesc`/`FtPartsVis` table that `ftParts_800749CC` uses: every listed
 DObj starts hidden and the neutral variant (slot 0, variant 0) is shown.  The
-port parses this in `demo_parts.c`.  See `fighter_data.md` for the layout.
+port parses this in `hsd/parts.c`.  See `fighter_data.md` for the layout.
 
 ## Verified numbers (`PlMrNr.dat`)
 

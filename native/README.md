@@ -1,11 +1,14 @@
-# Melee native experiment
+# Melee native port
 
-An early Linux native sandbox that loads real Super Smash Bros. Melee character
-assets directly from your own disc image and renders them with OpenGL.
+A Linux native port of Super Smash Bros. Melee that loads real assets from your
+own disc image.
 
-**This is not a port of the Melee engine.** The renderer, stage, camera, HUD and
-movement model are original demo code. The model geometry, textures and Mario's
-common movement attributes are read from the disc at runtime.
+The engine layer is a staged port of the decompilation: archive parsing, HSD
+models/skinning, FigaTree/FObj animation and the material/TEV state follow
+`src/` function by function and are increasingly compiled from it (see
+`native/decomp/README.md`). The renderer is the PC replacement for GX
+(OpenGL 3.3 core + GLSL). The model viewer and the movement sandbox live under
+`extras/` and are port-specific tools, not part of the game.
 
 No game assets are distributed with this repository. The executable reads your
 local disc image (CISO, ISO or GCM). The original GameCube build target is
@@ -52,7 +55,7 @@ cmake --build build/native -j4
 ## Run
 
 ```sh
-./build/native/melee-demo
+./build/native/melee
 ```
 
 The default image is `iso/Super Smash Bros. Melee (USA) (En,Ja) (Rev 2).ciso`.
@@ -80,7 +83,7 @@ can also drive player 1.
 ### 3D model viewer
 
 ```sh
-./build/native/melee-demo --view
+./build/native/melee --view
 ```
 
 The viewer orbits any character model loaded from the disc with perspective
@@ -116,49 +119,49 @@ isolation is still useful to inspect individual meshes.
 
 ```sh
 # Parse the model and print counts/bounds without opening a window
-./build/native/melee-demo --inspect
+./build/native/melee --inspect
 
 # List every character model archive on the disc
-./build/native/melee-demo --list-models
-./build/native/melee-demo --all-models --list-models
+./build/native/melee --list-models
+./build/native/melee --all-models --list-models
 
 # List the animation clips in the character's Pl*AJ.dat archive
-./build/native/melee-demo --model PlMrNr.dat --list-clips
+./build/native/melee --model PlMrNr.dat --list-clips
 
 # Play a clip in the viewer and capture a deterministic frame
-SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --view --animate \
+SDL_VIDEODRIVER=offscreen ./build/native/melee --view --animate \
     --clip Wait1 --anim-frame 25 --frames 1 --screenshot /tmp/anim.bmp
 
 # List the mesh parts of a model (index, vertex count, bounds)
-./build/native/melee-demo --inspect --list-parts
+./build/native/melee --inspect --list-parts
 
 # Dump the per-batch GX material state (rendermode, PEDesc, TObj chain)
-./build/native/melee-demo --dump-tev
+./build/native/melee --dump-tev
 
 # Dump the scene lights/fog the viewer uses (character-select table)
-./build/native/melee-demo --dump-lights
+./build/native/melee --dump-lights
 
 # Dump the model's joints (index, parent, flags, bind SRT)
-./build/native/melee-demo --model PlKpNr.dat --dump-joints
+./build/native/melee --model PlKpNr.dat --dump-joints
 
 # Viewer without the floor grid (clean XLU/transparency screenshots)
-./build/native/melee-demo --view --no-grid --frames 1 --screenshot /tmp/v.bmp
+./build/native/melee --view --no-grid --frames 1 --screenshot /tmp/v.bmp
 
 # Render an isolated view to a BMP, optionally isolating one part
-./build/native/melee-demo --view --angle 180 --screenshot /tmp/mario.bmp
-./build/native/melee-demo --view --part 21 --part-mode only --frames 3 \
+./build/native/melee --view --angle 180 --screenshot /tmp/mario.bmp
+./build/native/melee --view --part 21 --part-mode only --frames 3 \
     --screenshot /tmp/part.bmp
 
 # Frame one part, zoom in, inspect hidden parts or a visibility slot
-./build/native/melee-demo --view --part 23 --part-mode only --zoom 0.5
-./build/native/melee-demo --view --no-cull --show-hidden --vis-slot 1
+./build/native/melee --view --part 23 --part-mode only --zoom 0.5
+./build/native/melee --view --no-cull --show-hidden --vis-slot 1
 
 # Extract a disc file / dump decoded textures for offline analysis
-./build/native/melee-demo --extract PlCo.dat /tmp/PlCo.dat
-./build/native/melee-demo --dump-textures /tmp/tex
+./build/native/melee --extract PlCo.dat /tmp/PlCo.dat
+./build/native/melee --dump-textures /tmp/tex
 
 # Run a fixed number of frames headlessly (SDL offscreen video driver)
-SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --scripted --frames 240 \
+SDL_VIDEODRIVER=offscreen ./build/native/melee --scripted --frames 240 \
     --screenshot /tmp/gameplay.bmp
 ```
 
@@ -169,21 +172,25 @@ without extra configuration.
 
 ## Implementation notes
 
-- `demo_assets.c` reads CISO/ISO/GCM images and resolves FST paths.
-- `demo_model.c` walks HSD joints, display lists and envelope groups and applies
+- `platform/disc.c` reads CISO/ISO/GCM images and resolves FST paths.
+- `hsd/model.c` walks HSD joints, display lists and envelope groups and applies
   the same transforms HSD uses (bind pose by default, animated on demand). It
   keeps the raw per-vertex skin inputs and re-skins each evaluated frame. HSD
   archive pointers are 32-bit offsets from the start of the data section; every
   read is bounds checked so 64-bit hosts are safe.
-- `demo_texture.c` decodes the GX texture formats used by the fighter costumes,
+- `gx/texture.c` decodes the GX texture formats used by the fighter costumes,
   including paletted (`CI4`/`CI8` + TLUT) textures.
-- `demo_aobj.c` is a literal port of the HSD FObj curve player
+- `hsd/aobj.c` is a literal port of the HSD FObj curve player
   (`src/sysdolphin/baselib/fobj.c`).
-- `demo_anim.c` walks the `Pl<Char>AJ.dat` clip container, binds FigaTree nodes
+- `hsd/anim.c` walks the `Pl<Char>AJ.dat` clip container, binds FigaTree nodes
   to joints exactly like `ftAnim_8006F4C8`, and poses the model.
-- `demo_attributes.c` reads `ftDataMario`'s `ftCo_DatAttrs` from `PlMr.dat`.
-- `demo_physics.c` is the sandbox controller. It uses real Mario values where
-  available and clearly marked demo approximations elsewhere.
+- `game/attributes.c` reads `ftDataMario`'s `ftCo_DatAttrs` from `PlMr.dat`.
+- `extras/physics.c` is the sandbox controller. It uses real Mario values where
+  available and clearly marked sandbox approximations elsewhere. It is the
+  first file to delete when the real movement code lands.
+- `extras/viewer.c` and `extras/sandbox.c` are port extras (they still live in
+  `main.c` until the next structural step).
+- `tests/` runs with `ctest --test-dir build/native`.
 
 ## Legal
 

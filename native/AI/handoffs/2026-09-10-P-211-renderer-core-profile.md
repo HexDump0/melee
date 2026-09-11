@@ -18,7 +18,7 @@ ASan+UBSan runs clean; no fixed-function or display-list calls remain.
   bind pose + dynamic pose); `draw_batch` replaces `list_vertices`/display
   lists; CPU matrices (`m4_*`) replace the GL matrix stack; `ov_begin/
   ov_vertex/ov_end` replaces every `glBegin/glVertex`; `glGenerateMipmap`
-  replaces `GL_GENERATE_MIPMAP`; `demo_text.h` now calls `demo_text_rect`.
+  replaces `GL_GENERATE_MIPMAP`; `extras/font.h` now calls `font_rect`.
 - **`STATE.md`**, `learnings/gl_shaders.md`, GOTCHAS G-040/G-041,
   `learnings/README.md`.
 
@@ -28,9 +28,9 @@ P-204 in `TASKS.md` is now **open**. The shader hooks already exist:
 `u_material`, `u_alpha_test`, `u_use_texture`, two texture-less states are set
 per batch. Start from the decomp, not screenshots:
 
-1. Read `MObjDesc.rendermode` bits already parsed into `DemoModelBatch`
+1. Read `MObjDesc.rendermode` bits already parsed into `HsdBatch`
    (`RENDER_XLU` 1<<30, `RENDER_ZMODE_ALWAYS` 1<<27, `RENDER_NO_ZUPDATE`
-   1<<29) and `DemoModelBatch.translucent`.
+   1<<29) and `HsdBatch.translucent`.
 2. Alpha test from `TObjDesc`/`TEV` (`src/sysdolphin/baselib/tev.c`) — wire
    the reference value through `u_alpha_test` and `discard`.
 3. `RENDER_XLU`: set blend factors and draw translucent batches after opaque
@@ -69,20 +69,20 @@ are byte-identical (`--view --frames 3` twice).
 
 - H-4 (new): on the owner's 180 Hz display, confirm the viewer animates at the
   same speed as the offscreen 60 Hz-accumulator build (G-038 untouched) and
-  that nothing regressed visually. Run `./build/native/melee-demo --view
+  that nothing regressed visually. Run `./build/native/melee --view
   --animate --clip Wait1`.
 
 ## Verification run
 
 ```
 cmake --build build/native --clean-first -j4        # warning-free
-./build/native/melee-demo --inspect                  # 6328 tris, bounds unchanged
-./build/native/melee-demo --model PlMrNr.dat --list-clips | head
-SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --view --animate \
+./build/native/melee --inspect                  # 6328 tris, bounds unchanged
+./build/native/melee --model PlMrNr.dat --list-clips | head
+SDL_VIDEODRIVER=offscreen ./build/native/melee --view --animate \
     --clip Wait1 --anim-frame 25 --frames 1 --screenshot /tmp/anim.bmp
-SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --scripted --frames 240
+SDL_VIDEODRIVER=offscreen ./build/native/melee --scripted --frames 240
 # Completed 240 render frames, 240 simulation ticks
 SDL_VIDEODRIVER=offscreen ASAN_OPTIONS=detect_leaks=0 \
-    ./build/native-asan/melee-demo --scripted --frames 600
+    ./build/native-asan/melee --scripted --frames 600
 # Completed 600 render frames, 600 simulation ticks
 ```

@@ -5,9 +5,9 @@
 No code change is required for a new character model:
 
 ```sh
-./build/native/melee-demo --view --model PlFxNr.dat      # Fox
-./build/native/melee-demo --view --model-index 8         # by list position
-./build/native/melee-demo --model PlPkNr.dat --inspect   # parser only
+./build/native/melee --view --model PlFxNr.dat      # Fox
+./build/native/melee --view --model-index 8         # by list position
+./build/native/melee --model PlPkNr.dat --inspect   # parser only
 ```
 
 The viewer's `N`/`P` keys cycle through every `Pl*Nr.dat`.
@@ -17,9 +17,9 @@ The viewer's `N`/`P` keys cycle through every `Pl*Nr.dat`.
 Run all of these and record the numbers in `STATE.md`:
 
 ```sh
-./build/native/melee-demo --model PlXXNr.dat --inspect
-./build/native/melee-demo --model PlXXNr.dat --inspect --list-parts
-SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --model PlXXNr.dat \
+./build/native/melee --model PlXXNr.dat --inspect
+./build/native/melee --model PlXXNr.dat --inspect --list-parts
+SDL_VIDEODRIVER=offscreen ./build/native/melee --model PlXXNr.dat \
     --view --frames 3 --screenshot /tmp/xx.bmp
 ```
 
@@ -33,7 +33,7 @@ SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --model PlXXNr.dat \
 Per-character gameplay needs more than a new file:
 
 1. `ftDataXX` attributes (`PlXX.dat`, not the model): extend
-   `demo_attributes.c` into a generic attribute loader instead of Mario-only.
+   `game/attributes.c` into a generic attribute loader instead of Mario-only.
    Acceptance: `--model PlFxNr.dat` reports Fox values.
 2. Animation: P-201. Every character shares the same `AObj` format.
 3. Parts/visibility for face expression meshes: see `learnings/fighter_data.md`.

@@ -25,7 +25,7 @@ The pieces that matter:
 ### Shader sources
 
 - The `#version` line and ES precision declarations are a compile-time header
-  (`DEMO_GLSL_HEADER`, selected by `DEMO_GL_ES`); the bodies are one shared
+  (`GLSL_HEADER`, selected by `GL_ES`); the bodies are one shared
   string pair per program and use only ES3 syntax: `layout(location=N)`,
   `in`/`out`, `texture()`, `gl_FrontFacing`, `discard`, no `gl_FragColor`.
 - Model program replicates the old fixed-function look per **vertex**:
@@ -39,19 +39,19 @@ The pieces that matter:
 
 ### Geometry
 
-- Per batch (`DemoModelBatch` vertex range) two VAO+VBO pairs: an immutable
+- Per batch (`HsdBatch` vertex range) two VAO+VBO pairs: an immutable
   bind-pose buffer (uploaded in `compile_model`) and a pose buffer
   (`GL_DYNAMIC_DRAW`) that `upload_batch` refreshes each animated frame from
-  the CPU-skinned `DemoModel::vertices`. Static draws use the bind VAO, so an
+  the CPU-skinned `HsdModel::vertices`. Static draws use the bind VAO, so an
   animation pass can never corrupt the bind pose.
-- Attributes are interleaved `DemoModelVertex` (pos f32x3, normal f32x3,
-  uv f32x2, colour u8x4 normalized); stride is `sizeof(DemoModelVertex)`.
+- Attributes are interleaved `HsdVertex` (pos f32x3, normal f32x3,
+  uv f32x2, colour u8x4 normalized); stride is `sizeof(HsdVertex)`.
 - `glGenerateMipmap` replaces `GL_GENERATE_MIPMAP` (not in core).
 - HUD/grid/platform are a second "overlay" program fed by a CPU vertex stream
   (`ov_begin`/`ov_vertex3f`/`ov_end`); `GL_QUADS`/`GL_TRIANGLE_FAN` are
   converted to `GL_TRIANGLES` on the CPU using Mesa's `(0,1,2),(0,2,3)`
   quad decomposition. `GL_LINES`/`GL_LINE_LOOP`/`GL_LINE_STRIP` pass through.
-- `demo_text.h` now calls `demo_text_rect`; `main.c` emits the quad.
+- `extras/font.h` now calls `font_rect`; `main.c` emits the quad.
 
 ### Exactness traps (all found by the parity harness)
 
@@ -78,11 +78,11 @@ The scripted residue is 88 differing pixels out of 1,024,000, all behind the
 ```sh
 cmake -S native -B build/native -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build/native -j4
-./build/native/melee-demo --inspect
+./build/native/melee --inspect
 # 6328 triangles, bounds [-7.56 -0.28 -2.70] to [7.57 14.21 3.58]
 
 # same-frame parity vs a pre-P-211 build
-SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --view --frames 3 \
+SDL_VIDEODRIVER=offscreen ./build/native/melee --view --frames 3 \
     --screenshot /tmp/after.bmp
 magick compare -metric RMSE /tmp/before.bmp /tmp/after.bmp null:
 ```

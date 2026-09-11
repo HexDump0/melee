@@ -63,7 +63,7 @@ lightmap phases, alpha test, XLU blend) and every fighter is scaled by its
 | Mario attributes | accel .080, friction .060, run 1.500, gravity .095, terminal 1.70, air .045, jump 2.30, 2 jumps |
 | Sandbox | Move, jump, shield, attack, damage, stocks, respawn, CPU, camera follow |
 | FigaTree clips | `--list-clips` finds 195 clips for `PlMrNr.dat` (Wait1 50 frames) |
-| FObj playback | `demo_aobj.c` matches a literal `fobj.c` transcription on 5661 samples (worst 6.4e-7) |
+| FObj playback | `hsd/aobj.c` matches a literal `fobj.c` transcription on 5661 samples (worst 6.4e-7) |
 | Animation viewer | `--view --animate --clip Wait1`; `A`, `,`/`.`, `Z`/`X`, `M`; HUD shows clip/frame |
 | Match animation | Both fighters pose independently; `Wait1`/`WalkMiddle`/`Dash`/`JumpF`/`Fall` by movement |
 | Headless verify | `SDL_VIDEODRIVER=offscreen ... --frames N --screenshot` works |
@@ -104,14 +104,14 @@ Ordered by impact.
 ```sh
 cmake -S native -B build/native -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build/native -j4
-./build/native/melee-demo --inspect
-./build/native/melee-demo --list-models
-./build/native/melee-demo --list-clips
-SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --view --frames 3 \
+./build/native/melee --inspect
+./build/native/melee --list-models
+./build/native/melee --list-clips
+SDL_VIDEODRIVER=offscreen ./build/native/melee --view --frames 3 \
     --screenshot /tmp/viewer.bmp
-SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --view --animate \
+SDL_VIDEODRIVER=offscreen ./build/native/melee --view --animate \
     --clip Wait1 --anim-frame 25 --frames 1 --screenshot /tmp/anim.bmp
-SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --scripted --frames 240 \
+SDL_VIDEODRIVER=offscreen ./build/native/melee --scripted --frames 240 \
     --screenshot /tmp/baseline.bmp
 ```
 

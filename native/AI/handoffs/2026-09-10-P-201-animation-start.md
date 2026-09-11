@@ -24,8 +24,8 @@ Implement P-201 per the brief in `native/AI/TASKS.md`:
 
 1. Read `src/sysdolphin/baselib/aobj.c/.h` and find the animation root on
    Mario's archive (`PlyMario5K_Share_matanim_joint`). Confirm with
-   `./build/native/melee-demo --inspect --list-parts` and `--extract`.
-2. Add `native/demo_aobj.c/.h`: parse `HSD_AnimJoint` → `HSD_AObjDesc` →
+   `./build/native/melee --inspect --list-parts` and `--extract`.
+2. Add `native/hsd/aobj.c/.h`: parse `HSD_AnimJoint` → `HSD_AObjDesc` →
    keys, evaluate step/linear/bezier curves at time `t` (rotation,
    translation, scale per joint).
 3. Recompute joint local/world matrices per tick instead of baking one static
@@ -51,18 +51,18 @@ Implement P-201 per the brief in `native/AI/TASKS.md`:
 ## Files touched / claimed
 
 - `native/main.c` — draw loop, P2 fix, viewer input/flags
-- `native/demo_model.c/.h` — batches carry `dobj_index`, joint tables
-- `native/demo_parts.c/.h` — visibility slots
-- `native/demo_texture.c/.h` — decode + texture matrix inputs
+- `native/hsd/model.c/.h` — batches carry `dobj_index`, joint tables
+- `native/hsd/parts.c/.h` — visibility slots
+- `native/gx/texture.c/.h` — decode + texture matrix inputs
 - `native/AI/STATE.md`, `TASKS.md`, `README.md`, `gotchas/GOTCHAS.md`
-- To create: `native/demo_aobj.c/.h`
+- To create: `native/hsd/aobj.c/.h`
 
 ## Verification run
 
 ```
 cmake --build build/native -j4                     # clean
-SDL_VIDEODRIVER=offscreen ./build/native/melee-demo --scripted --frames 240
+SDL_VIDEODRIVER=offscreen ./build/native/melee --scripted --frames 240
 # Completed 240 render frames, 240 simulation ticks
-ASAN_OPTIONS=detect_leaks=0 ./build/native-asan/melee-demo --scripted --frames 120
+ASAN_OPTIONS=detect_leaks=0 ./build/native-asan/melee --scripted --frames 120
 # Completed 120 render frames, 120 simulation ticks
 ```
