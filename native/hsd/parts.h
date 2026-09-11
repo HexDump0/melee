@@ -3,7 +3,7 @@
 
 #include <stddef.h>
 
-#include "demo_model.h"
+#include "hsd/model.h"
 
 #ifdef __cplusplus
 extern "C" {

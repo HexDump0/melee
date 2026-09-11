@@ -2,7 +2,7 @@
 #define MELEE_NATIVE_DEMO_ATTRIBUTES_H
 
 #include <stddef.h>
-#include "demo_physics.h"
+#include "extras/physics.h"
 
 #ifdef __cplusplus
 extern "C" {

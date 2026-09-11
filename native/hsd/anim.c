@@ -1,6 +1,6 @@
-#include "demo_anim.h"
+#include "hsd/anim.h"
 
-#include "demo_assets.h"
+#include "platform/disc.h"
 
 #include <ctype.h>
 #include <stdio.h>

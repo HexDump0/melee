@@ -1,6 +1,6 @@
-#include "demo_attributes.h"
+#include "game/attributes.h"
 
-#include "demo_assets.h"
+#include "platform/disc.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>

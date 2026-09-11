@@ -1,9 +1,9 @@
-#include "demo_light.h"
+#include "hsd/light.h"
 
 #include <stdio.h>
 #include <string.h>
 
-#include "demo_assets.h"
+#include "platform/disc.h"
 
 #define DATA_BASE 0x20u
 #define HSD_MAX_CHAIN 16

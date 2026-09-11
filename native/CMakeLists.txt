@@ -1,15 +1,27 @@
 cmake_minimum_required(VERSION 3.16)
-project(melee_native_demo C)
+project(melee_native C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
 find_package(OpenGL REQUIRED)
-add_executable(melee-demo main.c demo_assets.c demo_anim.c demo_aobj.c demo_attributes.c demo_light.c demo_model.c demo_parts.c demo_physics.c demo_texture.c)
-target_compile_options(melee-demo PRIVATE -Wall -Wextra -Wpedantic)
-target_link_libraries(melee-demo PRIVATE PkgConfig::SDL2 OpenGL::GL m)
-option(DEMO_SANITIZE "Enable memory and undefined behavior checks" OFF)
-if(DEMO_SANITIZE)
-  target_compile_options(melee-demo PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
-  target_link_options(melee-demo PRIVATE -fsanitize=address,undefined)
+
+add_executable(melee
+    main.c
+    platform/disc.c
+    gx/texture.c
+    hsd/model.c
+    hsd/aobj.c
+    hsd/anim.c
+    hsd/parts.c
+    hsd/light.c
+    game/attributes.c
+    extras/physics.c)
+target_include_directories(melee PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_options(melee PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(melee PRIVATE PkgConfig::SDL2 OpenGL::GL m)
+option(MELEE_SANITIZE "Enable memory and undefined behavior checks" OFF)
+if(MELEE_SANITIZE)
+  target_compile_options(melee PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+  target_link_options(melee PRIVATE -fsanitize=address,undefined)
 endif()

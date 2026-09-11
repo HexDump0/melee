@@ -1,4 +1,4 @@
-#include "demo_assets.h"
+#include "platform/disc.h"
 
 #include <stdint.h>
 #include <limits.h>

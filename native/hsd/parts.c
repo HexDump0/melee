@@ -1,10 +1,10 @@
-#include "demo_parts.h"
+#include "hsd/parts.h"
 
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 
-#include "demo_assets.h"
+#include "platform/disc.h"
 
 /*
  * ftData<Char> part visibility.

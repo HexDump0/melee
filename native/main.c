@@ -9,14 +9,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "demo_anim.h"
-#include "demo_assets.h"
-#include "demo_attributes.h"
-#include "demo_light.h"
-#include "demo_model.h"
-#include "demo_parts.h"
-#include "demo_physics.h"
-#include "demo_text.h"
+#include "hsd/anim.h"
+#include "platform/disc.h"
+#include "game/attributes.h"
+#include "hsd/light.h"
+#include "hsd/model.h"
+#include "hsd/parts.h"
+#include "extras/physics.h"
+#include "extras/font.h"
 
 #define DEFAULT_DISC "iso/Super Smash Bros. Melee (USA) (En,Ja) (Rev 2).ciso"
 #define PI 3.14159265358979323846f

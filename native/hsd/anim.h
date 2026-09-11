@@ -12,8 +12,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "demo_aobj.h"
-#include "demo_model.h"
+#include "hsd/aobj.h"
+#include "hsd/model.h"
 
 #define DEMO_MAX_CLIPS 512
 #define DEMO_CLIP_NAME 64

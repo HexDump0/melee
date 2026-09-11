@@ -1,7 +1,7 @@
-#include "demo_model.h"
+#include "hsd/model.h"
 
-#include "demo_aobj.h"
-#include "demo_texture.h"
+#include "hsd/aobj.h"
+#include "gx/texture.h"
 
 #include <math.h>
 #include <stdlib.h>
