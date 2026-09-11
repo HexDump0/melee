@@ -15,7 +15,7 @@ cmake --build build/native -j4
 # Parser test, no window, no GPU needed
 ./build/native/melee --inspect
 
-# Unit tests (CTest; currently the matrix math)
+# Unit tests (CTest: hand matrix math, compiled HSD_MtxSRT parity, S0 HSD probe)
 ctest --test-dir build/native --output-on-failure
 ```
 
@@ -64,6 +64,14 @@ Current numbers and error classes are recorded in
 
 Rules for this track:
 
+- Targets that compile upstream decomp code build **32-bit** (`-m32`) per
+  ADR-0012 (`test_decomp_hsd` is the example). Do not "fix" pointer-truncation
+  symptoms by going 64-bit; see `learnings/decomp_port.md` §6.
+- `ctest` includes `decomp_mtx` (64-bit, bitwise SRT parity) and `decomp_hsd`
+  (32-bit; needs the disc, SKIPs without it, runs from the repo root).
+- `native/decomp/sdk_math.c` is the portable SDK math backend (real code).
+  `native/decomp/hsd_port_stubs.c` is **probe-only** display no-ops: never link
+  it into a product target.
 - Any `src/` change is a gated portability fix per ADR-0011 and must leave the
   GC build green (`python configure.py`, then `ninja` if the MWCC toolchain is
   available).
