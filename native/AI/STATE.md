@@ -26,7 +26,7 @@ reproduce the prototype's bind-pose world matrices bitwise (61/61 joints); see
 decompilation's own `main()` (`src/melee/gm/gmmain.c:130`) and runs it behind
 the OS/DVD/GX/VI platform layer to a controlled stop, with the triage log and
 backend work list in `learnings/decomp_boot.md` and
-`logs/2026-09-11-S1-boot-triage.log`. The next milestone is **S2**
+`logs/2026-09-11-S1-boot-triage.md`. The next milestone is **S2**
 (HSD runtime + GX HLE). No `src/` or `extern/` file was changed in S1.
 
 ## TL;DR
@@ -94,7 +94,7 @@ lightmap phases, alpha test, XLU blend) and every fighter is scaled by its
 | Sanitizers | 600-frame scripted run clean under ASan+UBSan (leaks disabled) |
 | Unit tests | `ctest --test-dir build/native` (hand matrix math + compiled `HSD_MtxSRT` bitwise parity) |
 | Compiled decomp math | `HSD_MtxSRT` built verbatim from `src/sysdolphin/baselib/mtx.c` behind `native/decomp/shim/`; SDK mtx/vec pairs are Metrowerks asm and stay hand-ported (P-301, `learnings/decomp_shim.md`). Bind/animate/scripted BMPs byte-identical |
-| Compiled boot skeleton (S1) | `melee_decomp_boot` runs the decomp's `main()` for 10 frames under the platform stubs, reaches the game's own loading wait, and stops on the frame budget with a deterministic triage log (`logs/2026-09-11-S1-boot-triage.log`); `ctest decomp_boot` is the regression |
+| Compiled boot skeleton (S1) | `melee_decomp_boot` runs the decomp's `main()` for 10 frames under the platform stubs, reaches the game's own loading wait, and stops on the frame budget with a deterministic triage log (`logs/2026-09-11-S1-boot-triage.md`); `ctest decomp_boot` is the regression |
 | Owner visual checks | 180 Hz viewer animation speed confirmed correct; face texture artifact gone (2026-09-11) |
 
 ## Known issues / gaps
