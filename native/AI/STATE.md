@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-11 (architecture pivot, ADR-0010; prototype baseline unchanged)
+Last updated: 2026-09-11 (S1 boot skeleton complete; prototype baseline unchanged)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -22,7 +22,12 @@ as the dev tool and the per-layer parity oracle. Hand-port engine work
 `HSD_ArchiveParse` and `HSD_JObjLoadJoint` run on a retail `PlMrNr.dat` and
 reproduce the prototype's bind-pose world matrices bitwise (61/61 joints); see
 `learnings/decomp_port.md` §6. The port builds 32-bit for compiled code
-(ADR-0012); the next milestone is **S1** (boot skeleton, P-604).
+(ADR-0012); **S1 passed (2026-09-11):** `melee_decomp_boot` compiles the
+decompilation's own `main()` (`src/melee/gm/gmmain.c:130`) and runs it behind
+the OS/DVD/GX/VI platform layer to a controlled stop, with the triage log and
+backend work list in `learnings/decomp_boot.md` and
+`logs/2026-09-11-S1-boot-triage.log`. The next milestone is **S2**
+(HSD runtime + GX HLE). No `src/` or `extern/` file was changed in S1.
 
 ## TL;DR
 
@@ -89,6 +94,7 @@ lightmap phases, alpha test, XLU blend) and every fighter is scaled by its
 | Sanitizers | 600-frame scripted run clean under ASan+UBSan (leaks disabled) |
 | Unit tests | `ctest --test-dir build/native` (hand matrix math + compiled `HSD_MtxSRT` bitwise parity) |
 | Compiled decomp math | `HSD_MtxSRT` built verbatim from `src/sysdolphin/baselib/mtx.c` behind `native/decomp/shim/`; SDK mtx/vec pairs are Metrowerks asm and stay hand-ported (P-301, `learnings/decomp_shim.md`). Bind/animate/scripted BMPs byte-identical |
+| Compiled boot skeleton (S1) | `melee_decomp_boot` runs the decomp's `main()` for 10 frames under the platform stubs, reaches the game's own loading wait, and stops on the frame budget with a deterministic triage log (`logs/2026-09-11-S1-boot-triage.log`); `ctest decomp_boot` is the regression |
 | Owner visual checks | 180 Hz viewer animation speed confirmed correct; face texture artifact gone (2026-09-11) |
 
 ## Known issues / gaps
@@ -139,6 +145,8 @@ SDL_VIDEODRIVER=offscreen ./build/native/melee --view --animate \
     --clip Wait1 --anim-frame 25 --frames 1 --screenshot /tmp/anim.bmp
 SDL_VIDEODRIVER=offscreen ./build/native/melee --scripted --frames 240 \
     --screenshot /tmp/baseline.bmp
+./build/native/melee_decomp_boot --boot-frames 10 --boot-timeout 30 \
+    --boot-log /tmp/boot.log
 ```
 
 Expected `--inspect` tail:

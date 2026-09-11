@@ -31,7 +31,6 @@ Status values: `open`, `claimed`, `blocked`, `review`, `done`, `parked`
 | P-601 | Full-tree GCC compile census + shim hardening (S0) | done | opencode (deepseek-flash), 2026-09-11 | `native/decomp/shim/`, `native/AI/learnings/decomp_port.md` | Done: 1021/1034 `src/*.c` compile; shims for `ssize_t`/`intptr_t`, GameCube `STATIC_ASSERT`, and `bool`=`int` callbacks. See Completed. |
 | P-602 | Probe: decomp `HSD_ArchiveParse` on a real `PlMrNr.dat` (S0a) | done | opencode (deepseek-flash), 2026-09-11 | `native/decomp/`, `native/CMakeLists.txt`, `native/tests/` | Done: 2/2 public symbols and offsets match the hand parser. See Completed. |
 | P-603 | Probe: decomp `HSD_JObjLoadJoint` bind-pose parity (S0b) | done | opencode (deepseek-flash), 2026-09-11 | `native/decomp/`, `native/tests/`, `native/AI/learnings/decomp_port.md` | Done: 61/61 joints loaded and world matrices bitwise-equal to the hand pose math. **S0 gate passed.** See Completed. |
-| P-604 | S1: platform boot skeleton (OS/DVD/GX/VI stubs, `gmmain` boot) | claimed | opencode (deepseek-flash), 2026-09-11 | `native/decomp/boot/`, `native/decomp/sdk_math.c`, `native/decomp/hsd_port_stubs.c`, `native/platform/`, `native/tests/`, `native/CMakeLists.txt`, `native/AI/` | Grow the probe's shims into the platform layer: OS heap/log/assert, init sequencing, boot the decomp's `main()` (`src/melee/gm/gmmain.c:130`) with stubbed GX/DVD/VI to a controlled triage log. Replace `hsd_port_stubs.c` with real backends incrementally. |
 | P-605 | S3 prep: document host-endian conversion rules per asset format | open | — | `native/AI/learnings/decomp_assets.md` | Doc-only, safe to run parallel to S1. For each structure the compiled loaders read (HSD header/tables, descriptors + their string/u16 fields, FObj streams, display lists, textures), record what must be byte-swapped and how, using the hand parser (`hsd/model.c`, `hsd/aobj.c`, `platform/disc.c`) as the oracle and the S0 prefix-swap result (`learnings/decomp_port.md` §6) as the starting point. Feeds S3 and the eventual 64-bit asset pipeline. |
 | P-108 | Per-part isolation for the viewer (`HsdBatch`, batch lists) | done | follow-up | `native/hsd/model.*`, `native/main.c` | Added with the viewer; see Completed. |
 | P-207 | Expression/part visibility events: port the per-kind `ftData_UnkIntBoolFunc0.model_events` path (`ftParts_80074B0C`/`ftParts_80074A4C`) | parked | — | `native/hsd/model.c`, `native/main.c` | **PARKED by ADR-0010** — compiled `ftparts.c` action code (S4) implements this; do not start. Historical detail: `SETBYTE`/`SETFLOAT` FObj channels have no callback registration in the decomp (`jobj.c` `ufc_callbacks` is a dead list), so expressions come from action code. The Bowser `Wait1` note in `learnings/hsd_animation.md` §7 is unresolved but off the critical path. |
@@ -60,6 +59,25 @@ Done in `0e1a974d2` (backend) and `6665bd5f2` (viewer/sandbox). Clips come from
 remaining fidelity items (P-207..P-210) are parked by ADR-0010; the compiled
 `fobj`/`jobj` path replaces this in S2/S4.
 
+## S1 backend work list (P-604 triage)
+
+The S1 boot log (`native/AI/logs/2026-09-11-S1-boot-triage.md`, analysis in
+`learnings/decomp_boot.md`) reaches a controlled stop while the compiled game
+waits for its first sound-bank load. Ordered by what unblocks the boot:
+
+1. **S2 — GX + VI HLE** (146 GX + 21 VI calls in 10 frames). Real GX FIFO,
+      state/TEV, textures; real VI present. Seed: `native/gx/`, skeleton:
+      `native/platform/gx_vi.c`.
+2. **S3 — DVD + HSD DevCom/ARQ**. `DVDConvertPathToEntrynum`/open/read and
+      synchronous `ARQPostRequest` callbacks so `HSD_DevComRequest` can finish
+      asset loads. Seed: `native/platform/disc.c`.
+3. **S5 — AX/DSP callback**. `AXRegisterCallback` must drive
+      `HSD_SynthCallback` on the audio frame so synth loads complete.
+4. **S6 — CARD/EXI + fonts**. Card command pump (`hsd_803AAA48`) and a font
+      source replacing the generated atlases.
+5. **S4 — alarms/threads** (`OSCreateAlarm`/`OSSetPeriodicAlarm` are stubs;
+      the boot installs a periodic alarm during init).
+
 ## Blocked / needs a human
 
 | ID | Question | Requested from |
@@ -77,6 +95,7 @@ compiled render in S2/S4 instead.
 
 | ID | Task | Agent | Commit | Date |
 |---|---|---|---|---|
+| P-604 | S1: platform boot skeleton — compiled `main()` runs under OS/DVD/GX/VI stubs to a controlled triage stop (`melee_decomp_boot`, `decomp_boot` ctest, log + work list in `learnings/decomp_boot.md`) | opencode (deepseek-flash) | _pending_ | 2026-09-11 |
 | P-603 | S0b probe: compiled `HSD_JObjLoadJoint` bind-pose parity (61/61 joints bitwise, S0 gate passed) | opencode (deepseek-flash) | 62c87e117 | 2026-09-11 |
 | P-602 | S0a probe: compiled `HSD_ArchiveParse` on real `PlMrNr.dat` (symbol/offset parity) | opencode (deepseek-flash) | 62c87e117 | 2026-09-11 |
 | P-601 | Full-tree GCC compile census + shim hardening: 1021/1034 files compile; `ssize_t`/`intptr_t`, `STATIC_ASSERT`, `bool`=`int` shims | opencode (deepseek-flash) | 543ff20b7 | 2026-09-11 |

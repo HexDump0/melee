@@ -106,3 +106,89 @@ target_link_options(test_decomp_hsd PRIVATE -m32 "LINKER:--gc-sections")
 add_test(NAME decomp_hsd COMMAND test_decomp_hsd)
 set_tests_properties(decomp_hsd PROPERTIES
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..)
+
+# ---------------------------------------------------------------------------
+# S1 (P-604): boot skeleton.  Compile the decompilation's own main()
+# (src/melee/gm/gmmain.c, renamed gm_main) for the host with the platform
+# layer stubbed, and stop in a controlled way with a triage log.
+#
+# The whole game is compiled 32-bit (ADR-0012) behind the shim (ADR-0011);
+# upstream warnings are suppressed because src/ must not be modified.  Three
+# pure-C SDK TUs are compiled from extern/dolphin (never edited): the real SDN
+# heap/arena and the Mtx44 projection helpers.  Files excluded on the host:
+#   src/MSL/            glibc provides libc/math (ADR-0011)
+#   src/MetroTRK/       GameCube debugger transport
+#   Runtime/__mem.c     MSL memcpys; glibc provides them
+#   baselib/debug.c     MSL FILE internals; replaced by decomp/debug_port.c
+#   baselib/axdriver.c  drives the DSP hardware; replaced by platform/audio.c
+#   sislib_font.c,
+#   hsd_3915.c,
+#   hsd_3A76.c          need generated font atlases (decomp build artifacts,
+#                       ADR-0005); replaced by platform/font_stub.c for S1
+#
+# The real backends vs log-only stubs are listed in
+# native/AI/learnings/decomp_boot.md.
+file(GLOB_RECURSE MELEE_DECOMP_SOURCES CONFIGURE_DEPENDS
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/*.c)
+list(FILTER MELEE_DECOMP_SOURCES EXCLUDE REGEX
+    "/src/(MSL|MetroTRK)/")
+list(REMOVE_ITEM MELEE_DECOMP_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/Runtime/__mem.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/debug.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/axdriver.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/sislib_font.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/hsd_3915.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/hsd_3A76.c)
+list(APPEND MELEE_DECOMP_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/os/OSArena.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/os/OSAlloc.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/mtx/mtx44.c)
+
+add_library(melee_decomp_game OBJECT ${MELEE_DECOMP_SOURCES})
+target_include_directories(melee_decomp_game BEFORE PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
+    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
+target_compile_options(melee_decomp_game PRIVATE
+    -m32 -w -fgnu89-inline -ffunction-sections -fdata-sections
+    -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
+set_source_files_properties(
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/melee/gm/gmmain.c
+    PROPERTIES COMPILE_DEFINITIONS "main=gm_main")
+
+add_executable(melee_decomp_boot
+    decomp/boot/boot_main.c
+    decomp/boot/boot_triage.c
+    decomp/debug_port.c
+    decomp/sdk_math.c
+    platform/os.c
+    platform/gx_vi.c
+    platform/dvd.c
+    platform/pad_card.c
+    platform/audio.c
+    platform/font_stub.c
+    platform/misc.c
+    $<TARGET_OBJECTS:melee_decomp_game>)
+target_include_directories(melee_decomp_boot PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim)
+target_include_directories(melee_decomp_boot SYSTEM PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
+    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
+target_compile_options(melee_decomp_boot PRIVATE
+    -m32 -Wall -Wextra -Wpedantic -fgnu89-inline
+    -ffunction-sections -fdata-sections -rdynamic -D_GNU_SOURCE
+    -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
+target_link_libraries(melee_decomp_boot PRIVATE m ${CMAKE_DL_LIBS})
+target_link_options(melee_decomp_boot PRIVATE
+    -m32 -rdynamic "LINKER:--gc-sections")
+add_test(NAME decomp_boot
+    COMMAND melee_decomp_boot --boot-frames 5 --boot-timeout 30)
+set_tests_properties(decomp_boot PROPERTIES
+    PASS_REGULAR_EXPRESSION "\\[boot\\] summary")
+if(MELEE_SANITIZE)
+  target_compile_options(melee_decomp_boot PRIVATE
+      -fsanitize=address,undefined -fno-omit-frame-pointer)
+  target_link_options(melee_decomp_boot PRIVATE
+      -fsanitize=address,undefined)
+endif()

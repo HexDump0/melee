@@ -227,3 +227,204 @@ void PSVECCrossProduct(register Vec* a, register Vec* b, register Vec* dst)
     *dst = out;
 }
 
+/*
+ * The remaining primitives are C twins that live in Metrowerks-asm TUs
+ * (extern/dolphin/src/dolphin/mtx/mtx.c cannot be compiled), copied verbatim
+ * from that file as required by ADR-0011 rule 3.  Line references are to the
+ * upstream C implementations; MTXFrustum/MTXPerspective/MTXOrtho come from
+ * mtx44.c, which is pure C and is compiled upstream instead of copied.
+ */
+
+/* extern/dolphin/src/dolphin/mtx/mtx.c: PSMTXTranspose (C_MTXTranspose, 0x22D) */
+void PSMTXTranspose(register Mtx src, register Mtx xPose)
+{
+    Mtx mTmp;
+    f32(*m)[4];
+
+    if (src == xPose) {
+        m = mTmp;
+    } else {
+        m = xPose;
+    }
+
+    m[0][0] = src[0][0];
+    m[0][1] = src[1][0];
+    m[0][2] = src[2][0];
+    m[0][3] = 0;
+    m[1][0] = src[0][1];
+    m[1][1] = src[1][1];
+    m[1][2] = src[2][1];
+    m[1][3] = 0;
+    m[2][0] = src[0][2];
+    m[2][1] = src[1][2];
+    m[2][2] = src[2][2];
+    m[2][3] = 0;
+    if (m == mTmp) {
+        PSMTXCopy(mTmp, xPose);
+    }
+}
+
+/* extern/dolphin/src/dolphin/mtx/mtx.c: C_MTXRotTrig (0x4AF) */
+void C_MTXRotTrig(Mtx m, char axis, f32 sinA, f32 cosA)
+{
+    switch (axis) {
+    case 120:
+    case 88:
+        m[0][0] = 1;
+        m[0][1] = 0;
+        m[0][2] = 0;
+        m[0][3] = 0;
+        m[1][0] = 0;
+        m[1][1] = cosA;
+        m[1][2] = -sinA;
+        m[1][3] = 0;
+        m[2][0] = 0;
+        m[2][1] = sinA;
+        m[2][2] = cosA;
+        m[2][3] = 0;
+        break;
+    case 121:
+    case 89:
+        m[0][0] = cosA;
+        m[0][1] = 0;
+        m[0][2] = sinA;
+        m[0][3] = 0;
+        m[1][0] = 0;
+        m[1][1] = 1;
+        m[1][2] = 0;
+        m[1][3] = 0;
+        m[2][0] = -sinA;
+        m[2][1] = 0;
+        m[2][2] = cosA;
+        m[2][3] = 0;
+        break;
+    case 122:
+    case 90:
+        m[0][0] = cosA;
+        m[0][1] = -sinA;
+        m[0][2] = 0;
+        m[0][3] = 0;
+        m[1][0] = sinA;
+        m[1][1] = cosA;
+        m[1][2] = 0;
+        m[1][3] = 0;
+        m[2][0] = 0;
+        m[2][1] = 0;
+        m[2][2] = 1;
+        m[2][3] = 0;
+        break;
+    default:
+        break;
+    }
+}
+
+/* extern/dolphin/src/dolphin/mtx/mtx.c: MTXRotRad (0x48B) */
+void MTXRotRad(Mtx m, char axis, f32 rad)
+{
+    C_MTXRotTrig(m, axis, sinf(rad), cosf(rad));
+}
+
+/* extern/dolphin/src/dolphin/mtx/mtx.c: C_MTXLookAt (0x3BF) */
+void C_MTXLookAt(Mtx m, Point3dPtr camPos, VecPtr camUp, Point3dPtr target)
+{
+    Vec vLook;
+    Vec vRight;
+    Vec vUp;
+
+    vLook.x = camPos->x - target->x;
+    vLook.y = camPos->y - target->y;
+    vLook.z = camPos->z - target->z;
+    PSVECNormalize(&vLook, &vLook);
+
+    PSVECCrossProduct(camUp, &vLook, &vRight);
+    PSVECNormalize(&vRight, &vRight);
+    PSVECCrossProduct(&vLook, &vRight, &vUp);
+
+    m[0][0] = vRight.x;
+    m[0][1] = vRight.y;
+    m[0][2] = vRight.z;
+    m[0][3] = -((camPos->z * vRight.z) +
+                ((camPos->x * vRight.x) + (camPos->y * vRight.y)));
+
+    m[1][0] = vUp.x;
+    m[1][1] = vUp.y;
+    m[1][2] = vUp.z;
+    m[1][3] =
+        -((camPos->z * vUp.z) + ((camPos->x * vUp.x) + (camPos->y * vUp.y)));
+
+    m[2][0] = vLook.x;
+    m[2][1] = vLook.y;
+    m[2][2] = vLook.z;
+    m[2][3] = -((camPos->z * vLook.z) +
+                ((camPos->x * vLook.x) + (camPos->y * vLook.y)));
+}
+
+/* extern/dolphin/src/dolphin/mtx/mtx.c: MTXLightFrustum (0x6A2) */
+void MTXLightFrustum(Mtx m, f32 t, f32 b, f32 l, f32 r, f32 n, f32 scaleS,
+                     f32 scaleT, f32 transS, f32 transT)
+{
+    f32 tmp;
+
+    tmp = 1 / (r - l);
+    m[0][0] = (scaleS * (2 * n * tmp));
+    m[0][1] = 0;
+    m[0][2] = (scaleS * (tmp * (r + l))) - transS;
+    m[0][3] = 0;
+    tmp = 1 / (t - b);
+    m[1][0] = 0;
+    m[1][1] = (scaleT * (2 * n * tmp));
+    m[1][2] = (scaleT * (tmp * (t + b))) - transT;
+    m[1][3] = 0;
+    m[2][0] = 0;
+    m[2][1] = 0;
+    m[2][2] = -1;
+    m[2][3] = 0;
+}
+
+/* extern/dolphin/src/dolphin/mtx/mtx.c: MTXLightPerspective (0x6DF) */
+void MTXLightPerspective(Mtx m, f32 fovY, f32 aspect, f32 scaleS, f32 scaleT,
+                         f32 transS, f32 transT)
+{
+    f32 angle;
+    f32 cot;
+
+    angle = (0.5f * fovY);
+    angle = angle * 0.017453293f;
+    cot = 1 / tanf(angle);
+    m[0][0] = (scaleS * (cot / aspect));
+    m[0][1] = 0;
+    m[0][2] = -transS;
+    m[0][3] = 0;
+    m[1][0] = 0;
+    m[1][1] = (cot * scaleT);
+    m[1][2] = -transT;
+    m[1][3] = 0;
+    m[2][0] = 0;
+    m[2][1] = 0;
+    m[2][2] = -1;
+    m[2][3] = 0;
+}
+
+/* extern/dolphin/src/dolphin/mtx/mtx.c: MTXLightOrtho (0x720) */
+void MTXLightOrtho(Mtx m, f32 t, f32 b, f32 l, f32 r, f32 scaleS, f32 scaleT,
+                   f32 transS, f32 transT)
+{
+    f32 tmp;
+
+    tmp = 1 / (r - l);
+    m[0][0] = (2 * tmp * scaleS);
+    m[0][1] = 0;
+    m[0][2] = 0;
+    m[0][3] = (transS + (scaleS * (tmp * -(r + l))));
+    tmp = 1 / (t - b);
+    m[1][0] = 0;
+    m[1][1] = (2 * tmp * scaleT);
+    m[1][2] = 0;
+    m[1][3] = (transT + (scaleT * (tmp * -(t + b))));
+    m[2][0] = 0;
+    m[2][1] = 0;
+    m[2][2] = 0;
+    m[2][3] = 1;
+}
+
+

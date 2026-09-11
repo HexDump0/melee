@@ -12,10 +12,14 @@
  * what the MWERKS build had.  This is a glibc assumption (the port's only
  * verified target, see STATE.md).
  *
+ * Only needed on 64-bit hosts: on i686 glibc's ssize_t is already `int`, so
+ * pre-defining the guard would leave <unistd.h> without any typedef at all
+ * (the product/boot build is 32-bit, ADR-0012).
+ *
  * Keep this header minimal and warning-free under -Wall -Wextra -Wpedantic.
  * Never modify src/ or extern/dolphin.
  */
-#if defined(__linux__)
+#if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
 #define __ssize_t_defined 1
 #endif
 
