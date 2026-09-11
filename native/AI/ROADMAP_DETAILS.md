@@ -130,6 +130,32 @@ Full detail in `learnings/decomp_port.md`; summary:
 `TASKS.md`: compiled `jobj`/`fobj`/`ftanim`/`tobj`/`ftData` replace them. Do not
 extend the hand HSD parser/renderer beyond what the bring-up itself needs.
 
+**Where the unfinished prototype work lands.** These features are not dropped;
+they leave the hand-port backlog and become behavior of the compiled game.
+Rendering-visible ones only appear once GX HLE (S2) can draw the state the
+compiled engine sets, so each is re-proven there against the prototype's
+derivations and tests.
+
+| Prototype gap | Old task | Implemented by | Milestone |
+|---|---|---|---|
+| Blinking, damage faces, Pichu/Zelda variants | P-207 | compiled `ftparts.c` action code + `model_events` | S4 (render S2) |
+| IK foot/hand planting | P-208 | compiled `jobj.c` (`HSD_JObjSetupMatrixSub`, `resolveIKJoint*`) | S2 |
+| Material animation (scroll/fade) | P-209 | compiled `tobj.c`/`mobj.c` + `ftAnim_80070200` | S2/S3 |
+| Per-action animation rate (`frame_speed_mul`) | P-210 | compiled `ft` action code | S4 |
+| TEV leftovers (LObj lights, lightmap repeats, `HSD_TObjTev`, toon) | P-204 | compiled `tobj`/`mobj`/`lobj`/`tev` state evaluated by GX HLE | S2 (stage lights S3) |
+| Per-TObj texture matrices | P-205 | compiled `tobj.c` | S2 |
+| Camera polish | P-206 | compiled camera | S4 |
+| Game & Watch slivers | P-412 | compiled joint flags + vis code | S2/S4 |
+| Non-Mario attributes | P-411 | compiled `ftData` | S4 |
+| Blending, shape sets, `HSD_A_J_PATH` | legacy section | compiled `fobj`/`jobj`/`aobj` | S2 |
+| Audio, menus, netplay | P-501/P-502, M6–M8 | unchanged plan | S5–S7 |
+| 120/180 Hz interpolation | P-212 | port-level presentation feature (not a GC behavior) | after S4 |
+| Widescreen, HD textures, mod hooks | — | port layer | S7 |
+
+The prototype's TEV/material/IJ studies are not wasted: they document the state
+the engine sets and become the GX HLE implementation reference and the parity
+oracle for S2.
+
 ---
 
 ## Legacy hand-port track (frozen 2026-09-11 — kept for reference)
