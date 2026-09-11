@@ -95,7 +95,7 @@ compiled render in S2/S4 instead.
 
 | ID | Task | Agent | Commit | Date |
 |---|---|---|---|---|
-| P-604 | S1: platform boot skeleton — compiled `main()` runs under OS/DVD/GX/VI stubs to a controlled triage stop (`melee_decomp_boot`, `decomp_boot` ctest, log + work list in `learnings/decomp_boot.md`) | opencode (deepseek-flash) | _pending_ | 2026-09-11 |
+| P-604 | S1: platform boot skeleton — compiled `main()` runs under OS/DVD/GX/VI stubs to a controlled triage stop (`melee_decomp_boot`, `decomp_boot` ctest, log + work list in `learnings/decomp_boot.md`) | opencode (deepseek-flash) | f527f7572 | 2026-09-11 |
 | P-603 | S0b probe: compiled `HSD_JObjLoadJoint` bind-pose parity (61/61 joints bitwise, S0 gate passed) | opencode (deepseek-flash) | 62c87e117 | 2026-09-11 |
 | P-602 | S0a probe: compiled `HSD_ArchiveParse` on real `PlMrNr.dat` (symbol/offset parity) | opencode (deepseek-flash) | 62c87e117 | 2026-09-11 |
 | P-601 | Full-tree GCC compile census + shim hardening: 1021/1034 files compile; `ssize_t`/`intptr_t`, `STATIC_ASSERT`, `bool`=`int` shims | opencode (deepseek-flash) | 543ff20b7 | 2026-09-11 |
