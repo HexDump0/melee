@@ -1,0 +1,535 @@
+# Host-endian asset conversion rules for the compiled port (P-605, S3 prep)
+
+Written 2026-09-11. This is the format reference for the S3 asset pipeline: the
+compiled decompilation under `src/` reads disc data as big-endian (BE) GameCube
+structs, but the port runs on little-endian x86. This file records, per
+structure, what has to be byte-swapped, what must **not** be touched, and how
+pointers/offsets are handled.
+
+Sources of truth, in order:
+
+- `src/sysdolphin/baselib/archive.c` / `archive.h` (header + relocation),
+- the descriptor structs and their loaders: `jobj.c`, `dobj.c`, `mobj.c`,
+  `pobj.c`, `tobj.c`, `aobj.c`, `fobj.c`, `src/melee/lb/lbanim.c`,
+- the hand parser `native/hsd/model.c` + `native/hsd/aobj.c` (the oracle for
+  every offset below; citations are to these unless stated),
+- the S0 probe `native/tests/test_decomp_hsd.c` and `learnings/decomp_port.md`
+  §6 (the validated prefix-swap recipe),
+- `learnings/gx_textures.md`, `gx_display_lists.md`, `hsd_archive_format.md`,
+  `hsd_animation.md`, `hsd_models_and_skinning.md` for the data layouts.
+
+Product constraint: the compiled build is **32-bit** (ADR-0012) because
+`archive.c:Locate` writes host pointers into 4-byte slots; see "64-bit" below.
+
+## 0. Ground rules
+
+1. The archive buffer is BE. `HSD_ArchiveParse` (`archive.c:18-66`) `memcpy`s
+   the 0x20-byte header over a host `HSD_Archive` and compares
+   `header.file_size` to the host file size, so the header u32s must be host
+   order before parsing.
+2. All pointers inside the data section are 32-bit **data-relative offsets**.
+   `Locate` (`archive.c:7-16`) turns each relocation-table entry into a host
+   pointer with `*ptr += (u32)archive->data`; `archive->data` is the host
+   buffer base (`archive.c:31`). The pointer fields must reach `Locate` as
+   host-order u32 offsets, and no such field may already contain a host
+   pointer.
+3. `HSD_ArchiveGetPublicAddress` (`archive.c:70-83`) `strcmp`s names from the
+   symbols blob, which is therefore a byte blob and must not be swapped.
+4. Conversion happens on a private copy (the buffer is mutated by `Locate` and
+   by any in-place fixups); a cached converted image must be copied back before
+   each `HSD_ArchiveParse` because `Locate` is not idempotent.
+
+## 1. Archive header, tables, symbols
+
+Validated counts (S0, `decomp_port.md` §6): `PlMrNr.dat` size 473522,
+data 467728, reloc 1423, public 2, extern 0. The P-403 probe re-read the same
+values (`0x739B2`, `0x72310`, 1423, 2).
+
+| Region | Layout | Action | Accessor |
+|---|---|---|---|
+| Header 0x00..0x1F | `u32 file_size, data_size, nb_reloc, nb_public, nb_extern` (`archive.h:13-20`) | swap u32 | `HSD_ArchiveParse` `:26-37` |
+| Header +0x14 | `u8 version[4]` (`"/2.0"`) | bytes; reordered cosmetically by a u32 swap, unused | `archive.h:18` |
+| Data section | starts at 0x20, `data_size` bytes | mixed; see §2..§6 | — |
+| Relocation table | `nb_reloc` × `u32 offset` | swap u32 | `Locate` `:12` |
+| Public/extern tables | `nb_*` × `{u32 offset; u32 symbol;}` | swap u32 | `HSD_ArchiveGetPublicAddress` `:74-80` |
+| Symbols blob | NUL-terminated names, byte offsets from blob start | **must not be swapped** | `strcmp` `:76` |
+
+S0 recipe, valid for the whole structural prefix:
+
+```c
+strings_offset = 0x20 + data_size + nb_reloc*4 + nb_public*8 + nb_extern*8;
+swap_u32_words(buffer, strings_offset);       /* header + data + tables only */
+```
+
+(`test_decomp_hsd.c:92-103`, `:278-292`). The loop's `i+4 <= bytes` guard
+also skips a trailing partial word. All 33 `Pl*Nr.dat` archives have
+4-aligned `data_size` and `strings_offset` (probe-verified), so the swap
+covers exactly the header + data section + tables with no byte spill. After
+this pass all descriptor u32/f32 words and all table entries are host order.
+
+**The prefix swap alone is not sufficient.** The data section also contains
+byte runs, u16 fields, and byte streams; all of those are corrupted by a u32
+swap and are listed per structure below.
+
+## 2. HSD descriptors
+
+For every field: "u32" means the word swap is correct; "u16"/"bytes" means the
+word swap corrupts it and it needs an explicit fix (or must be excluded).
+
+### HSD_Joint (0x40) — `jobj.h:127-140`, loader `jobj.c:610-665`
+
+| Offset | Type | Field | Action |
+|---|---|---|---|
+| +0x00 | ptr | `class_name` | u32 (NULL in retail; see note) |
+| +0x04 | u32 | `flags` | u32 |
+| +0x08 | ptr | `child` | u32 |
+| +0x0C | ptr | `next` | u32 |
+| +0x10 | ptr | `u.dobjdesc` / spline / ptcl | u32 |
+| +0x14 | f32[3] | `rotation` | u32 |
+| +0x20 | f32[3] | `scale` | u32 |
+| +0x2C | f32[3] | `position` | u32 |
+| +0x38 | ptr | `mtx` (inverse bind, 12 f32) | u32 |
+| +0x3C | ptr | `robjdesc` | u32 |
+
+No u16/u8 fields. `JObjLoad` (`jobj.c:629-665`) reads every field above;
+`HSD_JObjSetupMatrixSub` consumes the f32s through `HSD_MtxSRT`. `class_name`
+is looked up with `hsdSearchClassInfo` at `jobj.c:617`; NULL falls back to the
+default class. **Note (verified):** all class-name strings are absent from the
+retail archives we checked (`PlMrNr.dat`, `PlMrAJ.dat`, `PlMrGr.dat`,
+`GrNBa.dat` contain no `HSD_`, `JObj`, `TObj` bytes), and the `PlMrNr.dat` root
+joint's `class_name` is 0. If a non-retail archive ever carries them, they are
+byte runs and must survive as bytes.
+
+### HSD_DObjDesc (0x10) — `dobj.h:23-28`
+
+`class_name, next, mobjdesc, pobjdesc` are all pointers → u32. Loaded by
+`HSD_DObjLoadDesc` (`dobj.c:202`) and handed to `HSD_DObjResolveRefsAll`.
+
+### HSD_MObjDesc (0x18) — `mobj.h:105-112`
+
+| Offset | Type | Field | Action |
+|---|---|---|---|
+| +0x00 | ptr | `class_name` | u32 |
+| +0x04 | u32 | `rendermode` (RENDER_* bits) | u32 |
+| +0x08 | ptr | `texdesc` | u32 |
+| +0x0C | ptr | `mat` → `HSD_Material` | u32 |
+| +0x10 | ptr | `renderdesc` | u32 |
+| +0x14 | ptr | `pedesc` → `HSD_PEDesc` | u32 |
+
+Constant path (`HSD_MObjLoadDesc` `mobj.c:167`) plus `MObjMakeTExp`.
+
+### HSD_Material (`mat`) — `mobj.h:82-88`
+
+| Offset | Type | Field | Action |
+|---|---|---|---|
+| +0x00 | GXColor (4 bytes) | `ambient` | **bytes: reverse the word again** |
+| +0x04 | GXColor | `diffuse` | bytes |
+| +0x08 | GXColor | `specular` | bytes |
+| +0x0C | f32 | `alpha` | u32 |
+| +0x10 | f32 | `shininess` | u32 |
+
+`GXColor` is `{u8 r; u8 g; u8 b; u8 a;}` in memory; the archive stores it in
+that order. A u32 word swap turns `r,g,b,a` into `a,b,g,r`, so the three color
+words must be byte-restored. Evidence: the hand parser reads `memcpy(out->
+ambient, d+mat, 4)` (`model.c:1062-1066`) and Mario's overalls diffuse, stored
+as `0xB3B3B3FF`, renders gray (`gx_textures.md`, "Verified example"); if the
+bytes were ARGB the port would render a wrong color.
+
+### HSD_PEDesc (`pedesc`) — 12 bytes, `mobj.h:90-101`
+
+All u8 (`flags, ref0, ref1, dst_alpha, type, src_factor, dst_factor,
+logic_op, z_comp, alpha_comp0, alpha_op, alpha_comp1`). These are read as
+bytes by `HSD_SetupPEMode` and by the hand parser at `model.c:1070-1085`
+(`d[pe+0] … d[pe+11]`). A u32 word swap moves them within each 4-byte word →
+must be restored (or excluded).
+
+### HSD_PObjDesc (0x18) — `pobj.h:38-53`, loader `HSD_PObjLoad` `pobj.c:286-287` / `HSD_PObjLoadDesc` `:310`
+
+| Offset | Type | Field | Action |
+|---|---|---|---|
+| +0x00 | ptr | `class_name` | u32 |
+| +0x04 | ptr | `next` | u32 |
+| +0x08 | ptr | `verts` → `HSD_VtxDescList[]` | u32 |
+| +0x0C | u16 | `flags` (POBJ_*) | **u16 swap** |
+| +0x0E | u16 | `n_display` (32-byte blocks) | **u16 swap** |
+| +0x10 | ptr | `display` → GX FIFO bytes | u32 |
+| +0x14 | ptr | union `joint` / `shape_set` / `envelope_p` | u32 |
+
+`pobj.c:286-287` stores `n_display` and `display`; `PObjDispSimplePrimitive`
+(`pobj.c:1218-1225`) later issues `GXCallDisplayList` with them.
+
+### HSD_VtxDescList (0x18 each, NULL-terminated) — `pobj.h:57-64`
+
+| Offset | Type | Field | Action |
+|---|---|---|---|
+| +0x00 | u32 | `attr` | u32 |
+| +0x04 | u32 | `attr_type` | u32 |
+| +0x08 | u32 | `comp_cnt` | u32 |
+| +0x0C | u32 | `comp_type` | u32 |
+| +0x10 | u8 | `frac` | byte |
+| +0x12 | u16 | `stride` | **u16 swap** |
+| +0x14 | ptr | `vertex` array | u32 |
+
+Read in `read_descs` (`model.c:575-598`); the compiled side consumes the same
+fields through `setupArrayDesc`/`setupVtxDesc` (`displayfunc.c:569-576`,
+`GXSetVtxAttrFmt`/`GXSetVtxDesc`) and `GXSetArray`.
+
+### HSD_TObjDesc (0x5C) — `tobj.h:160-180`, loader `HSD_TObjLoadDesc` `tobj.c:280`
+
+| Offset | Type | Field | Action |
+|---|---|---|---|
+| +0x00 | ptr | `class_name` | u32 |
+| +0x04 | ptr | `next` | u32 |
+| +0x08 | u32 | `id` (GXTexMapID) | u32 |
+| +0x0C | u32 | `src` (GXTexGenSrc) | u32 |
+| +0x10 | f32[3] | `rotate` | u32 |
+| +0x1C | f32[3] | `scale` | u32 |
+| +0x28 | f32[3] | `translate` | u32 |
+| +0x34 | u32 | `wrap_s` | u32 |
+| +0x38 | u32 | `wrap_t` | u32 |
+| +0x3C | u8 | `repeat_s` | **byte (word fixup)** |
+| +0x3D | u8 | `repeat_t` | **byte (word fixup)** |
+| +0x40 | u32 | `blend_flags` | u32 |
+| +0x44 | f32 | `blending` | u32 |
+| +0x48 | u32 | `magFilt` | u32 |
+| +0x4C | ptr | `imagedesc` | u32 |
+| +0x50 | ptr | `tlutdesc` | u32 |
+| +0x54 | ptr | `lod` | u32 |
+| +0x58 | ptr | `tev` | u32 |
+
+`repeat_s`/`repeat_t` scale the UVs (`MakeTextureMtx`, `tobj.c`, hand port
+`model.c:959-1038`) and must survive. The port's `make_texture_mtx` reads them
+at +0x3C/+0x3D (`model.c:998-999`).
+
+### HSD_TexLODDesc (`lod`) — `tobj.h:195-201`
+
+Declared layout: `minFilt` u32 +0, `LODBias` f32 +4, `bias_clamp` u8 +8,
+`edgeLODEnable` u8 +9, `GXAnisotropy max_anisotropy` +0xC (a 4-byte enum), so
+the struct is 0x10 bytes under the GC ABI. The two u8s need the word fixup.
+Only four unique `Pl*Nr.dat` textures carry a `lod` descriptor and every one
+is zero-filled, so nothing here is load-bearing yet. Note: the hand parser
+reads `max_anisotropy` as a byte at +0xA (`model.c:1104-1111`); with all-zero
+data both readings agree. Confirm the true offset on a non-zero descriptor (or
+a GC capture) before the HLE depends on it — open question 9.
+
+### HSD_TObjTevDesc (`tev`, 0x20) — `tobj.h:228-241`
+
+16 u8 fields (+0x00..+0x0F), then `GXColor konst/tev0/tev1` (12 bytes,
++0x10..+0x1B), then `u32 active` at +0x1C. A word swap scrambles all of them;
+the hand parser reads them at `model.c:1113-1135` (it bounds the read at 0x28,
+a conservative over-estimate). Fix each word.
+
+### HSD_ImageDesc (0x18) — `tobj.h:203-211`
+
+| Offset | Type | Field | Action |
+|---|---|---|---|
+| +0x00 | ptr | `image_ptr` (pixel data, no size field) | u32 |
+| +0x04 | u16 | `width` | **u16 swap** |
+| +0x06 | u16 | `height` | **u16 swap** |
+| +0x08 | u32 | `format` (GXTexFmt) | u32 |
+| +0x0C | u32 | `mipmap` | u32 |
+| +0x10 | f32 | `minLOD` | u32 |
+| +0x14 | f32 | `maxLOD` | u32 |
+
+Read by the hand parser at `model.c:759-762` and by the compiled renderer at
+`tobj.c:1212-1242` (`GXInitTexObjCI` / `GXInitTexObj` / `GXInitTexObjLOD`).
+Census: all 967 `Pl*Nr.dat` textures have `mipmap == 0` and LOD 0..0, so the
+u32 fields happen to be inert; width/height are live and are u16.
+
+### HSD_TlutDesc (0x10) — `tobj.h:188-193`
+
+| Offset | Type | Field | Action |
+|---|---|---|---|
+| +0x00 | ptr | `lut` (n_entries × 2 bytes, BE u16 entries) | u32 |
+| +0x04 | u32 | `fmt` (`GXTlutFmt`: 0 IA8, 1 RGB565, 2 RGB5A3) | u32 |
+| +0x08 | u32 | `tlut_name` | u32 |
+| +0x0C | u16 | `n_entries` | **u16 swap** |
+
+`HSD_TlutLoadDesc` (`tobj.c:299-305`) memcpys the struct and `tobj.c:1205`
+calls `GXInitTlutObj` with `tlut->n_entries` (cap 0x4000,
+`extern/dolphin/src/dolphin/gx/GXTexture.c:584`). P-403 verified that
+`max(index)+1 == n_entries` for all 52 CI textures and that counts include
+non-power-of-two values (3, 8, 20, 49, 55, 157, 190, 202, 244, 255, 256), so
+the u16 is real data.
+
+### HSD_RObj / HSD_RObjDesc
+
+Not in the minimum set but reachable from `HSD_Joint.robjdesc` and resolved by
+`HSD_RObjResolveRefsAll` (`jobj.c:690`). The port's S0 pose check nulls it.
+Before S3 ships, walk and convert it with the same rules (u32 pointer fields,
+`f32` SRT, type/flags word fields; the Rot/Trans/Ptcl union is a mixed
+byte/word structure). Open question below.
+
+## 3. FObj / AObj animation
+
+### HSD_AObjDesc (0x10) — `aobj.h:50-55`, loader `HSD_AObjLoadDesc` `aobj.c:179`
+
+| Offset | Type | Field | Action |
+|---|---|---|---|
+| +0x00 | u32 | `flags` | u32 |
+| +0x04 | f32 | `end_frame` | u32 |
+| +0x08 | ptr | `fobjdesc` | u32 |
+| +0x0C | u32 | `obj_id` | u32 (either an ID-table key or a joint pointer cast to u32; `aobj.c:199-209`) |
+
+All 32-bit — the word swap is correct for this struct.
+
+### HSD_AnimJoint (0x14) — `aobj.h:57-63`
+
+`child, next, aobjdesc, robj_anim` pointers + `flags` u32. All 32-bit.
+`HSD_JObjAddAnimAll` walks this chain.
+
+### HSD_FObjDesc (0x14) — `fobj.h:49-57`, loader `HSD_FObjLoadDesc` `fobj.c:468`
+
+| Offset | Type | Field | Action |
+|---|---|---|---|
+| +0x00 | ptr | `next` | u32 |
+| +0x04 | u32 | `length` (byte length of `ad`) | u32 |
+| +0x08 | f32 | `startframe` | u32 |
+| +0x0C | u8 | `type` (HSD_A_J_*) | byte fixup |
+| +0x0D | u8 | `frac_value` | byte fixup |
+| +0x0E | u8 | `frac_slope` | byte fixup |
+| +0x0F | u8 | `dummy0` | byte |
+| +0x10 | ptr | `ad` → FObj byte stream | u32 |
+
+### The `ad` byte stream is little-endian and must NOT be swapped
+
+`fobj.c:114-153` (`parseFloat`) assembles floats/integers byte-by-byte with
+`(*pos)[1] << 8 | (*pos)[0]`, i.e. the stream is stored **little-endian by
+format definition**, independent of host and console endianness:
+
+- `frac & 0xE0`: `0x00` f32 LE (4 bytes), `0x20` s16 LE, `0x40` u16 LE,
+  `0x60` s8, `0x80` u8; value = `numer / (1 << (frac & 0x1F))`.
+- `parseOpCode` (`fobj.c:155-158`), `parsePackInfo` (`:160-178`),
+  `parseWait` (`:190-203`) read `u8` varints.
+
+`native/hsd/aobj.c:parse_float` (`aobj.c:33-73`) is the hand mirror and was
+verified bitwise against a literal transcription of `fobj.c` (`hsd_animation.md`
+§6). A u32 word swap destroys variable-length records mid-stream, so `ad`
+ranges are **excluded** from the structural pass.
+
+### FigaTree / FigaTrack (`Pl<Char>AJ.dat`) — `lbanim.h:9-23`
+
+| Struct | Offset | Type | Field | Action |
+|---|---|---:|---|---|
+| FigaTree (0x14) | +0x00 | int | `type` | u32 |
+| | +0x04 | u32 | `flags` | u32 |
+| | +0x08 | f32 | `frames` | u32 |
+| | +0x0C | ptr | `nodes` (`s8` per-joint counts, 0xFF-terminated) | u32 ptr; node bytes untouched |
+| | +0x10 | ptr | `tracks` (`FigaTrack[]`) | u32 pointer |
+| FigaTrack (0x0C) | +0x00 | u16 | `length` | **u16 swap** |
+| | +0x02 | u16 | `startframe` | **u16 swap** |
+| | +0x04 | u8 | `obj_type` | byte fixup |
+| | +0x05 | u8 | `frac_value` | byte fixup |
+| | +0x06 | u8 | `frac_slope` | byte fixup |
+| | +0x08 | ptr | `ad_head` → stream | u32 pointer; stream untouched |
+
+`lbAnim_InitFrames` (`lbanim.c:9-36`) copies `length/startframe/obj_type/
+frac_value/frac_slope/ad_head` straight onto `HSD_FObj`, so these u16s feed
+`parseFloat` directly.
+
+Probe validation (first sub-archive of `PlMrAJ.dat`, `Wait1`): the public
+symbol sits at file 0xE88 with `type=1`, `flags=0`, `frames=50.0`,
+`nodes=0xE28`, `tracks=0x8F4`; track 0 is
+`length=5, startframe=0, obj_type=2, frac_value=0x66, frac_slope=0x88,
+ad_head=file 0x20` with stream bytes `11 00 32 00 00`. `ad_head` is data offset
+0, i.e. the very first bytes of the data section — exactly the bytes a prefix
+swap would destroy.
+
+## 4. GX display lists
+
+A PObj's `display` buffer is a GX FIFO byte stream; `n_display` is in 32-byte
+blocks (`GXCallDisplayList(pobj->display, pobj->n_display << 5)`,
+`pobj.c:1225`; `PObjDispSimplePrimitive` `pobj.c:1218-1225`). Layout
+(`learnings/gx_display_lists.md`, verified in `model.c:read_vertex`):
+
+```
+[u8 opcode | u16 BE vertex count] [attributes in HSD_VtxDescList order ...]
+```
+
+- opcode low 3 bits = vertex format, primitive = `opcode & 0xF8`; `0x00`
+  terminates;
+- counts are **u16 big-endian** (`rb16` in `model.c:1237`);
+- indexed attributes are `u8`/`u16` BE indices; direct 16-bit/f32 components are
+  BE; matrix indices are always one byte; vertex colours use the colour enum;
+- `VtxDescList.vertex` points at separate vertex arrays (POS s16, NRM s8/16,
+  TEX s16, …) that the compiled `GXSetArray` path consumes.
+
+**Why a whole-word swap is wrong:** the stream is byte/packed-field defined.
+Reversing each 4-byte word moves the u8 opcode and count halves across word
+boundaries (e.g. `98 00 04 …` becomes `… 04 00 98`), so the consumer desyncs
+on the first record; packed 4x4 blocks, index bytes and colour bytes inside a
+word are permuted as well. The same applies to the vertex arrays (s16 data
+would become byte-swapped pairs at shifted positions depending on stride).
+
+**What the GX backend reads:** the compiled engine sets state from
+`HSD_VtxDescList` (attr/type/cnt/comp_type/frac/stride/vertex) via
+`setupArrayDesc`/`setupVtxDesc` (`displayfunc.c:569-576`) and then calls
+`GXCallDisplayList`; the port's GX HLE must parse the FIFO and arrays as BE,
+exactly like `native/hsd/model.c` (`rb16`/`rb32`) and `native/gx/texture.c`
+(`be16`). Recommendation: leave display lists and vertex arrays as BE and make
+the HLE BE-aware, instead of offline-converting them.
+
+## 5. Textures and TLUTs
+
+`HSD_ImageDesc.image_ptr` points at tiled pixel data with **no byte-size
+field**; the size is implied by format+dimensions (and the hand parser passes
+`n - image` so the decoder validates). A u32 word swap must not touch it.
+Component/tile layouts and their BE reads (all in `native/gx/texture.c`; the
+same bytes are what `GXInitTexObj`/GX HLE must consume):
+
+| Format | ID | Storage | BE detail |
+|---|---:|---|---|
+| I4 | 0 | 8x8 blocks, 4bpp | nibbles, high first (`decode_i4` `:55`) |
+| I8 | 1 | 8x4 blocks | 1 byte/texel (`decode_i8` `:74`) |
+| IA4 | 2 | 8x4 blocks | 1 byte/texel: low nibble intensity, high nibble alpha (`decode_ia4` `:88`) |
+| IA8 | 3 | 4x4 blocks | alpha byte then intensity byte (`decode_ia8` `:101`) |
+| RGB565 | 4 | 4x4 blocks | u16 **BE** (`decode_16` `:111` → `rgb565` `:23`) |
+| RGB5A3 | 5 | 4x4 blocks | u16 **BE** (`rgb5a3` `:31`) |
+| RGBA8 | 6 | 4x4 blocks | 16 AR byte pairs then 32 GB bytes (`decode_rgba8` `:122`) |
+| CI4 | 8 | 8x8 blocks, 4bpp | nibble indices; TLUT u16 BE (`gx_texture_decode_ci` `:196`) |
+| CI8 | 9 | 8x4 blocks | byte indices; TLUT u16 BE |
+| CMPR | 14 | 8x8 (4 sub-blocks) | `c0,c1` u16 BE + 16 index bytes (`decode_cmpr` `:136`) |
+
+TLUT data (`HSD_TlutDesc.lut`): `n_entries` BE u16 entries; expansion is
+format-aware (`decode_palette_entry` `model.c:705-731`: `0` IA8, `1` RGB565,
+`2` RGB5A3). u16-swap the entries if converting, or read BE in HLE — never
+u32-swap (that reverses entry pairs and swaps neighbours).
+
+P-403 census relevance: CMPR + CI8/CI4 (+RGB565/RGB5A3 TLUTs) are 96.7% of the
+967 character textures; RGBA8/RGB5A3/I4/I8 are the remainder; IA4/IA8/RGB565
+image maps and IA8 palettes are unobserved in `Pl*Nr.dat` (see
+`gx_textures.md`). All observed `mipmap` flags are 0.
+
+## 6. REL and other file types
+
+**None found.** The FST holds data-only HSD archives; no REL code module is
+loaded at runtime and the platform surface has no REL loader
+(`decomp_port.md` §3: "No REL code modules are loaded at runtime; disc assets
+are data-only HSD archives"). S0 exercised a plain `PlMrNr.dat` sub-archive and
+`Pl<Char>AJ.dat` is a concatenation of HSD sub-archives, each independently
+`HSD_ArchiveParse`-able (`hsd_animation.md` §1). If a future asset type
+appears, it needs its own rule set; nothing in S3's scope requires REL
+conversion today.
+
+## 7. Recommended pipeline
+
+Requirements it must meet: (a) `HSD_ArchiveParse`/`Locate` still run on the
+converted buffer, (b) every descriptor field reaching compiled code is host
+order, (c) byte-defined data (FObj streams, display lists, vertex arrays,
+textures, palettes) is bit-exact, (d) reusable/cacheable per ROADMAP S3.
+
+**Recommended: offline converter + per-load `Locate`, built as a descriptor
+walk.** Concretely:
+
+1. **Copy** the archive bytes and parse the header/tables read-only to learn
+   `data_size`, `nb_reloc`, `nb_public`, `nb_extern`.
+2. **Graph walk** the same paths the loaders walk: public `*_joint` /
+   `*_matanim_joint` roots (`*_animjoint` where present; AJ archives use
+   `*_figatree`) → `HSD_Joint` → `HSD_DObjDesc` →
+   `HSD_MObjDesc`/`HSD_PObjDesc` → `HSD_TObjDesc`/`HSD_VtxDescList`, plus the
+   `HSD_AnimJoint`/`HSD_AObjDesc`/`HSD_FObjDesc` animation trees. Record pointer
+   fields (for stage 3) and data ranges (for exclusion).
+3. **Convert** with a range map instead of a blanket prefix swap:
+   - structural descriptor regions: u32 word swap;
+   - inside those regions, restore the u16 fields (PObj `flags`/`n_display`,
+     VtxDesc `stride`, ImageDesc `width`/`height`, TlutDesc `n_entries`,
+     FigaTrack `length`/`startframe`) and the u8 runs (TObj `repeat_s/t`,
+     FObjDesc type/frac, material `GXColor`, PEDesc, TObjTevDesc, LOD bytes,
+     FigaTrack bytes);
+   - exclude all pointed-to data ranges: FObj `ad..ad+length`, PObj
+     `display .. +n_display*32`, every `VtxDescList.vertex` array (sized from
+     max display-list index × stride), `ImageDesc.image_ptr` (size from format
+     and dimensions), `TlutDesc.lut .. +n_entries*2`, FigaTree `nodes/tracks`.
+4. **Cache** the converted pre-`Locate` image on disk (hash + converter
+   version in the key, e.g. under the user cache dir). On load, copy it into
+   the working buffer and call `HSD_ArchiveParse`; `Locate` then resolves
+   pointers to the host buffer. Do not cache post-`Locate` bytes.
+5. **Verify** every archive by running the hand parser (`native/hsd/model.c` +
+   `aobj.c`) and the compiled loader side by side and diffing numbers, exactly
+   as S0 did (`tests/test_decomp_hsd.c`): symbol table, joint count, world
+   matrices, texture count/formats, clip counts.
+
+Rejected alternatives:
+
+- **Blanket swap-on-load (S0 recipe) only** — enough for the joint bind pose
+  but silently corrupts u16/u8 fields, material colors, FObj streams and
+  display lists. It must not ship as the S3 pipeline.
+- **Global swap + late un-swap** — workable but requires the same graph walk to
+  know what to un-swap; the range-map version does it in one pass and is less
+  error-prone.
+- **Descriptor expansion now** — building an expanded host-struct tree bypasses
+  `HSD_ArchiveParse`/`Locate` and is the clean answer for a 64-bit target, but
+  it is more invasive than 32-bit S3 needs; keep it as the 64-bit plan.
+
+### S0 validation to reproduce
+
+```
+decomp_hsd: PlMrNr.dat size=473522 data=467728 reloc=1423 public=2 extern=0 hand_symbols=2
+decomp_hsd: S0a matched 2/2 symbols, 2 offsets correct
+decomp_hsd: S0b root=PlyMario5K_Share_joint descriptors=61 objects=61 posed=61 world_worst=0 pose_failures=0
+```
+
+`ctest --test-dir build/native -R decomp_hsd` (SKIPs without the disc; the
+probe is built 32-bit per ADR-0012).
+
+## 8. Open questions
+
+1. **HSD_RObj/HSD_RObjDesc conversion.** Required before S3 ships geometry:
+   `JObjLoad` resolves `joint->robjdesc` (`jobj.c:650`), and the port's S0
+   probe nulls it. Layout (type/flags + union) needs its own field table.
+2. **FObj stream reachability.** Is every FObj `ad` stream reachable from the
+   public `_animjoint`/`_matanim_joint` roots? If an `HSD_FObjDesc` hangs off a
+   path the walk misses, its stream gets swapped. The range map should be
+   cross-checked against `nb_reloc` coverage (every relocated pointer belongs
+   to a known structure) — a useful invariant test.
+3. **Vertex arrays vs HLE.** Leave them BE for the GX HLE to decode (matches
+   compiled `GXSetArray`), or convert per `VtxDescList` (ACGC `SWAP_VTX` style)?
+   Either needs array lengths, which the format does not store; HLE-side
+   decoding avoids having to infer them. Recommend HLE-side.
+4. **Material colors.** Should the pipeline normalize `GXColor` to a canonical
+   `{r,g,b,a}` layout (as the port assumes), or leave them BE and let the GX
+   HLE/vertex-colour paths do the byte work? The compiled `HSD_Material` field
+   order is `r,g,b,a` (`mobj.h:82-88`), so normalization is the natural choice.
+5. **Texture size bounds.** `HSD_ImageDesc` has no length; the converter needs
+   expected sizes from format+dimensions (available in `gx/texture.c`) and must
+   reject ranges past the data section. `mipmap != 0` would add unseen data;
+   none observed in `Pl*Nr.dat`.
+6. **class_name policy.** Retail archives carry NULL class names (probe above);
+   decide whether the converter asserts on non-NULL and treats the target as a
+   byte string, or rewrites them to a known-class name. Applies to menus/trophy
+   `Cp*` archives not yet checked.
+7. **Cache invalidation.** Key by archive SHA-256 + converter version; the disc
+   region is static, but `Pl<Char>AJ.dat` is a container of sub-archives and
+   converters must handle each 0x20-aligned sub-archive independently.
+8. **`AObjDesc.obj_id`.** It is a u32 used both as an ID-table key and (when
+   lookup fails) cast back to a joint pointer (`aobj.c:199-209`); word swap is
+   correct, but the pipeline should not mistake it for a relocation target.
+9. **`HSD_TexLODDesc` ABI.** The header declares a 4-byte `GXAnisotropy` at
+   +0xC, but `native/hsd/model.c` reads the value at +0xA. Every `lod`
+   descriptor seen is zero-filled. Confirm the offset with a positive sample
+   (or a GC capture) before the HLE depends on it.
+
+## 9. What changes for a 64-bit build
+
+The 32-bit product build is what makes the current approach possible:
+`Locate` adds `(u32)archive->data` into the 4-byte field in place
+(`archive.c:13-15`), and the HSD structs contain 4-byte pointers and are
+size-asserted for the 32-bit ABI (e.g. `HSD_JObj` at `jobj.h:125`; see also
+`test_decomp_hsd.c:10-12`). On a 64-bit host that truncates. A 64-bit asset
+path therefore needs:
+
+1. **Descriptor expansion**: the platform loader walks the 32-bit archive and
+   allocates native `HSD_*` structs with 8-byte host pointers (same field
+   semantics as §2), so compiled code never sees 4-byte pointer slots; or
+2. **A parallel 32-bit asset-heap**: load archives into a fixed 32-bit address
+   range and patch pointers there — much more invasive and fragile;
+3. **ID handling**: `JObjLoad` stores `(u32)joint` keys in the ID table and
+   casts them back (`jobj.c:662-663`, `HSD_IDGetData`), so pointer-derived IDs
+   also assume 32-bit addresses (`decomp_port.md` §4.2, §6);
+4. Everything in §3-§5 that is byte-defined (FObj streams, display lists,
+   vertex arrays, textures) is unchanged, since it is not pointer-sized.
+
+Today none of this is on the critical path: ADR-0012 keeps the product 32-bit.
+The reason to write this section down now is that the S3 converter's data
+model (32-bit offsets + `Locate`) is the thing a future 64-bit port replaces,
+and the descriptor walk in §7 is exactly the schema the expansion would use.
