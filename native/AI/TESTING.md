@@ -47,6 +47,31 @@ Expected tail: `Completed 240 render frames, 240 simulation ticks`.
 
 If either output changes, explain why in the commit and update `STATE.md`.
 
+## Decompiled-port bring-up (S0+, ADR-0010)
+
+The full-tree syntax census is the cheap portability check:
+
+```sh
+for f in $(find src -name '*.c'); do
+  gcc -std=gnu11 -fsyntax-only -w \
+      -include native/decomp/shim/decomp_shim.h \
+      -I native/decomp/shim -I src -I extern/dolphin/include "$f"
+done
+```
+
+Current numbers and error classes are recorded in
+`learnings/decomp_port.md`; update that file when the census improves.
+
+Rules for this track:
+
+- Any `src/` change is a gated portability fix per ADR-0011 and must leave the
+  GC build green (`python configure.py`, then `ninja` if the MWCC toolchain is
+  available).
+- New compiled TUs get a differential CTest against the hand copy/oracle before
+  the hand copy is deleted (`tests/test_decomp_mtx.c` is the pattern).
+- Keep the prototype binary runnable: `--inspect`, `--view --frames` and
+  `--scripted --frames` must keep working until the compiled path replaces them.
+
 ## Sanitizer run (required for parser/memory changes)
 
 ```sh

@@ -6,151 +6,213 @@ references, acceptance commands and risks is
 [`ROADMAP_DETAILS.md`](ROADMAP_DETAILS.md). Live work claims are in
 [`TASKS.md`](TASKS.md) and current behavior is in [`STATE.md`](STATE.md).
 
-**Current position: M2 (renderer fidelity) is in progress — M2a (core-profile
-rewrite) is done, M2b (TEV/materials) has landed its first increments.**
+**Current position: the project pivoted on 2026-09-11 from the hand-written
+prototype to a decompilation-based full-game port (ADR-0010). The prototype
+(M0/M1/M2a) is done and becomes the platform backend. S0 — the feasibility
+spike — is next.**
 
 ---
 
 ## The goal
 
-A faithful PC port of Super Smash Bros. Melee (v1.02 / Rev 2) that runs from the
-user's own disc image, reusing the decompiled engine code where practical, on
-Linux first, then WASM and other platforms, with netplay as the long-term
-stretch. "Faithful" means the port follows `src/` (the decompilation) function
-by function, not an approximation that merely looks similar.
+A faithful, fully functional PC port of Super Smash Bros. Melee (v1.02 / Rev 2)
+that runs from the user's own disc image, is moddable at the source level, and
+can be built for Linux, Windows, macOS, Android and the web. "Faithful" now
+means something stronger than it did under the prototype plan: the port
+compiles the decompilation itself, so the game logic **is** the retail game's
+logic, verified against the DOL, not an approximation.
+
+## The pivot (ADR-0010)
+
+The hand-written sandbox proved the asset pipeline and produced working
+animation and rendering, but finishing the game by rewriting every engine
+system by hand means re-deriving ~489k LOC and its frame-perfect behavior. The
+decompilation is essentially complete, so the cheaper and more faithful path is
+to compile it and implement only the GameCube hardware around it.
+
+Evidence (full detail in [`learnings/decomp_port.md`](learnings/decomp_port.md)):
+
+- `build/GALE01/report.json`: **19,820 / 19,828 functions (99.96%) match the
+  retail DOL**; 100% of data matches. Only 5 units are incomplete.
+- A GCC syntax census found **834 / 1034 `src/*.c` compile with zero errors**
+  behind the P-301 shim; the residual is mechanical and small.
+- The hardware surface is bounded and concentrated: GX 171 symbols, AX 116,
+  OS 63, SI/EXI/CARD/AR/VI/DVD/PAD ~93. Game logic (441 `ft` files, 0 asm)
+  runs on HSD abstractions and fixed-width types.
+
+What this changes:
+
+- The work moves from "reimplement features" to "bring up the platform layer":
+  OS, DVD/asset loading (with host-endian conversion), GX→modern graphics,
+  AX→audio, input and the smaller hardware APIs.
+- The prototype is repurposed: renderer/shaders/TEV become the GX backend
+  seed, the disc reader becomes the DVD backend, the viewer/`--inspect`/
+  `--scripted` remain dev tools and parity oracles.
+- Hand-ported engine files are deleted only in the commit where the compiled
+  version proves parity (one source of truth).
 
 ## Milestones at a glance
 
-| # | Milestone | State | Roi / why it matters | Rough size |
+| # | Milestone | State | What it proves | Rough size |
 |---|---|---|---|---|
-| M0 | Asset sandbox | done | Proves disc -> HSD model -> GX texture -> GL | — |
-| M1 | Animation | done | Fighters move like the game; basis for all later states | — |
-| M2 | Renderer fidelity | **next** | Makes *everything* look like Melee and unblocks effects | 1-2 weeks |
-| M3 | Faithful movement | later | Replaces sandbox physics with `ftCommon_*` | 3-6 weeks |
-| M4 | Stages + match loop | later | A playable, complete match on real stages | 2-4 weeks |
-| M5 | Animation polish | parallel | IK, faces, material animation, blending | 1-2 weeks |
-| M6 | Audio | later | Menu + in-match sound (needs an ADR first) | 2-4 weeks |
-| M7 | Frontend | later | Menus, character select, results | 2-4 weeks |
-| M8 | Targets + netplay | stretch | WASM, Windows/macOS, rollback experiment | open ended |
+| P0 | Prototype: asset sandbox, animation, renderer | done | disc → HSD → GL pipeline; M0/M1/M2a | — |
+| S0 | Feasibility spike | **next** | the compiled HSD data path runs on the host; endianness and 64-bit structs survive | 1–2 weeks |
+| S1 | Boot skeleton | later | the decomp's own `main()` runs with stubbed OS/DVD/GX to a triage log | 2–4 weeks |
+| S2 | HSD runtime + GX HLE | later | the compiled game renders through its own HSD/GX path on GL | 4–8 weeks |
+| S3 | Asset pipeline | later | real disc assets load through compiled loaders | 3–6 weeks |
+| S4 | First match | later | compiled fighters/items/stages; the game's own match loop | 6–12 weeks |
+| S5 | Audio | later | AX/DSP HLE | 4–12 weeks |
+| S6 | Frontend + saves | later | menus, character select, results, memory card | 3–6 weeks |
+| S7 | Platforms + mods | stretch | Android, web, Windows/macOS parity, mod hooks, netplay | open ended |
 
----
+Sizes are rough agent-time estimates and are re-baselined by S0.
 
-## M0 — Asset sandbox (done)
+## P0 — Prototype (done, retained)
 
-Reads CISO/ISO/GCM disc images, walks the FST, decodes HSD joint/DObj/PObj
-archives and GX textures (including CI4/CI8 + TLUT), reconstructs the bind pose
-with the engine's asymmetric envelope rule, and renders a two-player sandbox.
-This is the pipeline every later milestone builds on.
+Everything in [`STATE.md`](STATE.md) under "Verified working": CISO/ISO disc
+reading, HSD model decoding with correct bind-pose skinning, FigaTree animation
+with a literal `fobj.c` port, GX texture decoding, a TEV-shaped GL 3.3
+renderer, the interactive viewer and the sandbox. Under ADR-0010 this is now:
 
-**Owner-visible:** `--inspect`, `--view`, model cycling, part isolation all work
-against a retail disc.
+- the **GX backend seed** (`gx/render.c`, `gx/shader.c`, `gx/texture.c` and the
+  `learnings/hsd_tev_materials.md` derivations),
+- the **DVD/asset seed** (`platform/disc.c`),
+- the **dev toolbox and parity oracle** (`--inspect`, `--view`, `--scripted`,
+  screenshots, the P-301 parity test).
 
-## M1 — Animation (done 2026-09-10)
+Feature work on hand-ported engine behavior is frozen; see "Frozen work".
 
-FigaTree clips from `Pl<Char>AJ.dat` are loaded and evaluated with a literal
-port of the engine's FObj player; nodes bind to joints exactly like
-`ftAnim_8006F4C8`; joints are posed and every vertex re-skinned per frame with
-the engine's rigid/blended/shared rules and the dynamic envelope `right`
-matrix. The viewer plays/pauses/scrubs/cycles clips; the sandbox switches
-Wait/Walk/Dash/Jump/Fall per fighter.
+## S0 — Feasibility spike (NEXT)
 
-**Owner-visible:** `--view --animate`, `--list-clips`, `A`/`,`/`.`/`Z`/`X`/`M`.
+**Goal.** Prove the biggest unknown before betting the project on it: that the
+decompilation's own data path runs on a 64-bit little-endian host.
 
-**Still open (tracked as P-207..P-210):** IK clipping, expression faces,
-material animation, per-action playback rates, animation blending, shape sets,
-spline (`HSD_A_J_PATH`) joints.
+**Deliverable.** An additive probe binary that uses the decomp's
+`HSD_ArchiveParse` / `HSD_JObjLoadJoint` to load a real `PlMrNr.dat` through
+`platform/disc.c`, plus a host-endian conversion for the structural parts of the
+archive. Joint world matrices are compared against the hand port.
 
-## M2 — Renderer fidelity (NEXT)
+**Exit criteria.** Joint count and bind-pose world matrices match the hand
+port within a documented tolerance; `--inspect` and the prototype binary are
+untouched.
 
-**M2a is done.** The renderer is OpenGL 3.3 core with GLSL 330 shaders written
-in an ES3/WebGL2-portable subset; per-batch VAO/VBOs replaced the display
-lists and the matrix stack (ADR-0009). Headless SDL `offscreen` + Mesa works
-and the pre-rewrite frames were reproduced pixel-for-pixel before the material
-work intentionally changed them.
+**Risks.** Endianness handling could require a per-format converter sooner than
+planned; HSD allocator/class registration pulls more files than expected. This
+milestone is the gate: if it fails, stop and re-plan rather than push on.
 
-**M2b is underway.** The decomp's material state is now evaluated by the
-shader: `MObjMakeTExp`/`TObjMakeTExp` initial channel/material stage,
-TEV colormap/alphamap, the DIFFUSE/SPECULAR/EXT lightmap phases, alpha test,
-`RENDER_XLU` blend factors and GX Z state, plus TEX0+TEX1. Each fighter is
-scaled by its `ftData.model_scaling` (`Fighter_UpdateModelScale`). Still open:
-real `HSD_LObj` light values (stage code), lightmap repeat chains,
-`HSD_TObjTev` overrides, toon ramps, Game & Watch's `x34_scale.z`.
+## S1 — Boot skeleton
 
-**Owner-visible:** Luigi's face, Bowser/Kirby proportions and Marth/Kirby
-materials now read correctly; translucent parts blend instead of drawing
-opaque.
+**Goal.** Run the game's own entry (`src/melee/gm/gmmain.c:130`) with stubbed
+OS/DVD/GX/VI and learn what it actually needs, in dependency order.
 
-**Main risk:** exact lighting/specular depends on stage-created `HSD_LObj`
-data, so it will stay approximate until stages (M4) are ported.
+**Deliverable.** The decomp's `main()` links and runs to a controlled failure
+trace, with an OS/DVD stub layer that logs each unimplemented call.
 
-## M3 — Faithful movement and fighter states
+**Exit criteria.** A boot log that reaches an intentional stop, plus the
+first concrete list of backend work items derived from it.
 
-Replace `extras/physics.c` (explicitly original sandbox code) with the real
-engine: compile the pure HSD math from `src/sysdolphin` (P-301), then port
-`ftCommon_*` movement and the fighter action state machine (P-302). This is
-where per-action animation rates (P-210) come from for free, and where
-knockback, hitstun, shielding and jumps become faithful instead of demo
-approximations.
+**Risks.** Arena/memory initialization assumptions; thread/interrupt boot
+sequencing; the five incomplete units may need hand C.
 
-**Owner-visible:** movement feels like Melee; frame data and animations line up.
+## S2 — HSD runtime + GX HLE
 
-**Main risk:** the `Fighter` struct is huge and drags in GameCube headers; an
-ADR decides between compiling decomp code with a platform shim versus a
-reduced port-side struct.
+**Goal.** Make the compiled HSD render.
 
-## M4 — Stages and the match loop
+**Deliverable.** The `src/sysdolphin` layer compiles fully; a GX backend
+implements the command/vertex/TEV/texture path HSD uses, grown from the
+prototype renderer (ES3-portable shaders stay).
 
-Load real `Gr*.dat` stages: geometry, collision lines, camera bounds, spawn
-points, blast zones. Add KO/respawn, damage/knockback (shared with M3), a stock
-match loop and a simple results state.
+**Exit criteria.** A character renders through the compiled HSD + GX path with
+screenshot parity against the hand renderer; `--inspect` numbers are explained
+where they differ (the compiled path uses real HSD structures).
 
-**Owner-visible:** a complete match on a real stage against a CPU.
+**Risks.** The GX FIFO/vertex-format surface is bigger than the prototype's
+batch model; display-list and FObj endianness must be handled by the backend
+(see S3).
 
-## M5 — Animation polish (can run in parallel)
+## S3 — Asset pipeline
 
-P-208 IK (`resolveIKJoint1/2`) for planted feet/hands, P-207 expression/part
-visibility events for blinking and damage faces, P-209 material animation,
-animation blending between states, and shape sets. These are independent of
-M3/M4 and can be picked up by another agent without touching the same files as
-the movement work.
+**Goal.** Load every real disc asset through the compiled loaders.
 
-## M6 — Audio
+**Deliverable.** A host-endian conversion pipeline (structural words, FObj
+streams, display lists, textures; per-format), cached and versioned, driven by
+the format knowledge already written down in `learnings/`.
 
-Needs a decision memo first (P-501): reimplement AX/DSP, use an existing AX
-emulator, or build a game-side mixer. Audio depends on M4's game loop being
-stable enough to trigger sounds.
+**Exit criteria.** All 26 character archives, stages and common assets load;
+cross-character bounds match `STATE.md`'s documented numbers or the deviation
+is explained by the compiled path.
 
-## M7 — Frontend
+**Risks.** This is the least forgiving part: a wrong swap shows up as garbage
+geometry, silent desyncs or crashes. The hand parser is the reference oracle.
 
-Menus, character select, results screens. Most of this is decompiled `mn/`
-code; like M3 it depends on the platform/struct strategy.
+## S4 — First match
 
-## M8 — Targets and networking
+**Goal.** The real game loop with real fighters, items and a real stage.
 
-WASM/WebGL2 (the ES3 shader work in M2a is deliberate groundwork), Windows and
-macOS builds, and a netplay experiment (rollback) as a stretch.
+**Deliverable.** Compiled `ft`, `it`, `gr` and the `gm` scene loop; two
+fighters on a stage with the engine's physics, collision, camera and stock
+rules. This subsumes the old M3+M4.
 
----
+**Exit criteria.** A deterministic scripted match runs headless; positions are
+compared against the current sandbox where meaningful and against the decomp's
+own constants where possible; 600-frame ASan run clean.
 
-## Parallel workstreams (any time)
+**Risks.** 64-bit/float divergences only show up in long simulations; input and
+tick order must match. Budget time for differential debugging.
 
-| Workstream | Why |
-|---|---|
-| P-301 compile real HSD math from `src/` | Removes hand-written math; prerequisite for M3 |
-| P-212 visual interpolation (after parity) | Smooth 120/180 Hz motion without changing 60 Hz logic |
-| P-401/P-402 CI + parser fuzzing | Keeps the tree honest without a disc |
-| P-403 GX format census | Cheap documentation that helps M2b |
-| P-411 per-character attributes | Small, improves non-Mario fighters |
-| P-206 camera polish | Makes the sandbox presentable |
+## S5 — Audio
+
+**Goal.** In-match and menu audio.
+
+**Deliverable.** AX/DSP HLE or an equivalent backend, chosen by the P-501
+memo/ADR before coding. ARAM and audio tables load through the S3 pipeline.
+
+**Risks.** The largest single unknown; DSP microcode emulation is a project of
+its own. This milestone may borrow an existing approach (see ACGC).
+
+## S6 — Frontend and saves
+
+**Goal.** The game as a product, not just a match.
+
+**Deliverable.** Compiled `mn` menus, character select, results, and memory
+card/save handling (external format, platform layer).
+
+**Exit criteria.** Boot → menu → select → match → results → save/load.
+
+## S7 — Platforms and mods (stretch)
+
+- Android (SDL2 + GLES3) and web (Emscripten + WebGL2) — the ES3-portable
+  shaders and thin platform layer are deliberate groundwork; blockers are
+  asset size/delivery, threading and audio.
+- Windows/macOS parity.
+- A mod layer: source-level hooks and data-driven asset overrides on top of the
+  compiled game.
+- Netplay (rollback) once the simulation is deterministic.
+
+## Parallel / supporting work
+
+- **P-601** full-tree compile census and shim hardening (S0).
+- **P-602/P-603** the S0a/S0b probes.
+- **P-401/P-402/P-403** CI, fuzzing and the GX format census stay useful for the
+  port; the fuzz fixtures and GX documentation feed the backend.
+- **P-501/P-502** audio and WASM memos are now on the critical path for S5/S7.
+
+## Frozen work (do not start)
+
+The hand-port engine items — P-204 leftovers, P-205..P-210, P-302, P-411,
+P-412 — are superseded by compiled modules and are frozen (`TASKS.md` marks
+them `parked`). Do not extend the hand HSD parser or renderer beyond fixes the
+bring-up itself needs.
 
 ## Critical path
 
-`M2 (renderer) -> M3 (movement) -> M4 (stages/match) -> M6 (audio) -> M7 (frontend)`,
-with M5 running alongside and M8 on top.
+`S0 → S1 → S2 → S3 → S4 → S5 → S6 → S7`, with S5 able to overlap S4 once S3
+lands. S0 is the go/no-go gate.
 
 ## What "done" looks like
 
-A stock match on a real stage against a CPU or a second player, with faithful
-movement, hitboxes, knockback and animation; correct GX-style rendering;
-original audio; menus; saves; and eventually online play — all running from the
-user's own disc image on multiple platforms.
+Boot → menu → character select → a stock match on a real stage against a CPU or
+a second player, with the retail game's movement, hitboxes, knockback and
+animation; GX-correct rendering; original audio; saves; source-level modding;
+and builds for Linux, Windows, macOS, Android and web — all from the user's own
+disc image.

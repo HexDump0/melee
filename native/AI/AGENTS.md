@@ -5,11 +5,13 @@ Follow them even when they feel slow.
 
 ## 0. Scope
 
-- Work only under `native/` unless a task explicitly says otherwise. The
-  GameCube build (`src/`, `configure.py`, `ninja`) must stay green.
-- Never modify upstream decompiled code to make the port easier. If the engine
-  code is wrong for a port, adapt the port layer around it or add an
-  `#ifdef`-free wrapper under `native/`.
+- The port now **compiles `src/`** (ADR-0010). Work under `native/` and, for
+  the decompiled-port build, read `src/` and `extern/dolphin/`. The GameCube
+  build (`src/`, `configure.py`, `ninja`) must stay green after any change.
+- `src/` and `extern/` are read-only by default. The only allowed edits are
+  minimal, `#ifdef PORT_PC`-gated portability fixes per ADR-0011 (shim first,
+  patch second, replacement TU last), each listed in
+  `learnings/decomp_port.md`. Never fork the tree; never edit `extern/`.
 - Never use or commit game assets. Test against the user's local disc image.
 
 ## 0.1 This is a port, not a reinterpretation
@@ -17,10 +19,18 @@ Follow them even when they feel slow.
 **The decompilation under `src/` is the specification. Port the game's actual
 logic; do not invent an equivalent that "looks about right".**
 
-- Before writing engine behavior, find the function that implements it
-  (`rg` for the symbol, read the `.c`/`.h`) and translate that function
-  structure, naming, control flow and arithmetic into `native/`. Keep the
-  original function names in comments (e.g. `/* HSD_FObjInterpretAnim */`).
+**The specification is now also the product (ADR-0010).** Engine behavior comes
+from compiling `src/`, not from transcription. Hand transcription is a fallback
+only for modules the compiled path cannot take yet; when a compiled function
+proves parity with the hand copy, delete the hand copy in the same commit. The
+port implements platform behavior (GX, AX, OS, DVD, input, timing), never
+gameplay approximations.
+
+- When transcription is needed (a module the compiled path cannot take yet),
+  find the function that implements it (`rg` for the symbol, read the
+  `.c`/`.h`) and translate its structure, naming, control flow and arithmetic
+  verbatim into `native/`. Keep the original function names in comments (e.g.
+  `/* HSD_FObjInterpretAnim */`). Prefer compiling the file.
 - Do not replace state machines with "cleaner" stateless models. If the engine
   plays increments a byte stream (FObj), the port plays the same stream with
   the same state. If the engine walks a tree a certain way (ftParts), the port
@@ -42,7 +52,8 @@ logic; do not invent an equivalent that "looks about right".**
 ## 1. Cold start (do this every session)
 
 1. `git pull`
-2. Read `STATE.md` and the task you intend to claim in `TASKS.md`.
+2. Read `STATE.md`, the current milestone in `ROADMAP_DETAILS.md`, and the task
+   you intend to claim in `TASKS.md`.
 3. Check `handoffs/` for the latest note and `gotchas/GOTCHAS.md`.
 4. Build and run the baseline checks in `TESTING.md` **before** changing code,
    so you know whether a failure is yours.
@@ -59,6 +70,10 @@ logic; do not invent an equivalent that "looks about right".**
 ## 3. Verify every change
 
 - Build must be warning-free for the files you touched (`-Wall -Wextra -Wpedantic`).
+- **Compiled-engine changes prove parity before replacing anything.** A hand
+  copy may only be deleted in the commit where the compiled version passes a
+  differential test (or `--inspect`/screenshot comparison) against it, and the
+  evidence goes in the commit/handoff.
 - Run the headless smoke test from `TESTING.md` and paste the key output into
   `logs/` if it changed behavior.
 - Any parser or memory change: run the AddressSanitizer/UBSan build for a

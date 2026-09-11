@@ -1,9 +1,25 @@
 # State of the port
 
-Last updated: 2026-09-11 (owner confirmed 180 Hz viewer + face artifact gone)
+Last updated: 2026-09-11 (architecture pivot, ADR-0010; prototype baseline unchanged)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
+
+## Direction (2026-09-11): pivot to a decompilation-based port
+
+**ADR-0010 supersedes ADR-0001.** The project is moving from the hand-written
+prototype described below to a full-game port that compiles `src/` itself and
+replaces only the GameCube hardware under `native/` (OS, DVD/asset loading,
+GX→graphics HLE, AX→audio, input). The decomp is essentially complete
+(19,820/19,828 functions, 99.96%, match the retail DOL) and 834/1034 `src`
+files already compile behind the P-301 shim — see
+[`learnings/decomp_port.md`](learnings/decomp_port.md).
+
+Until S2/S3 land, **this file describes the prototype**, which stays runnable
+as the dev tool and the per-layer parity oracle. Hand-port engine work
+(P-204 leftovers, P-205..P-210, P-302, P-411, P-412) is `parked` in
+`TASKS.md`; the next milestone is **S0** (compile `HSD_ArchiveParse` +
+`HSD_JObjLoadJoint` against a real `PlMrNr.dat`).
 
 ## TL;DR
 
@@ -75,6 +91,11 @@ lightmap phases, alpha test, XLU blend) and every fighter is scaled by its
 ## Known issues / gaps
 
 Ordered by impact.
+
+> Items 1–3 are prototype gaps superseded by the compiled engine (ADR-0010,
+> S2/S4) and are parked. Item 4 (TEV) rolls into GX HLE; item 6 (character
+> data) into compiled `ftData`; item 5 is the port plan itself. They stay
+> listed because the prototype remains the fallback oracle until parity lands.
 
 1. **Animation fidelity gaps.** Clips play and skin correctly, but
    `SETBYTE`/`SETFLOAT` channels (expressions, blinking, `ftParts_80074B0C`),

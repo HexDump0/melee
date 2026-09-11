@@ -410,3 +410,33 @@ deadzone override the keyboard, so the stuck axis won.
 **Fix:** only use the stick after at least one axis-motion event has been seen,
 and let keyboard movement win while a key is held. `--no-controller` disables
 pad input entirely. See the sandbox input block in `native/main.c`.
+
+## G-047: the SDK math pairs are Metrowerks asm and cannot be compiled
+
+**Symptom:** trying to compile `extern/dolphin/src/dolphin/mtx/mtx.c` or
+`vec.c` (or planning to) produces `expected '(' before 'void'`,
+`unknown type name 'psq_l'`, `nofralloc`, stray `@` and dozens more.
+**Cause:** those files are hybrid C/asm from the MWCC era: function-level
+`asm void PSMTXCopy(...) { psq_l ... }` and inline `asm { ... }` blocks inside
+plain C functions (`PSMTXIdentity`, `PSMTXTrans`, ...). The pure-C `C_MTX*`/
+`C_VEC*` twins live in the same TUs, so they are unreachable too.
+**Fix:** never compile those TUs on PC. Provide the ~15 primitives the HSD
+layer calls in a portable backend under `native/decomp/` (ADR-0011 rule 3).
+This is exactly why P-301 could only land `HSD_MtxSRT` from
+`src/sysdolphin/baselib/mtx.c`.
+
+## G-048: the decomp does compile on the host, but three mechanical classes block it
+
+**Symptom:** the GCC census (834/1034 `src/*.c` clean) reports `unknown type
+name 'intptr_t'/'uintptr_t'`, `static assertion failed: offsetof(struct
+ToyED8Data, ...)`, or `initialization of 'void (*)(int)' from incompatible
+pointer type 'void (*)(_Bool)'`.
+**Cause:** (1) `intptr_t`/`uintptr_t` come from the GC MSL headers (32-bit) or
+are missing; on the host they must be 64-bit. (2) The decomp asserts GameCube
+32-bit struct offsets at compile time; they are wrong on a 64-bit build and
+must be disabled, not "fixed" by moving fields. (3) `dolphin/types.h` defines
+`BOOL` as `int`, `platform.h` uses C `bool`, and some callbacks mix them.
+**Fix:** for the port build, add `<stdint.h>` via `decomp/`'s shim, disable the
+layout assertions, and decide the `BOOL`/`bool` convention per ADR-0011. Record
+every `src/` patch in `learnings/decomp_port.md`. The syntax census and current
+numbers live there too.

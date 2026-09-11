@@ -10,6 +10,137 @@ decompiled logic; do not invent equivalents.
 
 ---
 
+## Architecture (2026-09-11): compile the decompilation, port the hardware
+
+**ADR-0010 supersedes ADR-0001. ADR-0011 defines the `src/` patch policy.**
+
+The product is now the retail game compiled from `src/`, with the GameCube
+hardware replaced by a platform layer under `native/`:
+
+- `src/` + `extern/dolphin/` compile into the port binary, read-only by default.
+  Portability fixes only per ADR-0011 (`#ifdef PORT_PC`, GC build green, listed
+  in `learnings/decomp_port.md`); `extern/` is never edited; excluded asm TUs
+  are replaced from `native/decomp/`.
+- The platform layer implements: OS (threads/timers/arena/interrupt stubs),
+  DVD/asset loading with host-endian conversion, GX→OpenGL/Vulkan HLE,
+  AX→audio HLE, PAD/VI/SI/EXI/CARD/AR, and the SDL/core plumbing.
+- The prototype is repurposed: `gx/render.c` + shaders + TEV derivations are the
+  GX backend seed; `platform/disc.c` is the DVD backend; `--inspect`/`--view`/
+  `--scripted`/screenshots are dev tools and the per-layer parity oracle.
+- One source of truth per function: a hand-ported engine file is deleted in the
+  same commit as the compiled version that replaces it, once parity is proven
+  (differential test, `--inspect` numbers, byte-identical screenshots while both
+  paths coexist).
+
+### Evidence (2026-09-11)
+
+Full detail in `learnings/decomp_port.md`; summary:
+
+- `build/GALE01/report.json`: 19,820/19,828 functions (99.96%) match the retail
+  DOL, data 100%, fuzzy 99.995%. 5 incomplete units, 4 low-fuzzy functions.
+- GCC syntax census: 834/1034 `src/*.c` compile clean; residual = missing
+  `stdint` typedefs, 180 GameCube offset assertions, 59 `BOOL`/`bool` callback
+  mismatches, ~52 `src/MSL` files (excluded on PC), a few per-file quirks.
+- Platform surface: GX 171 unique symbols, AX 116, OS 63, SI 29, CARD 24,
+  AR 17, VI 13, DVD 10, PAD 9, AI 4, EXI 2.
+- Asm TUs: 4 in `src/` (`hsd_397E`, `gm_1601`, `gmmain`, `grbigblue` functions),
+  20 in `extern/dolphin/src` (including the SDK `mtx.c`/`vec.c` math pairs).
+- No REL code modules load at runtime; disc assets are data-only HSD archives.
+
+### Milestones
+
+#### S0 — Feasibility spike (next, gate)
+
+- **Goal:** prove the decompilation's own data path runs on a 64-bit LE host.
+- **Deliverable:** additive probe targets (`melee_decomp_hsd`) that compile
+  `src/sysdolphin/baselib/archive.c` (+ allocator/class deps) and run
+  `HSD_ArchiveParse` on a real `PlMrNr.dat`; then `HSD_JObjLoadJoint` with a
+  host-endian conversion for the structural sections; joint world matrices
+  compared to the hand port.
+- **Exit:** symbol/joint tables match the hand parser; bind-pose world matrices
+  match within a documented tolerance; prototype binary and `--inspect`
+  untouched.
+- **Risks:** endianness strategy may need per-format work earlier than planned;
+  HSD allocator/class chain may pull more files than expected.
+- **Tasks:** P-601 (census/shim), P-602 (S0a parse), P-603 (S0b joint parity).
+
+#### S1 — Boot skeleton
+
+- **Goal:** run the decomp's `main()` (`src/melee/gm/gmmain.c:130`) with stubbed
+  OS/DVD/GX/VI and learn what it needs in order.
+- **Deliverable:** OS/DVD stub layer that logs each unimplemented call; a boot
+  log to a controlled stop.
+- **Exit:** reproducible boot trace; backend work list derived from it.
+- **Risks:** arena/thread/interrupt boot order; the 5 incomplete units.
+
+#### S2 — HSD runtime + GX HLE
+
+- **Goal:** compiled HSD renders.
+- **Deliverable:** full `src/sysdolphin` compile; GX backend for the
+  FIFO/vertex/TEV/texture path HSD uses, grown from the prototype renderer
+  (keep the ES3-portable shader work, ADR-0009).
+- **Exit:** character render through compiled HSD+GX with screenshot parity;
+  deviations explained.
+- **Risks:** GX surface larger than the prototype batch model; display-list
+  endianness handled in the backend.
+
+#### S3 — Asset pipeline
+
+- **Goal:** every real disc asset loads through compiled loaders.
+- **Deliverable:** host-endian conversion pipeline (structural words, FObj
+  streams, display lists, textures; per format), cached/versioned, based on the
+  existing `learnings/`.
+- **Exit:** 26 character archives + stages + common assets load; bounds match
+  `STATE.md` or deviations are explained.
+- **Risks:** least forgiving area; wrong swap = garbage/silent desync. The hand
+  parser is the oracle.
+
+#### S4 — First match
+
+- **Goal:** the game's own match loop with real fighters/items/stages
+  (subsumes old M3+M4).
+- **Deliverable:** compiled `ft`/`it`/`gr`/`gm`; two fighters on a stage with
+  engine physics, collision, camera, stocks.
+- **Exit:** deterministic scripted match headless; 600-frame ASan clean;
+  numeric comparisons documented.
+- **Risks:** 64-bit/float divergence appears only in long simulations; tick and
+  input order must match the GC.
+
+#### S5 — Audio
+
+- **Goal:** in-match + menu audio.
+- **Deliverable:** AX/DSP HLE or equivalent, chosen by P-501/ADR first; ARAM and
+  audio tables via S3.
+- **Risks:** biggest single unknown; may adopt an existing approach.
+
+#### S6 — Frontend + saves
+
+- **Goal:** the game as a product.
+- **Deliverable:** compiled `mn`, saves/memory card via the platform layer.
+- **Exit:** boot → menu → select → match → results → save/load.
+
+#### S7 — Platforms + mods (stretch)
+
+- Android (SDL2+GLES3), web (Emscripten+WebGL2), Windows/macOS parity, mod
+  hooks/asset overrides, netplay once deterministic.
+
+### Frozen work (do not start)
+
+`P-204` leftovers, `P-205`..`P-210`, `P-302`, `P-411`, `P-412` are `parked` in
+`TASKS.md`: compiled `jobj`/`fobj`/`ftanim`/`tobj`/`ftData` replace them. Do not
+extend the hand HSD parser/renderer beyond what the bring-up itself needs.
+
+---
+
+## Legacy hand-port track (frozen 2026-09-11 — kept for reference)
+
+The sections below document the prototype plan. ADR-0010 froze new
+engine-feature work here; they remain the reference for what the prototype does
+and for the platform backend it seeds.
+
+---
+
+
 ## P-211 — Renderer rewrite (OpenGL 3.3 core, ES3-portable) — DONE
 
 **Status:** landed in `b35dd102e`; ADR-0009 supersedes ADR-0004. See
@@ -81,6 +212,10 @@ attenuation polynomial; point/spot attenuation; lightmap `repeat` chains;
 `HSD_TObjTev` active overrides (all 0 in the tested fighters); toon ramps;
 Flat Zone's `x7E4_scaleZ`.
 
+**PARKED (ADR-0010).** These leftovers are superseded by GX HLE (S2) and the
+compiled `tobj`/stage code (S3/S4); the landed prototype behavior stays as the
+GX backend's fallback oracle. Do not start new work here.
+
 **Source of truth.** `src/sysdolphin/baselib/tev.c`, `tobj.c`, `mobj.c`,
 `state.c`, `pobj.c`, and the `TObjDesc`/`MObjDesc` fields parsed in
 `hsd/model.c`. Derive state from those, never from screenshots.
@@ -98,47 +233,45 @@ and **cannot** be compiled by GCC/Clang, so the SDK `PSMTX*`/`PSVEC*`
 primitives stay hand-ported. `mtx_concat`/`mtx_transform_*` still use the port's
 hand copies until a primitive backend exists.
 
-**P-302:** port `ftCommon_*` movement and the fighter action state machine.
-Blocked on an ADR about the `Fighter` struct: either compile decomp code with a
-platform shim plus a hand-written SDK math backend, or maintain a reduced
-port-side struct generated from `ft/types.h`. Before betting on the compile
-path, run the scoped GX-light ft-file spike recommended in
-`learnings/decomp_shim.md` §5; only `jobj/gobj/dobj/aobj/fobj/spline` are
-GX-free, while `pobj/cobj/displayfunc` carry 118 GX call sites. Whichever wins,
-per-action animation rate (P-210, `frame_speed_mul`) and input handling come
-from this port.
+**P-302 — SUPERSEDED by ADR-0010.** Hand-porting `ftCommon_*` was the old M3
+plan; the compiled `ft` code (S4) is the real thing. P-301's verdict is now
+historical context: pure-C HSD files compile (and the whole tree mostly does,
+see the architecture section above); the SDK `PSMTX*`/`PSVEC*` primitives stay
+hand-provided because the SDK math TUs are Metrowerks asm (ADR-0011 rule 3).
+The per-action animation rate, input handling and physics all come from the
+compiled engine.
 
-**Verification:** a scripted input sequence produces numerically identical
-positions to a reference run (or the deviation is documented). The current
-sandbox should be kept runnable until the real path reaches parity.
+**Verification (prototype, until S4):** a scripted input sequence produces
+numerically identical positions to a reference run (or the deviation is
+documented). The sandbox stays runnable until the compiled path reaches parity.
 
 ---
 
-## P-208 — IK joints
+## P-208 — IK joints (PARKED, ADR-0010)
 
-Port `resolveIKJoint1`/`resolveIKJoint2` and the `JOBJ_JOINT1/JOINT2/EFFECTOR`
-branches of `HSD_JObjSetupMatrixSub` (`jobj.c`). Requires parsing `robj`/IK
-hints for the port; currently the loader ignores `HSD_Joint.robjdesc`.
-Acceptance: landing/ledge clips plant feet/hands like the game; no effect on
-characters without IK joints.
+**Superseded by the compiled `jobj.c` (`HSD_JObjSetupMatrixSub`) in S2/S4.**
+Kept for reference: `resolveIKJoint1`/`resolveIKJoint2` and the
+`JOBJ_JOINT1/JOINT2/EFFECTOR` branches. The current loader ignores
+`HSD_Joint.robjdesc`; the compiled loader will not.
 
-## P-207 — Expression / visibility events
+## P-207 — Expression / visibility events (PARKED, ADR-0010)
 
-Expressions are **not** figatree `SETBYTE` channels (that callback list has no
-registration API in the decomp). Port the action-driven path: `x5F4_arr`
-variant state, `ftParts_80074B0C`/`ftParts_80074A4C`, `ftParts_80074B6C`/
-`ftParts_80074D7C` (show/hide DObj lists), and the per-kind
-`ftData_UnkIntBoolFunc0.model_events` table. Acceptance: Mario blinks and shows
-damage faces; Pichu/Zelda variants switch.
+**Superseded by compiled `ftparts.c` action code in S4.** Kept for reference:
+expressions are action-driven (not figatree `SETBYTE` channels) via `x5F4_arr`
+variant state, `ftParts_80074B0C`/`ftParts_80074A4C`,
+`ftParts_80074B6C`/`ftParts_80074D7C` and the per-kind
+`ftData_UnkIntBoolFunc0.model_events` table.
 
-## P-209 — Material animation
+## P-209 — Material animation (PARKED, ADR-0010)
 
-Parse `HSD_MatAnimJoint` (`Ply<Char>5K_Share_matanim_joint`, already a public
-symbol) and evaluate its FObjs with `TObj`/`MObj` update semantics (`tobj.c`,
-`mobj.c`, `ftanim.c:ftAnim_80070200`). Acceptance: a clip with texture/material
-motion animates (e.g. Sheik/Zelda effects, stage-independent demos).
+**Superseded by compiled `tobj.c`/`mobj.c` + `ftAnim_80070200` in S2/S3.**
+Kept for reference: `HSD_MatAnimJoint` (`Ply<Char>5K_Share_matanim_joint`) and
+its FObj evaluation.
 
 ## P-212 — Visual render interpolation (deferred by the owner)
+
+Under ADR-0010 this applies to the compiled simulation (S4+); re-scope it then.
+The ADR-first requirement and the "never touch simulation" rule still hold.
 
 **Scope.** Presentation only; after the faithful 60 Hz port is complete. The
 simulation keeps stepping at 1/60 and stays deterministic; render frames mix
@@ -147,7 +280,7 @@ the previous and current tick's skinned vertices (or joint transforms) by
 for the authentic cadence, `--scripted` always off. Needs an ADR first (the
 presentation-vs-faithfulness decision). Not on the critical path.
 
-## Blending / shape sets / HSD_A_J_PATH
+## Blending / shape sets / HSD_A_J_PATH (hand-port reference; superseded by compiled HSD in S2)
 
 - **Blending** (`x8A4_animBlendFrames`): pose two skeletons (`parts[].joint` and
   `parts[].x4_jobj2`) and port `ftAnim_8006FE9C` interpolation. Acceptance:
@@ -159,25 +292,27 @@ presentation-vs-faithfulness decision). Not on the critical path.
   `aobj->hsd_obj` translation override (`splArcLengthPoint`). Low priority for
   fighters; effects/stages use it.
 
+All three are implemented by the compiled `fobj`/`jobj`/`aobj` code once S2
+lands; this section is retained only to explain the prototype's gaps.
+
 ---
 
-## M4 — Stages and match loop
+## M4 — Stages and match loop (SUPERSEDED by S3/S4, ADR-0010)
 
-Decode `Gr*.dat` with the same HSD reader: stage joints/DObjs, collision lines
-(`gr/` collision structs), spawn points, camera bounds, blast zones. Then KO/
-respawn, a stock loop and results. Keep everything headless-verifiable
-(scripted inputs, deterministic screenshots). P-206 camera polish belongs here.
+The old plan decoded `Gr*.dat` with the hand HSD reader. Under ADR-0010 the
+compiled `HSD`/`gr` code loads stages and runs the match loop (S3/S4); the hand
+reader remains the format oracle for the asset pipeline. P-206 camera polish is
+parked with the rest of the viewer-only work.
 
-## M5+ — Audio, frontend, targets
+## M5+ — Audio, frontend, targets (SUPERSEDED by S5/S6/S7, ADR-0010)
 
-- **Audio:** ADR first (P-501). Options: reimplement AX/DSP, adopt an existing
-  AX emulator, or a game-side mixer. Do not add dependencies without a
-  decision entry.
-- **Frontend:** mostly decompiled `mn/` code; depends on the M3 struct/compile
-  strategy.
-- **WASM:** P-502 memo; M2a's ES3 shader portability is deliberate groundwork.
-  Known blockers: synchronous disc reads, threading, file access.
-- **Netplay:** rollback experiment; needs M3+M4 determinism first.
+- **Audio:** P-501 memo/ADR stays on the critical path for S5. Options:
+  reimplement AX/DSP, adopt an existing AX/DSP interpreter, or a game-side
+  mixer. The platform surface is 116 AX symbols + AR.
+- **Frontend:** compiled `mn` code (S6); no separate hand port.
+- **WASM:** P-502 memo; the ES3 shader work and thin platform layer are the
+  groundwork. Blockers: asset size/delivery, threading, audio.
+- **Netplay:** rollback experiment; needs S4 determinism first.
 
 ## Cross-cutting requirements
 

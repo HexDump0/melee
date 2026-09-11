@@ -12,7 +12,8 @@
 Do not claim more than one task. If a task is too big, split it into subtasks
 and claim one.
 
-Status values: `open`, `claimed`, `blocked`, `review`, `done`.
+Status values: `open`, `claimed`, `blocked`, `review`, `done`, `parked`
+(`parked` = superseded by ADR-0010; do not resume, kept for history).
 
 ## Workstreams
 
@@ -21,28 +22,32 @@ Status values: `open`, `claimed`, `blocked`, `review`, `done`.
 - **P-3xx** engine integration (use decompiled code)
 - **P-4xx** tooling, testing, docs
 - **P-5xx** future targets (audio, WASM, netplay)
+- **P-6xx** decompiled-port bring-up (ADR-0010; milestones S0..S7)
 
 ## Open tasks
 
 | ID | Task | Status | Agent | Files | Notes / acceptance |
 |---|---|---|---|---|---|
+| P-601 | Full-tree GCC compile census + shim hardening (S0) | open | — | `native/decomp/shim/`, `native/AI/learnings/decomp_port.md` | Drive `src/` to compile behind the shim: `<stdint.h>`, disable GameCube layout asserts on the port build, resolve `BOOL`/`bool` callback types, exclude `src/MSL`, fix per-file quirks. Acceptance: census numbers improve and are recorded in `learnings/decomp_port.md`; GC build unaffected. |
+| P-602 | Probe: decomp `HSD_ArchiveParse` on a real `PlMrNr.dat` (S0a) | open | — | `native/decomp/`, `native/CMakeLists.txt`, `native/tests/` | Additive target compiling `src/sysdolphin/baselib/archive.c` (+ minimal allocator/class deps) and a probe that reads the disc through `platform/disc.c`, parses the archive and enumerates public symbols; diff against the hand parser. Host-endian strategy documented. |
+| P-603 | Probe: decomp `HSD_JObjLoadJoint` bind-pose parity (S0b) | open | — | `native/decomp/`, `native/tests/`, `native/AI/learnings/decomp_port.md` | Build the joint tree via compiled HSD and compare world matrices against `--inspect`/the hand port within a documented tolerance. This is the ADR-0010 go/no-go gate. |
 | P-108 | Per-part isolation for the viewer (`HsdBatch`, batch lists) | done | follow-up | `native/hsd/model.*`, `native/main.c` | Added with the viewer; see Completed. |
-| P-207 | Expression/part visibility events: port the per-kind `ftData_UnkIntBoolFunc0.model_events` path (`ftParts_80074B0C`/`ftParts_80074A4C`) | open | — | `native/hsd/model.c`, `native/main.c` | `SETBYTE`/`SETFLOAT` FObj channels have no callback registration in the decomp (`jobj.c` `ufc_callbacks` is a dead list), so expressions come from action code, not the figatree. Blinking/damage faces, Pichu/Zelda variant parts. **Bowser note:** the animated `Wait1` hair looked odd; investigation (see `learnings/hsd_animation.md` §7) found no decode/pose/binding bug on the port side, so this may be the authored hunched idle rather than a missing event. Re-check against a reference capture before blaming P-207. |
-| P-208 | Resolve IK joints (`resolveIKJoint1/2`, `JOBJ_JOINT`/`EFFECTOR`) during pose evaluation | open | — | `native/hsd/model.c` | Foot/hand planting in landing and ledge clips. |
-| P-209 | Material animation (`HSD_MatAnimJoint`) from `Pl*Nr.dat` / AJ clips | open | — | `native/hsd/model.c` | Texture scrolls/fades; `matanim_joint` public symbol is parsed but unused. |
-| P-210 | Per-action animation rate (`frame_speed_mul`) instead of fixed 1.0 | open | — | `native/main.c` | Rate currently 1.0, matching Wait; other actions can be 0.5/2.0. |
-| P-212 | Visual render interpolation for high-refresh displays (fixed 60 Hz sim) | open | — | `native/gx/render.c` | Deferred by the owner until the faithful 60 Hz port is complete; this is presentation only and must not touch simulation. Plan: keep previous/current pose snapshots, mix position/normal in the model vertex shader with a `u_interp` uniform, one tick of display latency, `--no-interp` for faithful mode. Requires an ADR first; `--scripted` must disable it so screenshots stay deterministic. |
-| P-204 | TEV pass: material/RAS stage, colormap/alphamap, alpha test, XLU blend, TEX0+TEX1 | claimed | opencode (deepseek-flash), 2026-09-10 | `native/gx/render.c`, `native/hsd/model.c`, `native/hsd/model.h`, `native/hsd/parts.c` | Landed: `--dump-tev`, GX channel lighting, `HSD_SetupPEMode` blend/alpha-test/Z, `TObjMakeTExp` colormap/alphamap, TEX0+TEX1, lightmap phases (DIFFUSE/SPECULAR/EXT) with specular accumulation, per-character `model_scaling`. Remaining (see `handoffs/2026-09-10-P-204-tev-materials.md`): real `HSD_LObj` light values, lightmap repeat chains, `HSD_TObjTev` active overrides, toon, `x34_scale.z`. |
-| P-205 | Per-TObj texture matrices (scale/translate/rotate) | open | — | `native/hsd/model.c` | `HSD_TObjDesc` at +0x10..+0x30. Fixes facial/eye UV offsets if they turn out to be wrong. |
-| P-206 | Camera polish: zoom-to-fit both fighters, stage bounds, ledge visibility | open | — | `native/main.c` | Keep it headless-screenshot verifiable. |
-| P-302 | Replace `extras/physics.c` with real `ftCommon_*` formulas | blocked | — | `native/extras/physics.c` | Blocked on P-301 and a decision on struct layout (`Fighter` is huge; see `learnings/fighter_data.md`). P-301 verdict: SDK math is Metrowerks asm and stays hand-ported; pure-C HSD files compile behind `native/decomp/shim/` (`learnings/decomp_shim.md`). Do a scoped GX-light ft-file spike before betting on the compile path. |
-| P-401 | CI task: run `--inspect` + scripted frames in GitHub Actions with a dummy disc | open | — | `.github/`, `native/` | Needs an asset-free path. Proposal: checked-in tiny synthetic HSD fixture generated by a script, not game data. |
-| P-402 | Fuzz the HSD/disc parsers with a mutation harness | open | — | `native/` | Any crash is a bug. Keep fixtures in `native/AI/logs/` (small, synthetic only). |
-| P-412 | Game & Watch residual pieces: identify why the collinear flat parts are not hidden (animation joint state vs vis tables) | open | — | `native/hsd/model.c` | See STATE.md issue 6. |
-| P-411 | Generic per-character attributes (`ftData<Char>`), not just Mario | open | — | `native/game/attributes.c` | Acceptance: `--model PlFxNr.dat` reports Fox attribute values. |
-| P-403 | Document GX formats actually present in `Pl*.dat` | open | — | `native/AI/learnings/gx_textures.md` | Enumerate format counts across all 26 characters. |
-| P-501 | Audio backend design memo | open | — | `native/AI/DECISIONS.md` | Options: reimplement AX/DSP, use an existing AX emulator, or replace with per-game mixer. Write an ADR before coding. |
-| P-502 | WASM feasibility memo | open | — | `native/AI/DECISIONS.md` | Emscripten + SDL2 + WebGL1. Identify blockers: synchronous disc read, threading, file access. |
+| P-207 | Expression/part visibility events: port the per-kind `ftData_UnkIntBoolFunc0.model_events` path (`ftParts_80074B0C`/`ftParts_80074A4C`) | parked | — | `native/hsd/model.c`, `native/main.c` | **PARKED by ADR-0010** — compiled `ftparts.c` action code (S4) implements this; do not start. Historical detail: `SETBYTE`/`SETFLOAT` FObj channels have no callback registration in the decomp (`jobj.c` `ufc_callbacks` is a dead list), so expressions come from action code. The Bowser `Wait1` note in `learnings/hsd_animation.md` §7 is unresolved but off the critical path. |
+| P-208 | Resolve IK joints (`resolveIKJoint1/2`, `JOBJ_JOINT`/`EFFECTOR`) during pose evaluation | parked | — | `native/hsd/model.c` | **PARKED by ADR-0010** — compiled `jobj.c` implements this in S2/S4. Foot/hand planting comes from the real engine. |
+| P-209 | Material animation (`HSD_MatAnimJoint`) from `Pl*Nr.dat` / AJ clips | parked | — | `native/hsd/model.c` | **PARKED by ADR-0010** — compiled `tobj.c`/`mobj.c`/`ftAnim_80070200` implement this in S2/S3. |
+| P-210 | Per-action animation rate (`frame_speed_mul`) instead of fixed 1.0 | parked | — | `native/main.c` | **PARKED by ADR-0010** — the compiled `ft` action code carries `frame_speed_mul`; the sandbox rate stays fixed until S4. |
+| P-212 | Visual render interpolation for high-refresh displays (fixed 60 Hz sim) | open | — | `native/gx/render.c` | **Post-S4 (ADR-0010):** re-scope against the compiled simulation before starting; the hand renderer path may not survive S2. Deferred by the owner until the faithful 60 Hz port is complete; this is presentation only and must not touch simulation. Plan: keep previous/current pose snapshots, mix position/normal in the model vertex shader with a `u_interp` uniform, one tick of display latency, `--no-interp` for faithful mode. Requires an ADR first; `--scripted` must disable it so screenshots stay deterministic. |
+| P-204 | TEV pass: material/RAS stage, colormap/alphamap, alpha test, XLU blend, TEX0+TEX1 | parked | — | `native/gx/render.c`, `native/hsd/model.c`, `native/hsd/model.h`, `native/hsd/parts.c` | **PARKED by ADR-0010** (claim released). The landed derivation/rendering is the GX HLE backend seed (S2); the remaining items are superseded by compiled `tobj`/stage code (S3/S4). Historical: `--dump-tev`, GX channel lighting, `HSD_SetupPEMode`, `TObjMakeTExp`, TEX0+TEX1, lightmap phases, `model_scaling` all landed. |
+| P-205 | Per-TObj texture matrices (scale/translate/rotate) | parked | — | `native/hsd/model.c` | **PARKED by ADR-0010** — compiled `tobj.c` carries the texture matrices in S2. Note: the prototype already has `MakeTextureMtx` support (see `learnings/gx_textures.md`). |
+| P-206 | Camera polish: zoom-to-fit both fighters, stage bounds, ledge visibility | parked | — | `native/main.c` | **PARKED by ADR-0010** — viewer-only polish; the compiled camera (S4) and S2 rendering supersede it. Viewer stays as a dev tool as-is. |
+| P-302 | Replace `extras/physics.c` with real `ftCommon_*` formulas | parked | — | `native/extras/physics.c` | **PARKED by ADR-0010** — superseded by the compiled `ft` code (S4). The `Fighter` struct question is resolved: compile it, no reduced port-side struct. |
+| P-401 | CI task: run `--inspect` + scripted frames in GitHub Actions with a dummy disc | open | — | `.github/`, `native/` | Still useful for the prototype, and should grow to cover the decompiled-port build once S1 links. Needs an asset-free path: checked-in tiny synthetic HSD fixture generated by a script, not game data. |
+| P-402 | Fuzz the HSD/disc parsers with a mutation harness | open | — | `native/` | Still useful: the hand parser becomes the asset-pipeline oracle, so any crash is a bug. Keep fixtures in `native/AI/logs/` (small, synthetic only). |
+| P-412 | Game & Watch residual pieces: identify why the collinear flat parts are not hidden (animation joint state vs vis tables) | parked | — | `native/hsd/model.c` | **PARKED by ADR-0010** — compiled joint/vis code (S2/S4) decides this; re-check against the compiled render before any investigation. |
+| P-411 | Generic per-character attributes (`ftData<Char>`), not just Mario | parked | — | `native/game/attributes.c` | **PARKED by ADR-0010** — compiled `ftData` (S4) replaces the hand attribute path; `learnings/fighter_data.md` stays as the format reference. |
+| P-403 | Document GX formats actually present in `Pl*.dat` | open | — | `native/AI/learnings/gx_textures.md` | Feeds GX HLE (S2): enumerate format counts across all 26 characters. |
+| P-501 | Audio backend design memo | open | — | `native/AI/DECISIONS.md` | **On the critical path for S5.** Options: reimplement AX/DSP, adopt an existing AX/DSP interpreter (ACGC/Dolphin lineage), or replace with a per-game mixer. 116 AX symbols + AR in `src/`. Write the ADR before coding. |
+| P-502 | WASM feasibility memo | open | — | `native/AI/DECISIONS.md` | **S7 groundwork.** Emscripten + SDL2 + WebGL2 (ES3 shaders already portable). Identify blockers: disc-image size/delivery, threading, audio, 60 Hz pacing. |
 
 ## P-201 result
 
@@ -50,19 +55,21 @@ Done in `0e1a974d2` (backend) and `6665bd5f2` (viewer/sandbox). Clips come from
 `Pl<Char>AJ.dat` FigaTree archives; `hsd/aobj.c` is a literal port of the
 `fobj.c` player and `hsd/anim.c` binds nodes to joints exactly like
 `ftAnim_8006F4C8`. Read `learnings/hsd_animation.md` before touching it. The
-remaining fidelity work is P-207..P-210 above.
+remaining fidelity items (P-207..P-210) are parked by ADR-0010; the compiled
+`fobj`/`jobj` path replaces this in S2/S4.
 
 ## Blocked / needs a human
 
 | ID | Question | Requested from |
 |---|---|---|
 | H-1 | Does the interactive window/controller feel correct on real hardware? | project owner |
-| H-3 | Pick priority: animation vs audio vs WASM after M2 | project owner |
-| H-5 | Capture Bowser `Wait1` in real Melee/Dolphin for comparison: `./build/native/melee --model PlKpNr.dat --view --animate --clip Wait1 --anim-frame 15 --angle 30 --elevation 5 --no-grid --frames 1 --screenshot /tmp/kp.bmp`, then the same frame/angle on hardware. Match = the hunched pose is authored; mismatch = P-207/blending gap. **Owner has no Dolphin access right now; will compare later. Still open — do not "fix" Bowser before this.** | project owner |
 
 Resolved human checks (owner, 2026-09-11): **H-4** — 180 Hz viewer
 animation speed confirmed "perfect, looks awesome". **H-2** — the face
-texture artifact is gone; no regression.
+texture artifact is gone; no regression. **H-3** — priority question answered
+by ADR-0010: the S0..S7 port bring-up sequence is the plan. **H-5** (Bowser
+`Wait1` capture) is parked with the hand viewer; re-evaluate against the
+compiled render in S2/S4 instead.
 
 ## Completed
 

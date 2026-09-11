@@ -184,3 +184,83 @@ core (P-211 spike: `4.6 (Core Profile) Mesa 26.1.6`, radeonsi, triangle OK).
 Any fixed-function or display-list call left in the draw path is a regression.
 
 **Status:** accepted (2026-09-10). Supersedes ADR-0004.
+
+---
+
+## ADR-0010: Compile the decompilation into a full-game port (supersedes ADR-0001)
+
+**Context.** The goal is a fully functional, moddable Melee that runs on PC and
+other platforms. The hand-written sandbox (ADR-0001) proved the asset pipeline
+and produced M0/M1/M2a, but finishing every engine system by hand (`ftCommon`,
+items, stages, menus, effects) means re-deriving ~489k LOC of game logic and
+its frame-perfect behavior. That is larger than the remaining platform work and
+strictly less faithful. Meanwhile the decompilation is essentially complete:
+`build/GALE01/report.json` reports 19,820/19,828 functions (99.96%) matched to
+the retail DOL with 100% of data matched; only 5 units are incomplete and 4
+functions are low-fuzzy. A 2026-09-11 syntax census (scratch probe) found
+834/1034 `src/*.c` compiling with zero errors behind the P-301 shim; the
+residual 324 errors are mechanical (missing `stdint` typedefs, 32-bit layout
+assertions, `BOOL`/`bool` function-pointer mismatches, `src/MSL` libc, a handful
+of per-file issues) — see `learnings/decomp_port.md`.
+
+**Decision.** Pivot the port to compile the decompilation and implement the
+GameCube hardware around it:
+
+- `src/` and `extern/dolphin/` are compiled into the port binary, read-only by
+  default (portability patches only per ADR-0011).
+- The work moves to a platform layer under `native/`: OS, DVD/asset loading
+  with host-endian conversion, GX→modern graphics HLE, AX audio HLE,
+  PAD/VI/SI/EXI/CARD/AR, and the SDL/core plumbing.
+- The existing hand work is repurposed rather than discarded: the GL
+  renderer/shaders/TEV derivations become the GX backend seed; the disc reader
+  becomes the DVD backend; `--inspect`/`--view`/`--scripted` and the viewer
+  remain dev tools and parity oracles.
+- Milestones become stack bring-up (S0..S7, `ROADMAP.md` / `ROADMAP_DETAILS.md`)
+  instead of per-feature reimplementation. A hand-ported engine file is deleted
+  only in the commit where the compiled version proves parity.
+
+**Consequences.** Game accuracy becomes the decompilation's accuracy (verified
+against the retail DOL, higher than any hand port) and platform targets get
+cheaper because portability lives in the platform layer (SDL2, ES3-portable
+GL, Emscripten and Android backends). The risks move to the platform:
+endianness conversion, float semantics vs PPC/MWCC, the 60 Hz tick/input/RNG,
+64-bit pointer/layout audits, GX/AX HLE behavior, and the five incomplete units
+plus asm TUs. New fixed cost: the GX/AX/OS backend and the asset pipeline. The
+old roadmap's M3–M7 hand-port milestones are superseded; M2's TEV work is
+redirected into GX HLE. ADR-0002 (raw bounds-checked parser) and ADR-0008
+(literal hand port + CPU skinning) remain accurate descriptions of the
+prototype and stay in force until the compiled path replaces them (S2/S3).
+
+**Status:** accepted (2026-09-11). Supersedes ADR-0001.
+
+---
+
+## ADR-0011: Portability patch policy for src/ and extern/
+
+**Context.** ADR-0010 compiles upstream decomp code on the host. The shim
+covers most differences, but some cannot be shimmed: raw `STATIC_ASSERT`
+offsets, MSL/glibc conflicts, `BOOL` vs `bool` function-pointer types, and a
+few per-file compiler issues. ACGC-PC-Port solved this by vendoring a fork with
+17,439 `TARGET_PC` guards across 2,636 files; this repository keeps the
+decompilation as the GameCube specification and must not fork.
+
+**Decision.** Portability changes follow this preference order:
+
+1. **Shim** — `native/decomp/shim/` headers and force-includes.
+2. **Gated patch in `src/`** — permitted only when a shim cannot express the
+   fix; must be `#ifdef PORT_PC`-gated, must not change GameCube behavior or
+   build output, and must be listed in `learnings/decomp_port.md`.
+3. **Replacement TU under `native/decomp/`** — only for whole files that cannot
+   compile at all (e.g. Metrowerks asm TUs such as the SDK `mtx.c`/`vec.c`);
+   the upstream file is excluded from the PC build, not edited.
+
+Rules: never modify `extern/dolphin/` (its asm TUs are excluded and replaced);
+never fork or duplicate the tree; `src/MSL/` is not compiled on PC (glibc
+provides those functions); the GC build (`configure.py` + ninja) must stay
+green after any `src/` patch.
+
+**Consequences.** One source of truth for the GC build, a short and visible
+patch list, and no untracked divergence. Patches must be reviewed like code:
+each one is a documented behavioral concession on the host, not a convenience.
+
+**Status:** accepted (2026-09-11).
