@@ -68,7 +68,7 @@ texture artifact is gone; no regression.
 
 | ID | Task | Agent | Commit | Date |
 |---|---|---|---|---|
-| P-301 | Compile pure HSD math behind a shim (SDK mtx/vec are asm; `HSD_MtxSRT` compiled, bitwise parity, hand copy deleted) | opencode (deepseek-flash) | _pending_ | 2026-09-11 |
+| P-301 | Compile pure HSD math behind a shim (SDK mtx/vec are asm; `HSD_MtxSRT` compiled, bitwise parity, hand copy deleted) | opencode (deepseek-flash) | `c903e5282` | 2026-09-11 |
 | P-213 | Extract the viewer and sandbox out of `main.c` into `extras/viewer.c`, `extras/sandbox.c` | opencode (deepseek-flash) | `d6dc4fc49` | 2026-09-11 |
 | P-211 | OpenGL 3.3 core + ES3-portable shaders; per-batch VAO/VBOs, no fixed function | opencode (deepseek-flash) | `4eb7c1f2d`, `b35dd102e` | 2026-09-10 |
 | P-201 | HSD FigaTree animation playback, per-frame skinning, viewer + sandbox | opencode (deepseek-flash) | `0e1a974d2`, `6665bd5f2` | 2026-09-10 |
