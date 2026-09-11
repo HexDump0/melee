@@ -19,4 +19,11 @@
 #define __ssize_t_defined 1
 #endif
 
+/*
+ * Host fixed-width pointer types: the decomp uses intptr_t/uintptr_t (127
+ * uses) but MSL's stddef.h defines them as 32-bit. Always take the host's
+ * 64-bit definitions first.
+ */
+#include <stdint.h>
+
 #endif /* MELEE_NATIVE_DECOMP_SHIM_H */

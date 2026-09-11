@@ -31,37 +31,64 @@ exceptions are small and enumerated:
 - `src/*.c` files containing Metrowerks asm: `hsd_397E.c`, `gm_1601.c`,
   `gmmain.c`, `grbigblue.c` (4 total).
 
-## 2. GCC syntax census of `src/` (2026-09-11)
+## 2. GCC syntax census of `src/` (2026-09-11, after P-601 shim hardening)
 
 Scratch probe: every `src/*.c` compiled with
 `gcc -std=gnu11 -fsyntax-only -w -include native/decomp/shim/decomp_shim.h
--I native/decomp/shim -I src -I extern/dolphin/include`. Results:
+-I native/decomp/shim -I src -I extern/dolphin/include` (add
+`-I build/GALE01/include` for the two generated font includes).
 
-- **834 / 1034 files compile with zero errors** as-is.
-- 200 files / 608 errors initially; **324 errors after adding `<stdint.h>`**.
-- Error classes (after `stdint`):
-  - 180 × one header's 32-bit `offsetof` static assertions (`ToyED8Data`,
-    6 members × 30 TUs) — must be disabled/re-baselined on the port build.
-  - 59 × `void (*)(int)` vs `void (*)(bool)` callback mismatches — `BOOL` is
-    `int` in `dolphin/types.h`, `platform.h` uses C `bool`; needs one decision.
-  - ~52 × `src/MSL/*` (the decomp's GameCube libc): `strtoul.h` missing,
-    `FILE.buffer_len`, `_IO_FILE` redefinition, `fwrite` signature. MSL is not
-    compiled on PC; glibc provides these symbols.
-  - Remaining few: `ARQPostRequest` arity, `HSD_DevCom_*_bufs`, float case
-    labels — per-file fixes, not categories.
-- Error files by area: `gr` 68, `gm` 39, `mn` 20, `lb` 15, `MSL` 12, `if` 12,
-  `vi` 11, `sysdolphin` 10, `ty` 4, `ft` 3, rest 1 each.
+Result: **1021 / 1034 files compile with zero errors.** The 13 excluded files:
 
-### Shim essentials
+- 12 `src/MSL/*.c` — the decomp's own GameCube libc; not compiled on PC (glibc
+  provides the symbols), per ADR-0011.
+- `src/sysdolphin/baselib/debug.c` — uses MSL `FILE` internals (`__io_proc`,
+  `__idle_proc`, `__file_handle`); replaced by the port's OS/log layer.
 
-- `native/decomp/shim/decomp_shim.h` pre-defines glibc's `__ssize_t_defined` so
-  `src/Runtime/platform.h`'s `typedef int ssize_t` does not clash with
-  `<stdio.h>`. This is the only clash in the HSD include chain.
-- Add `<stdint.h>` for `intptr_t`/`uintptr_t` (127 uses in `src/`). The MSL
-  `stddef.h` defines them as 32-bit `int`; the PC build must use host 64-bit.
-- Layout assertions (`ASSERT_SIZE`/`ASSERT_OFFSET`, 192 in `src/`) assert
-  GameCube 32-bit offsets (`Fighter`-adjacent `ToyED8Data` is the loud one).
-  Disable on the port build; never "fix" by moving fields.
+Progress:
+
+| Step | Clean files |
+|---|---|
+| Initial census | 834 / 1034 |
+| `decomp_shim.h`: `<stdint.h>` + `ssize_t` guard; `Runtime/platform.h` shim neutralising `STATIC_ASSERT` | 954 |
+| `stdbool.h` shim (`bool` = `int`, callback ABI) | 1019 |
+| `-I build/GALE01/include` for the two generated font includes | 1021 |
+
+Error classes found and their disposition:
+
+- **180 × 32-bit `offsetof` static assertions** (`ToyED8Data` in
+  `src/melee/ty/types.h`, 6 members × 30 TUs). True on the GC, false on
+  64-bit; compile-time only. Neutralised by the `Runtime/platform.h` shim;
+  never "fix" by moving fields.
+- **59+ × `BOOL` (int) vs `bool` (`_Bool`) callback mismatches** in function
+  pointer tables (`gr/types.h on_demo_init`, `grlib`, `grlast`, `gmscene`,
+  `lbcardnew`, `itmewtwodisable`, `lbmthp`, ...). MWCC accepted them; GCC
+  errors, and the x86-64 callback ABI differs for `_Bool` vs `int`. The
+  `stdbool.h` shim defines `bool` as `int` for the port build so every TU
+  agrees with `BOOL`; the GC build keeps C99 `_Bool`.
+- **MSL/glibc conflicts** (`strtoul.h`, `_IO_FILE`, `fwrite`, `fpos_t`, MSL's
+  32-bit `intptr_t`/`uintptr_t`): `<stdint.h>` force-include plus MSL
+  exclusion.
+- Per-file leftovers were only the two generated font includes and
+  `debug.c` above.
+
+### Shim inventory (`native/decomp/shim/`)
+
+| File | Purpose |
+|---|---|
+| `decomp_shim.h` | Force-included: glibc `__ssize_t_defined` (platform.h's 32-bit `ssize_t`), `<stdint.h>` (host 64-bit `intptr_t`/`uintptr_t`) |
+| `Runtime/platform.h` | `#include_next` the real header, then neutralise `STATIC_ASSERT` |
+| `stdbool.h` | `bool` = `int` so callbacks match `BOOL` and the x86-64 ABI |
+
+All three are port-only and are not on any prototype target's include path.
+
+### Known exclusions / future work
+
+- `debug.c` needs a port replacement for its MSL `FILE` internals (it is HSD's
+  log/assert path). Not blocking S0.
+- The `bool` = `int` decision changes `sizeof(bool)` in compiled structs;
+  self-consistent because the whole game is compiled, but it must be revisited
+  if any serialized structure contains `bool`.
 
 ## 3. Platform surface (unique symbols called from `src/`)
 

@@ -25,6 +25,11 @@ adding a source file.
   `src/sysdolphin/baselib/archive.c` (+ allocator/class deps) and probes
   `HSD_ArchiveParse` / `HSD_JObjLoadJoint` against a real `PlMrNr.dat`, with a
   host-endian conversion for the structural sections (tasks P-602/P-603).
+- **Shim hardening (P-601, done):** 1021/1034 `src/*.c` compile. `shim/` also
+  carries `Runtime/platform.h` (neutralises GameCube `STATIC_ASSERT` offsets)
+  and `stdbool.h` (`bool` = `int`, matching `BOOL` and the x86-64 callback
+  ABI). Only `src/MSL` (12 files) and `debug.c` (MSL `FILE` internals) are
+  excluded. Details in `../AI/learnings/decomp_port.md`.
 
 ## Adding the next file
 

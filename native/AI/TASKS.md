@@ -28,8 +28,8 @@ Status values: `open`, `claimed`, `blocked`, `review`, `done`, `parked`
 
 | ID | Task | Status | Agent | Files | Notes / acceptance |
 |---|---|---|---|---|---|
-| P-601 | Full-tree GCC compile census + shim hardening (S0) | open | — | `native/decomp/shim/`, `native/AI/learnings/decomp_port.md` | Drive `src/` to compile behind the shim: `<stdint.h>`, disable GameCube layout asserts on the port build, resolve `BOOL`/`bool` callback types, exclude `src/MSL`, fix per-file quirks. Acceptance: census numbers improve and are recorded in `learnings/decomp_port.md`; GC build unaffected. |
-| P-602 | Probe: decomp `HSD_ArchiveParse` on a real `PlMrNr.dat` (S0a) | open | — | `native/decomp/`, `native/CMakeLists.txt`, `native/tests/` | Additive target compiling `src/sysdolphin/baselib/archive.c` (+ minimal allocator/class deps) and a probe that reads the disc through `platform/disc.c`, parses the archive and enumerates public symbols; diff against the hand parser. Host-endian strategy documented. |
+| P-601 | Full-tree GCC compile census + shim hardening (S0) | done | opencode (deepseek-flash), 2026-09-11 | `native/decomp/shim/`, `native/AI/learnings/decomp_port.md` | Done: 1021/1034 `src/*.c` compile; shims for `ssize_t`/`intptr_t`, GameCube `STATIC_ASSERT`, and `bool`=`int` callbacks. See Completed. |
+| P-602 | Probe: decomp `HSD_ArchiveParse` on a real `PlMrNr.dat` (S0a) | claimed | opencode (deepseek-flash), 2026-09-11 | `native/decomp/`, `native/CMakeLists.txt`, `native/tests/` | Additive target compiling `src/sysdolphin/baselib/archive.c` (+ minimal allocator/class deps) and a probe that reads the disc through `platform/disc.c`, parses the archive and enumerates public symbols; diff against the hand parser. Host-endian strategy documented. |
 | P-603 | Probe: decomp `HSD_JObjLoadJoint` bind-pose parity (S0b) | open | — | `native/decomp/`, `native/tests/`, `native/AI/learnings/decomp_port.md` | Build the joint tree via compiled HSD and compare world matrices against `--inspect`/the hand port within a documented tolerance. This is the ADR-0010 go/no-go gate. |
 | P-108 | Per-part isolation for the viewer (`HsdBatch`, batch lists) | done | follow-up | `native/hsd/model.*`, `native/main.c` | Added with the viewer; see Completed. |
 | P-207 | Expression/part visibility events: port the per-kind `ftData_UnkIntBoolFunc0.model_events` path (`ftParts_80074B0C`/`ftParts_80074A4C`) | parked | — | `native/hsd/model.c`, `native/main.c` | **PARKED by ADR-0010** — compiled `ftparts.c` action code (S4) implements this; do not start. Historical detail: `SETBYTE`/`SETFLOAT` FObj channels have no callback registration in the decomp (`jobj.c` `ufc_callbacks` is a dead list), so expressions come from action code. The Bowser `Wait1` note in `learnings/hsd_animation.md` §7 is unresolved but off the critical path. |
@@ -75,6 +75,7 @@ compiled render in S2/S4 instead.
 
 | ID | Task | Agent | Commit | Date |
 |---|---|---|---|---|
+| P-601 | Full-tree GCC compile census + shim hardening: 1021/1034 files compile; `ssize_t`/`intptr_t`, `STATIC_ASSERT`, `bool`=`int` shims | opencode (deepseek-flash) | _pending_ | 2026-09-11 |
 | P-301 | Compile pure HSD math behind a shim (SDK mtx/vec are asm; `HSD_MtxSRT` compiled, bitwise parity, hand copy deleted) | opencode (deepseek-flash) | `c903e5282` | 2026-09-11 |
 | P-213 | Extract the viewer and sandbox out of `main.c` into `extras/viewer.c`, `extras/sandbox.c` | opencode (deepseek-flash) | `d6dc4fc49` | 2026-09-11 |
 | P-211 | OpenGL 3.3 core + ES3-portable shaders; per-batch VAO/VBOs, no fixed function | opencode (deepseek-flash) | `4eb7c1f2d`, `b35dd102e` | 2026-09-10 |
