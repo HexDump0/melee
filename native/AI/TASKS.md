@@ -58,10 +58,12 @@ remaining fidelity work is P-207..P-210 above.
 | ID | Question | Requested from |
 |---|---|---|
 | H-1 | Does the interactive window/controller feel correct on real hardware? | project owner |
-| H-2 | Confirm the face texture artifact is not a regression after P-205 | project owner |
 | H-3 | Pick priority: animation vs audio vs WASM after M2 | project owner |
-| H-4 | On the 180 Hz display, confirm viewer animation speed and visuals after P-211 | project owner |
-| H-5 | Capture Bowser `Wait1` in real Melee/Dolphin for comparison: `./build/native/melee-demo --model PlKpNr.dat --view --animate --clip Wait1 --anim-frame 15 --angle 30 --elevation 5 --no-grid --frames 1 --screenshot /tmp/kp.bmp`, then the same frame/angle on hardware. Match = the hunched pose is authored; mismatch = P-207/blending gap. | project owner |
+| H-5 | Capture Bowser `Wait1` in real Melee/Dolphin for comparison: `./build/native/melee-demo --model PlKpNr.dat --view --animate --clip Wait1 --anim-frame 15 --angle 30 --elevation 5 --no-grid --frames 1 --screenshot /tmp/kp.bmp`, then the same frame/angle on hardware. Match = the hunched pose is authored; mismatch = P-207/blending gap. **Owner has no Dolphin access right now; will compare later. Still open — do not "fix" Bowser before this.** | project owner |
+
+Resolved human checks (owner, 2026-09-11): **H-4** — 180 Hz viewer
+animation speed confirmed "perfect, looks awesome". **H-2** — the face
+texture artifact is gone; no regression.
 
 ## Completed
 

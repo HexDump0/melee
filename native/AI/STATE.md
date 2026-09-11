@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-11 (character-select lights/fog, per-TObj LOD, G&W state)
+Last updated: 2026-09-11 (owner confirmed 180 Hz viewer + face artifact gone)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -68,6 +68,7 @@ lightmap phases, alpha test, XLU blend) and every fighter is scaled by its
 | Match animation | Both fighters pose independently; `Wait1`/`WalkMiddle`/`Dash`/`JumpF`/`Fall` by movement |
 | Headless verify | `SDL_VIDEODRIVER=offscreen ... --frames N --screenshot` works |
 | Sanitizers | 600-frame scripted run clean under ASan+UBSan (leaks disabled) |
+| Owner visual checks | 180 Hz viewer animation speed confirmed correct; face texture artifact gone (2026-09-11) |
 
 ## Known issues / gaps
 

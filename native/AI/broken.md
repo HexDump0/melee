@@ -18,8 +18,10 @@ Status meanings:
 
 | # | What you see | Where | What would settle it |
 |---|---|---|---|
-| B-1 | Bowser's hair/mohawk looks mangled during `Wait1` (fine in T-pose) | `--model PlKpNr.dat --view --animate --clip Wait1` | H-5: capture the same frame/angle in Dolphin. Match -> the hunched pose is authored; mismatch -> a real animation gap (P-207/blending). Investigation notes: `learnings/hsd_animation.md` §7. |
-| B-2 | Face texture artifact | viewer, some characters | H-2: confirm it is not a P-205 regression. |
+| B-1 | Bowser's hair/mohawk looks mangled during `Wait1` (fine in T-pose) | `--model PlKpNr.dat --view --animate --clip Wait1` | H-5: capture the same frame/angle in Dolphin. Match -> the hunched pose is authored; mismatch -> a real animation gap (P-207/blending). **Owner has no Dolphin access right now and will compare later — do not change Bowser before then.** Investigation notes: `learnings/hsd_animation.md` §7. |
+
+Resolved 2026-09-11 (owner): the face texture artifact is gone (was B-2), and
+the viewer at 180 Hz is confirmed correct (H-4).
 
 ## Confirmed gaps (BROKEN / BLOCKED)
 
