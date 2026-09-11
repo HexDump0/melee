@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-10 (materials: TEV phases, model scaling, fixed viewer grid)
+Last updated: 2026-09-11 (character-select lights/fog, per-TObj LOD, G&W state)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.

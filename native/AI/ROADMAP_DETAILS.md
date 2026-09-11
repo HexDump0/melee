@@ -10,10 +10,13 @@ decompiled logic; do not invent equivalents.
 
 ---
 
-## P-211 — Renderer rewrite (OpenGL 3.3 core, ES3-portable)
+## P-211 — Renderer rewrite (OpenGL 3.3 core, ES3-portable) — DONE
+
+**Status:** landed in `b35dd102e`; ADR-0009 supersedes ADR-0004. See
+`learnings/gl_shaders.md` and `handoffs/2026-09-10-P-211-renderer-core-profile.md`.
 
 **Why now.** P-204 (TEV) cannot be expressed in fixed-function; doing it first
-would be thrown away. ADR-0004's fixed-function decision is superseded.
+would be thrown away.
 
 **Deliverable.**
 - `main.c` draw path: per-batch VAO/VBOs built from `DemoModelBatch` vertex
@@ -62,19 +65,21 @@ would be thrown away. ADR-0004's fixed-function decision is superseded.
 
 ## P-204 — TEV approximation (in progress)
 
-**Landed (see `learnings/hsd_tev_materials.md`).** `MObjMakeTExp` /
-`TObjMakeTExp` state derivation in `demo_model.c` + shader evaluation:
-material-vs-RAS initial stage, `TEX_COLORMAP_*`/`TEX_ALPHAMAP_*`,
+**Landed (see `learnings/hsd_tev_materials.md`, `hsd_lights_fog.md`).**
+`MObjMakeTExp` / `TObjMakeTExp` state derivation in `demo_model.c` + shader
+evaluation: material-vs-RAS initial stage, `TEX_COLORMAP_*`/`TEX_ALPHAMAP_*`,
 DIFFUSE/SPECULAR/EXT lightmap phases (specular accumulates into
 `mat.specular`, multiplied by the specular channel), `RENDER_DIFFUSE`, GX
-channel lighting, `HSD_SetupPEMode` alpha compare/blend/Z, TEX0+TEX1, and
-`ftData.model_scaling` applied as the root joint scale
-(`Fighter_UpdateModelScale`). `--dump-tev` prints the parsed state.
+channel lighting, `HSD_SetupPEMode` alpha compare/blend/Z, TEX0+TEX1,
+per-TObj `HSD_TexLODDesc` filters/LOD bias/anisotropy, `ftData.model_scaling`
+(`Fighter_UpdateModelScale`) and Mr. Game & Watch's width/costume diffuse.
+Real scene lights/fog come from the character-select `HSD_LObj` set
+(`MnSlChr`, `--dump-lights`). `--dump-tev` prints the parsed state.
 
-**Remaining.** Real light colours/directions from `HSD_LObj` (`lobj.c`, stage
-light lists); lightmap `repeat` chains; `HSD_TObjTev` active overrides (all 0
-in the tested fighters); toon ramps; `x34_scale.z` (Game & Watch flattening,
-mushroom/Giant scaling).
+**Remaining.** Stage light lists (`src/melee/gr/*`, M4); exact GX specular
+attenuation polynomial; point/spot attenuation; lightmap `repeat` chains;
+`HSD_TObjTev` active overrides (all 0 in the tested fighters); toon ramps;
+Flat Zone's `x7E4_scaleZ`.
 
 **Source of truth.** `src/sysdolphin/baselib/tev.c`, `tobj.c`, `mobj.c`,
 `state.c`, `pobj.c`, and the `TObjDesc`/`MObjDesc` fields parsed in
