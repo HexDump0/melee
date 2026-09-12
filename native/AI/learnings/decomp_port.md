@@ -192,3 +192,16 @@ First tasks, in order: (1) grow the platform layer out of the probe shims
 (OS heap/log/assert, init sequencing, `gmmain` boot with stubbed GX/DVD/VI);
 (2) replace `hsd_port_stubs.c` with real SDK math/GX-HLE increments; (3) keep
 the probe as the regression test for the compiled data path.
+
+## 8. ADR-0011 portability patches in `src/` (as of 2026-09-12)
+
+Every entry is `#ifdef PORT_PC`-gated; the GameCube build and output are
+unchanged.  The compiled-port targets define `PORT_PC=1`.
+
+| File / line | Patch | Why |
+|---|---|---|
+| `src/sysdolphin/baselib/synth.c:107` (`HSD_SynthSFXSampleLoadCallback`) | `memmove` instead of `memcpy` for the `.ssm` group move | The retail `.ssm` layout makes the group copy's source and destination overlap (destination advances 8 bytes more per group); MWCC's memcpy tolerated it, glibc's is UB.  The copied fields are re-patched below, so behavior matches the console (G-064). |
+
+Replacement TUs stay under `native/decomp/`: `sdk_math.c` for the Metrowerks
+SDK math asm, `debug_port.c` for MSL `debug.c`, `sdk_math`/`hsd_port_stubs.c`
+for the S0 probe.  No `extern/` file has been edited.

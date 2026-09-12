@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-12 (S2 complete; P-608/P-610/P-613/P-614 done; P-612 indirect/bump + P-615 remain)
+Last updated: 2026-09-12 (S3 complete; DVD/ARAM/DevCom + host-endian converter; P-616 eye follow-up)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -57,6 +57,25 @@ pixels), `GXSetDstAlpha`, texture LOD bias/min-max LOD/anisotropy, and the
 missing `HSD_VIData` render-mode init the scissor exposed (G-061) are in;
 indirect/bump/toon and NBT binormal/tangent remain.  Next milestone:
 **S3** (host-endian asset pipeline + DVD/ARQ).
+
+**S3 passed (2026-09-12):** the platform now hosts the real disc/audio data
+path and a generic host-endian converter.  `native/platform/dvd.c` mounts the
+user's image, loads the FST into the GC boot-info page and runs the
+decompilation's own `extern/dolphin` DVDFS; `native/platform/ar.c` plus the
+compiled `arq.c` provide 16 MB of host ARAM with console offset semantics.
+DVD/ARQ completions are delivered through `native/platform/complete.[ch]` when
+interrupts are restored (the console's interrupt ordering, which DevCom/ARQ
+depend on).  `native/decomp/assets/hsd_convert.c` converts archives in place:
+the header/tables, every relocation target (authoritative pointer list), and
+the numeric fields of joints, DObj/MObj/PObj/TObj, textures, animation trees,
+RObs, FigaTrees and scene data/CObj/light/fog, with a content-hash + version
+disk cache and a reloc-coverage desync check.  The boot passes the sound-bank
+wait (real `.ssm` load over DVD/DevCom/ARQ), loads `NtMsgWin.dat`/`SdMsgBox.usd`
+through the compiled loaders and reaches the memory-card/pad wait.
+`ctest` is 7/7 including the new `decomp_assets` sweep: all 33 `Pl*Nr.dat`
+plus `GrNBa`/`MnSlChr`/`IfAll`/`NtMsgWin` load through the compiled HSD path
+with full relocation coverage.  ASan/UBSan is clean (the boot's DVD-cancel
+stack-write bug and the `.ssm` overlapping copy were fixed; see G-063/G-064).
 
 ## TL;DR
 
@@ -129,6 +148,11 @@ lightmap phases, alpha test, XLU blend) and every fighter is scaled by its
 | GX HLE backend (S2) | `native/decomp/gx/gx_hle.c`: real GX state + `GXCallDisplayList` decode (68 lists, zero desync), XF/channel/texgen evaluation (hardware specular attenuation), per-draw snapshots; `gx_gl.c` evaluates up to 8 captured TEV stages with full KONST selects and textures/TLUTs from `native/gx/texture.c` on an EGL/GLES3 pbuffer, honours scissor/dst-alpha and applies per-TObj LOD bias/min-max LOD/anisotropy |
 | Direct-mode capture (P-608) | `native/decomp/shim/dolphin/gx/GXVert.h` routes the decomp's inline FIFO writers to `GXPortWGFifo*`; `GXBegin` + 4-vertex quad through the shim decodes to exactly 2 triangles / 6 vertices with the source pos/color/UV in `ctest decomp_gx_direct` |
 | Turn-stability (P-610) | Viewer static vs `--spin 360 --no-hud` RMSE 0.003/255 (Master Hand; residue is HSD lookat float rounding), frame1 vs frame240 and `--cycle 33` both RMSE 0.0 |
+| Disc/ARAM backends (S3) | `melee_decomp_boot` mounts the disc (FST 1212 entries), loads `audio/us/main.ssm` and the other boot banks through the compiled DVDFS + DevCom + ARQ, and passes `HSD_SynthSFXWaitForLoadCompletion`; the stop is now the memory-card/pad wait (`gm_Scene_MemCard_OnFrame`, input is S4) |
+| Host-endian converter (S3) | `native/decomp/assets/hsd_convert.c`; every archive's relocation targets convert (`reloc_valid == reloc_total`), content-hash + version disk cache, `MELEE_ASSET_CACHE`/`MELEE_NO_ASSET_CACHE` controls |
+| Asset sweep (S3) | `test_decomp_assets` (ctest `decomp_assets`): 33/33 `Pl*Nr.dat` + `GrNBa.dat` + `MnSlChr.dat` + `IfAll.dat` + `NtMsgWin.dat` parse, pose and convert with 0 desyncs |
+| Common scene assets (S3) | `NtMsgWin.dat` `SceneDesc` camera/light/fog + CObj descriptors convert; the boot loads the scene camera and only then waits for pad input |
+| Sanitizers (S3) | 32-bit ASan/UBSan: `test_decomp_assets` PASS and `melee_decomp_boot` clean with 0 sanitizer errors; fixed a DVD-cancel write into a dead stack frame (G-063) and the `.ssm` overlapping copy (PORT_PC memmove, G-064) |
 | Owner visual checks | 180 Hz viewer animation speed confirmed correct; face texture artifact gone (2026-09-11) |
 
 ## Known issues / gaps
@@ -167,9 +191,13 @@ Ordered by impact.
    `native/decomp/gx/gx_hle.c`; the remaining TEV gaps are indirect/bump/toon
    texturing (P-612) and the Z-texture/EFB effects (P-615).  Fog from
    `HSD_FogDesc`/`GXSetFog` is evaluated.
-5. **No audio, menus, items, stages, results, netplay, WASM.**
-6. **Non-Mario physics values** are demo defaults, not per-character data.
-7. **Windows/macOS untested.** Linux + Mesa is the only verified target.
+5. **No audio, menus, items, stages, results, netplay, WASM.** Audio is S5;
+   the S3 data path (DVD/DevCom/ARQ, `.ssm` header/record conversion) is in
+   place but `AXDriver_*`/AX are still stubs.
+6. **Captain Falcon's eyes do not render** in the compiled path (P-616); the
+   rest of the head now matches the prototype.  See TASKS.md.
+7. **Non-Mario physics values** are demo defaults, not per-character data.
+8. **Windows/macOS untested.** Linux + Mesa is the only verified target.
 
 ## Baseline commands
 
@@ -185,8 +213,10 @@ SDL_VIDEODRIVER=offscreen ./build/native/melee --view --animate \
     --clip Wait1 --anim-frame 25 --frames 1 --screenshot /tmp/anim.bmp
 SDL_VIDEODRIVER=offscreen ./build/native/melee --scripted --frames 240 \
     --screenshot /tmp/baseline.bmp
-./build/native/melee_decomp_boot --boot-frames 10 --boot-timeout 30 \
-    --boot-log /tmp/boot.log
+./build/native/melee_decomp_boot --boot-frames 10 --boot-timeout 10 \
+    --boot-log /tmp/boot.log      # hangs in the memory-card/pad wait; the
+                                 # watchdog gives a controlled SIGALRM stop
+./build/native/test_decomp_assets   # 33 Pl*Nr + stage + common assets
 SDL_VIDEODRIVER=offscreen ./build/native/melee --view --frames 1 --no-grid \
     --screenshot /tmp/viewer.bmp
 ./build/native/test_decomp_render --width 1280 --height 800 \

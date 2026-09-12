@@ -615,3 +615,64 @@ advanced four bytes per normal instead of thirty-six.
 the lighting normal, the remaining six (binormal/tangent) are skipped.  The
 `--direct` self-test covers a three-vertex NBT stream (`ctest
 decomp_gx_direct`).
+
+## G-063: never defer a write to a DVD command block the caller may drop
+
+**Symptom:** the ASan boot crashed with EBX=0 inside `platform_pump_completions`
+(appearing as a PIC GOT clobber).  Non-ASan builds survived by accident.
+**Cause:** `DVDClose` cancels the command of a `DVDFileInfo` that usually lives
+on the caller's stack (`lbFile_8001634C`).  The host `DVDCancel` posted a
+deferred completion that later wrote `block->state`/`transferredSize` into that
+dead stack frame, zeroing saved registers (EBX is the i386 PIC GOT register).
+**Fix:** `DVDCancel` marks any queued `DvdCompletion` for the block as
+`canceled` (the pump frees it without touching the block) and updates the
+block synchronously while the caller is still alive; `DVDCancelAsync` invokes
+its callback synchronously.  General rule: a completion may only touch memory
+the caller guaranteed to keep alive until the callback.
+
+## G-064: the retail `.ssm` group copy overlaps its source and destination
+
+**Symptom:** ASan aborts the boot in `HSD_SynthSFXSampleLoadCallback` with
+`memcpy-param-overlap`; the bank load otherwise completes.
+**Cause:** `synth.c:107` copies each group from `new + dnw` into `new + 8`;
+the destination advances `(n<<6)+0x10` bytes per group while the source
+advances `(n<<6)+8`, so the regions overlap by the end.  MWCC's memcpy
+tolerated it; glibc's is undefined.
+**Fix:** `#ifdef PORT_PC` `memmove` around that one copy (`synth.c:107`,
+ADR-0011 rule 2, listed in `learnings/decomp_port.md`).  The copied fields are
+re-patched below, so the result is unchanged.
+
+## G-065: descriptor offsets are data-section-relative, not archive-relative
+
+**Symptom:** the converter's first S3 revision produced spike geometry and
+`skipped=42` draws; fields looked half-converted.
+**Cause:** all HSD offsets (relocation entries, joint children, display
+pointers) are relative to `archive->data` (file offset 0x20), but the
+converter read/wrote `archive_base + offset`, i.e. 0x20 bytes early.  The
+relocation table itself *is* at archive-relative `0x20 + data_size`, so both
+bases are needed: keep `c->d` (archive) for the header/tables/public names and
+`c->data` (archive + 0x20) for descriptors.
+**Fix:** `Conv` carries both pointers; `rd32_abs` is the table reader and
+`rd32`/`conv_u32`/`conv_u16` use `c->data`.
+
+## G-066: in-place conversion walkers must be idempotent
+
+**Symptom:** after fixing G-065, a second pass over shared lists still
+double-swapped values; e.g. all 68 Mario PObjs point at one vtxdesc list, so
+the list was converted 68 times and even-count visits left it big-endian.
+**Cause:** S2 converted from a separate read-only copy, so re-visiting was
+harmless; the S3 converter writes into the same buffer it reads.
+**Fix:** every shared list/descriptor walker marks its entry in `c->seen` and
+returns/breaks on a revisit (`conv_vtxdesc`, `conv_envelopes`,
+`conv_rvalue_list`, leaf descriptors).  Relocation targets are exempt: they are
+handled once by the table pass and skipped by `conv_u32` via `c->reloc`.
+
+## G-067: bump `HSD_CONVERTER_VERSION` whenever conversion semantics change
+
+**Symptom:** after adding the scene-data walkers, the boot still panicked on a
+raw `projection_type` — the disk cache was serving images produced by the
+previous converter, so the new walkers never ran.
+**Cause:** the cache key is content hash + converter version, by design.
+**Fix:** bump `HSD_CONVERTER_VERSION` in `hsd_convert.c` with every conversion
+change (or set `MELEE_NO_ASSET_CACHE=1` while debugging).  A stale cache is
+otherwise invisible: same hash, older semantics.

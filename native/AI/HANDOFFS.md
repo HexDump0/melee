@@ -34,6 +34,14 @@ something the next agent must know, or finish a task that changes interfaces.
 | 2026-09-10 | P-201 animation landed | opencode (deepseek-flash) | [`2026-09-10-P-201-animation-done.md`](handoffs/2026-09-10-P-201-animation-done.md) |
 | 2026-09-10 | P-211 renderer rewrite | opencode (deepseek-flash) | [`2026-09-10-P-211-renderer-core-profile.md`](handoffs/2026-09-10-P-211-renderer-core-profile.md) |
 | 2026-09-10 | P-204 TEV materials (in progress) | opencode (deepseek-flash) | [`2026-09-10-P-204-tev-materials.md`](handoffs/2026-09-10-P-204-tev-materials.md) |
+| 2026-09-11 | ADR-0010 architecture pivot | opencode (deepseek-flash) | [`2026-09-11-architecture-pivot.md`](handoffs/2026-09-11-architecture-pivot.md) |
+| 2026-09-11 | P-301 shim experiment | opencode (deepseek-flash) | [`2026-09-11-P-301-shim-experiment.md`](handoffs/2026-09-11-P-301-shim-experiment.md) |
+| 2026-09-11 | S0 complete | opencode (deepseek-flash) | [`2026-09-11-S0-complete.md`](handoffs/2026-09-11-S0-complete.md) |
+| 2026-09-11 | S1 boot skeleton | opencode (deepseek-flash) | [`2026-09-11-S1-boot-skeleton.md`](handoffs/2026-09-11-S1-boot-skeleton.md) |
+| 2026-09-12 | S2 compiled GX render | opencode (deepseek-flash) | [`2026-09-12-S2-compiled-gx-render.md`](handoffs/2026-09-12-S2-compiled-gx-render.md) |
+| 2026-09-12 | P-611 compiled viewer | opencode (deepseek-flash) | [`2026-09-12-P-611-compiled-viewer.md`](handoffs/2026-09-12-P-611-compiled-viewer.md) |
+| 2026-09-12 | P-608/P-610/P-612 renderer fixes | opencode (deepseek-flash) | [`2026-09-12-P-608-P-610-P-612.md`](handoffs/2026-09-12-P-608-P-610-P-612.md) |
+| 2026-09-12 | P-609 S3 assets + DVD/ARQ | opencode (deepseek-flash) | [`2026-09-12-P-609-s3-assets.md`](handoffs/2026-09-12-P-609-s3-assets.md) |
 
 ## Template
 

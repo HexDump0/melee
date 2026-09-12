@@ -6,6 +6,56 @@ structs, but the port runs on little-endian x86. This file records, per
 structure, what has to be byte-swapped, what must **not** be touched, and how
 pointers/offsets are handled.
 
+## S3 implementation notes (2026-09-12, P-609)
+
+The shipped converter is `native/decomp/assets/hsd_convert.c`; this file stays
+the per-structure reference.  Key differences from the §7 recommendation:
+
+- **Relocation-table-first.**  Every relocation entry names a pointer field
+  (that is what `archive.c:Locate` assumes), so the converter swaps all of
+  them up front.  That makes the whole pointer graph traversable even for
+  classes the class walks do not know, and turns "no desync" into a testable
+  invariant: `stats.reloc_valid == stats.reloc_total`.
+- **Class walks add the numeric fields.**  Each walker converts only
+  non-pointer u32/f32/u16 fields of the structures in §2/§3 plus scene data
+  (`SceneDesc` models/cameras/lights/fogs, `HSD_CObjDesc`, `HSD_LightDesc`
+  and its union, `HSD_FogDesc`, `HSD_WObjDesc`) so compiled loaders see host
+  order.  Fields listed in the relocation table are skipped (`conv_u32`
+  checks `c->reloc`); byte-defined ranges are simply never written.
+- **In-place + cache.**  Conversion runs on the caller's buffer (the
+  `HSD_ArchiveParse` shim renames the symbol; see `decomp_shim.h`), so every
+  shared list needs an idempotence mark (G-066).  A FNV-1a hash + converter
+  version keys a disk cache under `$MELEE_ASSET_CACHE`,
+  `$XDG_CACHE_HOME/melee/assets` or `~/.cache/melee/assets`; bump
+  `HSD_CONVERTER_VERSION` on any semantic change (G-067).
+- **Sweep evidence.**  `ctest decomp_assets` loads 33 `Pl*Nr.dat` + `GrNBa` +
+  `MnSlChr` + `IfAll` + `NtMsgWin` with full reloc coverage; the boot loads
+  `NtMsgWin.dat`/`SdMsgBox.usd` and stops at the memory-card/pad wait.
+
+### `.ssm` sound banks (S3 scope: make the compiled loader run)
+
+Not an HSD archive.  Probed from `audio/us/main.ssm`:
+
+```
++0x00 u32 header_size        stream table size in bytes
++0x04 u32 sample_data_size   bytes of ADPCM sample data
++0x08 u32 group_count
++0x0C u32 base
++0x10 .. +0x10+header_size   stream table: { u32 n; n * 0x40-byte entries }
++0x10+header_size .. EOF     ADPCM sample data (byte stream, never swapped)
+```
+
+`HSD_SynthSFXHeaderLoadCallback` reads the first 0x20 bytes into
+`hsd_SynthSFXLoadBuf`, then the metadata from 0x20, then the samples to ARAM
+from `header_size + 0x10`.  `platform/ssm.c` converts the four header words and
+each record's `n` (the group copy size depends on it); the 0x40-byte entry
+fields still hold big-endian sample offsets and are patched with host
+arithmetic in the callback.  S5 must convert those entry fields and validate
+the sample headers before the mixer trusts them.
+
+`smash2.sem` is still a stub (`AXDriver_8038DA70`, S5).
+
+
 Sources of truth, in order:
 
 - `src/sysdolphin/baselib/archive.c` / `archive.h` (header + relocation),
