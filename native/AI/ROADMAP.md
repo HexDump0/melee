@@ -59,11 +59,11 @@ What this changes:
 |---|---|---|---|---|
 | P0 | Prototype: asset sandbox, animation, renderer | done | disc → HSD → GL pipeline; M0/M1/M2a | — |
 | S0 | Feasibility spike | **done 2026-09-11** | the compiled HSD data path runs on the host; endianness and 32-bit structs survive | — |
-| S1 | Boot skeleton | next | the decomp's own `main()` runs with stubbed OS/DVD/GX to a triage log | 2–4 weeks |
-| S2 | HSD runtime + GX HLE | later | the compiled game renders through its own HSD/GX path on GL | 4–8 weeks |
-| S3 | Asset pipeline | later | real disc assets load through compiled loaders | 3–6 weeks |
-| S4 | First match | later | compiled fighters/items/stages; the game's own match loop | 6–12 weeks |
-| S5 | Audio | later | AX/DSP HLE | 4–12 weeks |
+| S1 | Boot skeleton | **done 2026-09-11** | the decomp's own `main()` runs with stubbed OS/DVD/GX to a triage log | 2–4 weeks |
+| S2 | HSD runtime + GX HLE | **done 2026-09-12** | the compiled game renders through its own HSD/GX path on GL | 4–8 weeks |
+| S3 | Asset pipeline | **done 2026-09-12** | real disc assets load through compiled loaders | 3–6 weeks |
+| S4 | First match | **done 2026-09-12** | compiled fighters/items/stages; the game's own match loop | 6–12 weeks |
+| S5 | Audio | next | AX/DSP HLE | 4–12 weeks |
 | S6 | Frontend + saves | later | menus, character select, results, memory card | 3–6 weeks |
 | S7 | Platforms + mods | stretch | Android, web, Windows/macOS parity, mod hooks, netplay | open ended |
 
