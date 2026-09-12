@@ -99,6 +99,17 @@ came on):
    model, leaving the raster black.  `render_scene` now calls
    `HSD_StateInvalidate(-1)` after the reset; cycling through all 33 models
    and back renders byte-identically to a fresh load.
+3. **The four GX channels need separate state, and raster alpha is real.**
+   The HLE used to fold `GX_ALPHA0/1` (and every non-`GX_COLOR1` id) into the
+   COLOR0/1 slots, so HSD's per-material `_C0` alpha write (`enable=0,
+   light_mask=0`) wiped the colour light mask; after a model switch HSD's own
+   cache skipped the colour re-emit and the model rendered unlit (G-071).
+   Channel state now lives in four slots, with `GX_COLOR0A0/GX_COLOR1A1`
+   mirroring their alpha into the paired alpha slot.  The raster alpha is
+   evaluated from that alpha channel (sources, mask and diffuse function)
+   instead of being hardcoded to 0 on the lit path (G-072); HSD's `RASA`
+   stages, e.g. Master Hand's translucent wrist connector, depend on it.
+   Only the two hand models' S2 baseline screenshots changed.
 
 A third decoder bug caused the owner-visible triangular holes (Mario's hat,
 Link's leg, Bowser's horns, Giga Bowser's spikes): the streaming primitive

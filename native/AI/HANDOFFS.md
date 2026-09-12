@@ -43,6 +43,7 @@ something the next agent must know, or finish a task that changes interfaces.
 | 2026-09-12 | P-608/P-610/P-612 renderer fixes | opencode (deepseek-flash) | [`2026-09-12-P-608-P-610-P-612.md`](handoffs/2026-09-12-P-608-P-610-P-612.md) |
 | 2026-09-12 | P-609 S3 assets + DVD/ARQ | opencode (deepseek-flash) | [`2026-09-12-P-609-s3-assets.md`](handoffs/2026-09-12-P-609-s3-assets.md) |
 | 2026-09-12 | P-615 + P-612 renderer work (P-616 open) | opencode (deepseek-flash) | [`2026-09-12-P-615-P-612-renderer.md`](handoffs/2026-09-12-P-615-P-612-renderer.md) |
+| 2026-09-12 | P-618 GX channel slots + lit raster alpha | opencode (deepseek-flash) | [`2026-09-12-P-618-gx-channel-alpha.md`](handoffs/2026-09-12-P-618-gx-channel-alpha.md) |
 
 ## Template
 

@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-12 (S3 complete; P-615/P-612 renderer work landed; P-616 open)
+Last updated: 2026-09-12 (S3 complete; P-615/P-612 landed; G-071/G-072 viewer lighting + hand-alpha fixes; P-616 open)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -148,6 +148,8 @@ lightmap phases, alpha test, XLU blend) and every fighter is scaled by its
 | GX HLE backend (S2) | `native/decomp/gx/gx_hle.c`: real GX state + `GXCallDisplayList` decode (68 lists, zero desync), XF/channel/texgen evaluation (hardware specular attenuation), per-draw snapshots; `gx_gl.c` evaluates up to 8 captured TEV stages with full KONST selects and textures/TLUTs from `native/gx/texture.c` on an EGL/GLES3 pbuffer, honours scissor/dst-alpha and applies per-TObj LOD bias/min-max LOD/anisotropy |
 | Direct-mode capture (P-608) | `native/decomp/shim/dolphin/gx/GXVert.h` routes the decomp's inline FIFO writers to `GXPortWGFifo*`; `GXBegin` + 4-vertex quad through the shim decodes to exactly 2 triangles / 6 vertices with the source pos/color/UV in `ctest decomp_gx_direct` |
 | Turn-stability (P-610) | Viewer static vs `--spin 360 --no-hud` RMSE 0.003/255 (Master Hand; residue is HSD lookat float rounding), frame1 vs frame240 and `--cycle 33` both RMSE 0.0 |
+| Viewer model switch (G-071) | Switching models after frames have rendered keeps the compiled GX lighting: switched vs direct-load screenshots are pixel-identical (Mario->Mewtwo, Falcon, Kirby, Giga Koopa, Luigi pairs); the old alpha/colour channel-slot aliasing is covered by the channel block in `ctest decomp_gx_direct` |
+| Hand translucency (G-072) | With lights on, Master Hand/Crazy Hand show their translucent wrist-forearm connector (raster alpha now comes from the paired `GX_ALPHA0/1` channel instead of 0); Mario/Kirby/Giga Koopa/Link screenshots byte-identical, `v->ras[3]` covered in `ctest decomp_gx_direct` |
 | Disc/ARAM backends (S3) | `melee_decomp_boot` mounts the disc (FST 1212 entries), loads `audio/us/main.ssm` and the other boot banks through the compiled DVDFS + DevCom + ARQ, and passes `HSD_SynthSFXWaitForLoadCompletion`; the stop is now the memory-card/pad wait (`gm_Scene_MemCard_OnFrame`, input is S4) |
 | Host-endian converter (S3) | `native/decomp/assets/hsd_convert.c`; every archive's relocation targets convert (`reloc_valid == reloc_total`), content-hash + version disk cache, `MELEE_ASSET_CACHE`/`MELEE_NO_ASSET_CACHE` controls |
 | Asset sweep (S3) | `test_decomp_assets` (ctest `decomp_assets`): 33/33 `Pl*Nr.dat` + `GrNBa.dat` + `MnSlChr.dat` + `IfAll.dat` + `NtMsgWin.dat` parse, pose and convert with 0 desyncs |

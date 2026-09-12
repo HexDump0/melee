@@ -717,3 +717,46 @@ never rendered or appeared in the uploads.
 `begin_draw_snapshot` overwrote only `first_vertex`/`vertex_count`/`state`,
 leaving `kind`/`copy_*` from the recycled slot.
 **Fix:** `memset` the whole `GxHleDraw` at snapshot time before filling it.
+
+## G-071: GX alpha channels share the colour channel state slots
+
+**Symptom:** the first model in `melee_decomp_viewer` is lit, but after
+switching models (`N`/`P`) the new model renders with a flat raster —
+identical to the `L` lights-off toggle — and never recovers.
+**Cause:** `GXSetChanCtrl`/`GXSetChanAmbColor`/`GXSetChanMatColor` collapsed
+`GX_ALPHA0`/`GX_ALPHA1` (and every non-`GX_COLOR1` id) onto the colour-0 state
+slot.  HSD emits both halves of case-4 materials per draw
+(`HSD_SetupChannelMode`: `_60` COLOR0 with the diffuse mask, then `_90`/`_C0`
+ALPHA0 with `enable=0, light_mask=0`), so the alpha write wiped the colour
+light mask/enable/diff_fn.  On the first load this is masked: `compute_bounds`
+runs `HSD_StateInvalidate`, `HSD_LObjSetupInit` then raises the diffuse mask
+from 0 to 1, and the material's `HSD_SetupChannel` re-emits COLOR0.  After a
+model switch the light masks are unchanged, HSD's `prev_ch` cache skips the
+COLOR0 emit, and the reset slot (mask 0) survives.  The specular channel is
+unaffected (its `GX_COLOR1` writes do not alias alpha).
+**Fix:** keep four channel slots — COLOR0, COLOR1, ALPHA0, ALPHA1.  The A0/A1
+ids write the colour slot and mirror their alpha into the matching alpha slot;
+`channel_raster` reads the material alpha from slot `ch + 2`.  Regression:
+the channel-slot block at the end of `test_decomp_render --direct`
+(ctest `decomp_gx_direct`), which fails with the old mapping
+(`mask=0x0 enable=0 diff=0`).  Verified: after-frames switch vs direct load
+is pixel-identical for Mario->Mewtwo, Falcon, Kirby, Giga Koopa and Luigi
+pairs.
+
+## G-072: lit channel raster alpha was hardcoded 0
+
+**Symptom:** Master Hand's / Crazy Hand's translucent wrist-forearm connector
+is invisible with lighting on; with `L` (lights off) it appears as a flat
+white haze instead of a shaded translucent piece.
+**Cause:** `channel_raster` returned `out[3] = 0` for the lit path (RGB is
+material * accumulated light, alpha was never evaluated).  HSD's character
+TEV template multiplies by `GX_CA_RASA` (`mobj.c` `HSD_TExpAlphaIn(...,
+GX_CA_RASA, ...)`, e.g. `(ZERO, APREV, RASA, ZERO)` for the hand connector),
+so raster alpha 0 makes the piece fully transparent.  Lights off masked the
+bug because the viewer's flat override forces `ras = vec4(1)`.
+**Fix:** evaluate raster alpha from the paired alpha channel (`GX_ALPHA0/1`,
+state slots 2/3) using that channel's own sources, light mask and diffuse
+function, and use it for the diffuse, unlit and specular outputs.  Regression:
+the `v->ras[3] == 1.0` check in `test_decomp_render --direct`.  Verified:
+Mario, Kirby, Giga Koopa and Link screenshots are byte-identical; only the two
+hand models change (the connector renders translucent again).

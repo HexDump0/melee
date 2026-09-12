@@ -451,6 +451,104 @@ static int light_is_infinite(const float p[3])
  * H in the light's dir field).  The hardware's `(mat * (lacc + (lacc >> 7)))
  * >> 8` is done in float and quantized to 8 bits.
  */
+
+/* View-space direction of one light (infinite lights store their direction
+ * as 1048576 * dir, lobj.c) and the distance attenuation of point/spot
+ * lights. */
+static void light_view_dir(const GxHleLight* l, const float view[3],
+                           float ldir[3], float* attn)
+{
+    *attn = 1.0f;
+    if (light_is_infinite(l->pos)) {
+        float len = sqrtf(l->pos[0] * l->pos[0] + l->pos[1] * l->pos[1] +
+                          l->pos[2] * l->pos[2]);
+        if (len > 0.0f) {
+            ldir[0] = l->pos[0] / len;
+            ldir[1] = l->pos[1] / len;
+            ldir[2] = l->pos[2] / len;
+        } else {
+            ldir[0] = ldir[1] = 0.0f;
+            ldir[2] = 1.0f;
+        }
+    } else {
+        float d[3];
+        float dist;
+        d[0] = l->pos[0] - view[0];
+        d[1] = l->pos[1] - view[1];
+        d[2] = l->pos[2] - view[2];
+        dist = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        if (dist > 0.0f) {
+            ldir[0] = d[0] / dist;
+            ldir[1] = d[1] / dist;
+            ldir[2] = d[2] / dist;
+        } else {
+            ldir[0] = ldir[1] = 0.0f;
+            ldir[2] = 1.0f;
+        }
+        *attn = (l->a[0] + l->a[1] * dist + l->a[2] * dist * dist) /
+                (l->k[0] + l->k[1] * dist + l->k[2] * dist * dist);
+    }
+}
+
+static float light_diffuse_term(u32 diff_fn, float ndl)
+{
+    switch (diff_fn) {
+    case GX_DF_NONE:
+        return 1.0f;
+    case GX_DF_SIGN:
+        return ndl;
+    case GX_DF_CLAMP:
+    default:
+        return ndl > 0.0f ? ndl : 0.0f;
+    }
+}
+
+/* Raster alpha comes from the paired alpha channel (GX_ALPHA0/ALPHA1).
+ * HSD drives it with the disabled _C0 descriptor when a scene has no alpha
+ * lights, so the material alpha (255) passes through and TEV graphs that
+ * multiply by RASA (e.g. Master Hand's translucent wrist) stay translucent
+ * instead of vanishing.  Alpha lighting uses the alpha channel's own mask
+ * and diffuse function, like the colour channels. */
+static float channel_alpha(int ch, const GxRawVertex* raw, const float view[3],
+                           const float nrm[3])
+{
+    const GxHleDrawState* s = &gx.cur;
+    const int ac = ch + 2;
+    float mat;
+    float lacc;
+    u32 mask = s->ch_light_mask[ac];
+    int i;
+
+    if (s->ch_mat_src[ac] == GX_SRC_VTX && raw->has_color) {
+        mat = raw->color[3] / 255.0f;
+    } else {
+        mat = s->ch_mat[ac][3];
+    }
+    if (!s->ch_enable[ac] || mask == 0) {
+        return mat;
+    }
+    if (s->ch_amb_src[ac] == GX_SRC_VTX && raw->has_color) {
+        lacc = raw->color[3] / 255.0f;
+    } else {
+        lacc = s->ch_amb[ac][3];
+    }
+    for (i = 0; i < 8; ++i) {
+        const GxHleLight* l;
+        float ldir[3];
+        float attn;
+        float ndl;
+        if ((mask & (1u << i)) == 0) {
+            continue;
+        }
+        l = &s->lights[i];
+        light_view_dir(l, view, ldir, &attn);
+        ndl = nrm[0] * ldir[0] + nrm[1] * ldir[1] + nrm[2] * ldir[2];
+        lacc += light_diffuse_term(s->ch_diff_fn[ac], ndl) * attn *
+                (l->color.a / 255.0f);
+    }
+    return mat * lacc;
+}
+
 static void channel_raster(int ch, const GxRawVertex* raw,
                            const float view[3], const float nrm[3],
                            float out[4])
@@ -460,6 +558,7 @@ static void channel_raster(int ch, const GxRawVertex* raw,
     float mat[3];
     float lacc[3];
     float spec = 0.0f;
+    float alpha = channel_alpha(ch, raw, view, nrm);
     u32 mask = s->ch_light_mask[ch];
     int i;
 
@@ -478,6 +577,7 @@ static void channel_raster(int ch, const GxRawVertex* raw,
         for (i = 0; i < 8; ++i) {
             const GxHleLight* l;
             float ldir[3];
+            float attn;
             float h[3];
             float hn;
             float nh;
@@ -488,34 +588,7 @@ static void channel_raster(int ch, const GxRawVertex* raw,
                 continue;
             }
             l = &s->lights[i];
-            if (light_is_infinite(l->pos)) {
-                float len = sqrtf(l->pos[0] * l->pos[0] +
-                                  l->pos[1] * l->pos[1] +
-                                  l->pos[2] * l->pos[2]);
-                if (len > 0.0f) {
-                    ldir[0] = l->pos[0] / len;
-                    ldir[1] = l->pos[1] / len;
-                    ldir[2] = l->pos[2] / len;
-                } else {
-                    ldir[0] = ldir[1] = 0.0f;
-                    ldir[2] = 1.0f;
-                }
-            } else {
-                float d[3];
-                float dist;
-                d[0] = l->pos[0] - view[0];
-                d[1] = l->pos[1] - view[1];
-                d[2] = l->pos[2] - view[2];
-                dist = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
-                if (dist > 0.0f) {
-                    ldir[0] = d[0] / dist;
-                    ldir[1] = d[1] / dist;
-                    ldir[2] = d[2] / dist;
-                } else {
-                    ldir[0] = ldir[1] = 0.0f;
-                    ldir[2] = 1.0f;
-                }
-            }
+            light_view_dir(l, view, ldir, &attn);
             /* H = the light object's dir field: HSD_LObjSetupSpecularInit
              * (lobj.c) stores a global half vector there.  Fall back to the
              * per-vertex normalize(L + V) when the object has no dir. */
@@ -555,7 +628,7 @@ static void channel_raster(int ch, const GxRawVertex* raw,
             }
         }
         out[0] = out[1] = out[2] = clampf(spec, 0.0f, 1.0f);
-        out[3] = clampf(spec, 0.0f, 1.0f);
+        out[3] = alpha;
         return;
     }
 
@@ -579,13 +652,10 @@ static void channel_raster(int ch, const GxRawVertex* raw,
     }
 
     if (!s->ch_enable[ch] || mask == 0) {
-        u8 a = (s->ch_mat_src[ch] == GX_SRC_VTX && raw->has_color)
-                   ? raw->color[3]
-                   : quantize(s->ch_mat[ch][3]);
         out[0] = (float) quantize(mat[0]) / 255.0f;
         out[1] = (float) quantize(mat[1]) / 255.0f;
         out[2] = (float) quantize(mat[2]) / 255.0f;
-        out[3] = (float) a / 255.0f;
+        out[3] = alpha;
         return;
     }
 
@@ -595,61 +665,19 @@ static void channel_raster(int ch, const GxRawVertex* raw,
     for (i = 0; i < 8; ++i) {
         const GxHleLight* l;
         float ldir[3];
-        float attn = 1.0f;
+        float attn;
         float ndl;
         float t;
         if ((mask & (1u << i)) == 0) {
             continue;
         }
         l = &s->lights[i];
-        if (light_is_infinite(l->pos)) {
-            float len = sqrtf(l->pos[0] * l->pos[0] + l->pos[1] * l->pos[1] +
-                              l->pos[2] * l->pos[2]);
-            if (len > 0.0f) {
-                ldir[0] = l->pos[0] / len;
-                ldir[1] = l->pos[1] / len;
-                ldir[2] = l->pos[2] / len;
-            } else {
-                ldir[0] = ldir[1] = 0.0f;
-                ldir[2] = 1.0f;
-            }
-        } else {
-            float d[3];
-            float dist;
-            d[0] = l->pos[0] - view[0];
-            d[1] = l->pos[1] - view[1];
-            d[2] = l->pos[2] - view[2];
-            dist = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
-            if (dist > 0.0f) {
-                ldir[0] = d[0] / dist;
-                ldir[1] = d[1] / dist;
-                ldir[2] = d[2] / dist;
-            } else {
-                ldir[0] = ldir[1] = 0.0f;
-                ldir[2] = 1.0f;
-            }
-            attn = (l->a[0] + l->a[1] * dist + l->a[2] * dist * dist) /
-                   (l->k[0] + l->k[1] * dist + l->k[2] * dist * dist);
-        }
-
+        light_view_dir(l, view, ldir, &attn);
         ndl = nrm[0] * ldir[0] + nrm[1] * ldir[1] + nrm[2] * ldir[2];
-        switch (s->ch_diff_fn[ch]) {
-        case GX_DF_NONE:
-            t = 1.0f;
-            break;
-        case GX_DF_SIGN:
-            t = ndl;
-            break;
-        case GX_DF_CLAMP:
-        default:
-            t = ndl > 0.0f ? ndl : 0.0f;
-            break;
-        }
-        t *= attn;
+        t = light_diffuse_term(s->ch_diff_fn[ch], ndl) * attn;
         lacc[0] += t * (l->color.r / 255.0f);
         lacc[1] += t * (l->color.g / 255.0f);
         lacc[2] += t * (l->color.b / 255.0f);
-
     }
 
     /* GX: lacc already contains the ambient register, and the channel output
@@ -657,7 +685,7 @@ static void channel_raster(int ch, const GxRawVertex* raw,
     out[0] = (float) quantize(mat[0] * lacc[0]) / 255.0f;
     out[1] = (float) quantize(mat[1] * lacc[1]) / 255.0f;
     out[2] = (float) quantize(mat[2] * lacc[2]) / 255.0f;
-    out[3] = 0.0f;
+    out[3] = alpha;
 }
 
 /* Maps a GX texture-matrix id to the local bank; -1 = identity/no matrix. */
@@ -1137,12 +1165,38 @@ void GXSetNumChans(u8 nChans)
     gx.cur.num_chans = nChans;
 }
 
+/* GX channel id -> state slot: COLOR0/COLOR1 are the TEV raster sources,
+ * ALPHA0/ALPHA1 carry only the alpha component.  The combined A0/A1 ids
+ * address the colour slot; the matching alpha slot is updated from the same
+ * colour value because GX_COLOR0A0/GX_COLOR1A1 write both registers. */
+static int channel_slot(GXChannelID chan)
+{
+    switch (chan) {
+    case GX_COLOR0:
+    case GX_COLOR0A0:
+        return 0;
+    case GX_COLOR1:
+    case GX_COLOR1A1:
+        return 1;
+    case GX_ALPHA0:
+        return 2;
+    case GX_ALPHA1:
+        return 3;
+    default:
+        return -1;
+    }
+}
+
 void GXSetChanCtrl(GXChannelID chan, GXBool enable, GXColorSrc amb_src,
                    GXColorSrc mat_src, u32 light_mask, GXDiffuseFn diff_fn,
                    GXAttnFn attn_fn)
 {
+    int ch;
     flush_direct();
-    int ch = (chan == GX_COLOR1 || chan == GX_COLOR1A1) ? 1 : 0;
+    ch = channel_slot(chan);
+    if (ch < 0) {
+        return;
+    }
     gx.cur.ch_enable[ch] = (u8) enable;
     gx.cur.ch_amb_src[ch] = (u8) amb_src;
     gx.cur.ch_mat_src[ch] = (u8) mat_src;
@@ -1153,22 +1207,48 @@ void GXSetChanCtrl(GXChannelID chan, GXBool enable, GXColorSrc amb_src,
 
 void GXSetChanAmbColor(GXChannelID chan, GXColor amb_color)
 {
+    int ch;
     flush_direct();
-    int ch = (chan == GX_COLOR1 || chan == GX_COLOR1A1) ? 1 : 0;
+    ch = channel_slot(chan);
+    if (ch < 0) {
+        return;
+    }
+    if (ch >= 2) {
+        gx.cur.ch_amb[ch][3] = amb_color.a / 255.0f;
+        return;
+    }
     gx.cur.ch_amb[ch][0] = amb_color.r / 255.0f;
     gx.cur.ch_amb[ch][1] = amb_color.g / 255.0f;
     gx.cur.ch_amb[ch][2] = amb_color.b / 255.0f;
     gx.cur.ch_amb[ch][3] = amb_color.a / 255.0f;
+    if (chan == GX_COLOR0A0) {
+        gx.cur.ch_amb[2][3] = amb_color.a / 255.0f;
+    } else if (chan == GX_COLOR1A1) {
+        gx.cur.ch_amb[3][3] = amb_color.a / 255.0f;
+    }
 }
 
 void GXSetChanMatColor(GXChannelID chan, GXColor mat_color)
 {
+    int ch;
     flush_direct();
-    int ch = (chan == GX_COLOR1 || chan == GX_COLOR1A1) ? 1 : 0;
+    ch = channel_slot(chan);
+    if (ch < 0) {
+        return;
+    }
+    if (ch >= 2) {
+        gx.cur.ch_mat[ch][3] = mat_color.a / 255.0f;
+        return;
+    }
     gx.cur.ch_mat[ch][0] = mat_color.r / 255.0f;
     gx.cur.ch_mat[ch][1] = mat_color.g / 255.0f;
     gx.cur.ch_mat[ch][2] = mat_color.b / 255.0f;
     gx.cur.ch_mat[ch][3] = mat_color.a / 255.0f;
+    if (chan == GX_COLOR0A0) {
+        gx.cur.ch_mat[2][3] = mat_color.a / 255.0f;
+    } else if (chan == GX_COLOR1A1) {
+        gx.cur.ch_mat[3][3] = mat_color.a / 255.0f;
+    }
 }
 
 void GXSetNumTevStages(u8 nStages)
@@ -2265,6 +2345,8 @@ static void reset_state(void)
     gx.cur.scissor_h = 480;
     gx.cur.ch_mat[0][3] = 1.0f;
     gx.cur.ch_mat[1][3] = 1.0f;
+    gx.cur.ch_mat[2][3] = 1.0f;
+    gx.cur.ch_mat[3][3] = 1.0f;
     for (i = 0; i < 8; ++i) {
         gx.cur.texmap[i] = -1;
         gx.cur.texgen[i].type = GX_TG_MTX2x4;

@@ -237,6 +237,48 @@ static int direct_test(void)
         }
     }
 
+    /* Channel slots: HSD emits COLOR0 (light mask set) then ALPHA0 (disabled,
+     * mask 0) for every material.  The alpha update must not clobber the
+     * colour channel, or a model switched after the first frame loses its
+     * lighting when HSD's own cache skips re-emitting the colour state. */
+    GXSetChanCtrl(GX_COLOR0, GX_TRUE, GX_SRC_REG, GX_SRC_REG, 0x1,
+                  GX_DF_CLAMP, GX_AF_NONE);
+    GXSetChanCtrl(GX_ALPHA0, GX_FALSE, GX_SRC_REG, GX_SRC_REG, 0x0,
+                  GX_DF_NONE, GX_AF_NONE);
+    GXClearVtxDesc();
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+    GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+    {
+        int v;
+        for (v = 0; v < 3; ++v) {
+            GXPosition3f32((float) v + 8.0f, 0.0f, 0.0f);
+        }
+    }
+    gx_hle_get_frame(&verts, &vc, &draws, &dc, NULL, NULL);
+    if (dc != 5) {
+        printf("direct: FAIL channels draws=%zu (want 5)\n", dc);
+        return 0;
+    }
+    {
+        const GxHleDrawState* st = &draws[4].state;
+        const GxHleVertex* v = &verts[draws[4].first_vertex];
+        if (!st->ch_enable[0] || st->ch_light_mask[0] != 0x1 ||
+            st->ch_diff_fn[0] != GX_DF_CLAMP) {
+            printf("direct: FAIL channels mask=0x%x enable=%u diff=%u\n",
+                   st->ch_light_mask[0], st->ch_enable[0], st->ch_diff_fn[0]);
+            fail = 1;
+        }
+        /* Lit raster alpha: the paired ALPHA0 channel is disabled, so the
+         * material alpha (255) must survive; hardcoding 0 makes TEV graphs
+         * that multiply by RASA fully transparent (Master Hand's wrist). */
+        if (fabsf(v->ras[3] - 1.0f) > 1e-6f) {
+            printf("direct: FAIL raster alpha=%.3f (want 1.000)\n",
+                   (double) v->ras[3]);
+            fail = 1;
+        }
+    }
+
     printf("direct: %s draws=%zu verts=%zu primitives=%u\n",
            fail ? "FAIL" : "PASS", dc, vc,
            (unsigned) gx_hle_primitive_count());

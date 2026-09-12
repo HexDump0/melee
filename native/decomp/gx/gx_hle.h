@@ -104,11 +104,15 @@ typedef struct GxHleDrawState {
     float tev_color[4][4];  /* C0..C3, normalised */
     float tev_kcolor[4][4]; /* K0..K3 */
     unsigned char swap_table[4][4];
-    unsigned char ch_enable[2];
-    unsigned char ch_amb_src[2], ch_mat_src[2];
-    unsigned char ch_diff_fn[2], ch_attn_fn[2];
-    unsigned int ch_light_mask[2];
-    float ch_amb[2][4], ch_mat[2][4];
+    /* Channel state keeps the four GX channels separate: 0/1 are COLOR0/
+     * COLOR1 (the TEV raster sources), 2/3 are ALPHA0/ALPHA1.  HSD's
+     * GX_COLOR0A0/GX_COLOR1A1 writes update both a colour slot and the
+     * matching alpha slot's alpha component. */
+    unsigned char ch_enable[4];
+    unsigned char ch_amb_src[4], ch_mat_src[4];
+    unsigned char ch_diff_fn[4], ch_attn_fn[4];
+    unsigned int ch_light_mask[4];
+    float ch_amb[4][4], ch_mat[4][4];
     GxHleLight lights[8];
     int texmap[8]; /* index into the frame texture table, -1 = none */
     unsigned char num_ind_stages;
