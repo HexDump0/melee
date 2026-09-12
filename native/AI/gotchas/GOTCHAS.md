@@ -1039,3 +1039,33 @@ from `--match`.
 is `GM_TITLE` by scene on-enter and/or `gm_804D67EC` is past 5400, so
 `gmTitle_801A165C` starts the logo at frame 400.  Do not "fix" this in the
 GL layer.
+
+## G-091: fighters were never drawn — `x21FC_flag` bit order
+
+**Symptom:** the live match rendered the stage, HUD and effects but both
+fighters were invisible (later, once forced, they were black and the frame
+broke up).
+**Cause:** `fighter.c` enables the fighter draw with
+`fp->x21FC_flag.u8 = 1`; `ftdrawcommon.c` checks `x21FC_flag.b7`.  MWCC packs
+`u8` bitfields MSB-first, so the raw `1` sets `b7`.  GCC packs LSB-first, so
+`b7` stayed 0 and `ftDrawCommon_800805C8` returned before `HSD_JObjDispAll`.
+**Fix:** `Fighter.x21FC_flag` is `FtStatusFlags` under `PORT_PC`, a union
+declaring `b7..b0` in reverse so `b7` is host bit 0 (ft/types.h, ADR-0011
+list).  Do **not** reverse the shared `UnkFlagStruct`: stage code
+(`grbigblueroute`, `gricemt`) mixes raw `u8` tests with its aliases, and a
+global reversal broke stage lighting/fog.
+
+## G-092: GL texture cache overflowed and bound texture 0
+
+**Symptom:** after fighters started drawing, they (and the Go! logo and some
+effects) rendered solid black; the stage blew out white and a huge black quad
+covered the screen.  No decode errors in the log.
+**Cause:** `gx_gl`'s GL texture cache (`MAX_GL_TEXTURES` 256) is never reset
+in match mode and accumulated textures across frames; once full,
+`texture_for` freed the decoded RGBA and returned 0, so those draws bound
+texture 0 (black).  A match frame already uses ~150 textures, so the overflow
+hit the Go! logo and the fighters first.
+**Fix:** LRU eviction: on a full cache, delete and reuse the least-recently
+used entry (`last_used` stamp) instead of failing.  `--dump-draws FRAME`
+(melee_decomp_viewer) lists a captured frame's draws with texture bindings
+and NDC bounds for exactly this kind of hunt.

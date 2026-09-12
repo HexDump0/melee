@@ -43,6 +43,7 @@ typedef struct {
     unsigned char anisotropy;
     float lod_bias;
     float min_lod, max_lod;
+    unsigned int last_used;
     GLuint name;
 } GlTextureCache;
 
@@ -87,6 +88,7 @@ static GLint u_dst_alpha;
 
 static GlTextureCache tex_cache[MAX_GL_TEXTURES];
 static size_t tex_cache_count;
+static unsigned int tex_clock;
 static int aniso_supported;
 
 static GLuint vertex_vao;
@@ -699,6 +701,7 @@ static GLuint texture_for(const GxHleTexture* t)
             e->min_filt == t->min_filt && e->mipmap == t->mipmap &&
             e->lod_bias == t->lod_bias && e->min_lod == t->min_lod &&
             e->max_lod == t->max_lod && e->anisotropy == t->anisotropy) {
+            e->last_used = ++tex_clock;
             return e->name;
         }
     }
@@ -747,12 +750,26 @@ static GLuint texture_for(const GxHleTexture* t)
         }
     }
 
-    if (tex_cache_count >= MAX_GL_TEXTURES) {
-        free(rgba);
-        return 0;
-    }
     {
-        GlTextureCache* e = &tex_cache[tex_cache_count];
+        GlTextureCache* e;
+        if (tex_cache_count >= MAX_GL_TEXTURES) {
+            /* Evict the least-recently-used entry: a match frame uses ~150
+             * textures and the game keeps loading more, so overflowing the
+             * cache must not silently bind texture 0 (black). */
+            size_t oldest = 0;
+            for (i = 1; i < tex_cache_count; ++i) {
+                if (tex_cache[i].last_used < tex_cache[oldest].last_used) {
+                    oldest = i;
+                }
+            }
+            e = &tex_cache[oldest];
+            if (e->name != 0) {
+                glDeleteTextures(1, &e->name);
+            }
+            e->name = 0;
+        } else {
+            e = &tex_cache[tex_cache_count++];
+        }
         glGenTextures(1, &e->name);
         glBindTexture(GL_TEXTURE_2D, e->name);
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -792,7 +809,7 @@ static GLuint texture_for(const GxHleTexture* t)
         e->min_lod = t->min_lod;
         e->max_lod = t->max_lod;
         e->anisotropy = t->anisotropy;
-        tex_cache_count++;
+        e->last_used = ++tex_clock;
         free(rgba);
         return e->name;
     }

@@ -283,6 +283,7 @@ static void usage(const char* argv0)
             "          [--angle DEG] [--elevation DEG] [--zoom F]\n"
             "          [--frames N] [--shot FILE] [--hidden] [--no-lights]\n"
             "          [--match [FRAME]] [--record FILE|-] [--record-every N]\n"
+            "          [--dump-draws FRAME]\n"
             "          [--unlit] [--wire] [--no-hud] [--cycle N] [--spin DEG]\n"
             "          [--cycle-maps N] [--freecam]\n"
             "          [--no-cull] [--no-alpha-test] [--part N] [--part-mode "
@@ -303,6 +304,7 @@ typedef struct MatchView {
     FILE* record;
     Uint64 start_ns;
     unsigned record_every;
+    unsigned dump_frame;
     int shot_written;
     unsigned frames;
     unsigned limit;
@@ -310,6 +312,70 @@ typedef struct MatchView {
 } MatchView;
 
 static MatchView match_view;
+
+/* Debug aid: list the captured frame's draws with their texture bindings,
+ * blend state and normalised-device bounding box (find runaway quads/fighters
+ * without re-running the viewer per draw). */
+static void dump_draws(unsigned frame)
+{
+    const GxHleVertex* vertices = NULL;
+    const GxHleDraw* draws = NULL;
+    GxHleTexture* textures = NULL;
+    size_t vertex_count = 0;
+    size_t draw_count = 0;
+    size_t texture_count = 0;
+    size_t i;
+
+    gx_hle_get_frame(&vertices, &vertex_count, &draws, &draw_count,
+                     &textures, &texture_count);
+    fprintf(stderr, "[draws] frame %u: %zu draws, %zu verts, %zu textures\n",
+            frame, draw_count, vertex_count, texture_count);
+    for (i = 0; i < draw_count; ++i) {
+        const GxHleDraw* d = &draws[i];
+        float min_x = 1e9f;
+        float max_x = -1e9f;
+        float min_y = 1e9f;
+        float max_y = -1e9f;
+        size_t v;
+        if (d->kind == GX_HLE_DRAW_COPY_TEX) {
+            fprintf(stderr, "[draw %zu] copytex %ux%u\n", i, d->copy_w,
+                    d->copy_h);
+            continue;
+        }
+        for (v = d->first_vertex; v < d->first_vertex + d->vertex_count;
+             ++v) {
+            float w = vertices[v].clip[3];
+            float x = vertices[v].clip[0] / (w != 0.0f ? w : 1.0f);
+            float y = vertices[v].clip[1] / (w != 0.0f ? w : 1.0f);
+            if (x < min_x) {
+                min_x = x;
+            }
+            if (x > max_x) {
+                max_x = x;
+            }
+            if (y < min_y) {
+                min_y = y;
+            }
+            if (y > max_y) {
+                max_y = y;
+            }
+        }
+        fprintf(stderr,
+                "[draw %zu] v=%zu tex0=%d tex1=%d blend=%d/%d/%d z=%d/%d "
+                "ndc x[%.2f,%.2f] y[%.2f,%.2f]\n",
+                i, d->vertex_count, d->state.texmap[0], d->state.texmap[1],
+                d->state.blend_type, d->state.blend_src, d->state.blend_dst,
+                d->state.z_enable, d->state.z_func, min_x, max_x, min_y,
+                max_y);
+        if (d->state.texmap[0] >= 0 &&
+            (size_t) d->state.texmap[0] < texture_count)
+        {
+            const GxHleTexture* t = &textures[d->state.texmap[0]];
+            fprintf(stderr, "    tex0: %p %ux%u fmt=%u pal=%p\n", t->image,
+                    t->width, t->height, t->format, t->palette);
+        }
+    }
+}
 
 static void match_present(void)
 {
@@ -341,6 +407,11 @@ static void match_present(void)
             fprintf(stderr, "[match] frame %u draws=%d\n", match_view.frames,
                     draws);
         }
+    }
+    if (match_view.dump_frame != 0 &&
+        match_view.dump_frame == match_view.frames)
+    {
+        dump_draws(match_view.frames);
     }
     if (match_view.record != NULL &&
         (match_view.frames % match_view.record_every) == 0)
@@ -382,7 +453,8 @@ static void match_present(void)
 
 static int run_match(SDL_Window* window, SDL_GLContext context,
                      const char* shot, FILE* record, unsigned record_every,
-                     unsigned match_frame, unsigned limit, GxGlOptions* gl)
+                     unsigned dump_frame, unsigned match_frame, unsigned limit,
+                     GxGlOptions* gl)
 {
     FILE* devnull = fopen("/dev/null", "w");
 
@@ -392,6 +464,7 @@ static int run_match(SDL_Window* window, SDL_GLContext context,
     match_view.record = record;
     match_view.start_ns = 0;
     match_view.record_every = record_every != 0 ? record_every : 1;
+    match_view.dump_frame = dump_frame;
     match_view.shot_written = 0;
     match_view.frames = 0;
     match_view.limit = limit;
@@ -424,6 +497,7 @@ int main(int argc, char** argv)
     const char* record_path = NULL;
     FILE* record = NULL;
     unsigned record_every = 1;
+    unsigned dump_frame = 0;
     int width = 1280;
     int height = 800;
     int frames = 0;
@@ -475,6 +549,9 @@ int main(int argc, char** argv)
         } else if (strcmp(argv[i], "--record-every") == 0 &&
                    (int) i + 1 < argc) {
             record_every = (unsigned) strtoul(argv[++i], NULL, 0);
+        } else if (strcmp(argv[i], "--dump-draws") == 0 &&
+                   (int) i + 1 < argc) {
+            dump_frame = (unsigned) strtoul(argv[++i], NULL, 0);
         } else if (strcmp(argv[i], "--stage") == 0 && (int) i + 1 < argc) {
             opt.stage = argv[++i];
         } else if (strcmp(argv[i], "--fighter") == 0 && (int) i + 1 < argc) {
@@ -638,7 +715,8 @@ int main(int argc, char** argv)
             v->gl.hide_draw = v->part;
         }
         status = run_match(window, context, shot, record, record_every,
-                           match_frame, (unsigned) frames, &v->gl);
+                           dump_frame, match_frame, (unsigned) frames,
+                           &v->gl);
         if (record != NULL) {
             fclose(record);
         }
