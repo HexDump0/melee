@@ -24,6 +24,7 @@
 
 #include "audio/ax_hle.h"
 #include "decomp/boot/boot_triage.h"
+#include "platform/ssm.h"
 
 /* ------------------------------------------------------- host ARAM backing */
 
@@ -137,10 +138,66 @@ static int near(int a, int b)
     return d >= -1 && d <= 1;
 }
 
+/* S5.5: the `.ssm` record converter must leave every field in host order,
+ * including Hi/Lo address pairs (a u32 swap would reverse them), and must
+ * resume across DVD read boundaries.  Each read goes to its own buffer, like
+ * the DVD backend delivers them. */
+static void test_ssm_conversion(void)
+{
+    static const unsigned char file_image[0x58] = {
+        /* header */
+        0x00, 0x00, 0x00, 0x48, /* table size */
+        0x00, 0x00, 0x10, 0x00, /* sample bytes */
+        0x00, 0x00, 0x00, 0x01, /* groups */
+        0x00, 0x00, 0x00, 0x00, /* base */
+        /* group: n=1, rate=16000 */
+        0x00, 0x00, 0x00, 0x01,
+        0x00, 0x00, 0x3E, 0x80,
+        /* entry: loop flag 1, format 0, loop 2, end 0x1234, cur 2 */
+        0x00, 0x01, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x02,
+        0x00, 0x00, 0x12, 0x34,
+        0x00, 0x00, 0x00, 0x02,
+        /* AXPBADPCM: first pair 0x0102, rest zero */
+        0x01, 0x02,
+        /* 19 more zero u16 coefficients + gain/ps/yn1/yn2 */
+    };
+    unsigned char chunk1[0x20];
+    unsigned char chunk2[0x38];
+    SsmStreamTable table;
+
+    memcpy(chunk1, file_image, sizeof(chunk1));
+    memcpy(chunk2, file_image + 0x20, sizeof(chunk2));
+    memcpy(chunk2 + 0x30, (u16[]) { 0x1111, 0x2222, 0x3333 }, 6);
+
+    ssm_stream_init(&table);
+    ssm_fix_read(chunk1, 0, sizeof(chunk1), &table);
+    ssm_fix_read(chunk2, 0x20, sizeof(chunk2), &table);
+
+    check(*(u32*) (chunk1 + 0x00) == 0x48, "ssm table size");
+    check(*(u32*) (chunk1 + 0x08) == 1, "ssm group count");
+    check(*(u32*) (chunk1 + 0x10) == 1, "ssm group n");
+    check(*(u32*) (chunk1 + 0x14) == 16000, "ssm sample rate");
+    check(*(u16*) (chunk1 + 0x18) == 1, "ssm loop flag");
+    check(*(u16*) (chunk1 + 0x1C) == 0 && *(u16*) (chunk1 + 0x1E) == 2,
+          "ssm loop address pair");
+    check(*(u16*) (chunk2 + 0x00) == 0 && *(u16*) (chunk2 + 0x02) == 0x1234,
+          "ssm end address pair");
+    check(*(u16*) (chunk2 + 0x04) == 0 && *(u16*) (chunk2 + 0x06) == 2,
+          "ssm current address pair");
+    check(*(u16*) (chunk2 + 0x08) == 0x0102, "ssm ADPCM coefficient");
+    check(*(u16*) (chunk2 + 0x30) == 0x1111 &&
+              *(u16*) (chunk2 + 0x32) == 0x2222 &&
+              *(u16*) (chunk2 + 0x34) == 0x3333,
+          "ssm ADPCMLOOP fields");
+}
+
 int main(void)
 {
     AXVPB* voice;
     unsigned i;
+
+    test_ssm_conversion();
 
     boot_triage_init(stderr, 0, 0);
     OSInit();

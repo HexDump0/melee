@@ -31,22 +31,20 @@ static void swap32(unsigned char* p)
     p[3] = t0;
 }
 
-/* Size of the entry field at `rel` bytes into a 0x40-byte entry. */
-static uint32_t entry_field_size(uint32_t rel)
-{
-    if (rel == 4 || rel == 8 || rel == 0xC) {
-        return 4;
-    }
-    return 2;
-}
+/* Every numeric field of a 0x40-byte entry is a single u16.  The address
+ * fields (loop/end/current) are Hi/Lo pairs: they must be swapped as two
+ * u16s, not as one u32, or the game's `(Hi<<16)|Lo` reads them reversed.
+ * The entry has two pad bytes at the end. */
+#define SSM_ENTRY_FIELD_SIZE 2u
+#define SSM_ENTRY_LAST_FIELD 0x3Cu
 
 /* Next field offset after converting the field at `rel`. */
-static uint32_t entry_field_next(uint32_t rel, uint32_t size)
+static uint32_t entry_field_next(uint32_t rel)
 {
-    if (rel == 0x3C) {
-        return 0x40; /* the last field is followed by two pad bytes */
+    if (rel == SSM_ENTRY_LAST_FIELD) {
+        return SSM_RECORD_ENTRY;
     }
-    return rel + size;
+    return rel + SSM_ENTRY_FIELD_SIZE;
 }
 
 void ssm_stream_init(SsmStreamTable* table)
@@ -67,14 +65,17 @@ void ssm_fix_read(unsigned char* dst, uint32_t file_offset, uint32_t length,
     }
 
     if (file_offset == 0) {
-        /* Header: four u32 words, then the first bytes of the group table. */
+        /* Header: four u32 words, then the first bytes of the group table.
+         * The values must be read before the in-place swap. */
         uint32_t words = length < SSM_HEADER_SIZE ? length : SSM_HEADER_SIZE;
+        uint32_t header_size = be32(dst);
+        uint32_t group_count = be32(dst + 8);
 
         for (i = 0; i + 4 <= words; i += 4) {
             swap32(dst + i);
         }
-        table->dir_end = be32(dst) + SSM_HEADER_SIZE;
-        table->groups = be32(dst + 8);
+        table->dir_end = header_size + SSM_HEADER_SIZE;
+        table->groups = group_count;
         table->next = SSM_HEADER_SIZE;
         table->index = 0;
         table->group_start = 0;
@@ -122,21 +123,16 @@ void ssm_fix_read(unsigned char* dst, uint32_t file_offset, uint32_t length,
         while (table->field_off < table->records_end) {
             uint32_t rel = (table->field_off - table->group_start - 8) %
                            SSM_RECORD_ENTRY;
-            uint32_t size = entry_field_size(rel);
 
-            if (table->field_off + size > end) {
+            if (table->field_off + SSM_ENTRY_FIELD_SIZE > end) {
                 return; /* wait for the next read */
             }
             if (table->field_off < base) {
                 table->initialized = 0;
                 return;
             }
-            if (size == 4) {
-                swap32(dst + table->field_off - base);
-            } else {
-                swap16(dst + table->field_off - base);
-            }
-            table->field_off += entry_field_next(rel, size) - rel;
+            swap16(dst + table->field_off - base);
+            table->field_off += entry_field_next(rel) - rel;
         }
 
         table->index++;

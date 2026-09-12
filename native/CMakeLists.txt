@@ -144,6 +144,7 @@ add_executable(test_audio
     tests/test_audio.c
     audio/ax_hle.c
     audio/ax_mixer.c
+    platform/ssm.c
     platform/os.c
     platform/complete.c
     decomp/boot/boot_triage.c
