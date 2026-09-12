@@ -256,6 +256,7 @@ static void usage(const char* argv0)
             "          [--angle DEG] [--elevation DEG] [--zoom F]\n"
             "          [--frames N] [--shot FILE] [--hidden] [--no-lights]\n"
             "          [--unlit] [--wire] [--no-hud] [--cycle N] [--spin DEG]\n"
+            "          [--cycle-maps N]\n"
             "          [--no-cull] [--no-alpha-test] [--part N] [--part-mode "
             "all|only|hide]\n",
             argv0);
@@ -271,6 +272,8 @@ int main(int argc, char** argv)
     int height = 800;
     int frames = 0;
     int cycle = 0;
+    int map_cycle = 0;
+    int toggle_mode = 0;
     float spin = 0.0f;
     int hidden = 0;
     int want_shot = 0;
@@ -346,6 +349,12 @@ int main(int argc, char** argv)
             v->hud = 0;
         } else if (strcmp(argv[i], "--cycle") == 0 && (int) i + 1 < argc) {
             cycle = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--cycle-maps") == 0 &&
+                   (int) i + 1 < argc) {
+            map_cycle = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--toggle-mode") == 0 &&
+                   (int) i + 1 < argc) {
+            toggle_mode = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--part") == 0 && (int) i + 1 < argc) {
             v->part = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--part-mode") == 0 &&
@@ -450,6 +459,23 @@ int main(int argc, char** argv)
             break;
         }
     }
+    while (map_cycle-- > 0) {
+        char map_error[256];
+        if (!render_scene_cycle_map(&v->scene, 1, map_error,
+                                    sizeof(map_error))) {
+            fprintf(stderr, "viewer: map cycle failed: %s\n", map_error);
+            break;
+        }
+    }
+    while (toggle_mode-- > 0) {
+        char toggle_error[256];
+        if (!render_scene_toggle_mode(&v->scene, toggle_error,
+                                      sizeof(toggle_error))) {
+            fprintf(stderr, "viewer: mode toggle failed: %s\n",
+                    toggle_error);
+            break;
+        }
+    }
     printf("viewer: drag=orbit wheel=zoom N/P=next M=mode F=fighter "
            "K=camera [ ]=part V=mode shift+V=variant B=slot Y=hidden "
            "L=lights T=textures W=wire H=hud F12=shot R=reset ESC=quit\n");
@@ -469,6 +495,11 @@ int main(int argc, char** argv)
                 break;
             case SDL_EVENT_MOUSE_MOTION:
                 if (e.motion.state & SDL_BUTTON_LMASK) {
+                    /* Dragging means the user wants orbit control even if the
+                     * stage camera was active. */
+                    if (v->scene.stage_camera) {
+                        v->scene.stage_camera = 0;
+                    }
                     v->scene.angle -= e.motion.xrel * 0.5f;
                     v->scene.elevation -= e.motion.yrel * 0.5f;
                     if (v->scene.elevation > 85.0f) {

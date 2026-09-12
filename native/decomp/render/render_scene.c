@@ -118,10 +118,14 @@ static void frame_camera(const RenderScene* scene, float* eye, float* target,
     int i;
 
     /* In stage mode frame the posed fighter so it reads at a useful size;
-     * the stage stays visible around it. */
+     * the stage stays visible around it.  Without one, frame the main map
+     * (the camera/lights source), not the whole background union. */
     if (scene->stage_mode && scene->have_fighter && scene->show_fighter) {
         mn = scene->fighter_bounds_min;
         mx = scene->fighter_bounds_max;
+    } else if (scene->stage_mode && scene->have_stage_main) {
+        mn = scene->stage_main_min;
+        mx = scene->stage_main_max;
     }
     for (i = 0; i < 3; ++i) {
         size[i] = mx[i] - mn[i];
@@ -311,6 +315,7 @@ static int scene_load_model(RenderScene* scene, const RenderSceneOptions* opt,
     }
     snprintf(scene->model, sizeof(scene->model), "%s", model);
     gx_hle_register_asset(scene->hsd.work, scene->hsd.work_size);
+    scene->have_stage_main = 0;
 
     scene->model_scale = opt->scale_override > 0.0f
                              ? opt->scale_override
@@ -400,6 +405,9 @@ static int scene_load_stage(RenderScene* scene, const RenderSceneOptions* opt,
             return loaded;
         }
         scene->stage_camera_map = isolate;
+        scene->have_stage_main = bounds_pass(scene->hsd.root,
+                                             scene->stage_main_min,
+                                             scene->stage_main_max);
         compute_bounds(scene);
     } else {
         /* All maps (the game draws one Ground GObj per map id).  Pick the
@@ -409,6 +417,8 @@ static int scene_load_stage(RenderScene* scene, const RenderSceneOptions* opt,
         int count = 0;
         int best = -1;
         float best_extent = 0.0f;
+        float best_min[3] = { 0.0f, 0.0f, 0.0f };
+        float best_max[3] = { 0.0f, 0.0f, 0.0f };
 
         scene_unload_stage(scene);
         loaded = hsd_scene_load_stage(&scene->hsd, scene->disc, stage, 0,
@@ -421,6 +431,8 @@ static int scene_load_stage(RenderScene* scene, const RenderSceneOptions* opt,
             count = 1;
         }
         for (map = 0; map < count; map++) {
+            float mn[3];
+            float mx[3];
             if (map != 0) {
                 scene_unload_stage(scene);
                 loaded = hsd_scene_load_stage(&scene->hsd, scene->disc, stage,
@@ -432,14 +444,19 @@ static int scene_load_stage(RenderScene* scene, const RenderSceneOptions* opt,
                     return 0;
                 }
             }
-            if (compute_bounds(scene)) {
-                float dx = scene->bounds_max[0] - scene->bounds_min[0];
-                float dy = scene->bounds_max[1] - scene->bounds_min[1];
-                float dz = scene->bounds_max[2] - scene->bounds_min[2];
+            if (bounds_pass(scene->hsd.root, mn, mx)) {
+                float dx = mx[0] - mn[0];
+                float dy = mx[1] - mn[1];
+                float dz = mx[2] - mn[2];
                 float extent = dx * dx + dy * dy + dz * dz;
                 if (best < 0 || extent < best_extent) {
+                    int k;
                     best = map;
                     best_extent = extent;
+                    for (k = 0; k < 3; k++) {
+                        best_min[k] = mn[k];
+                        best_max[k] = mx[k];
+                    }
                 }
             }
         }
@@ -455,6 +472,14 @@ static int scene_load_stage(RenderScene* scene, const RenderSceneOptions* opt,
             return loaded;
         }
         scene->stage_camera_map = best;
+        {
+            int k;
+            for (k = 0; k < 3; k++) {
+                scene->stage_main_min[k] = best_min[k];
+                scene->stage_main_max[k] = best_max[k];
+            }
+        }
+        scene->have_stage_main = 1;
         compute_bounds(scene);
     }
     snprintf(scene->stage, sizeof(scene->stage), "%s", stage);
@@ -603,6 +628,7 @@ int render_scene_open(RenderScene* scene, const RenderSceneOptions* opt,
     scene->scale_override = opt->scale_override;
     scene->no_scale = opt->no_scale;
     scene->stage_camera = opt->stage_camera;
+    scene->no_fighter = opt->no_fighter;
     scene->show_fighter = 1;
     snprintf(scene->disc, sizeof(scene->disc), "%s",
              opt->disc != NULL ? opt->disc : RENDER_SCENE_DISC_DEFAULT);
@@ -762,6 +788,13 @@ int render_scene_toggle_mode(RenderScene* scene, char* error,
         opt.stage = stage;
         scene->stage_mode = 1;
         loaded = scene_load_stage(scene, &opt, stage, error, error_size);
+        if (loaded == 1 && !scene->no_fighter && scene->fighter.root == NULL) {
+            int fighter_loaded =
+                scene_load_fighter(scene, &opt,
+                                   RENDER_SCENE_FIGHTER_DEFAULT, error,
+                                   error_size);
+            scene->have_fighter = fighter_loaded > 0;
+        }
     } else {
         const char* model = scene->models.count > 0
                                 ? scene->models.names[scene->model_index]

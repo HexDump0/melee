@@ -70,6 +70,10 @@ typedef struct RenderScene {
     int stage_map;           /* <0 = all maps, else isolated map id */
     int stage_camera_map;    /* map supplying camera/lights/fog (all mode) */
     int stage_camera;        /* render through HsdScene.stage_cobj */
+    int no_fighter;          /* --no-fighter: never auto-load one */
+    float stage_main_min[3]; /* bounds of the main (camera/lights) map */
+    float stage_main_max[3];
+    int have_stage_main;
     float scale_override;    /* remembered for cycle/toggle reloads */
     int no_scale;
     HsdScene fighter;
