@@ -165,7 +165,17 @@ the unported opening movie (THP).
 G-076..G-079 for the traps (ABI alignment, self-relocating banks, overlapping
 `coll_data`/`map_ptcl`, host-order version reads).
 
-**Where it stops today:** the compiled VS scene constructs the stage; the
-next blocker is the item-data archive (`ItCoData`) — stage material item
-spawn (`it_802E6AEC` -> `Item_80268B18`) returns NULL, so
-`grZebes_801D9100` null-derefs.
+**Match bring-up chain (all compiled game code).**  Order of blockers found
+and fixed after the stage constructed: `ItCoData` (`itPublicData`
+ItemCommonData limits + Article tables/hurtbones/model descs/dynamics/state
+joints), `PlCo.dat` (`ftLoadCommonData`: ftCommonData struct + per-kind
+`:PartsTable`), `PlMr.dat` `ftData` (wait-anim FigaTree offsets, x8 model
+tables whose pointers can be data offset 0, costume TObj index arrays, x5C
+costume joint tree), and the `ft_800852B0` adjacency patch (see
+`decomp_port.md`).  Fighter creation now reaches part visibility
+(`ftParts_800749CC` -> `HSD_DObjSetFlags`).
+
+**Where it stops today:** `ftParts_80074D7C`/`HSD_DObjSetFlags` crashes
+during `ftParts_800749CC` — the fighter DObj list built by
+`ftParts_SetupParts` has a bad entry (model/part table conversion still
+incomplete).

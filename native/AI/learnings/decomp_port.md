@@ -205,3 +205,9 @@ unchanged.  The compiled-port targets define `PORT_PC=1`.
 Replacement TUs stay under `native/decomp/`: `sdk_math.c` for the Metrowerks
 SDK math asm, `debug_port.c` for MSL `debug.c`, `sdk_math`/`hsd_port_stubs.c`
 for the S0 probe.  No `extern/` file has been edited.
+
+## S4 `src/` portability patches (P-620)
+
+| File | Patch | Reason |
+|---|---|---|
+| `src/melee/ft/ftdata.c` (`ft_800852B0`, `ft_800852B0_Reset_ft_8045993C`) | `#ifdef PORT_PC` to reference `ftData_Table_Unk0`/`ft_8045993C` directly | The retail code computes both addresses by pointer arithmetic from `CostumeListsForeachCharacter` (`+5940`, `gFtDataList[Ft_Kind_Max]`), relying on GameCube data/BSS adjacency. On the host the writes clobbered `ftMObj.head.info_init` (Zeba/`MObj` class), crashing `hsdChangeClass`. |

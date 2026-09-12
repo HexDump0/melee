@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 20u
+#define HSD_CONVERTER_VERSION 31u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -629,7 +629,12 @@ static void conv_texanim(Conv* c, uint32_t off)
     }
     if (imagetbl != 0) {
         for (i = 0; i < n_images && i < HSD_MAX_LIST; i++) {
-            uint32_t img = rd32(c, imagetbl + i * 4);
+            uint32_t p = imagetbl + i * 4;
+            uint32_t img;
+            if (!in_data(c, p, 4)) {
+                break;
+            }
+            img = rd32(c, p);
             if (img != 0) {
                 conv_imagedesc(c, img);
             }
@@ -637,7 +642,12 @@ static void conv_texanim(Conv* c, uint32_t off)
     }
     if (tluttbl != 0) {
         for (i = 0; i < n_tluts && i < HSD_MAX_LIST; i++) {
-            uint32_t tlut = rd32(c, tluttbl + i * 4);
+            uint32_t p = tluttbl + i * 4;
+            uint32_t tlut;
+            if (!in_data(c, p, 4)) {
+                break;
+            }
+            tlut = rd32(c, p);
             if (tlut != 0) {
                 conv_tlutdesc(c, tlut);
             }
@@ -1037,13 +1047,13 @@ static void conv_lightanim(Conv* c, uint32_t off)
     if (aobj != 0) {
         conv_aobjdesc_ref(c, aobj);
     }
-    if (position != 0) {
+    if (position != 0 && in_data(c, position, 8)) {
         conv_wobjanim(c, position);
     }
-    if (interest != 0) {
+    if (interest != 0 && in_data(c, interest, 8)) {
         conv_wobjanim(c, interest);
     }
-    if (next != 0) {
+    if (next != 0 && in_data(c, next, 0x10)) {
         conv_lightanim(c, next);
     }
 }
@@ -1310,6 +1320,397 @@ static void conv_coll_data(Conv* c, uint32_t off)
     if (joints != 0) {
         for (i = 0; i < joint_count; i++) {
             conv_map_joint(c, joints + (uint32_t) i * MAPJOINT_SIZE);
+        }
+    }
+}
+
+/* Article targets in ItCo.dat: attributes, hurtbones, model desc, dynamics
+ * and the per-state joint tables.  All counts/floats are big-endian; the
+ * Article itself is six pointers (relocation targets, already host order). */
+#define ITEMATTR_SIZE 0x84
+#define ITHURTBONEDESC_SIZE 0x20
+#define ITMODELDESC_SIZE 0x10
+#define BONEDYNAMICSDESC_SIZE 0x18
+
+/* ItemAttr: two bytes of bitfields, then a dense run of 4-byte fields from
+ * +0x04 to +0x80 (floats, count/type ints, two itECBs and two Vec2s). */
+static void conv_item_attr(Conv* c, uint32_t off)
+{
+    uint32_t i;
+
+    if (!in_data(c, off, ITEMATTR_SIZE) || !mark(c, off)) {
+        return;
+    }
+    for (i = 0x04; i <= 0x80; i += 4) {
+        conv_u32(c, off + i);
+    }
+}
+
+/* ItHurtBoneList { s32 count; ItHurtBoneDesc* descs; }, desc =
+ * { enum_t bone_id; Vec3 a; Vec3 b; f32 scale; } (0x20). */
+static void conv_it_hurtbone_list(Conv* c, uint32_t off)
+{
+    uint32_t descs;
+    int count;
+    int i;
+
+    if (!in_data(c, off, 8) || !mark(c, off)) {
+        return;
+    }
+    conv_u32(c, off + 0x00);
+    descs = rd32(c, off + 0x04);
+    count = (int) rd32(c, off + 0x00);
+    if (descs != 0 && count > 0 && count <= 16) {
+        for (i = 0; i < count; i++) {
+            uint32_t d = descs + (uint32_t) i * ITHURTBONEDESC_SIZE;
+            int k;
+            if (!in_data(c, d, ITHURTBONEDESC_SIZE)) {
+                break;
+            }
+            conv_u32(c, d + 0x00);
+            for (k = 0; k < 7; k++) {
+                conv_u32(c, d + 0x04 + (uint32_t) k * 4);
+            }
+        }
+    }
+}
+
+/* ItemModelDesc { HSD_Joint* joint; u32 bone_count; s32 attach_id; u8 bits }. */
+static void conv_item_model_desc(Conv* c, uint32_t off)
+{
+    uint32_t joint;
+
+    if (!in_data(c, off, ITMODELDESC_SIZE) || !mark(c, off)) {
+        return;
+    }
+    conv_u32(c, off + 0x04);
+    conv_u32(c, off + 0x08);
+    joint = rd32(c, off + 0x00);
+    if (joint != 0 && in_data(c, joint, HSD_JOINT_SIZE)) {
+        conv_joint(c, joint);
+    }
+}
+
+/* ItemDynamics { int count; BoneDynamicsDesc* dyn_descs }. */
+static void conv_item_dynamics(Conv* c, uint32_t off)
+{
+    uint32_t descs;
+    int count;
+    int i;
+
+    if (!in_data(c, off, 8) || !mark(c, off)) {
+        return;
+    }
+    conv_u32(c, off + 0x00);
+    descs = rd32(c, off + 0x04);
+    count = (int) rd32(c, off + 0x00);
+    if (descs != 0 && count > 0 && count <= 64) {
+        for (i = 0; i < count; i++) {
+            uint32_t d = descs + (uint32_t) i * BONEDYNAMICSDESC_SIZE;
+            if (!in_data(c, d, BONEDYNAMICSDESC_SIZE)) {
+                break;
+            }
+            conv_u32(c, d + 0x00);                       /* bone_id */
+            conv_u32(c, d + 0x08);                       /* count */
+            conv_u32(c, d + 0x0C);                       /* pos.x */
+            conv_u32(c, d + 0x10);
+            conv_u32(c, d + 0x14);
+        }
+    }
+}
+
+/* ItemStateArray: 8 ItemStateDesc { AnimJoint*; MatAnimJoint*;
+ * ShapeAnimJoint*; UNK script } — pointer targets need their own walks. */
+static void conv_item_state_array(Conv* c, uint32_t off)
+{
+    int i;
+
+    if (!in_data(c, off, 8 * 0x10) || !mark(c, off)) {
+        return;
+    }
+    for (i = 0; i < 8; i++) {
+        uint32_t st = off + (uint32_t) i * 0x10;
+        uint32_t anim = rd32(c, st + 0x00);
+        uint32_t mat = rd32(c, st + 0x04);
+        uint32_t shape = rd32(c, st + 0x08);
+        if (anim != 0 && in_data(c, anim, HSD_ANIMJOINT_SIZE)) {
+            conv_anim_joint(c, anim);
+        }
+        if (mat != 0 && in_data(c, mat, HSD_MATANIMJOINT_SIZE)) {
+            conv_matanim_joint(c, mat);
+        }
+        if (shape != 0 && in_data(c, shape, HSD_SHAPEANIMJOINT_SIZE)) {
+            conv_shapeanim_joint(c, shape);
+        }
+    }
+}
+
+/* Article { ItemAttr*; special*; ItHurtBoneList*; ItemStateArray*;
+ * ItemModelDesc*; ItemDynamics* } — six relocation targets. */
+static void conv_article(Conv* c, uint32_t off)
+{
+    uint32_t attr;
+    uint32_t hurt;
+    uint32_t states;
+    uint32_t model;
+    uint32_t dynamics;
+
+    if (!in_data(c, off, 0x18) || !mark(c, off)) {
+        return;
+    }
+    attr = rd32(c, off + 0x00);
+    hurt = rd32(c, off + 0x08);
+    states = rd32(c, off + 0x0C);
+    model = rd32(c, off + 0x10);
+    dynamics = rd32(c, off + 0x14);
+    if (attr != 0) {
+        conv_item_attr(c, attr);
+    }
+    if (hurt != 0) {
+        conv_it_hurtbone_list(c, hurt);
+    }
+    if (states != 0) {
+        conv_item_state_array(c, states);
+    }
+    if (model != 0) {
+        conv_item_model_desc(c, model);
+    }
+    if (dynamics != 0) {
+        conv_item_dynamics(c, dynamics);
+    }
+}
+
+/* Common/character/pokemon Article* arrays.  Counts come from the item kind
+ * enums (it/forward.h): common = It_Kind_Kuriboh (43), character =
+ * It_PKind_Start - It_Kind_Kuriboh (118), pokemon =
+ * It_Kind_Old_Kuri - It_PKind_Start (47). */
+static void conv_article_array(Conv* c, uint32_t off, int count)
+{
+    int i;
+
+    for (i = 0; i < count; i++) {
+        uint32_t p = off + (uint32_t) i * 4;
+        uint32_t article;
+        if (!in_data(c, p, 4)) {
+            break;
+        }
+        article = rd32(c, p);
+        if (article == 0) {
+            continue;
+        }
+        conv_article(c, article);
+    }
+}
+
+/* PlCo.dat `ftLoadCommonData`: an array of table pointers.  The first is
+ * the big ftCommonData struct (0x818 of 4-byte floats/ints), and index 4 is
+ * the per-kind FighterPartsTable array whose parts_num is read as a loop
+ * bound (ftParts_80074E58). */
+#define FTCOMMONDATA_SIZE 0x818
+
+static void conv_ft_common_data(Conv* c, uint32_t off)
+{
+    uint32_t common;
+    uint32_t parts;
+    uint32_t i;
+
+    if (!in_data(c, off, 23 * 4) || !mark(c, off)) {
+        return;
+    }
+    common = rd32(c, off + 0x00);
+    parts = rd32(c, off + 4 * 4);
+    if (common != 0 && in_data(c, common, FTCOMMONDATA_SIZE)) {
+        for (i = 0; i < FTCOMMONDATA_SIZE; i += 4) {
+            conv_u32(c, common + i);
+        }
+    }
+    if (parts != 0) {
+        for (i = 0; i < 64; i++) {
+            uint32_t p = parts + i * 4;
+            uint32_t table;
+            if (!in_data(c, p, 4)) {
+                break;
+            }
+            table = rd32(c, p);
+            if (table == 0) {
+                continue;
+            }
+            if (in_data(c, table, 12)) {
+                conv_u32(c, table + 0x08); /* parts_num */
+            }
+        }
+    }
+}
+
+/* Pl*.dat `ftData`: mostly relocation targets, but the xC/x14
+ * Fighter_WaitAnimData arrays carry FigaTree offsets (x4/x8) that are copied
+ * verbatim into the runtime and read as sizes (ftData_80085A14 asserts when
+ * they stay big-endian).  Also the x8->x0 model_num and a few leaf structs. */
+#define FT_WAITANIM_SIZE 0x18
+
+static void conv_ft_data(Conv* c, uint32_t off)
+{
+    uint32_t x8;
+    uint32_t arr;
+    uint32_t x30;
+    uint32_t x34;
+    uint32_t x44;
+    uint32_t x50;
+    int i;
+
+    if (!in_data(c, off, 0x60) || !mark(c, off)) {
+        return;
+    }
+    x8 = rd32(c, off + 0x08);
+    x30 = rd32(c, off + 0x30);
+    /* x5C is the costume joint tree (its MObj rendermodes feed DObjLoad). */
+    {
+        uint32_t joint = rd32(c, off + 0x5C);
+        if (joint != 0 && in_data(c, joint, HSD_JOINT_SIZE)) {
+            conv_joint(c, joint);
+        }
+    }
+    x34 = rd32(c, off + 0x34);
+    x44 = rd32(c, off + 0x44);
+    x50 = rd32(c, off + 0x50);
+    conv_u32(c, off + 0x54);
+
+    /* x8 can legitimately be data offset 0 (G-023): the ftData_x8 tables of
+     * PlMr.dat live at the start of the data section. */
+    if (in_data(c, x8, 0x18)) {
+        uint32_t cost_tbl;
+        int n_tobjs;
+        int k;
+        conv_u32(c, x8 + 0x00); /* FtPartsDesc.model_num */
+        conv_u32(c, x8 + 0x08); /* ftData_x8_x8.x8 */
+        /* ftData_x8_x8.xC: per-costume u16 arrays of TObj indices (the
+         * values are numeric and looked up in the model tree). */
+        n_tobjs = (int) rd32(c, x8 + 0x08);
+        cost_tbl = rd32(c, x8 + 0x0C);
+        if (cost_tbl != 0 && n_tobjs > 0 && n_tobjs <= 64) {
+            for (k = 0; k < 8; k++) {
+                uint32_t p = cost_tbl + (uint32_t) k * 4;
+                uint32_t arr;
+                int j;
+                if (!in_data(c, p, 4)) {
+                    break;
+                }
+                arr = rd32(c, p);
+                if (arr == 0) {
+                    continue;
+                }
+                for (j = 0; j < n_tobjs; j++) {
+                    if (!in_data(c, arr + (uint32_t) j * 2, 2)) {
+                        break;
+                    }
+                    conv_u16(c, arr + (uint32_t) j * 2);
+                }
+            }
+        }
+    }
+    /* xC and x14 are Fighter_WaitAnimData arrays; convert every entry that
+     * looks in-bounds (the per-kind count lives in compiled data). */
+    arr = rd32(c, off + 0x0C);
+    for (i = 0; arr != 0 && i < 512; i++) {
+        uint32_t e = arr + (uint32_t) i * FT_WAITANIM_SIZE;
+        if (!in_data(c, e, FT_WAITANIM_SIZE)) {
+            break;
+        }
+        conv_u32(c, e + 0x04);
+        conv_u32(c, e + 0x08);
+    }
+    arr = rd32(c, off + 0x14);
+    for (i = 0; arr != 0 && i < 512; i++) {
+        uint32_t e = arr + (uint32_t) i * FT_WAITANIM_SIZE;
+        if (!in_data(c, e, FT_WAITANIM_SIZE)) {
+            break;
+        }
+        conv_u32(c, e + 0x04);
+        conv_u32(c, e + 0x08);
+    }
+    if (x30 != 0 && in_data(c, x30, 8)) {
+        conv_u32(c, x30 + 0x00); /* hurtbox init count */
+    }
+    if (x34 != 0 && in_data(c, x34, 8)) {
+        conv_u32(c, x34 + 0x04); /* scale */
+    }
+    /* ftData_x44_t: six s16 then four f32 (0x1C). */
+    if (x44 != 0 && in_data(c, x44, 0x1C)) {
+        for (i = 0; i < 6; i++) {
+            conv_u16(c, x44 + (uint32_t) i * 2);
+        }
+        for (i = 0; i < 4; i++) {
+            conv_u32(c, x44 + 0x0C + (uint32_t) i * 4);
+        }
+    }
+    /* x50: Vec2 array with count at +0x54. */
+    if (x50 != 0) {
+        int count = (int) rd32(c, off + 0x54);
+        if (count > 0 && count <= 256) {
+            for (i = 0; i < count * 2; i++) {
+                if (!in_data(c, x50 + (uint32_t) i * 4, 4)) {
+                    break;
+                }
+                conv_u32(c, x50 + (uint32_t) i * 4);
+            }
+        }
+    }
+}
+
+/* ItCo.dat (US: ItCo.usd) `itPublicData`: ItemCommonData limits plus the
+ * Article tables.  Item_80266FCC copies the ItemCommonData limits into the
+ * spawn budget; big-endian limits make it reject every spawn. */
+#define ITEMCOMMON_SIZE 0x160
+
+static void conv_item_common_data(Conv* c, uint32_t off)
+{
+    uint32_t i;
+
+    if (!in_data(c, off, ITEMCOMMON_SIZE) || !mark(c, off)) {
+        return;
+    }
+    for (i = 0; i < 0x48; i += 4) {
+        conv_u32(c, off + i);
+    }
+    /* +0x48 is a byte; the rest is a dense run of 4-byte fields. */
+    for (i = 0x4C; i < ITEMCOMMON_SIZE; i += 4) {
+        conv_u32(c, off + i);
+    }
+}
+
+static void conv_it_public_data(Conv* c, uint32_t off)
+{
+    uint32_t common;
+    uint32_t x10;
+
+    if (!in_data(c, off, 0x18) || !mark(c, off)) {
+        return;
+    }
+    common = rd32(c, off + 0x00);
+    x10 = rd32(c, off + 0x10);
+    if (common != 0) {
+        conv_item_common_data(c, common);
+    }
+    {
+        uint32_t x4 = rd32(c, off + 0x04);
+        uint32_t x8 = rd32(c, off + 0x08);
+        uint32_t xC = rd32(c, off + 0x0C);
+        if (x4 != 0) {
+            conv_article_array(c, x4, 43);
+        }
+        if (x8 != 0) {
+            conv_article_array(c, x8, 118);
+        }
+        if (xC != 0) {
+            conv_article_array(c, xC, 47);
+        }
+    }
+    if (x10 != 0 && in_data(c, x10, 0x1C)) {
+        /* it_804D6D40_t: { s32 x0; f32 x4; f32 x8; f32 xC; f32 x10;
+         * f32 x14; f32 x18; } (it_3F14.h) */
+        int i;
+        for (i = 0; i < 7; i++) {
+            conv_u32(c, x10 + (uint32_t) i * 4);
         }
     }
 }
@@ -1662,6 +2063,13 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
         } else if (name_ends_with(name, length, "DataTable")) {
             /* Ef*.dat eff*DataTable: cmd/tex PS bank pair */
             conv_ef_dat(c, data_off);
+        } else if (length >= 16 &&
+                   memcmp(name, "ftLoadCommonData", 16) == 0) {
+            conv_ft_common_data(c, data_off);
+        } else if (length >= 6 && memcmp(name, "ftData", 6) == 0) {
+            conv_ft_data(c, data_off);
+        } else if (length == 12 && memcmp(name, "itPublicData", 12) == 0) {
+            conv_it_public_data(c, data_off);
         } else if (length == 9 && memcmp(name, "coll_data", 9) == 0) {
             conv_coll_data(c, data_off);
         } else if (length == 8 && memcmp(name, "map_ptcl", 8) == 0) {
