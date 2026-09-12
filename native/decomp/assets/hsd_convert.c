@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 9u
+#define HSD_CONVERTER_VERSION 20u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -52,6 +52,14 @@
 #define HSD_MATERIAL_SIZE 0x14
 #define HSD_ROBJDESC_SIZE 0x0C
 #define HSD_SHAPESETDESC_SIZE 0x1C
+#define HSD_MATANIM_SIZE 0x10
+#define HSD_MATANIMJOINT_SIZE 0x0C
+#define HSD_TEXANIM_SIZE 0x18
+#define HSD_RENDERANIM_SIZE 0x08
+#define HSD_CHANANIM_SIZE 0x08
+#define HSD_SHAPEANIM_SIZE 0x08
+#define HSD_SHAPEANIM_DOBJ_SIZE 0x08
+#define HSD_SHAPEANIMJOINT_SIZE 0x0C
 #define HSD_ANIMJOINT_SIZE 0x14
 #define HSD_AOBJDESC_SIZE 0x10
 #define HSD_FOBJDESC_SIZE 0x14
@@ -588,6 +596,200 @@ static void conv_aobjdesc_ref(Conv* c, uint32_t off)
     }
 }
 
+/* ------------------------------------------------- animation descriptors
+ * HSD_TexAnim/MatAnim/ShapeAnim are how material and shape animation reach
+ * TObjs and shape sets; the walkers so far only followed the base joint
+ * trees, so title-screen animated textures stayed big-endian. */
+
+/* HSD_TexAnim: next; id; aobjdesc; ImageDesc** imagetbl; TlutDesc** tluttbl;
+ * u16 n_imagetbl; u16 n_tluttbl (0x18). */
+static void conv_texanim(Conv* c, uint32_t off)
+{
+    uint32_t next;
+    uint32_t aobj;
+    uint32_t imagetbl;
+    uint32_t tluttbl;
+    uint16_t n_images;
+    uint16_t n_tluts;
+    uint32_t i;
+
+    if (!in_data(c, off, HSD_TEXANIM_SIZE) || !mark(c, off)) {
+        return;
+    }
+    next = rd32(c, off + 0x00);
+    aobj = rd32(c, off + 0x08);
+    imagetbl = rd32(c, off + 0x0C);
+    tluttbl = rd32(c, off + 0x10);
+    conv_u16(c, off + 0x14);
+    conv_u16(c, off + 0x16);
+    n_images = rd16(c, off + 0x14);
+    n_tluts = rd16(c, off + 0x16);
+    if (aobj != 0) {
+        conv_aobjdesc(c, aobj);
+    }
+    if (imagetbl != 0) {
+        for (i = 0; i < n_images && i < HSD_MAX_LIST; i++) {
+            uint32_t img = rd32(c, imagetbl + i * 4);
+            if (img != 0) {
+                conv_imagedesc(c, img);
+            }
+        }
+    }
+    if (tluttbl != 0) {
+        for (i = 0; i < n_tluts && i < HSD_MAX_LIST; i++) {
+            uint32_t tlut = rd32(c, tluttbl + i * 4);
+            if (tlut != 0) {
+                conv_tlutdesc(c, tlut);
+            }
+        }
+    }
+    if (next != 0) {
+        conv_texanim(c, next);
+    }
+}
+
+/* HSD_ChanAnim / HSD_TevRegAnim: next; aobjdesc. */
+static void conv_chananim(Conv* c, uint32_t off)
+{
+    uint32_t next;
+    uint32_t aobj;
+
+    if (!in_data(c, off, HSD_CHANANIM_SIZE) || !mark(c, off)) {
+        return;
+    }
+    next = rd32(c, off + 0x00);
+    aobj = rd32(c, off + 0x04);
+    if (aobj != 0) {
+        conv_aobjdesc(c, aobj);
+    }
+    if (next != 0) {
+        conv_chananim(c, next);
+    }
+}
+
+/* HSD_RenderAnim: ChanAnim* chananim; TevRegAnim* reganim (same layout). */
+static void conv_renderanim(Conv* c, uint32_t off)
+{
+    uint32_t chananim;
+    uint32_t reganim;
+
+    if (!in_data(c, off, HSD_RENDERANIM_SIZE) || !mark(c, off)) {
+        return;
+    }
+    chananim = rd32(c, off + 0x00);
+    reganim = rd32(c, off + 0x04);
+    if (chananim != 0) {
+        conv_chananim(c, chananim);
+    }
+    if (reganim != 0) {
+        conv_chananim(c, reganim);
+    }
+}
+
+/* HSD_MatAnim: next; aobjdesc; texanim; renderanim. */
+static void conv_matanim(Conv* c, uint32_t off)
+{
+    uint32_t next;
+    uint32_t aobj;
+    uint32_t texanim;
+    uint32_t renderanim;
+
+    if (!in_data(c, off, HSD_MATANIM_SIZE) || !mark(c, off)) {
+        return;
+    }
+    next = rd32(c, off + 0x00);
+    aobj = rd32(c, off + 0x04);
+    texanim = rd32(c, off + 0x08);
+    renderanim = rd32(c, off + 0x0C);
+    if (aobj != 0) {
+        conv_aobjdesc(c, aobj);
+    }
+    if (texanim != 0) {
+        conv_texanim(c, texanim);
+    }
+    if (renderanim != 0) {
+        conv_renderanim(c, renderanim);
+    }
+    if (next != 0) {
+        conv_matanim(c, next);
+    }
+}
+
+/* HSD_MatAnimJoint: child; next; MatAnim* matanim. */
+static void conv_matanim_joint(Conv* c, uint32_t off)
+{
+    uint32_t child;
+    uint32_t next;
+    uint32_t matanim;
+
+    if (!in_data(c, off, HSD_MATANIMJOINT_SIZE) || !mark(c, off)) {
+        return;
+    }
+    child = rd32(c, off + 0x00);
+    next = rd32(c, off + 0x04);
+    matanim = rd32(c, off + 0x08);
+    if (matanim != 0) {
+        conv_matanim(c, matanim);
+    }
+    if (child != 0) {
+        conv_matanim_joint(c, child);
+    }
+    if (next != 0) {
+        conv_matanim_joint(c, next);
+    }
+}
+
+/* HSD_ShapeAnimDObj: next; ShapeAnim* shapeanim. */
+static void conv_shapeanim_dobj(Conv* c, uint32_t off)
+{
+    uint32_t next;
+    uint32_t shapeanim;
+
+    if (!in_data(c, off, HSD_SHAPEANIM_DOBJ_SIZE) || !mark(c, off)) {
+        return;
+    }
+    next = rd32(c, off + 0x00);
+    shapeanim = rd32(c, off + 0x04);
+    while (shapeanim != 0 && in_data(c, shapeanim, HSD_SHAPEANIM_SIZE)) {
+        uint32_t chain_next = rd32(c, shapeanim + 0x00);
+        uint32_t aobj = rd32(c, shapeanim + 0x04);
+        if (!mark(c, shapeanim)) {
+            break;
+        }
+        if (aobj != 0) {
+            conv_aobjdesc(c, aobj);
+        }
+        shapeanim = chain_next;
+    }
+    if (next != 0) {
+        conv_shapeanim_dobj(c, next);
+    }
+}
+
+/* HSD_ShapeAnimJoint: child; next; ShapeAnimDObj*. */
+static void conv_shapeanim_joint(Conv* c, uint32_t off)
+{
+    uint32_t child;
+    uint32_t next;
+    uint32_t dobj;
+
+    if (!in_data(c, off, HSD_SHAPEANIMJOINT_SIZE) || !mark(c, off)) {
+        return;
+    }
+    child = rd32(c, off + 0x00);
+    next = rd32(c, off + 0x04);
+    dobj = rd32(c, off + 0x08);
+    if (dobj != 0) {
+        conv_shapeanim_dobj(c, dobj);
+    }
+    if (child != 0) {
+        conv_shapeanim_joint(c, child);
+    }
+    if (next != 0) {
+        conv_shapeanim_joint(c, next);
+    }
+}
+
 static void conv_anim_joint(Conv* c, uint32_t off)
 {
     uint32_t child;
@@ -869,6 +1071,268 @@ static void conv_lightlist(Conv* c, uint32_t off)
     }
 }
 
+/* Scene archives expose `Sc*_scene_lights` as a NUL-terminated
+ * `LightList**` array (lb_80011AC4 walks it). */
+static void conv_lightlist_array(Conv* c, uint32_t off)
+{
+    int guard;
+
+    for (guard = 0; guard < 128; guard++) {
+        uint32_t p = off + (uint32_t) guard * 4;
+        uint32_t list;
+        if (!in_data(c, p, 4)) {
+            break;
+        }
+        list = rd32(c, p);
+        if (list == 0) {
+            break;
+        }
+        if (!in_data(c, list, 8)) {
+            break;
+        }
+        conv_lightlist(c, list);
+    }
+}
+
+/* ------------------------------------------------- effect PS banks
+ * Ef*.dat `eff*DataTable` publics point at two self-relocating bank blobs.
+ * `psInitDataBankLocate` (particle.c) does the pointer fix-ups at runtime
+ * relative to the bank base, so the converter must only bring the numeric
+ * fields (counts, versions, relative offsets, group/command structs) to host
+ * order.  Without this the count fields read big-endian and the runtime walks
+ * off the end of the bank (EfCoData.dat, gm_Scene_Vs_OnEnter). */
+
+#define HSD_PSTEXGROUP_SIZE 0x1C
+#define HSD_PSMAX_CMDS 8192
+#define HSD_PSMAX_GROUPS 4096
+
+static void conv_ps_cmd_bank(Conv* c, uint32_t off)
+{
+    uint16_t version;
+    uint32_t count;
+    uint32_t i;
+
+    if (!in_data(c, off, 0x10)) {
+        return;
+    }
+    version = be16(c->data + off);
+    if (version >= 0x40 && version < 0x44) {
+        /* header: version/pad, num, nb_reloc; reloc list at +12 */
+        conv_u16(c, off);
+        conv_u32(c, off + 4);
+        conv_u32(c, off + 8);
+        count = rd32(c, off + 8);
+        if (count > HSD_PSMAX_CMDS) {
+            count = HSD_PSMAX_CMDS;
+        }
+        for (i = 0; i < count; i++) {
+            uint32_t p = off + 12 + i * 4;
+            uint32_t cmd;
+            if (!in_data(c, p, 4)) {
+                break;
+            }
+            conv_u32(c, p);
+            cmd = off + rd32(c, p);
+            if (in_data(c, cmd, 12)) {
+                conv_u32(c, cmd + 8); /* HSD_PSCmdList.kind */
+            }
+        }
+    } else if (version == 0) {
+        /* header: version/pad, count; pointer table at +8 */
+        conv_u16(c, off);
+        conv_u16(c, off + 2);
+        conv_u32(c, off + 4);
+        count = rd32(c, off + 4);
+        if (count > HSD_PSMAX_CMDS) {
+            count = HSD_PSMAX_CMDS;
+        }
+        for (i = 0; i < count; i++) {
+            uint32_t p = off + 8 + i * 4;
+            uint32_t cmd;
+            if (!in_data(c, p, 4)) {
+                break;
+            }
+            conv_u32(c, p);
+            cmd = off + rd32(c, p);
+            if (in_data(c, cmd, 12)) {
+                conv_u32(c, cmd + 8);
+            }
+        }
+    }
+}
+
+static void conv_ps_tex_bank(Conv* c, uint32_t off)
+{
+    uint16_t version;
+    uint32_t num_groups;
+    uint32_t k;
+
+    if (!in_data(c, off, 0x10)) {
+        return;
+    }
+    version = be16(c->data + off);
+    if (version != 0) {
+        return; /* 0x40-style tex banks are not used by the retail data */
+    }
+    conv_u32(c, off); /* version | num_groups */
+    num_groups = rd32(c, off) & 0xFFFFu;
+    if (num_groups > 64) {
+        num_groups = 64;
+    }
+    for (k = 0; k < num_groups; k++) {
+        uint32_t gp = off + 4 + k * 4;
+        uint32_t g;
+        uint32_t num;
+        uint32_t fmt;
+        uint32_t palnum;
+        uint32_t table_count;
+        uint32_t j;
+
+        if (!in_data(c, gp, 4)) {
+            break;
+        }
+        conv_u32(c, gp);
+        g = off + rd32(c, gp);
+        if (!in_data(c, g, HSD_PSTEXGROUP_SIZE)) {
+            continue;
+        }
+        conv_u32(c, g + 0x00);
+        conv_u32(c, g + 0x04);
+        conv_u32(c, g + 0x08);
+        conv_u32(c, g + 0x0C);
+        conv_u32(c, g + 0x10);
+        conv_u16(c, g + 0x14);
+        conv_u16(c, g + 0x16);
+        num = rd32(c, g + 0x00);
+        fmt = rd32(c, g + 0x04);
+        palnum = rd16(c, g + 0x14);
+        table_count = num;
+        if (fmt == 8 || fmt == 9 || fmt == 10) {
+            if (rd16(c, g + 0x16) & 1) {
+                table_count += 1;
+            } else if (palnum != 0) {
+                table_count += palnum;
+            } else {
+                table_count *= 2;
+            }
+        }
+        if (table_count > 1024) {
+            table_count = 1024;
+        }
+        for (j = 0; j < table_count; j++) {
+            uint32_t tp = g + 0x18 + j * 4;
+            if (!in_data(c, tp, 4)) {
+                break;
+            }
+            conv_u32(c, tp);
+        }
+    }
+}
+
+/* MapCollData (mp/types.h): own pointers are relocation targets already in
+ * host order, but every count/coordinate is numeric.  mpLibLoad and the
+ * collision code read them directly, so convert the header and the
+ * verts/lines/joints arrays. */
+#define MAPCOLL_SIZE 0x30
+#define MAPLINE_SIZE 0x10
+#define MAPJOINT_SIZE 0x28
+
+static void conv_map_line(Conv* c, uint32_t off)
+{
+    int i;
+    for (i = 0; i < MAPLINE_SIZE / 2; i++) {
+        conv_u16(c, off + (uint32_t) i * 2);
+    }
+}
+
+static void conv_map_joint(Conv* c, uint32_t off)
+{
+    int i;
+    for (i = 0; i < 10; i++) {
+        conv_u16(c, off + (uint32_t) i * 2);
+    }
+    for (i = 0; i < 4; i++) {
+        conv_u32(c, off + 0x14 + (uint32_t) i * 4);
+    }
+    conv_u16(c, off + 0x24);
+    conv_u16(c, off + 0x26);
+}
+
+static void conv_coll_data(Conv* c, uint32_t off)
+{
+    uint32_t verts;
+    uint32_t lines;
+    uint32_t joints;
+    int vert_count;
+    int line_count;
+    int joint_count;
+    int i;
+
+    if (!in_data(c, off, MAPCOLL_SIZE) || !mark(c, off)) {
+        return;
+    }
+    conv_u32(c, off + 0x04);
+    conv_u32(c, off + 0x0C);
+    for (i = 0; i < 8; i++) {
+        conv_u16(c, off + 0x10 + (uint32_t) i * 2);
+    }
+    conv_u32(c, off + 0x28);
+    /* +0x2C is not converted: in the stage archives map_ptcl/map_texg start
+     * exactly there and their version word must stay big-endian for
+     * conv_ps_cmd_bank/conv_ps_tex_bank (GrZe coll_data @0x5ccb4,
+     * map_ptcl @0x5cce0). */
+
+    verts = rd32(c, off + 0x00);
+    lines = rd32(c, off + 0x08);
+    joints = rd32(c, off + 0x24);
+    vert_count = (int) rd32(c, off + 0x04);
+    line_count = (int) rd32(c, off + 0x0C);
+    joint_count = (int) rd32(c, off + 0x28);
+    if (vert_count < 0 || vert_count > 8192) {
+        vert_count = 0;
+    }
+    if (line_count < 0 || line_count > 8192) {
+        line_count = 0;
+    }
+    if (joint_count < 0 || joint_count > 2048) {
+        joint_count = 0;
+    }
+    if (verts != 0) {
+        for (i = 0; i < vert_count * 2; i++) {
+            conv_u32(c, verts + (uint32_t) i * 4); /* f32 x/y */
+        }
+    }
+    if (lines != 0) {
+        for (i = 0; i < line_count; i++) {
+            conv_map_line(c, lines + (uint32_t) i * MAPLINE_SIZE);
+        }
+    }
+    if (joints != 0) {
+        for (i = 0; i < joint_count; i++) {
+            conv_map_joint(c, joints + (uint32_t) i * MAPJOINT_SIZE);
+        }
+    }
+}
+
+/* eff*DataTable { void* cmd_bank; void* tex_bank; } */
+static void conv_ef_dat(Conv* c, uint32_t off)
+{
+    uint32_t cmd;
+    uint32_t tex;
+
+    if (!in_data(c, off, 8) || !mark(c, off)) {
+        return;
+    }
+    cmd = rd32(c, off + 0x00);
+    tex = rd32(c, off + 0x04);
+    if (cmd != 0 && in_data(c, cmd, 0x10)) {
+        conv_ps_cmd_bank(c, cmd);
+    }
+    if (tex != 0 && in_data(c, tex, 0x10)) {
+        conv_ps_tex_bank(c, tex);
+    }
+}
+
 static void conv_fogdesc(Conv* c, uint32_t off)
 {
     uint32_t adj;
@@ -1005,6 +1469,32 @@ static void conv_stage_maphead(Conv* c, uint32_t off)
     c->st.stage_maps++;
     conv_u32(c, off + 0x04);
     conv_u32(c, off + 0x0C);
+    /* unk0/unk4: Ground_801C34AC's { void* joint; s16* pairs; s32 count; }
+     * entry table (joint ordering used by stage setup). */
+    {
+        uint32_t entries = rd32(c, off + 0x00);
+        uint32_t count = rd32(c, off + 0x04);
+        uint32_t ei;
+        if (entries != 0 && count <= 4096) {
+            for (ei = 0; ei < count; ei++) {
+                uint32_t e = entries + ei * 12;
+                uint32_t pairs;
+                int pair_count;
+                int pj;
+                if (!in_data(c, e, 12)) {
+                    break;
+                }
+                pairs = rd32(c, e + 4);
+                conv_u32(c, e + 8);
+                pair_count = (int) rd32(c, e + 8);
+                if (pairs != 0 && pair_count > 0 && pair_count <= 2048) {
+                    for (pj = 0; pj < pair_count; pj++) {
+                        conv_u16(c, pairs + (uint32_t) pj * 2);
+                    }
+                }
+            }
+        }
+    }
     conv_u32(c, off + 0x14);
     conv_u32(c, off + 0x1C);
     conv_u32(c, off + 0x24);
@@ -1028,6 +1518,19 @@ static void conv_stage_maphead(Conv* c, uint32_t off)
         }
         conv_u32(c, e + 0x24);
         conv_u32(c, e + 0x30);
+        /* GrJoint[]: three s16 per entry (stage joint flags). */
+        {
+            uint32_t grjoints = rd32(c, e + 0x20);
+            int grcount = (int) rd32(c, e + 0x24);
+            int gj;
+            if (grjoints != 0 && grcount > 0 && grcount <= 4096) {
+                for (gj = 0; gj < grcount; gj++) {
+                    conv_u16(c, grjoints + (uint32_t) gj * 6);
+                    conv_u16(c, grjoints + (uint32_t) gj * 6 + 2);
+                    conv_u16(c, grjoints + (uint32_t) gj * 6 + 4);
+                }
+            }
+        }
         joint = rd32(c, e + 0x00);
         if (joint != 0) {
             conv_joint(c, joint);
@@ -1125,12 +1628,15 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
         }
         c->st.public_symbols++;
 
-        if (data_off == 0) {
-            c->st.roots_unknown++;
-            continue;
-        }
-        if (name_ends_with(name, length, "matanim_joint") ||
-            name_ends_with(name, length, "animjoint")) {
+        /* data offset 0 is a valid target (see G-023); the name dispatch
+         * below decides whether it is a descriptor class we walk. */
+        if (name_ends_with(name, length, "matanim_joint")) {
+            c->st.roots_anim++;
+            conv_matanim_joint(c, data_off);
+        } else if (name_ends_with(name, length, "shapeanim_joint")) {
+            c->st.roots_anim++;
+            conv_shapeanim_joint(c, data_off);
+        } else if (name_ends_with(name, length, "animjoint")) {
             c->st.roots_anim++;
             conv_anim_joint(c, data_off);
         } else if (name_ends_with(name, length, "_joint")) {
@@ -1145,6 +1651,23 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
         } else if (name_ends_with(name, length, "_scene_models")) {
             c->st.roots_unknown++;
             conv_static_model(c, data_off);
+        } else if (name_ends_with(name, length, "_camera")) {
+            /* GmTtAll/Mn*: Sc*_cam_int1_camera */
+            conv_cobjdesc(c, data_off);
+        } else if (name_ends_with(name, length, "_scene_lights")) {
+            /* Sc*_scene_lights: NUL-terminated LightList** array */
+            conv_lightlist_array(c, data_off);
+        } else if (name_ends_with(name, length, "_fog")) {
+            conv_fogdesc(c, data_off);
+        } else if (name_ends_with(name, length, "DataTable")) {
+            /* Ef*.dat eff*DataTable: cmd/tex PS bank pair */
+            conv_ef_dat(c, data_off);
+        } else if (length == 9 && memcmp(name, "coll_data", 9) == 0) {
+            conv_coll_data(c, data_off);
+        } else if (length == 8 && memcmp(name, "map_ptcl", 8) == 0) {
+            conv_ps_cmd_bank(c, data_off);
+        } else if (length == 8 && memcmp(name, "map_texg", 8) == 0) {
+            conv_ps_tex_bank(c, data_off);
         } else if (length == 8 && memcmp(name, "map_head", 8) == 0) {
             conv_stage_maphead(c, data_off);
         } else {

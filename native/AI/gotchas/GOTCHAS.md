@@ -810,3 +810,57 @@ by smallest bounds is only for the camera/lights/fog source.
 `HsdScene.stage_roots[]` (bounded at 64), `compute_bounds`/`render_scene_draw`
 iterate them, and the camera map only supplies camera/lights/fog.  `,`/`.`
 still isolates one map (`--stage-map N`) for inspection.
+
+## G-076: i386 aligns 8-byte fields to 4, so decomp struct layouts drift
+
+**Symptom:** the compiled port writes into unrelated globals: the save-data
+name init (`InitializePersistentNameData`) clobbered
+`gmMainLib_8046B0F0.resetting`, so every scene exit took the reset path and
+the pending game-mode change was discarded.  `sizeof(struct gmm_x0)` was
+0x850C instead of the retail 0x8518, and `thing.x2FF8` sat 12 bytes early.
+**Cause:** PowerPC EABI aligns `s64`/`double` inside structs to 8 bytes; i386
+SysV aligns them to 4.  The decomp's `ASSERT_SIZE` checks are disabled on the
+host (G-048), so the drift is silent.
+**Fix:** compile every 32-bit compiled-decomp target with
+`-malign-double` (`native/CMakeLists.txt`).  Verify with
+`sizeof(struct gmm_x0) == 0x8518` and `offsetof(thing.x2FF8) == 0x2FF8`.
+Do not add it to 64-bit-only targets (`melee_decomp_math` is shared).
+
+## G-077: effect/stage PS banks self-relocate; convert endian only
+
+**Symptom:** `psInitDataBankLocate` walks off the end of a bank
+(`EfCoData.dat` during `gm_Scene_Vs_OnEnter`, `map_ptcl`/`map_texg` during
+stage load), or triple-swaps group fields.
+**Cause:** `Ef*.dat eff*DataTable` points at two bank blobs and
+`Gr*.dat` exposes `map_ptcl`/`map_texg` directly; `particle.c` relocates the
+bank's internal pointers *at runtime relative to the bank base* (they are not
+in the HSD relocation table).  The converter must only bring the numeric
+fields to host order.  The cmd-bank version word is a `u16` at +0; read it
+big-endian (`be16`) before deciding the layout, and do not apply the
+version-0 cmd-bank reloc layout to the tex bank (its group table starts at
++4, after `version|num_groups`).
+**Fix:** `conv_ps_cmd_bank` (versions 0x40..0x43 and 0) and
+`conv_ps_tex_bank` (version 0, `HSD_PSTexGroup` fields + texTable/palette
+pointers), dispatched from `eff*DataTable`, `map_ptcl` and `map_texg`.
+Partial conversions are worse than none: a half-swapped header makes the
+runtime's control flow diverge from the console's.
+
+## G-078: stage `coll_data` and `map_ptcl` overlap in the archive
+
+**Symptom:** after converting `coll_data`, `psInitDataBankLoad` reports
+"unknown version" for `map_ptcl`; the bank's version word reads 0x1E00.
+**Cause:** in `Gr*.dat`, `MapCollData` (`coll_data`) is 0x2C bytes of real
+data, and `map_ptcl` starts exactly at `coll_data + 0x2C` — the decomp's
+inferred `x2C` tail field aliases the bank header.  Converting `+0x2C` as a
+u32 corrupts the bank version.
+**Fix:** `conv_coll_data` intentionally does not convert `+0x2C`.  If a
+future consumer needs that field, the two formats must be reconciled first.
+
+## G-079: check host-order reads when deriving converter decisions
+
+**Symptom:** `conv_ps_cmd_bank` never matched version 0x42 and skipped the
+whole bank.
+**Cause:** the version test used `rd16` (host-order read) on a field that is
+still big-endian, so 0x0042 read as 0x4200.
+**Fix:** use `be16(c->data + off)` for endian-sensitive decisions taken
+before the first conversion of that field.

@@ -14,6 +14,7 @@
  * stderr (or FILE) and never contains game assets.
  */
 #include "boot_triage.h"
+#include "match_boot.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -51,7 +52,8 @@ static void usage(const char* argv0)
     fprintf(stderr,
             "usage: %s [--boot-log FILE] [--boot-frames N]\n"
             "          [--boot-stub-limit N] [--boot-timeout SECONDS]\n"
-            "          [--boot-trace] [--boot-no-watchdog]\n",
+            "          [--boot-match FRAME] [--boot-trace] "
+            "[--boot-no-watchdog]\n",
             argv0);
 }
 
@@ -62,6 +64,7 @@ int main(int argc, char** argv)
     unsigned frames = 60;
     unsigned long stub_limit = 5000000;
     unsigned timeout = 30;
+    unsigned match_frame = 0;
     int trace = 0;
     int watchdog = 1;
     sigjmp_buf stop;
@@ -76,6 +79,8 @@ int main(int argc, char** argv)
             stub_limit = strtoul(argv[++i], NULL, 0);
         } else if (strcmp(argv[i], "--boot-timeout") == 0 && i + 1 < argc) {
             timeout = (unsigned) strtoul(argv[++i], NULL, 0);
+        } else if (strcmp(argv[i], "--boot-match") == 0 && i + 1 < argc) {
+            match_frame = (unsigned) strtoul(argv[++i], NULL, 0);
         } else if (strcmp(argv[i], "--boot-trace") == 0) {
             trace = 1;
         } else if (strcmp(argv[i], "--boot-no-watchdog") == 0) {
@@ -102,6 +107,7 @@ int main(int argc, char** argv)
     boot_triage_init(out, trace, stub_limit);
     boot_triage_set_frame_budget(frames);
     boot_triage_install_stop_target(&stop);
+    match_boot_init(match_frame);
     install_handlers();
     if (watchdog && timeout != 0) {
         alarm(timeout);

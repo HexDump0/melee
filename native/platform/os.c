@@ -86,6 +86,90 @@ static BOOL interrupts_enabled = TRUE;
 static OSContext current_context;
 static OSErrorHandler error_table[OS_ERROR_MAX];
 
+/* --------------------------------------------------------------- alarms
+ * Deterministic host scheduling: alarms fire from `advance_ticks` (every
+ * OSGetTime/OSGetTick read and each VI frame), so a handler can never run
+ * while the virtual clock stands still.  The game installs a periodic
+ * 1/60 s alarm that renews the raw pad status; without it the scene loop
+ * spins on an empty pad queue (S4 boot triage). */
+
+#define BOOT_MAX_ALARMS 32
+
+typedef struct {
+    OSAlarm* alarm;
+    OSAlarmHandler handler;
+    u64 deadline;
+    u64 period; /* 0 = one-shot */
+} HostAlarm;
+
+static HostAlarm host_alarms[BOOT_MAX_ALARMS];
+static int alarm_pumping;
+
+static HostAlarm* alarm_find(OSAlarm* alarm)
+{
+    int i;
+    for (i = 0; i < BOOT_MAX_ALARMS; i++) {
+        if (host_alarms[i].alarm == alarm) {
+            return &host_alarms[i];
+        }
+    }
+    return NULL;
+}
+
+static HostAlarm* alarm_slot(OSAlarm* alarm)
+{
+    HostAlarm* slot = alarm_find(alarm);
+    int i;
+    if (slot != NULL) {
+        return slot;
+    }
+    for (i = 0; i < BOOT_MAX_ALARMS; i++) {
+        if (host_alarms[i].alarm == NULL) {
+            host_alarms[i].alarm = alarm;
+            return &host_alarms[i];
+        }
+    }
+    return NULL;
+}
+
+static void alarm_pump(void)
+{
+    int guard;
+
+    if (alarm_pumping) {
+        return;
+    }
+    alarm_pumping = 1;
+    for (guard = 0; guard < BOOT_MAX_ALARMS * 4; guard++) {
+        HostAlarm* due = NULL;
+        OSAlarmHandler handler;
+        OSAlarm* alarm;
+        int i;
+        for (i = 0; i < BOOT_MAX_ALARMS; i++) {
+            HostAlarm* h = &host_alarms[i];
+            if (h->alarm != NULL && h->deadline <= virtual_ticks) {
+                due = h;
+                break;
+            }
+        }
+        if (due == NULL) {
+            break;
+        }
+        alarm = due->alarm;
+        handler = due->handler;
+        if (due->period != 0) {
+            due->deadline = virtual_ticks + due->period;
+        } else {
+            due->alarm = NULL;
+            due->handler = NULL;
+        }
+        if (handler != NULL) {
+            handler(alarm, &current_context);
+        }
+    }
+    alarm_pumping = 0;
+}
+
 /* ------------------------------------------------------------- arena / init */
 
 void OSInit(void)
@@ -115,6 +199,7 @@ u32 OSGetConsoleSimulatedMemSize(void)
 static u64 advance_ticks(u64 step)
 {
     virtual_ticks += step;
+    alarm_pump();
     return virtual_ticks;
 }
 
@@ -132,6 +217,13 @@ OSTime OSGetTime(void)
 void boot_platform_advance_frame(void)
 {
     advance_ticks(OS_TICKS_PER_FRAME);
+}
+
+/* 1 ms of virtual time; the compiled idle loops poll the drive status, so
+ * that poll is where the alarm interrupt gets emulated (see platform.h). */
+void boot_platform_idle_tick(void)
+{
+    advance_ticks(OS_TICKS_PER_MSEC);
 }
 
 /* 2000-01-01 00:00:00 is the GameCube epoch. */
@@ -296,7 +388,12 @@ void OSSetProgressiveMode(u32 mode)
 
 unsigned long OSGetResetCode(void)
 {
-    return 0;
+    /* The host is a "reset to the menu" boot: the game's own check
+     * (gmMainLib_8015FCC0) maps 0x80000000 to skip_intro, which routes
+     * GM_BOOT to the memory-card scene instead of the opening movie.  The
+     * movie player (THP) is not ported yet, so letting the game take its
+     * skip-intro path is the faithful choice for headless bring-up. */
+    return 0x80000000;
 }
 
 BOOL OSGetResetSwitchState(void)
@@ -425,34 +522,56 @@ void OSInitAlarm(void)
 
 void OSCreateAlarm(OSAlarm* alarm)
 {
-    boot_triage_stub("OSCreateAlarm", BOOT_CAT_OS);
-    if (alarm != NULL) {
-        memset(alarm, 0, sizeof(*alarm));
+    HostAlarm* slot;
+
+    if (alarm == NULL) {
+        return;
     }
+    slot = alarm_find(alarm);
+    if (slot != NULL) {
+        slot->alarm = NULL;
+        slot->handler = NULL;
+        slot->deadline = 0;
+        slot->period = 0;
+    }
+    memset(alarm, 0, sizeof(*alarm));
 }
 
 void OSSetAlarm(OSAlarm* alarm, OSTime tick, OSAlarmHandler handler)
 {
-    (void) alarm;
-    (void) tick;
-    (void) handler;
-    boot_triage_stub("OSSetAlarm", BOOT_CAT_OS);
+    HostAlarm* slot = alarm_slot(alarm);
+
+    if (slot == NULL) {
+        return;
+    }
+    slot->handler = handler;
+    slot->period = 0;
+    slot->deadline = virtual_ticks + (u64) tick;
 }
 
 void OSSetPeriodicAlarm(OSAlarm* alarm, OSTime start, OSTime period,
                         OSAlarmHandler handler)
 {
-    (void) alarm;
-    (void) start;
-    (void) period;
-    (void) handler;
-    boot_triage_stub("OSSetPeriodicAlarm", BOOT_CAT_OS);
+    HostAlarm* slot = alarm_slot(alarm);
+
+    if (slot == NULL) {
+        return;
+    }
+    slot->handler = handler;
+    slot->period = (u64) period;
+    slot->deadline = virtual_ticks + (u64) start;
 }
 
 void OSCancelAlarm(OSAlarm* alarm)
 {
-    (void) alarm;
-    boot_triage_stub("OSCancelAlarm", BOOT_CAT_OS);
+    HostAlarm* slot = alarm_find(alarm);
+
+    if (slot != NULL) {
+        slot->alarm = NULL;
+        slot->handler = NULL;
+        slot->deadline = 0;
+        slot->period = 0;
+    }
 }
 
 int OSCreateThread(OSThread* thread, void* (*func)(void*), void* param,

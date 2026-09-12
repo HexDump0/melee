@@ -133,3 +133,39 @@ cmake -S native -B build/native-boot-asan -DCMAKE_BUILD_TYPE=Debug \
 cmake --build build/native-boot-asan --target melee_decomp_boot -j4
 ./build/native-boot-asan/melee_decomp_boot --boot-frames 2 --boot-timeout 60
 ```
+
+## S4 bring-up (P-620, in progress)
+
+**Alarms and idle time.** `OSCreateAlarm`/`OSSetAlarm`/`OSSetPeriodicAlarm`/
+`OSCancelAlarm` are real: 32 host slots fire from `advance_ticks`, which runs
+on every `OSGetTime`/`OSGetTick` read and every VI frame, so a handler can
+never observe a frozen clock.  The compiled game's periodic 1/60 s alarm
+(`fn_800195FC`) renews the raw pad status; without it the scene loop spins
+forever on an empty pad queue.  `DVDGetDriveStatus` advances the clock by
+1 ms per call (`boot_platform_idle_tick`) because the idle pad-queue spin
+only polls that; VI frames still advance the clock by one 60 Hz tick.
+
+**Direct match entry.** `decomp/boot/match_boot.c` installs a VI frame hook
+(`boot_platform_set_frame_hook`) and, at `--boot-match N`, clears the
+state-machine override (`lbCardGame_DecideGameMode`, an S6 card router that
+would otherwise swallow the request), posts `GM_DEBUG_VS` through
+`gm_ChangeGameModeAfterCurrentScene` and ends the current scene with
+`gm_801A4B60`.  `GM_DEBUG_VS` -> `gm_Mode_DebugVs_States[0]` ->
+`onEnterDebugVs` is the game's own hardcoded Link vs Mario match; the VS
+scene then loads effects, the stage (Zebes for `St_Kind_Last`), items and
+fighters.
+`OSGetResetCode` returns 0x80000000 so `skip_intro` routes `GM_BOOT` past
+the unported opening movie (THP).
+
+**Converter classes S4 needed beyond S3** (all in `hsd_convert.c`, version 20):
+`HSD_TexAnim`/`MatAnim`/`ShapeAnim` chains (material animation), `LightAnim`
++ `WObjAnim` AObjs, effect PS banks (`eff*DataTable`, `map_ptcl`,
+`map_texg`), stage `coll_data` (`MapCollData`/`MapLine`/`MapJoint`), and the
+`map_head` `Ground_801C34AC` joint/pair tables plus `GrJoint[]`.  See
+G-076..G-079 for the traps (ABI alignment, self-relocating banks, overlapping
+`coll_data`/`map_ptcl`, host-order version reads).
+
+**Where it stops today:** the compiled VS scene constructs the stage; the
+next blocker is the item-data archive (`ItCoData`) — stage material item
+spawn (`it_802E6AEC` -> `Item_80268B18`) returns NULL, so
+`grZebes_801D9100` null-derefs.

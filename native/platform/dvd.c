@@ -30,6 +30,7 @@
 #include "decomp/boot/boot_triage.h"
 #include "platform/complete.h"
 #include "platform/disc.h"
+#include "platform/platform.h"
 #include "platform/ssm.h"
 
 #define DEFAULT_DISC "iso/Super Smash Bros. Melee (USA) (En,Ja) (Rev 2).ciso"
@@ -425,6 +426,7 @@ long DVDGetCommandBlockStatus(DVDCommandBlock* block)
 
 long DVDGetDriveStatus(void)
 {
+    boot_platform_idle_tick();
     return disc_ready ? DVD_STATE_END : DVD_STATE_NO_DISK;
 }
 

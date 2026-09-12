@@ -51,6 +51,7 @@ GXRenderModeObj GXNtsc480Prog = {
 static GXDrawDoneCallback gx_draw_done_callback;
 static VIRetraceCallback vi_pre_callback;
 static VIRetraceCallback vi_post_callback;
+static void (*vi_frame_hook)(void);
 static u32 vi_retrace_count;
 
 /* extern/dolphin/src/dolphin/gx/GXTexture.c: __GXGetTexTileShift (0x2B) */
@@ -200,6 +201,11 @@ void VIInit(void)
     boot_triage_real("VIInit", BOOT_CAT_VI);
 }
 
+void boot_platform_set_frame_hook(void (*hook)(void))
+{
+    vi_frame_hook = hook;
+}
+
 /* One emulated display frame: run the HSD pre/post retrace callbacks, advance
  * the virtual clock, and charge the S1 frame budget. */
 void VIWaitForRetrace(void)
@@ -215,6 +221,9 @@ void VIWaitForRetrace(void)
         vi_post_callback(vi_retrace_count);
     }
     boot_platform_advance_frame();
+    if (vi_frame_hook != NULL) {
+        vi_frame_hook();
+    }
     boot_triage_frame();
 }
 
