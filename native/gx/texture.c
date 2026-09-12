@@ -155,6 +155,48 @@ static void decode_cmpr(const uint8_t* src, uint8_t* dst, int w, int h)
         }
 }
 
+size_t gx_texture_min_size(int format, int width, int height)
+{
+    size_t blocks_x;
+    size_t blocks_y;
+    size_t bytes_per_block;
+    if (width <= 0 || height <= 0) {
+        return 0;
+    }
+    switch (format) {
+    case TEX_FMT_I4:
+    case TEX_FMT_CMPR:
+    case TEX_FMT_CI4:
+        bytes_per_block = 32;
+        blocks_x = (size_t)(width + 7) / 8;
+        blocks_y = (size_t)(height + 7) / 8;
+        break;
+    case TEX_FMT_I8:
+    case TEX_FMT_IA4:
+    case TEX_FMT_Z8:
+    case TEX_FMT_CI8:
+        bytes_per_block = 32;
+        blocks_x = (size_t)(width + 7) / 8;
+        blocks_y = (size_t)(height + 3) / 4;
+        break;
+    case TEX_FMT_IA8:
+    case TEX_FMT_RGB565:
+    case TEX_FMT_RGB5A3:
+        bytes_per_block = 32;
+        blocks_x = (size_t)(width + 3) / 4;
+        blocks_y = (size_t)(height + 3) / 4;
+        break;
+    case TEX_FMT_RGBA8:
+        bytes_per_block = 64;
+        blocks_x = (size_t)(width + 3) / 4;
+        blocks_y = (size_t)(height + 3) / 4;
+        break;
+    default:
+        return 0;
+    }
+    return blocks_x * blocks_y * bytes_per_block;
+}
+
 int gx_texture_decode(const void* pixels, size_t pixel_length,
                         int width, int height, int format,
                         uint8_t** out_rgba, char* error, size_t error_length)

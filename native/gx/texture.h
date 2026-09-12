@@ -45,6 +45,14 @@ int gx_texture_decode(const void* pixels, size_t pixel_length,
                         size_t error_length);
 
 /*
+ * Tile-aligned byte size the decoder reads for a texture of these
+ * dimensions/format, or 0 for an unsupported format.  This is also the
+ * authoritative bound for runtime textures (`HSD_ImageDescAlloc` images and
+ * copies) that do not live inside a registered archive.
+ */
+size_t gx_texture_min_size(int format, int width, int height);
+
+/*
  * Decodes paletted GX formats (TEX_FMT_CI4, TEX_FMT_CI8) using a palette that
  * has already been expanded to RGBA8.  The caller owns *out_rgba.
  */

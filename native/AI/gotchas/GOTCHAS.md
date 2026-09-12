@@ -1002,3 +1002,19 @@ the GO! archive was unknown, `gx_hle_asset_remaining` returned -1 and
 **Fix:** the asset table grows with `realloc` (16 entries, doubling);
 `gx_hle_reset_assets` resets the count only.  The decode failure log now
 prints dimensions, format and available bytes so a wrong bound is obvious.
+
+## G-089: bound texture decodes by the GX-declared size, not the archive
+
+**Symptom:** the title screen spammed `gx_gl: texture decode failed:
+truncated GX texture data` and drew black rectangles over the logo: 48x48 and
+44x44 I4 textures reported only 943/732 bytes available.
+**Cause:** `texture_for` bounded the decode by the remaining bytes of the
+registered archive containing `t->image`.  Runtime `HSD_ImageDesc`s
+(`HSD_ImageDescAlloc`), copied/streamed images and freed-then-reused archive
+buffers are not those ranges, so the bound was unrelated to the texture (the
+pointer merely happened to land near the end of a stale buffer).
+**Fix:** the bound is the tile-aligned size the decoder reads
+(`gx_texture_min_size`), exactly what the game's own `GXInitTexObj` draw
+consumes; the archive lookup stays only as a fallback for unsupported
+formats.  Do not restore the archive bound — it produces false truncation
+failures for any texture outside a parsed archive.

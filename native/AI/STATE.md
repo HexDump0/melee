@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-12 (P-623: live match viewer + `--record`; G-088: GX HLE asset table now grows, GO! logo decodes)
+Last updated: 2026-09-12 (P-623: live match viewer + `--record`; G-088/G-089: GX asset table grows and texture decodes use the GX-declared size — GO! logo and title logo decode)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -108,7 +108,10 @@ is unchanged (ctest 12/12, ASan 600-frame run byte-identical positions).
 Follow-up fix: the "GO!" logo's black quad was the GX HLE asset table capping
 at 8 archives, so later archives' CI textures hit a 64 KB fallback bound and
 failed to decode; the table now grows on demand (G-088) and the logo renders.
-Audio is S5.  See `gotchas/GOTCHAS.md` G-087 (viewer triage frame budget).
+A second fix bounds every texture decode by the GX-declared dimensions instead
+of the containing archive (G-089), which removed the title screen's decode
+spam and black logo rectangles.  Audio is S5.  See `gotchas/GOTCHAS.md` G-087
+(viewer triage frame budget).
 
 ## TL;DR
 

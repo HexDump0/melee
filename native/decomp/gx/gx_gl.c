@@ -685,6 +685,9 @@ static GLuint texture_for(const GxHleTexture* t)
     const void* palette = t->palette;
 
     if (image == NULL) {
+        fprintf(stderr,
+                "gx_gl: draw bound a texture with no image (%dx%d fmt=%u)\n",
+                t->width, t->height, (unsigned) t->format);
         return 0;
     }
     for (i = 0; i < tex_cache_count; ++i) {
@@ -700,9 +703,16 @@ static GLuint texture_for(const GxHleTexture* t)
         }
     }
 
-    bound = gx_hle_asset_remaining(image);
-    if (bound == (size_t) -1) {
-        bound = 64 * 1024;
+    /* Runtime textures (`HSD_ImageDescAlloc`, copied/streamed images) live
+     * outside any parsed archive, and archive buffers can be freed and
+     * reused, so the GX-declared dimensions are the only trustworthy bound:
+     * they are exactly what the game's own GXInitTexObj draw reads. */
+    bound = gx_texture_min_size((int) t->format, t->width, t->height);
+    if (bound == 0) {
+        bound = gx_hle_asset_remaining(image);
+        if (bound == (size_t) -1) {
+            bound = 64 * 1024;
+        }
     }
     if (t->format == 8 || t->format == 9) {
         unsigned char* pal = NULL;
@@ -729,7 +739,10 @@ static GLuint texture_for(const GxHleTexture* t)
         if (gx_texture_decode(image, bound, t->width, t->height,
                               (int) t->format, &rgba, error,
                               sizeof(error)) != 0) {
-            fprintf(stderr, "gx_gl: texture decode failed: %s\n", error);
+            fprintf(stderr,
+                    "gx_gl: texture decode failed: %s (%dx%d fmt=%u "
+                    "avail=%zu)\n",
+                    error, t->width, t->height, (unsigned) t->format, bound);
             return 0;
         }
     }
