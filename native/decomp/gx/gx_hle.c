@@ -164,6 +164,11 @@ static size_t comp_count(u32 attr, u32 cnt)
     if (attr == GX_VA_NRM) {
         return cnt == GX_NRM_XYZ ? 3 : 9;
     }
+    if (attr == GX_VA_NBT) {
+        /* GX_VA_NBT is normal/binormal/tangent: always 9 components; the
+         * first three are the lighting normal (pobj.c:setupShapeAnimVtxDesc). */
+        return 9;
+    }
     if (attr == GX_VA_CLR0 || attr == GX_VA_CLR1) {
         return cnt == GX_CLR_RGB ? 3 : 4;
     }

@@ -116,6 +116,42 @@ static int direct_test(void)
             }
         }
     }
+    /* NBT: shape-anim PObjs use GX_VA_NBT = 9 float components per vertex;
+     * only the first three drive lighting, but the cursor must advance nine
+     * or the following vertices desync (pobj.c:setupShapeAnimVtxDesc). */
+    GXClearVtxDesc();
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_NBT, GX_NRM_NBT, GX_F32, 0);
+    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+    GXSetVtxDesc(GX_VA_NBT, GX_DIRECT);
+    GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+    {
+        int v;
+        for (v = 0; v < 3; ++v) {
+            GXPosition3f32((float) v + 2.0f, 0.0f, 0.0f);
+            GXNormal3f32(1.0f, 0.0f, 0.0f); /* normal */
+            GXNormal3f32(0.0f, 1.0f, 0.0f); /* binormal */
+            GXNormal3f32(0.0f, 0.0f, 1.0f); /* tangent */
+        }
+    }
+    gx_hle_get_frame(&verts, &vc, &draws, &dc, NULL, NULL);
+    if (dc != 2 || vc != 9) {
+        printf("direct: FAIL NBT draws=%zu verts=%zu (want 2/9)\n", dc, vc);
+        return 0;
+    }
+    {
+        size_t k;
+        for (k = 0; k < 3; ++k) {
+            const GxHleVertex* v = &verts[draws[1].first_vertex + k];
+            if (fabsf(v->view[0] - (float) (k + 2)) > 1e-6f ||
+                fabsf(v->view[1]) > 1e-6f || fabsf(v->view[2]) > 1e-6f) {
+                printf("direct: FAIL NBT vert %zu pos=%.3f,%.3f,%.3f\n", k,
+                       (double) v->view[0], (double) v->view[1],
+                       (double) v->view[2]);
+                fail = 1;
+            }
+        }
+    }
     printf("direct: %s draws=%zu verts=%zu primitives=%u\n",
            fail ? "FAIL" : "PASS", dc, vc,
            (unsigned) gx_hle_primitive_count());

@@ -602,3 +602,16 @@ render mode that is NaN/0, so the viewport and scissor rects collapse to
 mode stayed zero.  Invisible until the port actually used viewport/scissor.
 **Fix:** assign `HSD_VIData.current.vi.rmode = GXNtsc480IntDf` in
 `hsd_scene_boot()` (`native/decomp/hsd/hsd_scene.c`).
+
+## G-062: `GX_VA_NBT` is a distinct attribute with nine components
+
+**Symptom:** shape-anim PObjs (Kirby-style shapes) decode garbage: positions
+after the first vertex are wrong and the draw desyncs, because the reader
+advanced four bytes per normal instead of thirty-six.
+**Cause:** HSD's `setupShapeAnimVtxDesc` (pobj.c) sets `GX_VA_NBT` directly
+(not `GX_VA_NRM` with `GX_NRM_NBT`), and the component-count table only knew
+`GX_VA_NRM`, so the NBT stream was read as a single component.
+**Fix:** `comp_count` returns 9 for `GX_VA_NBT`; the first three components are
+the lighting normal, the remaining six (binormal/tangent) are skipped.  The
+`--direct` self-test covers a three-vertex NBT stream (`ctest
+decomp_gx_direct`).
