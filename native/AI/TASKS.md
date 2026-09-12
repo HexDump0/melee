@@ -101,8 +101,8 @@ compiled render in S2/S4 instead.
 | ID | Task | Agent | Commit | Date |
 |---|---|---|---|---|
 | P-609 | S3: host-endian asset pipeline + DVD/ARQ completion | opencode (deepseek-flash) | d4fc2f9b3, ec408b535, 297921685, 37b718104 | 2026-09-12 |
-| P-615 | Z-texture and EFB copy/read (`GXSetZTexture`, `GXCopyTex`, `GXCopyDisp`) | opencode (deepseek-flash) | 2b2fd837a | 2026-09-12 |
-| P-612 | GX HLE polish: faithful `GX_TG_BUMPn` emboss + indirect state capture | opencode (deepseek-flash) | 8f5396cac | 2026-09-12 |
+| P-615 | Z-texture and EFB copy/read (`GXSetZTexture`, `GXCopyTex`, `GXCopyDisp`) | opencode (deepseek-flash) | 2b2fd837a, 697d90d9c | 2026-09-12 |
+| P-612 | GX HLE polish: faithful `GX_TG_BUMPn` emboss + indirect state capture | opencode (deepseek-flash) | 8f5396cac, 697d90d9c | 2026-09-12 |
 | P-614 | TEV KONST parity: full KCSEL/KASEL select tables (scalar fractions, K0..K3, per-channel K?_R/G/B/A) in the fragment shader | opencode (deepseek-flash) | 7139e2762 | 2026-09-12 |
 | P-613 | Faithful GX specular: hardware attenuation function `dot(a,(1,t,t^2))/dot(k,(1,t,t^2))` with H from the spec light object, replacing Blinn-Phong | opencode (deepseek-flash) | 7139e2762 | 2026-09-12 |
 | P-608 | Direct-mode GX capture: `native/decomp/shim/dolphin/gx/GXVert.h` shadows the SDK header and routes the inline `GXPosition*`/`GXColor*`/`GXTexCoord*` writers to `GXPortWGFifo*`; `GXBegin` starts a draw snapshot and the big-endian capture is decoded by the display-list path at the next command/frame boundary. Regression `ctest decomp_gx_direct` (`test_decomp_render --direct`) | opencode (deepseek-flash) | ed606344f | 2026-09-12 |
