@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-12 (S2 complete; viewer P-611; P-610 fixed, TEV stage limit 8)
+Last updated: 2026-09-12 (S2 complete; P-608/P-610/P-613/P-614 done; P-612 indirect/bump + P-615 remain)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -126,7 +126,7 @@ lightmap phases, alpha test, XLU blend) and every fighter is scaled by its
 | Compiled boot skeleton (S1) | `melee_decomp_boot` runs the decomp's `main()` for 10 frames under the platform stubs, reaches the game's own loading wait, and stops on the frame budget with a deterministic triage log (`logs/2026-09-11-S1-boot-triage.md`); `ctest decomp_boot` is the regression |
 | Compiled HSD + GX HLE (S2) | `test_decomp_render` loads `PlMrNr.dat` through the compiled HSD display path and the `native/decomp/gx/` backend, applies the compiled `ftData` part visibility (16/59 hidden) and `Fighter_UpdateModelScale`, and renders with GLES3; world bounds equal the prototype's exactly, screenshot RMSE 10.94/255 (HUD excluded). `ctest decomp_render` is the regression; `logs/2026-09-12-S2-render.md` is the evidence |
 | Interactive compiled viewer (P-611) | `melee_decomp_viewer` (SDL3 window + EGL/GLES3 via `gx_gl_attach`) renders the compiled scene with drag orbit, wheel zoom, `N`/`P` model cycle, `[`/`]` + `V` part isolation, `B` slot, `V`/`shift+V` variant, `Y` show-hidden, `L` lights, `T` textures, `W` wireframe, HUD (`H`), `F12` screenshot; `--frames N --hidden --shot F` is the non-interactive smoke path and its BMP matches `test_decomp_render` to RMSE 0.000 |
-| GX HLE backend (S2) | `native/decomp/gx/gx_hle.c`: real GX state + `GXCallDisplayList` decode (68 lists, zero desync), XF/channel/texgen evaluation, per-draw snapshots; `gx_gl.c` evaluates up to 8 captured TEV stages with textures/TLUTs from `native/gx/texture.c` on an EGL/GLES3 pbuffer, honours scissor/dst-alpha and applies per-TObj LOD bias/min-max LOD/anisotropy |
+| GX HLE backend (S2) | `native/decomp/gx/gx_hle.c`: real GX state + `GXCallDisplayList` decode (68 lists, zero desync), XF/channel/texgen evaluation (hardware specular attenuation), per-draw snapshots; `gx_gl.c` evaluates up to 8 captured TEV stages with full KONST selects and textures/TLUTs from `native/gx/texture.c` on an EGL/GLES3 pbuffer, honours scissor/dst-alpha and applies per-TObj LOD bias/min-max LOD/anisotropy |
 | Direct-mode capture (P-608) | `native/decomp/shim/dolphin/gx/GXVert.h` routes the decomp's inline FIFO writers to `GXPortWGFifo*`; `GXBegin` + 4-vertex quad through the shim decodes to exactly 2 triangles / 6 vertices with the source pos/color/UV in `ctest decomp_gx_direct` |
 | Turn-stability (P-610) | Viewer static vs `--spin 360 --no-hud` RMSE 0.003/255 (Master Hand; residue is HSD lookat float rounding), frame1 vs frame240 and `--cycle 33` both RMSE 0.0 |
 | Owner visual checks | 180 Hz viewer animation speed confirmed correct; face texture artifact gone (2026-09-11) |
@@ -162,9 +162,11 @@ Ordered by impact.
    stage-only in the tested fighter archives). See
    `learnings/hsd_tev_materials.md`. Still P-204. **S2 update:** the compiled
    path now evaluates the captured GX TEV state generically (up to 8 stages,
-   swap tables, konst, alpha test) in `native/decomp/gx/gx_gl.c`; the
-   remaining TEV gaps are the specular channel approximation and fog (see
-   `learnings/decomp_s2_gx_hle.md`).
+   swap tables, full KONST selects, alpha test, scissor/dst-alpha and per-TObj
+   LOD) and the channel-1 specular uses the hardware attenuation function in
+   `native/decomp/gx/gx_hle.c`; the remaining TEV gaps are indirect/bump/toon
+   texturing (P-612) and the Z-texture/EFB effects (P-615).  Fog from
+   `HSD_FogDesc`/`GXSetFog` is evaluated.
 5. **No audio, menus, items, stages, results, netplay, WASM.**
 6. **Non-Mario physics values** are demo defaults, not per-character data.
 7. **Windows/macOS untested.** Linux + Mesa is the only verified target.

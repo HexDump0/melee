@@ -47,21 +47,22 @@ toggles.
 drag = orbit, wheel = zoom, `N`/`P` = next/prev `Pl*Nr.dat`, `[`/`]` = part,
 `V` = part mode (ALL/ONLY/HIDE), `shift+V` = variant, `B` = visibility slot,
 `Y` = show game-hidden DObjs, `L` = lights, `T` = textures, `W` = wireframe,
-`H` = HUD, `F12` = screenshot (or `--shot FILE`), `R` = reset view, `ESC` =
-quit. `--frames N --hidden --shot F` runs without a visible window for smoke
-tests; `--wire`, `--no-hud`, `--part N`, `--part-mode all|only|hide` mirror
-the keys for scripted shots.
+`C` = cull (default on; wireframe forces it off), `H` = HUD, `F12` =
+screenshot (or `--shot FILE`), `R` = reset view, `ESC` = quit.
+`--frames N --hidden --shot F` runs without a visible window for smoke tests;
+`--wire`, `--unlit`, `--no-cull`, `--no-alpha-test`, `--no-hud`, `--part N`,
+`--part-mode all|only|hide` mirror the keys for scripted shots.
 
 The HUD is `decomp/render/hud.c`: batched pixel quads over the port's own 5x7
-alphabet (`extras/font.h`, uppercase/`0-9`/`%:-/.+` only).  Wireframe draws
-each captured triangle as a `GL_LINE_LOOP` (GLES has no `glPolygonMode`), and
+alphabet (`extras/font.h`, uppercase/`0-9`/`%:-/.+` only) and shows
+TEX/LIGHT/WIRE/CULL state.  Wireframe draws each captured triangle as a
+`GL_LINE_LOOP` (GLES has no `glPolygonMode`) with culling disabled so the
+back/interior edges stay visible (the prototype viewer defaults CULL OFF);
 part isolation is the existing `GxGlOptions.only_draw` / `hide_draw` draw
 filter.
 
 ## Known limits
 
-- No HUD text yet (would need an ES3 overlay/font); state prints to stdout.
-- No wireframe key (GLES has no `glPolygonMode`; needs an edge list).
 - Bind pose only: animation arrives with the compiled `fobj`/AJ path (S3/S4).
-- The viewer inherits the S2 renderer deviations (specular/boots, direct-mode
-  GX, fog): see `learnings/decomp_s2_gx_hle.md`.
+- The viewer inherits the S2/S3 renderer deviations: indirect/bump/toon,
+  Z-texture/EFB effects: see `learnings/decomp_s2_gx_hle.md`.

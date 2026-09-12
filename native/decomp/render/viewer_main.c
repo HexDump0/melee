@@ -12,7 +12,7 @@
  *                       [--frames N] [--shot FILE] [--hidden] [--no-lights]
  *
  * Keys: drag orbit, wheel zoom, N/P model, [ ] part, V part mode, shift+V
- *       variant, B slot, Y hidden, L lights, T textures, W wireframe,
+ *       variant, B slot, Y hidden, L lights, T textures, W wireframe, C cull,
  *       H HUD, F12 screenshot, R reset, ESC quit.
  */
 #include <SDL3/SDL.h>
@@ -94,17 +94,18 @@ static void draw_hud(const Viewer* v)
     hud_printf(10.0f, 68.0f, 1.4f, "SLOT %d VARIANT %d HIDDEN %s",
                v->scene.vis_slot, v->scene.vis_variant,
                v->scene.show_hidden ? "ON" : "GAME");
-    hud_printf(10.0f, 86.0f, 1.4f, "TEX %s LIGHT %s WIRE %s",
+    hud_printf(10.0f, 86.0f, 1.4f, "TEX %s LIGHT %s WIRE %s CULL %s",
                v->gl.textures ? "ON" : "OFF",
                v->gl.lighting ? "ON" : "OFF",
-               v->gl.wireframe ? "ON" : "OFF");
+               v->gl.wireframe ? "ON" : "OFF",
+               v->gl.no_cull ? "OFF" : "ON");
     hud_printf(10.0f, 104.0f, 1.4f, "ANGLE %.0f ELEV %.0f ZOOM %.2f",
                (double) v->scene.angle, (double) v->scene.elevation,
                (double) v->scene.zoom);
     hud_set_color(0.65f, 0.72f, 0.82f, 1.0f);
     hud_printf(10.0f, (float) v->scene.height - 22.0f, 1.2f,
                "DRAG ORBIT WHEEL ZOOM N/P MODEL [ ] PART V MODE Y HIDDEN "
-               "L LIGHT T TEX W WIRE H HUD F12 SHOT R RESET ESC QUIT");
+               "L LIGHT T TEX W WIRE C CULL H HUD F12 SHOT R RESET ESC QUIT");
     hud_end();
 }
 
@@ -163,6 +164,10 @@ static int handle_key(Viewer* v, const SDL_KeyboardEvent* key,
         break;
     case SDLK_W:
         v->gl.wireframe = !v->gl.wireframe;
+        gx_gl_set_options(&v->gl);
+        break;
+    case SDLK_C:
+        v->gl.no_cull = !v->gl.no_cull;
         gx_gl_set_options(&v->gl);
         break;
     case SDLK_H:

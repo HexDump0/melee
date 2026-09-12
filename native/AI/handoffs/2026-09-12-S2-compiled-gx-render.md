@@ -40,6 +40,11 @@ gate passed.**
 
 ## Known deviations / open work (not S2 blockers)
 
+> **Later on 2026-09-12:** item 2 (direct-mode GX) is fixed by P-608, fog is
+> evaluated, Giga Koopa (P-610) and the NBT decode are fixed, and item 1's
+> approximation is filed as P-613.  See
+> `handoffs/2026-09-12-P-608-P-610-P-612.md` for the current list.
+
 1. **Specular shading.** The port evaluates a Blinn-Phong channel-1 specular
    approximation (the prototype's formulation) instead of GX's rational
    polynomial; Mario's boots still read grey rather than brown because the

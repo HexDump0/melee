@@ -166,23 +166,36 @@ static const char* FRAGMENT_SRC =
     "vec4 swap4(vec4 v, ivec4 t) {\n"
     "    return vec4(v[t.x], v[t.y], v[t.z], v[t.w]);\n"
     "}\n"
+    "float kfrac(int k) {\n"
+    "    /* GX_TEV_KCSEL/KASEL_1, _7_8, _3_4, _5_8, _1_2, _3_8, _1_4, _1_8 */\n"
+    "    return (k == 0) ? 1.0 : (k == 1) ? 0.875 : (k == 2) ? 0.75 :\n"
+    "           (k == 3) ? 0.625 : (k == 4) ? 0.5 : (k == 5) ? 0.375 :\n"
+    "           (k == 6) ? 0.25 : 0.125;\n"
+    "}\n"
+    "vec4 kreg(int i, vec4 k0, vec4 k1, vec4 k2, vec4 k3) {\n"
+    "    int base = i & 3;\n"
+    "    return (base == 0) ? k0 : (base == 1) ? k1 : (base == 2) ? k2 : k3;\n"
+    "}\n"
     "vec4 konst_color(int kc, vec4 k0, vec4 k1, vec4 k2, vec4 k3) {\n"
-    "    if (kc == 12) return k0;\n"
-    "    if (kc == 13) return k1;\n"
-    "    if (kc == 14) return k2;\n"
-    "    if (kc == 15) return k3;\n"
-    "    /* Scalar KCSEL fractions (0..11); unused by fighter materials. */\n"
-    "    return vec4(1.0);\n"
+    "    if (kc <= 7) return vec4(kfrac(kc));\n"
+    "    if (kc <= 15) return kreg(kc - 12, k0, k1, k2, k3); /* K0..K3 */\n"
+    "    {\n"
+    "        /* 0x10..0x1F: K0..K3 component (R,G,B,A) replicated to rgb */\n"
+    "        int comp = (kc >> 2) & 3;\n"
+    "        vec4 k = kreg(kc & 3, k0, k1, k2, k3);\n"
+    "        float v = (comp == 0) ? k.r : (comp == 1) ? k.g :\n"
+    "                  (comp == 2) ? k.b : k.a;\n"
+    "        return vec4(v);\n"
+    "    }\n"
     "}\n"
     "float konst_alpha(int ka, vec4 k0, vec4 k1, vec4 k2, vec4 k3) {\n"
-    "    if (ka == 0) return 1.0;\n"
-    "    if (ka == 1) return k0.a;\n"
-    "    if (ka == 2) return k1.a;\n"
-    "    if (ka == 3) return k2.a;\n"
-    "    if (ka == 4) return k3.a;\n"
-    "    if (ka == 5) return 1.0;\n"
-    "    if (ka == 6) return 0.5;\n"
-    "    return 0.0;\n"
+    "    if (ka <= 7) return kfrac(ka);\n"
+    "    {\n"
+    "        int comp = (ka >> 2) & 3;\n"
+    "        vec4 k = kreg(ka & 3, k0, k1, k2, k3);\n"
+    "        return (comp == 0) ? k.r : (comp == 1) ? k.g :\n"
+    "               (comp == 2) ? k.b : k.a;\n"
+    "    }\n"
     "}\n"
     "vec3 carg(int a, vec4 prev, vec4 c0, vec4 c1, vec4 c2, vec4 k, vec4 tex,"
     " vec4 ras, vec4 vcol) {\n"
@@ -767,26 +780,30 @@ static GLenum depth_func(unsigned char f)
 
 static void apply_draw_state(const GxHleDrawState* s)
 {
-    if (gl_options.no_cull) {
+    /* Wireframe is an inspection mode: GX culling would hide the interior and
+     * back edges the owner reads the mesh by (the prototype viewer defaults
+     * CULL OFF for the same reason).  The rest of the material state still
+     * applies, so depth/blend stay faithful. */
+    if (gl_options.no_cull || gl_options.wireframe) {
         glDisable(GL_CULL_FACE);
-        return;
-    }
-    switch (s->cull_mode) {
-    case 1: /* GX_CULL_FRONT */
-        glEnable(GL_CULL_FACE);
-        glCullFace(GL_FRONT);
-        break;
-    case 2: /* GX_CULL_BACK */
-        glEnable(GL_CULL_FACE);
-        glCullFace(GL_BACK);
-        break;
-    case 3: /* GX_CULL_ALL */
-        glEnable(GL_CULL_FACE);
-        glCullFace(GL_FRONT_AND_BACK);
-        break;
-    default:
-        glDisable(GL_CULL_FACE);
-        break;
+    } else {
+        switch (s->cull_mode) {
+        case 1: /* GX_CULL_FRONT */
+            glEnable(GL_CULL_FACE);
+            glCullFace(GL_FRONT);
+            break;
+        case 2: /* GX_CULL_BACK */
+            glEnable(GL_CULL_FACE);
+            glCullFace(GL_BACK);
+            break;
+        case 3: /* GX_CULL_ALL */
+            glEnable(GL_CULL_FACE);
+            glCullFace(GL_FRONT_AND_BACK);
+            break;
+        default:
+            glDisable(GL_CULL_FACE);
+            break;
+        }
     }
 
     if (s->blend_type == 1 || s->blend_type == 3) {

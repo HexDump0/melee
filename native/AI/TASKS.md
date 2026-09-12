@@ -28,10 +28,8 @@ Status values: `open`, `claimed`, `blocked`, `review`, `done`, `parked`
 
 | ID | Task | Status | Agent | Files | Notes / acceptance |
 |---|---|---|---|---|---|
-| P-613 | Faithful GX specular: replace the Blinn-Phong channel-1 approximation with the hardware rational polynomial | open | — | `native/decomp/gx/gx_hle.c`, `gx_gl.c` | P-607 fixed register routing but left the specular formula approximate; it dominates the remaining prototype screenshot RMSE (~10.5/255, `learnings/decomp_s2_gx_hle.md`). Repro: `test_decomp_render --model PlMrNr.dat` vs the prototype viewer; Mario's boots still read grey instead of brown. |
-| P-614 | TEV KONST parity: scalar KCSEL fractions and per-channel K0_R..K3_B selects | open | — | `native/decomp/gx/gx_gl.c` | `konst_color` only returns K0..K3 (12-15) and `konst_alpha` approximates the rest; unused by the shipped fighter materials but needed for stage/effect TEV graphs (`GXTevKColorSel`, `GXEnum.h:631`). |
 | P-615 | Z-texture and EFB copy/read (`GXSetZTexture`, `GXCopyTex`, `GXCopyDisp`) | open | — | `native/decomp/gx/gx_hle.c`, `gx_gl.c` | Stubbed today; HSD's shadow, pause-erase (`displayfunc.c:_HSD_EraseRect`) and refraction (`lb/lbrefract.c`) passes need them. S4 dependency, not a character-render blocker. |
-| P-612 | GX HLE polish: indirect/bump/toon texturing | open | — | `native/decomp/gx/gx_hle.c`, `gx_gl.c` | **Partial:** >4 TEV stages (limit 8, G-059), texture LOD bias/anisotropy/min-max LOD, scissor (EFB-scaled), dst-alpha and the NBT 9-component stream (G-062) landed, plus the missing `HSD_VIData` render-mode init the scissor exposed (G-061). Remaining: indirect/bump/toon (used by `lb/lbrefract.c`, not characters), binormal/tangent shading, dither (GLES has no `GL_DITHER` control). Not blocking the viewer/S4; take items as they show up in play. |
+| P-612 | GX HLE polish: indirect/bump/toon texturing | open | — | `native/decomp/gx/gx_hle.c`, `gx_gl.c` | **Partial:** >4 TEV stages (limit 8, G-059), texture LOD bias/anisotropy/min-max LOD, scissor (EFB-scaled), dst-alpha and the NBT 9-component stream (G-062) landed, plus the missing `HSD_VIData` render-mode init the scissor exposed (G-061). Remaining: indirect texturing (only `lb/lbrefract.c`) and faithful `GX_TG_BUMPn` emboss (characters use it: Giga Koopa coord 2; the current pass-through is what makes its TEV add/sub cancel and needs NBT tangents for a real bump). Not blocking the viewer/S4. |
 | P-609 | S3: host-endian asset pipeline + DVD/ARQ completion | open | — | `native/decomp/hsd/`, `native/platform/dvd.c`, `native/platform/audio.c` | Next milestone. The S2 `hsd_scene.c` converter is the seed; follow `learnings/decomp_assets.md` §7 and the S1 work list. |
 | P-601 | Full-tree GCC compile census + shim hardening (S0) | done | opencode (deepseek-flash), 2026-09-11 | `native/decomp/shim/`, `native/AI/learnings/decomp_port.md` | Done: 1021/1034 `src/*.c` compile; shims for `ssize_t`/`intptr_t`, GameCube `STATIC_ASSERT`, and `bool`=`int` callbacks. See Completed. |
 | P-602 | Probe: decomp `HSD_ArchiveParse` on a real `PlMrNr.dat` (S0a) | done | opencode (deepseek-flash), 2026-09-11 | `native/decomp/`, `native/CMakeLists.txt`, `native/tests/` | Done: 2/2 public symbols and offsets match the hand parser. See Completed. |
@@ -70,8 +68,9 @@ waits for its first sound-bank load. Ordered by what unblocks the boot:
 1. **S2 — GX + VI HLE** (DONE 2026-09-12, P-606). The GX command surface is
    real in `native/decomp/gx/gx_hle.c`; the boot log now shows 94 stub calls /
    33 unique (GX no longer triaged). S2 follow-ups P-607/P-608/P-610 are done;
-   P-612 (LOD/aniso, scissor, dither/dst-alpha, indirect/bump/toon, NBT)
-   stays open.
+   P-613 (faithful specular) and P-614 (TEV KONST) landed; P-612 is down to
+   indirect/bump/toon texturing and P-615 (Z-texture/EFB copy-read for S4
+   shadow/erase/refraction) is filed as non-blocking polish.
 2. **S3 — DVD + HSD DevCom/ARQ**. `DVDConvertPathToEntrynum`/open/read and
    synchronous `ARQPostRequest` callbacks so `HSD_DevComRequest` can finish
    asset loads. Seed: `native/platform/disc.c`.
@@ -101,6 +100,8 @@ compiled render in S2/S4 instead.
 
 | ID | Task | Agent | Commit | Date |
 |---|---|---|---|---|
+| P-614 | TEV KONST parity: full KCSEL/KASEL select tables (scalar fractions, K0..K3, per-channel K?_R/G/B/A) in the fragment shader | opencode (deepseek-flash) | pending | 2026-09-12 |
+| P-613 | Faithful GX specular: hardware attenuation function `dot(a,(1,t,t^2))/dot(k,(1,t,t^2))` with H from the spec light object, replacing Blinn-Phong | opencode (deepseek-flash) | pending | 2026-09-12 |
 | P-608 | Direct-mode GX capture: `native/decomp/shim/dolphin/gx/GXVert.h` shadows the SDK header and routes the inline `GXPosition*`/`GXColor*`/`GXTexCoord*` writers to `GXPortWGFifo*`; `GXBegin` starts a draw snapshot and the big-endian capture is decoded by the display-list path at the next command/frame boundary. Regression `ctest decomp_gx_direct` (`test_decomp_render --direct`) | opencode (deepseek-flash) | ed606344f | 2026-09-12 |
 | P-610 | POBJ_SKIN shared-vertex gaps: Falcon silver fixed by the P-607 `out_reg` fix; Giga Koopa limb noise fixed by folding `GX_TG_TEXCOORDn` texgen chains onto the 0/1 UV varyings (G-058); Bowser's magenta prototype look confirmed parity (2-texture archive) | opencode (deepseek-flash) | 347bf81f6 | 2026-09-12 |
 | P-607 | GX specular/material parity: boots brown, Luigi/Link correct — fixed by emulating TEV `out_reg` (register writes keep the previous-stage chain) and invalidating HSD's GX caches when the backend resets; overall prototype RMSE 10.57/255. The hardware specular polynomial is still approximated by the prototype's Blinn-Phong (documented) | opencode (deepseek-flash) | e773eff93 | 2026-09-12 |

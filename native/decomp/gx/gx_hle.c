@@ -436,10 +436,13 @@ static void channel_raster(int ch, const GxRawVertex* raw,
     /*
      * Specular channel.  HSD loads the specular light objects and feeds the
      * result to TEV as channel 1's raster (GX_COLOR1A1 stages).  The port
-     * evaluates the same Blinn-Phong approximation the prototype uses
-     * (learnings/hsd_tev_materials.md): lightColor * pow(N.H, shininess),
-     * with the half vector stored by HSD_LObjSetupSpecularInit and
-     * shininess = 2 * GXInitLightAttn k0 (lobj.c setup_spec_lightobj).
+     * evaluates the hardware attenuation function (Dolphin's
+     * AttenuationFunc::Spec, see the block comment above):
+     *   spec = clamp(dot(a, (1,t,t^2)) / dot(k, (1,t,t^2)), 0, inf)
+     * with t = (N.L >= 0) ? max(N.H, 0) : 0.  HSD's setup_spec_lightobj
+     * (lobj.c) uses a = (0, 0, 1) and k = (shininess/2, 0, 1 - shininess/2),
+     * i.e. spec = t^2 / (x + (1 - x) * t^2), which is the hardware's rational
+     * stand-in for the specular exponent.
      */
     if (ch == 1 && mask != 0) {
         for (i = 0; i < 8; ++i) {
@@ -448,7 +451,8 @@ static void channel_raster(int ch, const GxRawVertex* raw,
             float h[3];
             float hn;
             float nh;
-            float shininess;
+            float num;
+            float den;
             float spec_light;
             if ((mask & (1u << i)) == 0) {
                 continue;
@@ -482,29 +486,43 @@ static void channel_raster(int ch, const GxRawVertex* raw,
                     ldir[2] = 1.0f;
                 }
             }
-            /* Blinn half vector against the camera (view space +z), the same
-             * approximation as the prototype's vertex shader. */
-            h[0] = ldir[0];
-            h[1] = ldir[1];
-            h[2] = ldir[2] + 1.0f;
-            hn = sqrtf(h[0] * h[0] + h[1] * h[1] + h[2] * h[2]);
-            if (hn > 0.0f) {
-                h[0] /= hn;
-                h[1] /= hn;
-                h[2] /= hn;
+            /* H = the light object's dir field: HSD_LObjSetupSpecularInit
+             * (lobj.c) stores a global half vector there.  Fall back to the
+             * per-vertex normalize(L + V) when the object has no dir. */
+            hn = sqrtf(l->dir[0] * l->dir[0] + l->dir[1] * l->dir[1] +
+                       l->dir[2] * l->dir[2]);
+            if (hn > 1e-6f) {
+                h[0] = l->dir[0] / hn;
+                h[1] = l->dir[1] / hn;
+                h[2] = l->dir[2] / hn;
+            } else {
+                h[0] = ldir[0];
+                h[1] = ldir[1];
+                h[2] = ldir[2] + 1.0f;
+                hn = sqrtf(h[0] * h[0] + h[1] * h[1] + h[2] * h[2]);
+                if (hn > 0.0f) {
+                    h[0] /= hn;
+                    h[1] /= hn;
+                    h[2] /= hn;
+                }
             }
             nh = nrm[0] * h[0] + nrm[1] * h[1] + nrm[2] * h[2];
             if (nh < 0.0f) {
                 nh = 0.0f;
             }
+            /* Dolphin gates the specular lobe on N.L (the light direction),
+             * not on N.H. */
+            if (nrm[0] * ldir[0] + nrm[1] * ldir[1] + nrm[2] * ldir[2] <
+                0.0f) {
+                nh = 0.0f;
+            }
             spec_light = (l->color.r + l->color.g + l->color.b) /
                          (3.0f * 255.0f);
-            shininess = l->k[0] > 0.0f ? l->k[0] * 2.0f : 50.0f;
-            /* Use double pow: the game's own f32 powf/expf series
-             * (src/melee/lb/lb_00CE.c) does not converge for large
-             * exponents and hangs under -O0/ASan. */
-            spec += spec_light *
-                    (float) pow((double) nh, (double) shininess);
+            num = l->a[0] + l->a[1] * nh + l->a[2] * nh * nh;
+            den = l->k[0] + l->k[1] * nh + l->k[2] * nh * nh;
+            if (den != 0.0f && num > 0.0f) {
+                spec += spec_light * (num / den);
+            }
         }
         out[0] = out[1] = out[2] = clampf(spec, 0.0f, 1.0f);
         out[3] = clampf(spec, 0.0f, 1.0f);

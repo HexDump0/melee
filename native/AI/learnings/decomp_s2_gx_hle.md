@@ -110,22 +110,32 @@ prototype's own parser (`--dump-verts`/`--dump-raw` in the prototype,
 `--dump-world` in `test_decomp_render`) is exact: 0 mismatched vertices of
 17,724, worst 1.9e-06.
 
-The remaining residual is the channel-1 specular approximation (the prototype
-uses Blinn-Phong `pow(N·H, shininess)`, GX hardware a rational polynomial);
-boots, Luigi's gloves/face and Link now match the prototype.  Giga Koopa's
-limbs still show a noise texture (P-610, POBJ_SKIN path).
+The channel-1 specular now uses the hardware attenuation function
+(Dolphin `AttenuationFunc::Spec`): `t = (N.L >= 0) ? max(N.H, 0) : 0` and
+`spec = clamp(dot(a, (1,t,t^2)) / dot(k, (1,t,t^2)))`, with H read from the
+spec light object (HSD_LObjSetupSpecularInit) and HSD's
+`a = (0,0,1), k = (shininess/2, 0, 1 - shininess/2)` (P-613).  The profile
+changed subtly from the previous Blinn-Phong `pow(N.H, shininess)`
+(531 pixels at Mario's camera, max 74/255).
+
+Giga Koopa's limbs were fixed in P-610: coord 2 aliased coord 1 through an
+identity `GX_TG_TEXCOORDn` chain and the shader has only two UV varyings
+(G-058).  Note that `GX_TG_BUMPn` texgen (used by Giga Koopa's coord 2) is
+still treated as pass-through; that is what makes its TEV add/sub pair
+cancel, and a faithful bump would need the NBT binormal/tangent stream.
 
 Other documented deviations:
 
 - **Fog** is captured and evaluated in the shader (type/start/end/color); the
   character-select fog (linear 500..1000) simply does not reach the model at
   the viewer's distance, so it has no effect on the parity image.
-- **Direct-mode GX** (`GXBegin` + `GXPosition3f32`/... ) is not captured: the
-  compiled calls are static-inline writes to the hardware FIFO address, which
-  the platform maps as scratch.  HSD's character path uses display lists; the
-  HUD/particles/shape-anim paths that use direct vertices are S4.
-- **POBJ_SHAPEANIM** models (Kirby variants) are not exercised; Mario is all
-  envelope.
+- **Direct-mode GX** (`GXBegin` + `GXPosition3f32`/...) is captured since
+  P-608: `native/decomp/shim/dolphin/gx/GXVert.h` routes the inline writers to
+  `GXPortWGFifo*` and `GXBegin` flushes a draw snapshot through the display-list
+  reader.  `ctest decomp_gx_direct` covers a quad and an NBT triangle.
+- **POBJ_SHAPEANIM** models are not systematically exercised; the NBT stream
+  they use is decoded correctly (`GX_VA_NBT` = 9 components, G-062) and Kirby
+  renders.
 - GX `GX_BM_LOGIC` is rendered as opaque (GLES3 has no logic ops); fighter
   materials do not use it.
 
@@ -188,6 +198,8 @@ The render test SKIPs without the disc image (`iso/…ciso`).
 
 The focused `hsd_scene.c` converter becomes the real per-format asset
 pipeline (AOObj/FObj streams, shape sets, REL-free containers), and the GX HLE
-should gain: a faithful hardware specular polynomial, fog, and texture/TMEM
-residency instead of per-frame decode.  (Direct-mode capture landed in P-608;
-the remaining GX polish is P-612.)
+should gain: a faithful hardware specular polynomial (P-613), the TEV KONST
+select table (P-614), indirect/bump/toon (P-612), and texture/TMEM residency
+instead of per-frame decode.  Z-texture and EFB copy/read (P-615) are the S4
+shadow/erase/refraction dependency.  Direct-mode capture landed in P-608;
+scissor/dst-alpha/LOD landed in P-612, and fog is evaluated.
