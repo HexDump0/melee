@@ -2453,26 +2453,43 @@ size_t gx_hle_degenerate_count(void)
     return stat_degenerate;
 }
 
-#define GX_HLE_MAX_ASSETS 8
-static struct {
+/* Every archive the game parses is registered here so the HLE can bound
+ * display lists/textures that point into them.  The table grows on demand:
+ * a match loads far more than a fixed small cap (the 8-entry static list
+ * silently dropped later archives, so their CI textures hit the fallback
+ * bound and failed to decode). */
+typedef struct GxAsset {
     const unsigned char* base;
     size_t size;
-} gx_assets[GX_HLE_MAX_ASSETS];
+} GxAsset;
+
+static GxAsset* gx_assets;
 static size_t gx_asset_count;
+static size_t gx_asset_capacity;
 
 void gx_hle_register_asset(const void* base, size_t size)
 {
-    if (gx_asset_count < GX_HLE_MAX_ASSETS) {
-        gx_assets[gx_asset_count].base = (const unsigned char*) base;
-        gx_assets[gx_asset_count].size = size;
-        gx_asset_count++;
+    if (base == NULL || size == 0) {
+        return;
     }
+    if (gx_asset_count == gx_asset_capacity) {
+        size_t capacity = gx_asset_capacity != 0 ? gx_asset_capacity * 2 : 16;
+        GxAsset* grown = (GxAsset*) realloc(gx_assets,
+                                            capacity * sizeof(*grown));
+        if (grown == NULL) {
+            return;
+        }
+        gx_assets = grown;
+        gx_asset_capacity = capacity;
+    }
+    gx_assets[gx_asset_count].base = (const unsigned char*) base;
+    gx_assets[gx_asset_count].size = size;
+    gx_asset_count++;
 }
 
 void gx_hle_reset_assets(void)
 {
     gx_asset_count = 0;
-    memset(gx_assets, 0, sizeof(gx_assets));
 }
 
 size_t gx_hle_asset_remaining(const void* ptr)

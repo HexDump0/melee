@@ -718,7 +718,10 @@ static GLuint texture_for(const GxHleTexture* t)
                                  (int) t->format, pal, t->palette_entries,
                                  &rgba, error, sizeof(error)) != 0) {
             free(pal);
-            fprintf(stderr, "gx_gl: CI texture decode failed: %s\n", error);
+            fprintf(stderr,
+                    "gx_gl: CI texture decode failed: %s (%dx%d fmt=%u "
+                    "avail=%zu)\n",
+                    error, t->width, t->height, (unsigned) t->format, bound);
             return 0;
         }
         free(pal);

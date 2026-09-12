@@ -988,3 +988,17 @@ like a hang or the game exiting on its own.
 unlimited when no `--frames` is given).  When a viewer match stops early, run
 it under `gdb` with a breakpoint on `exit` or check the triage stop reason
 before debugging the game.
+
+## G-088: the GX HLE asset table was capped at 8 archives
+
+**Symptom:** the VS-scene "GO!" logo rendered as a black quad while the log
+spammed `gx_gl: CI texture decode failed: truncated CI texture data`; the
+texture is 376x188 CI8 (70,688 bytes of tile data) but the decoder saw a
+64 KB bound.
+**Cause:** `gx_hle_register_asset` stored at most `GX_HLE_MAX_ASSETS` (8)
+archives and silently dropped the rest.  A match parses far more than 8, so
+the GO! archive was unknown, `gx_hle_asset_remaining` returned -1 and
+`texture_for` fell back to its 64 KB bound — smaller than the texture.
+**Fix:** the asset table grows with `realloc` (16 entries, doubling);
+`gx_hle_reset_assets` resets the count only.  The decode failure log now
+prints dimensions, format and available bytes so a wrong bound is obvious.

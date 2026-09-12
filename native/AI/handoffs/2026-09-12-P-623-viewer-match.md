@@ -28,15 +28,17 @@ ASan 600-frame match run clean and position-identical to release
   `SCORE -1`, camera pan/zoom and respawns.
 - Fixed the viewer triage frame budget (G-087): the default 60-frame budget
   killed `--match` early; `run_match` now sets `limit + 240`.
+- Follow-up fix (same session): the GO! logo's black quad + CI decode spam
+  was the GX HLE asset table capping at 8 archives (G-088); it now grows with
+  `realloc`, so every parsed archive bounds its textures.  `--match` at
+  frame 215 now shows the real fire-textured GO! logo, no decode errors.
 
 ## Exact next action
 
-Run `./build/native/melee_decomp_viewer --match` and confirm the GO! logo
-black-quad artifact (frames ~205–225, visible in `/tmp/go_sheet.png`).  Then
-either fix it (trace which texture that 2D sprite binds; the output is black
-with a white sliver, i.e. a sampled texture, not a missing-texture white
-quad) or file it as a task against `native/decomp/gx/gx_gl.c` /
-`native/decomp/assets/hsd_convert.c`.
+Watch `/tmp/melee_match.mp4` (or `--match` live) and pick the next visual
+gap.  The GO! artifact from this handoff is fixed; the remaining known gaps
+are P-616 (Falcon eyes), P-617 (indirect/toon) and P-621 (stage colors).
+Audio is S5.
 
 ## What I tried that did not work
 
@@ -79,6 +81,8 @@ SDL_VIDEODRIVER=offscreen ./build/native/melee_decomp_viewer --match \
     --frames 2400 --record - 2>/dev/null | ffmpeg -y -f image2pipe \
     -framerate 60 -i - -c:v libx264 -crf 21 -pix_fmt yuv420p \
     /tmp/melee_match.mp4                          # 40 s, 23 MB
+SDL_VIDEODRIVER=offscreen ./build/native/melee_decomp_viewer --match \
+    --frames 215 --shot /tmp/go215.bmp            # GO! logo, 0 decode errors
 ASAN_OPTIONS=detect_leaks=0:allow_user_segv_handler=0 \
     ./build/native-boot-asan/melee_decomp_boot --boot-frames 600 \
     --boot-timeout 300 --boot-match 20            # clean, positions match

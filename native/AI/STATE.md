@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-12 (P-623: live match in the viewer with `--match` + `--record` PPM capture)
+Last updated: 2026-09-12 (P-623: live match viewer + `--record`; G-088: GX HLE asset table now grows, GO! logo decodes)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -105,8 +105,10 @@ ESC/window close; `--frames N --shot F` captures a still; `--record FILE|-`
 streams concatenated PPM (P6) frames for `ffmpeg -f image2pipe` (the 40 s
 `/tmp/melee_match.mp4` was produced this way).  The S4 deterministic boot path
 is unchanged (ctest 12/12, ASan 600-frame run byte-identical positions).
-Known render artifact: the "GO!" logo draws as a black quad for ~20 frames;
-audio is S5.  See `gotchas/GOTCHAS.md` G-087 (viewer triage frame budget).
+Follow-up fix: the "GO!" logo's black quad was the GX HLE asset table capping
+at 8 archives, so later archives' CI textures hit a 64 KB fallback bound and
+failed to decode; the table now grows on demand (G-088) and the logo renders.
+Audio is S5.  See `gotchas/GOTCHAS.md` G-087 (viewer triage frame budget).
 
 ## TL;DR
 
