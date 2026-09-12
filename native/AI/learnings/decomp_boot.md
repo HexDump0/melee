@@ -175,7 +175,33 @@ costume joint tree), and the `ft_800852B0` adjacency patch (see
 `decomp_port.md`).  Fighter creation now reaches part visibility
 (`ftParts_800749CC` -> `HSD_DObjSetFlags`).
 
-**Where it stops today:** `ftParts_80074D7C`/`HSD_DObjSetFlags` crashes
-during `ftParts_800749CC` — the fighter DObj list built by
-`ftParts_SetupParts` has a bad entry (model/part table conversion still
-incomplete).
+**Where it stops today (2026-09-12, converter v46):** the match boots, creates
+the fighters on Zebes and runs `gm_Scene_Vs_OnFrame` for real.  The stop is
+`ftcoll.c:3171 "in ftCollisionSetHitStatus illegal parts!"` because the
+archive action command scripts are big-endian **bitfield** words and are not
+converted (MWCC packs MSB-first, GCC reads LSB-first — see G-082 and
+`handoffs/2026-09-12-P-620-s4-scripts.md` for the exact walker needed).
+
+**S4 blocker chain resolved after the first handoff** (all converter fixes in
+`hsd_convert.c`):
+- `grGroundParam->y` is the stage root scale; unconverted it read 4.6e-41 and
+  every spawn point became NaN (`mpCollInterpolateECB` assert).
+- `ftData->x34->x0`, `x38`, `x3C` (camera box extents), `ftDynamics` +
+  `BoneDynamicsDesc` + `dyn->x8`; each crashed a different early frame
+  (`ft_8007C17C`, `ft_8007C630`, `ftColl_8007B320`, `ftCo_8009CF84`,
+  `ftCamera_80076018` -> NaN camera).
+- `map_plit` stage lights: unconverted `HSD_LightDesc.flags` made every light
+  ambient and `lbShadow_8000F38C` asserted "coudn t get light position".
+- `Stc_scemdls` dynamic-model sections (IfAll HUD): `HSD_TObjAddAnim` read a
+  raw tlut table.
+- `MapCollData.dynamic_start/dynamic_count` (+0x20/+0x22): stage dynamic
+  lines were never initialized (`groundCollLine[26].x0 = 0x3f800000` in
+  `mpJointUpdateDynamics`).
+- `FtPartsVis` slots are arrays of `model_num` `{count, TempS*}` entries;
+  converting only the first ran Link's model 1 DObj list off the end.
+- `ftCommonData` pData[4]/[5] loops must stop at 33 entries (G-080);
+  `Conv.num` now makes every numeric conversion idempotent.
+
+**Two `src/` portability patches** joined `ft_800852B0` (see
+`decomp_port.md`): `lbanim.c` (uninitialized `fobj->next` write) and
+`camera.c` (static data adjacency cast, G-081).

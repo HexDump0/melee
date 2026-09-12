@@ -864,3 +864,49 @@ whole bank.
 still big-endian, so 0x0042 read as 0x4200.
 **Fix:** use `be16(c->data + off)` for endian-sensitive decisions taken
 before the first conversion of that field.
+
+## G-080: converter loops must stop at the real array count
+
+**Symptom:** Link/Young Link's hidden-part counts came out as 0x01000000 and
+the parts walk diverged; later a fixed-size table double-converted unrelated
+fields.
+**Cause:** `conv_ft_common_data` walked `pData[4]`/`pData[5]` (both indexed by
+`FighterKind`, 33 entries) up to 64, then interpreted the neighbouring
+`Fighter_804D6540_t` structs as array elements and converted their fields
+again.
+**Fix:** bound per-kind arrays to `FT_KIND_MAX` (33). When a walk has no count
+field, use the index domain from the decomp (`Ft_Kind_Max`), never a round
+number like 64. `conv_u32`/`conv_u16` now also track converted offsets in
+`Conv.num`, so a legitimate overlap cannot cancel a previous conversion.
+
+## G-081: `&static_a` casts rely on declaration-order layout GCC does not keep
+
+**Symptom:** the VS camera eye/interest went NaN and `game_camera.translation`
+became NaN on the first scene-enter frame; `lbVector_WorldToScreen` asserted.
+**Cause:** `Camera_ApplyQuake` casts `&cm_803BCB18` (a `CameraModeCallbacks`)
+to `{ CameraModeCallbacks; HSD_WObjDesc; HSD_WObjDesc;
+HSD_CameraDescPerspective; }`, relying on `cm_803BCB18/3C/50/64` being
+adjacent in declaration order. GCC places them apart (0x56b50800, 0x56b53a0c,
+0x56b539f8, 0x56b539c0), so the cast read unrelated strings/pointers.
+**Fix:** ADR-0011 `PORT_PC` patch in `src/melee/cm/camera.c` reading
+`cm_803BCB64` directly. Watch for other address-adjacency casts in `src/`
+(`ftdata.c` `ft_800852B0` is the other known one).
+
+## G-082: MWCC packs bitfields MSB-first; archive command scripts need a repack
+
+**Symptom:** the first DK landing action dispatched to
+`ftAction_80071A9C` (set_hurt_state) with `bone_idx=3, state=0x1010` and then
+asserted `ftcoll.c:3171 "illegal parts!"`; many other action commands would
+mis-dispatch the same way.
+**Cause:** the fighter action scripts are archive data (`Fighter_WaitAnimData.xC`
+in `Pl*.dat`). MWCC on PowerPC allocates bitfields from the MSB of the
+big-endian word, so `{opcode:6; ...}` lives in `word >> 26`. GCC on x86
+allocates from the LSB, so the host reads `word & 0x3f` and dispatches the
+wrong action. The decomp's `/// Bits 0~5` comments describe source bit
+positions, not host memory order.
+**Fix (next task):** walk each script with `opcode = be32(word) >> 26` and the
+advance counts in `ftAction_803C0870[]`, then repack each command word from
+MSB-first to LSB-first field order using the `CmdUnion` structs in
+`src/melee/lb/types.h`. A plain byte swap is **not** the transform (it maps
+the opcode to bits 24..29). Pointer words (Goto/Subroutine) are relocation
+targets and are already host order.

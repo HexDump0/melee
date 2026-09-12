@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 36u
+#define HSD_CONVERTER_VERSION 46u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -65,6 +65,7 @@
 #define HSD_FOBJDESC_SIZE 0x14
 #define HSD_FIGATREE_SIZE 0x14
 #define HSD_FIGATRACK_SIZE 0x0C
+#define FT_KIND_MAX 33
 
 #define HSD_JOBJ_PTCL (1u << 5)
 #define HSD_JOBJ_INSTANCE (1u << 12)
@@ -90,6 +91,7 @@ typedef struct Conv {
     size_t data_size;
     unsigned char* reloc; /* one byte per data offset: relocation target */
     unsigned char* seen;  /* one byte per data offset: walked */
+    unsigned char* num;   /* one byte per data offset: numeric field done */
     HsdConvertStats st;
     int depth;
 } Conv;
@@ -162,17 +164,19 @@ static int mark(Conv* c, uint32_t off)
  * order and are left alone. */
 static void conv_u32(Conv* c, uint32_t off)
 {
-    if (!in_data(c, off, 4) || c->reloc[off]) {
+    if (!in_data(c, off, 4) || c->reloc[off] || c->num[off]) {
         return;
     }
+    c->num[off] = 1;
     wr32(c->data + off, be32(c->data + off));
 }
 
 static void conv_u16(Conv* c, uint32_t off)
 {
-    if (!in_data(c, off, 2)) {
+    if (!in_data(c, off, 2) || c->num[off]) {
         return;
     }
+    c->num[off] = 1;
     wr16(c->data + off, be16(c->data + off));
 }
 
@@ -195,6 +199,8 @@ static void conv_fogdesc(Conv* c, uint32_t off);
 static void conv_scene_desc(Conv* c, uint32_t off);
 static void conv_static_model(Conv* c, uint32_t off);
 static void conv_stage_maphead(Conv* c, uint32_t off);
+static void conv_shapeanim_joint(Conv* c, uint32_t off);
+static void conv_dynamic_models(Conv* c, uint32_t off);
 
 static void conv_imagedesc(Conv* c, uint32_t off)
 {
@@ -749,6 +755,61 @@ static void conv_matanim_joint(Conv* c, uint32_t off)
     }
 }
 
+/* DynamicModelDesc { HSD_Joint*; HSD_AnimJoint**; HSD_MatAnimJoint**;
+ * HSD_ShapeAnimJoint** } (src/melee/sc/types.h).  `SceneDesc.models` and the
+ * `.scemdls` sections (IfAll "Stc_scemdls" et al.) are NULL-terminated arrays
+ * of those descriptors; HSD_JObjAddAnimAll walks the anim arrays. */
+static void conv_dynamic_models(Conv* c, uint32_t off)
+{
+    uint32_t p = off;
+    int guard;
+
+    if (!in_data(c, off, 4) || !mark(c, off)) {
+        return;
+    }
+    for (guard = 0; guard < 64; guard++) {
+        uint32_t desc;
+        uint32_t arr;
+        int k;
+
+        if (!in_data(c, p, 4)) {
+            break;
+        }
+        desc = rd32(c, p);
+        if (desc == 0 || !in_data(c, desc, 0x10)) {
+            break;
+        }
+        if (rd32(c, desc + 0x00) != 0) {
+            conv_joint(c, rd32(c, desc + 0x00));
+        }
+        arr = rd32(c, desc + 0x04);
+        for (k = 0; k < 64 && arr != 0; k++) {
+            uint32_t a = rd32(c, arr + (uint32_t) k * 4);
+            if (a == 0 || !in_data(c, a, HSD_ANIMJOINT_SIZE)) {
+                break;
+            }
+            conv_anim_joint(c, a);
+        }
+        arr = rd32(c, desc + 0x08);
+        for (k = 0; k < 64 && arr != 0; k++) {
+            uint32_t a = rd32(c, arr + (uint32_t) k * 4);
+            if (a == 0 || !in_data(c, a, HSD_MATANIMJOINT_SIZE)) {
+                break;
+            }
+            conv_matanim_joint(c, a);
+        }
+        arr = rd32(c, desc + 0x0C);
+        for (k = 0; k < 64 && arr != 0; k++) {
+            uint32_t a = rd32(c, arr + (uint32_t) k * 4);
+            if (a == 0 || !in_data(c, a, HSD_SHAPEANIMJOINT_SIZE)) {
+                break;
+            }
+            conv_shapeanim_joint(c, a);
+        }
+        p += 4;
+    }
+}
+
 /* HSD_ShapeAnimDObj: next; ShapeAnim* shapeanim. */
 static void conv_shapeanim_dobj(Conv* c, uint32_t off)
 {
@@ -1286,6 +1347,10 @@ static void conv_coll_data(Conv* c, uint32_t off)
     for (i = 0; i < 8; i++) {
         conv_u16(c, off + 0x10 + (uint32_t) i * 2);
     }
+    /* dynamic_start/dynamic_count at +0x20/+0x22 (MapCollData): mpLibLoad
+     * fills groundCollLine[dynamic_start..] from them every stage load. */
+    conv_u16(c, off + 0x20);
+    conv_u16(c, off + 0x22);
     conv_u32(c, off + 0x28);
     /* +0x2C is not converted: in the stage archives map_ptcl/map_texg start
      * exactly there and their version word must stay big-endian for
@@ -1320,6 +1385,151 @@ static void conv_coll_data(Conv* c, uint32_t off)
     if (joints != 0) {
         for (i = 0; i < joint_count; i++) {
             conv_map_joint(c, joints + (uint32_t) i * MAPJOINT_SIZE);
+        }
+    }
+}
+
+/* Gr*.dat `grGroundParam`: GroundParam (src/melee/gr/types.h).  A mix of f32,
+ * s16 and s32 fields.  The s16 arrays at +0x6A (35 entries) and in each
+ * StageParam row are read as raw s16 by Ground_801C28CC, and Ground_801C0498
+ * returns `y` as the stage root scale, so leaving them big-endian makes the
+ * stage root scale 4.6e-41 and every spawn point NaN. */
+#define GROUNDPARAM_SIZE 0xDC
+#define GROUNDPARAM_STAGE_S16 35
+#define STAGEPARAM_SIZE 0x64
+#define STAGEPARAM_S16 37
+
+static void conv_stage_param(Conv* c, uint32_t off)
+{
+    int i;
+
+    conv_u32(c, off + 0x00); /* stkind */
+    conv_u32(c, off + 0x04);
+    conv_u32(c, off + 0x08);
+    conv_u32(c, off + 0x0C);
+    conv_u32(c, off + 0x10);
+    conv_u16(c, off + 0x14);
+    conv_u16(c, off + 0x16);
+    conv_u16(c, off + 0x18);
+    for (i = 0; i < STAGEPARAM_S16; i++) {
+        conv_u16(c, off + 0x1A + (uint32_t) i * 2);
+    }
+}
+
+static void conv_ground_param(Conv* c, uint32_t off)
+{
+    uint32_t rows;
+    int count;
+    int i;
+
+    if (!in_data(c, off, GROUNDPARAM_SIZE) || !mark(c, off)) {
+        return;
+    }
+    c->st.ground_params++;
+    conv_u32(c, off + 0x00); /* y f32: stage root scale */
+    conv_u16(c, off + 0x04);
+    conv_u16(c, off + 0x08);
+    conv_u16(c, off + 0x0A);
+    conv_u32(c, off + 0x0C);
+    conv_u32(c, off + 0x10);
+    conv_u32(c, off + 0x14);
+    conv_u32(c, off + 0x18);
+    conv_u32(c, off + 0x1C);
+    conv_u32(c, off + 0x20);
+    conv_u32(c, off + 0x24);
+    conv_u32(c, off + 0x28);
+    conv_u16(c, off + 0x2E);
+    conv_u32(c, off + 0x30);
+    conv_u32(c, off + 0x34);
+    conv_u32(c, off + 0x38);
+    conv_u32(c, off + 0x3C);
+    conv_u32(c, off + 0x40);
+    conv_u32(c, off + 0x44);
+    conv_u32(c, off + 0x48);
+    conv_u32(c, off + 0x50);
+    conv_u32(c, off + 0x54);
+    conv_u32(c, off + 0x58);
+    conv_u32(c, off + 0x5C);
+    conv_u32(c, off + 0x60);
+    conv_u32(c, off + 0x64);
+    conv_u16(c, off + 0x68);
+    for (i = 0; i < GROUNDPARAM_STAGE_S16; i++) {
+        conv_u16(c, off + 0x6A + (uint32_t) i * 2);
+    }
+    /* xB8..xD8 are GXColors (byte data, no swap). */
+    rows = rd32(c, off + 0xB0);
+    conv_u32(c, off + 0xB4);
+    count = (int) rd32(c, off + 0xB4);
+    if (rows != 0 && count > 0 && count <= 256) {
+        for (i = 0; i < count; i++) {
+            uint32_t p = rows + (uint32_t) i * STAGEPARAM_SIZE;
+            if (!in_data(c, p, STAGEPARAM_SIZE)) {
+                break;
+            }
+            conv_stage_param(c, p);
+        }
+    }
+}
+
+/* Gr*.dat `itemdata`: NULL-terminated GroundItemData* array
+ * ({ s32 unk0; Article* unk4 }, src/melee/gr/types.h).  The `unk4` pointer is
+ * a relocation target (already host order); `unk0` is the item kind and must
+ * be swapped or it_8026B40C receives 0xnn000000. */
+static void conv_itemdata(Conv* c, uint32_t off)
+{
+    int i;
+
+    if (!in_data(c, off, 4) || !mark(c, off)) {
+        return;
+    }
+    c->st.itemdata++;
+    for (i = 0; i < 256; i++) {
+        uint32_t entry = off + (uint32_t) i * 4;
+        uint32_t p;
+        if (!in_data(c, entry, 4)) {
+            break;
+        }
+        p = rd32(c, entry);
+        if (p == 0 || !in_data(c, p, 8)) {
+            break;
+        }
+        conv_u32(c, p + 0x00);
+    }
+}
+
+/* Gr*.dat `yakumono_param`: stage-specific dynamic-object parameters (e.g.
+ * grZe_YakumonoParam, src/melee/gr/grzebes.c).  For Zebes the word at +0x2C
+ * is a relocation target to a bury DynamicsDesc stored directly before the
+ * symbol (`ftCo_800C08A0` reads its `count` as the acid damage), so the sign
+ * of the Zebes layout is `desc == off - sizeof(DynamicsDesc)`. */
+static void conv_yakumono_param(Conv* c, uint32_t off)
+{
+    uint32_t desc;
+
+    if (!in_data(c, off, 0x2C + 4) || !mark(c, off)) {
+        return;
+    }
+    c->st.yakumono_params++;
+    desc = rd32(c, off + 0x2C);
+    if (desc == off - 0x24 && in_data(c, off, 0x190)) {
+        int i;
+        /* DynamicsDesc { DynamicsData* data; u32 count; Vec3 pos } stored
+         * immediately before the Zebes parameter block. */
+        conv_u32(c, desc + 0x00);
+        conv_u32(c, desc + 0x04); /* bury/acid damage */
+        conv_u32(c, desc + 0x08);
+        conv_u32(c, desc + 0x0C);
+        conv_u32(c, desc + 0x10);
+        conv_u32(c, off + 0x00);
+        conv_u32(c, off + 0x04);
+        conv_u32(c, off + 0x08);
+        conv_u32(c, off + 0x0C);
+        conv_u32(c, off + 0x10); /* s32 */
+        for (i = 0x30; i <= 0x9C; i += 4) {
+            conv_u32(c, off + (uint32_t) i); /* f32 range */
+        }
+        for (i = 0; i < 30 * 8; i += 2) {
+            conv_u16(c, off + 0xA0 + (uint32_t) i); /* acid level entries */
         }
     }
 }
@@ -1512,6 +1722,7 @@ static void conv_ft_common_data(Conv* c, uint32_t off)
 {
     uint32_t common;
     uint32_t parts;
+    uint32_t hidden;
     uint32_t i;
 
     if (!in_data(c, off, 23 * 4) || !mark(c, off)) {
@@ -1519,13 +1730,17 @@ static void conv_ft_common_data(Conv* c, uint32_t off)
     }
     common = rd32(c, off + 0x00);
     parts = rd32(c, off + 4 * 4);
+    hidden = rd32(c, off + 5 * 4);
     if (common != 0 && in_data(c, common, FTCOMMONDATA_SIZE)) {
         for (i = 0; i < FTCOMMONDATA_SIZE; i += 4) {
             conv_u32(c, common + i);
         }
     }
+    /* Both arrays are indexed by FighterKind (33 entries).  Walking past the
+     * end lands in the neighbouring hidden-table structs and converts their
+     * fields a second time. */
     if (parts != 0) {
-        for (i = 0; i < 64; i++) {
+        for (i = 0; i < FT_KIND_MAX; i++) {
             uint32_t p = parts + i * 4;
             uint32_t table;
             if (!in_data(c, p, 4)) {
@@ -1540,6 +1755,25 @@ static void conv_ft_common_data(Conv* c, uint32_t off)
             }
         }
     }
+    /* Fighter_804D6540 (pData[5]): per-kind { {u8 part,x1,x2,depth}*; int n }
+     * hidden-part lists.  ftParts_8007506C skips a part when it is listed, so
+     * an unconverted count makes the tree walk and parts_num diverge. */
+    if (hidden != 0) {
+        for (i = 0; i < FT_KIND_MAX; i++) {
+            uint32_t p = hidden + i * 4;
+            uint32_t table;
+            if (!in_data(c, p, 4)) {
+                break;
+            }
+            table = rd32(c, p);
+            if (table == 0) {
+                continue;
+            }
+            if (in_data(c, table, 8)) {
+                conv_u32(c, table + 0x04); /* x4 count */
+            }
+        }
+    }
 }
 
 /* Pl*.dat `ftData`: mostly relocation targets, but the xC/x14
@@ -1549,27 +1783,37 @@ static void conv_ft_common_data(Conv* c, uint32_t off)
 #define FT_WAITANIM_SIZE 0x18
 
 /* FtPartsVisLookup { int count; TempS* } with TempS { int count; u8* }.
- * The lookups hang off ftData_x8.x0.vis_table[costume][4]. */
-static void conv_ft_vis_lookup(Conv* c, uint32_t off)
+ * The lookups hang off ftData_x8.x0.vis_table[costume][4].  `vis->xC[idx]`
+ * is itself an array of one lookup per model (ftParts_80074D7C indexes it by
+ * `vis->model_num`), and each lookup's TempS array holds `count` groups; both
+ * counts are numeric and must be swapped or the DObj loop runs off the list. */
+static void conv_ft_vis_lookup(Conv* c, uint32_t off, int model_num)
 {
-    int count;
-    uint32_t temps;
-    int i;
+    int m;
 
     if (!in_data(c, off, 8) || !mark(c, off)) {
         return;
     }
-    conv_u32(c, off + 0x00);
-    count = (int) rd32(c, off + 0x00);
-    temps = rd32(c, off + 0x04);
-    if (temps != 0 && count > 0 && count <= 64) {
-        for (i = 0; i < count; i++) {
-            uint32_t t = temps + (uint32_t) i * 8;
-            if (!in_data(c, t, 8) || !mark(c, t)) {
-                break;
+    for (m = 0; m < model_num; m++) {
+        uint32_t entry = off + (uint32_t) m * 8;
+        uint32_t temps;
+        int count;
+        int i;
+        if (!in_data(c, entry, 8)) {
+            break;
+        }
+        conv_u32(c, entry + 0x00);
+        count = (int) rd32(c, entry + 0x00);
+        temps = rd32(c, entry + 0x04);
+        if (temps != 0 && count > 0 && count <= 64) {
+            for (i = 0; i < count; i++) {
+                uint32_t t = temps + (uint32_t) i * 8;
+                if (!in_data(c, t, 8) || !mark(c, t)) {
+                    break;
+                }
+                conv_u32(c, t + 0x00);
+                /* the u8 DObj-index list at t+4 is byte data */
             }
-            conv_u32(c, t + 0x00);
-            /* the u8 DObj-index list at t+4 is byte data */
         }
     }
 }
@@ -1617,9 +1861,14 @@ static void conv_ft_data(Conv* c, uint32_t off)
     if (in_data(c, x8, 0x18)) {
         uint32_t cost_tbl;
         int n_tobjs;
+        int n_models;
         int k;
         conv_u32(c, x8 + 0x00); /* FtPartsDesc.model_num */
         conv_u32(c, x8 + 0x08); /* ftData_x8_x8.x8 */
+        n_models = (int) rd32(c, x8 + 0x00);
+        if (n_models < 0 || n_models > 12) {
+            n_models = 0;
+        }
         {
             uint32_t vis_table = rd32(c, x8 + 0x04);
             int costume;
@@ -1644,7 +1893,7 @@ static void conv_ft_data(Conv* c, uint32_t off)
                         if (!c->reloc[p]) {
                             break;
                         }
-                        conv_ft_vis_lookup(c, lookup);
+                        conv_ft_vis_lookup(c, lookup, n_models);
                     }
                 }
             }
@@ -1723,15 +1972,81 @@ static void conv_ft_data(Conv* c, uint32_t off)
         }
     }
     {
-        /* ftDynamics: dynamicsNum, ftDynamicBones*, x4, x8, x10. */
+        /* ftDynamics: dynamicsNum, ftDynamicBones*, x4, x8, x10.  Each
+         * ArticleDynamicBones entry is a BoneDynamicsDesc (0x18):
+         * { enum_t bone_id; DynamicsData* data; u32 count; Vec3 pos }.
+         * ftCo_8009CF84 indexes fp->parts by bone_id, so an unconverted
+         * bone_id walks off the part list. */
         uint32_t dyn = rd32(c, off + 0x2C);
         if (dyn != 0 && in_data(c, dyn, 0x14)) {
+            uint32_t bones;
+            uint32_t dyn_x8;
+            int n;
+            int m;
             conv_u32(c, dyn + 0x00);
             conv_u32(c, dyn + 0x08);
+            n = (int) rd32(c, dyn + 0x00);
+            bones = rd32(c, dyn + 0x04);
+            if (bones != 0 && n > 0 && n <= 16) {
+                for (i = 0; i < n; i++) {
+                    uint32_t e = bones + (uint32_t) i * 0x18;
+                    int w;
+                    if (!in_data(c, e, 0x18)) {
+                        break;
+                    }
+                    for (w = 0; w < 0x18; w += 4) {
+                        conv_u32(c, e + (uint32_t) w);
+                    }
+                }
+            }
+            /* dyn->x8 is a second ftData_x38 array (ftColl_8007B320 walks
+             * fp->x1670 through it), distinct from ftData->x38. */
+            m = (int) rd32(c, dyn + 0x08);
+            dyn_x8 = rd32(c, dyn + 0x0C);
+            if (dyn_x8 != 0 && m > 0 && m <= 16) {
+                for (i = 0; i < m; i++) {
+                    uint32_t e = dyn_x8 + (uint32_t) i * 0x14;
+                    int w;
+                    if (!in_data(c, e, 0x14)) {
+                        break;
+                    }
+                    for (w = 0; w < 0x14; w += 4) {
+                        conv_u32(c, e + (uint32_t) w);
+                    }
+                }
+            }
         }
     }
     if (x34 != 0 && in_data(c, x34, 8)) {
+        conv_u32(c, x34 + 0x00); /* Fighter_Part part index */
         conv_u32(c, x34 + 0x04); /* scale */
+    }
+    /* ftData_x38: two { Fighter_Part x0; Vec3 x4; f32 x10 } entries (0x14);
+     * ft_8007C630 indexes fp->x1614 and resolves each joint from x0. */
+    {
+        uint32_t x38 = rd32(c, off + 0x38);
+        if (x38 != 0) {
+            for (i = 0; i < 2; i++) {
+                uint32_t e = x38 + (uint32_t) i * 0x14;
+                int w;
+                if (!in_data(c, e, 0x14)) {
+                    break;
+                }
+                for (w = 0; w < 0x14; w += 4) {
+                    conv_u32(c, e + (uint32_t) w);
+                }
+            }
+        }
+    }
+    /* ftData_x3C: UnkFloat6_Camera { Vec3 x0; Vec3 xC } — the camera box
+     * half-extents ftCamera_80076018 scales into fp->x890_cameraBox. */
+    {
+        uint32_t x3C = rd32(c, off + 0x3C);
+        if (x3C != 0 && in_data(c, x3C, 0x18)) {
+            for (i = 0; i < 6; i++) {
+                conv_u32(c, x3C + (uint32_t) i * 4);
+            }
+        }
     }
     /* ftData_x44_t: six s16 then four f32 (0x1C). */
     if (x44 != 0 && in_data(c, x44, 0x1C)) {
@@ -1873,26 +2188,7 @@ static void conv_scene_desc(Conv* c, uint32_t off)
     fogs = rd32(c, off + 0x0C);
 
     if (models != 0) {
-        uint32_t p = models;
-        for (guard = 0; guard < 64; guard++) {
-            uint32_t desc = rd32(c, p);
-            if (desc == 0 || !in_data(c, desc, 0x10)) {
-                break;
-            }
-            { uint32_t j = rd32(c, desc + 0x00); if (j != 0) conv_joint(c, j); }
-            { /* anims: array of AnimJoint* */
-                uint32_t arr = rd32(c, desc + 0x04);
-                int k;
-                for (k = 0; k < 64 && arr != 0; k++) {
-                    uint32_t a = rd32(c, arr + (uint32_t) k * 4);
-                    if (a == 0 || !in_data(c, a, HSD_ANIMJOINT_SIZE)) {
-                        break;
-                    }
-                    conv_anim_joint(c, a);
-                }
-            }
-            p += 4;
-        }
+        conv_dynamic_models(c, models);
     }
     if (cameras != 0) {
         uint32_t p = cameras;
@@ -2151,6 +2447,10 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
         } else if (name_ends_with(name, length, "_scene_models")) {
             c->st.roots_unknown++;
             conv_static_model(c, data_off);
+        } else if (name_ends_with(name, length, "scemdls")) {
+            /* IfAll/If* `Stc_scemdls`-style sections: DynamicModelDesc* array */
+            c->st.roots_unknown++;
+            conv_dynamic_models(c, data_off);
         } else if (name_ends_with(name, length, "_camera")) {
             /* GmTtAll/Mn*: Sc*_cam_int1_camera */
             conv_cobjdesc(c, data_off);
@@ -2177,6 +2477,15 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
             conv_ps_tex_bank(c, data_off);
         } else if (length == 8 && memcmp(name, "map_head", 8) == 0) {
             conv_stage_maphead(c, data_off);
+        } else if (length == 8 && memcmp(name, "map_plit", 8) == 0) {
+            /* Stage LightList** used by Ground_801C49B4/lb_80011AC4. */
+            conv_lightlist_array(c, data_off);
+        } else if (name_ends_with(name, length, "grGroundParam")) {
+            conv_ground_param(c, data_off);
+        } else if (name_ends_with(name, length, "yakumono_param")) {
+            conv_yakumono_param(c, data_off);
+        } else if (length == 8 && memcmp(name, "itemdata", 8) == 0) {
+            conv_itemdata(c, data_off);
         } else {
             c->st.roots_unknown++;
         }
@@ -2213,11 +2522,14 @@ static int convert_archive(unsigned char* data, size_t size, Conv* c)
     c->depth = 0;
     c->reloc = calloc(data_size ? data_size : 1, 1);
     c->seen = calloc(data_size ? data_size : 1, 1);
-    if (c->reloc == NULL || c->seen == NULL) {
+    c->num = calloc(data_size ? data_size : 1, 1);
+    if (c->reloc == NULL || c->seen == NULL || c->num == NULL) {
         free(c->reloc);
         free(c->seen);
+        free(c->num);
         c->reloc = NULL;
         c->seen = NULL;
+        c->num = NULL;
         return 0;
     }
 
@@ -2232,8 +2544,10 @@ static int convert_archive(unsigned char* data, size_t size, Conv* c)
     c->st.ok = c->st.reloc_valid == c->st.reloc_total;
     free(c->reloc);
     free(c->seen);
+    free(c->num);
     c->reloc = NULL;
     c->seen = NULL;
+    c->num = NULL;
     return 1;
 }
 

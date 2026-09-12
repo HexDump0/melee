@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-12 (P-619 stage viewer landed; S3 complete; P-615/P-612 landed; P-616 open)
+Last updated: 2026-09-12 (P-620 S4: match runs real frames; command-script bitfield repack is the next blocker)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -76,6 +76,18 @@ through the compiled loaders and reaches the memory-card/pad wait.
 plus `GrNBa`/`MnSlChr`/`IfAll`/`NtMsgWin` load through the compiled HSD path
 with full relocation coverage.  ASan/UBSan is clean (the boot's DVD-cancel
 stack-write bug and the `.ssm` overlapping copy were fixed; see G-063/G-064).
+
+**S4 in progress (2026-09-12):** `melee_decomp_boot --boot-match N` enters the
+game's own `GM_DEBUG_VS` on Zebes and runs `gm_Scene_Vs_OnFrame` for real
+frames (fighters created, stage collision/dynamics, stock HUD, camera, motion
+state changes).  Converter v46 fixes `grGroundParam`, `itemdata`, `map_plit`,
+`Stc_scemdls`, `MapCollData.dynamic_*`, `FtPartsVis` model entries and the
+`ftData` x34/x38/x3C/dynamics blocks; two more `PORT_PC` patches (`lbanim.c`,
+`camera.c`) are listed in `learnings/decomp_port.md`.  The stop is
+`ftcoll.c:3171` because the archive action-command scripts are big-endian
+bitfield words and need an MSB-first→LSB-first repack (G-082; handoff
+`2026-09-12-P-620-s4-scripts.md` has the walker recipe).  The PAD backend and
+the scripted input source are still to do.
 
 ## TL;DR
 

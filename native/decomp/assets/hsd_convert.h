@@ -45,6 +45,10 @@ typedef struct HsdConvertStats {
     unsigned robjdescs;
     unsigned scene_descs;
     unsigned stage_maps;
+    unsigned ground_params;
+    unsigned yakumono_params;
+    unsigned itemdata;
+    unsigned scripts;
     unsigned reloc_total;
     unsigned reloc_valid;
     int ok; /* header/tables valid and every relocation target converted */
