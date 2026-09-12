@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-12 (S2 complete: compiled HSD renders through the GX HLE)
+Last updated: 2026-09-12 (S2 complete; interactive compiled viewer P-611)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -38,7 +38,11 @@ parity against the prototype viewer is RMSE 10.94/255 over the model region;
 the residual is specular shading (explained in
 `learnings/decomp_s2_gx_hle.md`).  The S1 boot target now runs the GX command
 surface for real (`94 stub_calls / 33 unique`).  Still no `src/`/`extern/`
-edits. Next milestone: **S3** (host-endian asset pipeline + DVD/ARQ).
+edits. **P-611 (2026-09-12):** `melee_decomp_viewer` presents the same
+compiled HSD + GX HLE frame in an SDL3 window (orbit/zoom/model cycle, part
+visibility, texture/light toggles, F12 screenshot); SDL3 is a new compiled-
+target dependency (ADR-0014, install list in `TESTING.md`). Next milestone:
+**S3** (host-endian asset pipeline + DVD/ARQ).
 
 ## TL;DR
 
@@ -107,6 +111,7 @@ lightmap phases, alpha test, XLU blend) and every fighter is scaled by its
 | Compiled decomp math | `HSD_MtxSRT` built verbatim from `src/sysdolphin/baselib/mtx.c` behind `native/decomp/shim/`; SDK mtx/vec pairs are Metrowerks asm and stay hand-ported (P-301, `learnings/decomp_shim.md`). Bind/animate/scripted BMPs byte-identical |
 | Compiled boot skeleton (S1) | `melee_decomp_boot` runs the decomp's `main()` for 10 frames under the platform stubs, reaches the game's own loading wait, and stops on the frame budget with a deterministic triage log (`logs/2026-09-11-S1-boot-triage.md`); `ctest decomp_boot` is the regression |
 | Compiled HSD + GX HLE (S2) | `test_decomp_render` loads `PlMrNr.dat` through the compiled HSD display path and the `native/decomp/gx/` backend, applies the compiled `ftData` part visibility (16/59 hidden) and `Fighter_UpdateModelScale`, and renders with GLES3; world bounds equal the prototype's exactly, screenshot RMSE 10.94/255 (HUD excluded). `ctest decomp_render` is the regression; `logs/2026-09-12-S2-render.md` is the evidence |
+| Interactive compiled viewer (P-611) | `melee_decomp_viewer` (SDL3 window + EGL/GLES3 via `gx_gl_attach`) renders the compiled scene with drag orbit, wheel zoom, `N`/`P` model cycle, `B` slot, `V` variant, `Y` show-hidden, `L` lights, `T` textures, `F12` screenshot; `--frames N --hidden --shot F` is the non-interactive smoke path and its BMP matches `test_decomp_render` to RMSE 0.002 |
 | GX HLE backend (S2) | `native/decomp/gx/gx_hle.c`: real GX state + `GXCallDisplayList` decode (68 lists, zero desync), XF/channel/texgen evaluation, per-draw snapshots; `gx_gl.c` evaluates up to 4 captured TEV stages with textures/TLUTs from `native/gx/texture.c` on an EGL/GLES3 pbuffer |
 | Owner visual checks | 180 Hz viewer animation speed confirmed correct; face texture artifact gone (2026-09-11) |
 
@@ -169,6 +174,8 @@ SDL_VIDEODRIVER=offscreen ./build/native/melee --view --frames 1 --no-grid \
 ./build/native/test_decomp_render --width 1280 --height 800 \
     --shot /tmp/compiled.bmp --dump
 ./build/native/test_decomp_render --no-gl   # asset bridge + GX capture only
+./build/native/melee_decomp_viewer          # interactive (needs lib32-sdl3)
+./build/native/melee_decomp_viewer --frames 1 --hidden --shot /tmp/v.bmp
 ```
 
 Expected `--inspect` tail:
@@ -183,6 +190,9 @@ If those numbers move, say why in the commit and update this file.
 
 - Linux, GCC/Clang, CMake, pkg-config, SDL2 dev, Mesa (`libEGL_mesa`,
   `libGL`), OpenGL math. The renderer needs a GL 3.3 core driver.
+- Compiled targets (32-bit): `lib32-gcc-libs`, `lib32-libglvnd`,
+  `lib32-mesa` (EGL/GLESv2) and, for the viewer, `sdl3` headers +
+  `lib32-sdl3` (ADR-0014). Exact Arch package list in `TESTING.md`.
 - Disc image at `iso/Super Smash Bros. Melee (USA) (En,Ja) (Rev 2).ciso` for
   default runs. `iso/` is locally excluded from git.
 - `ACGC-PC-Port/` is a local, untracked reference checkout.

@@ -729,3 +729,31 @@ AX voice layer.
 - Policy: ADR-0005, ADR-0010, ADR-0011, ADR-0012;
   `native/AI/AGENTS.md:125-131`; `native/AI/ROADMAP.md:66,157-165`;
   `native/AI/ROADMAP_DETAILS.md:109-114`; `native/AI/TASKS.md:49,73`.
+
+---
+
+## ADR-0014: SDL3 for the compiled target's window and input layer
+
+**Context.** The 32-bit compiled port needs a window/input/context layer for
+the interactive viewer (P-611) and, later, the real game frontend and other
+platforms (S6/S7).  The prototype uses SDL2 (`sdl2-compat` on this machine) but
+only the 64-bit build can link it: Arch's multilib no longer packages
+`lib32-sdl2`, it ships `lib32-sdl3` (SDL 3.4.x).  Native Wayland/X11 + EGL is
+possible with the installed `lib32-wayland`/`lib32-libx11`, but it means
+hand-rolling xdg-shell, keymaps and event plumbing that SDL already provides.
+
+**Decision.** The compiled (32-bit) targets use **SDL3** for windowing, input
+and the EGL/GLES3 context; the renderer stays EGL/GLESv2 with the ES3-passable
+shader subset (ADR-0009).  The prototype keeps SDL2 untouched.  The build looks
+for the 32-bit library explicitly (`/usr/lib32/libSDL3.so`) and skips the
+viewer target when it is missing, so the decomp targets remain buildable on
+machines without multilib SDL3.
+
+**Consequences.** A new runtime/build dependency for the compiled targets
+(`lib32-sdl3`, headers from `sdl3`), documented in `TESTING.md` and `STATE.md`.
+SDL3 also gives gamepad input and future Windows/macOS/Android/WASM coverage
+for free (S7).  Context creation moves from our EGL pbuffer path to SDL for the
+windowed viewer; `gx_gl` gains an "external context" init used with SDL, while
+the existing EGL-pbuffer path stays for headless tests.
+
+**Status:** accepted (2026-09-12).

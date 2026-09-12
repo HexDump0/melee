@@ -2028,6 +2028,12 @@ void gx_hle_register_asset(const void* base, size_t size)
     }
 }
 
+void gx_hle_reset_assets(void)
+{
+    gx_asset_count = 0;
+    memset(gx_assets, 0, sizeof(gx_assets));
+}
+
 size_t gx_hle_asset_remaining(const void* ptr)
 {
     size_t i;

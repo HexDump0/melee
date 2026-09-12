@@ -126,7 +126,9 @@ behavior, audio, and "does it look right to a Melee player". When you need one:
 
 - Match the existing C style in `native/`: C11, 4-space indent, braces on
   their own line, `snake_case` for port code, HSD names kept as-is.
-- No new external dependencies without a decision entry. The port currently
-  depends on SDL2 + OpenGL + libm only.
+- No new external dependencies without a decision entry. The prototype
+  (64-bit) depends on SDL2 + desktop OpenGL; the compiled targets (32-bit)
+  depend on SDL3 (`lib32-sdl3`, see ADR-0014) + EGL/GLESv2 (Mesa) + libm.
+  Machine setup and the exact Arch package names are in `TESTING.md`.
 - Prefer fixed-size, bounds-checked parsing over clever zero-copy tricks.
   Correct beats fast for the decoder; optimize later with a profiler.

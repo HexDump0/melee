@@ -44,4 +44,8 @@ int hsd_scene_apply_visibility(HsdScene* scene, const char* disc,
                                const char* model, int slot, int variant,
                                char* error, size_t error_size);
 
+/* Clears DOBJ_HIDDEN on every DObj in display order (the viewer's
+ * show-hidden toggle); hsd_scene_apply_visibility re-hides after this. */
+void hsd_scene_clear_visibility(HsdScene* scene);
+
 #endif

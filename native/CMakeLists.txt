@@ -205,6 +205,7 @@ endif()
 # light reader are reused (native/gx/texture.c, native/hsd/light.c).
 add_executable(test_decomp_render
     tests/test_decomp_render.c
+    decomp/render/render_scene.c
     decomp/hsd/hsd_scene.c
     decomp/gx/gx_hle.c
     decomp/gx/gx_gl.c
@@ -246,4 +247,54 @@ if(MELEE_SANITIZE)
       -fsanitize=address,undefined -fno-omit-frame-pointer)
   target_link_options(test_decomp_render PRIVATE
       -fsanitize=address,undefined)
+endif()
+
+# ---------------------------------------------------------------------------
+# P-611: interactive compiled-path viewer.
+#
+# SDL3 owns the window and the EGL/GLES3 context (ADR-0014; 32-bit SDL3 is
+# Arch's lib32-sdl3), gx_gl attaches to it.  The target is skipped when the
+# 32-bit SDL3 library is absent so the rest of the port still builds.
+find_library(MELEE_SDL3_LIB32 NAMES SDL3 PATHS /usr/lib32 NO_DEFAULT_PATH)
+if(MELEE_SDL3_LIB32)
+  add_executable(melee_decomp_viewer
+      decomp/render/viewer_main.c
+      decomp/render/render_scene.c
+      decomp/hsd/hsd_scene.c
+      decomp/gx/gx_hle.c
+      decomp/gx/gx_gl.c
+      decomp/debug_port.c
+      decomp/sdk_math.c
+      decomp/boot/boot_triage.c
+      gx/texture.c
+      hsd/light.c
+      platform/disc.c
+      platform/os.c
+      platform/gx_vi.c
+      platform/dvd.c
+      platform/pad_card.c
+      platform/audio.c
+      platform/font_stub.c
+      platform/misc.c
+      $<TARGET_OBJECTS:melee_decomp_game>)
+  target_include_directories(melee_decomp_viewer BEFORE PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
+      ${CMAKE_CURRENT_SOURCE_DIR})
+  target_include_directories(melee_decomp_viewer SYSTEM PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/../src
+      ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
+  target_compile_options(melee_decomp_viewer PRIVATE
+      -m32 -Wall -Wextra -Wpedantic -Wno-overlength-strings -fgnu89-inline
+      -ffunction-sections -fdata-sections -rdynamic -D_GNU_SOURCE
+      -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
+  # SDL3 requires a 1-byte _Bool, so the viewer TU opts out of the bool=int
+  # shim (it never calls a decomp function with a bool parameter).
+  set_source_files_properties(decomp/render/viewer_main.c PROPERTIES
+      COMPILE_DEFINITIONS "MELEE_SHIM_REAL_STDBOOL")
+  target_link_libraries(melee_decomp_viewer PRIVATE
+      ${MELEE_SDL3_LIB32} m EGL GLESv2 ${CMAKE_DL_LIBS})
+  target_link_options(melee_decomp_viewer PRIVATE
+      -m32 -rdynamic "LINKER:--gc-sections")
+else()
+  message(STATUS "32-bit SDL3 not found; skipping melee_decomp_viewer")
 endif()

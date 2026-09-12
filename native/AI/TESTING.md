@@ -1,5 +1,38 @@
 # Testing and verification
 
+## Build environment / dependencies (fresh machine)
+
+The reference machine is Arch Linux.  Exact packages (as of 2026-09-12):
+
+```sh
+# Toolchain + CMake
+sudo pacman -S base-devel cmake pkgconf
+
+# Prototype (64-bit): SDL2 API (Arch ships sdl2-compat over SDL3) + desktop GL
+sudo pacman -S sdl2-compat mesa
+
+# Compiled decomp targets (32-bit, ADR-0012):
+#   gcc already supports -m32 once lib32-gcc-libs is present
+sudo pacman -S lib32-gcc-libs
+#   32-bit EGL/GLESv2 (libglvnd loader + Mesa drivers) for the GX renderer
+sudo pacman -S lib32-libglvnd lib32-mesa
+#   32-bit SDL3 for the interactive compiled viewer (ADR-0014; needs the
+#   64-bit sdl3 headers, which the sdl3 package installs)
+sudo pacman -S sdl3 lib32-sdl3
+```
+
+What each target needs:
+
+| Target | Bits | Needs |
+|---|---|---|
+| `melee`, `test_math`, `test_decomp_mtx` | 64 | SDL2, desktop GL, libm |
+| `test_decomp_hsd`, `test_decomp_render`, `melee_decomp_boot` | 32 | lib32 glibc/gcc, 32-bit EGL/GLESv2 (`test_decomp_render`) |
+| `melee_decomp_viewer` (P-611) | 32 | additionally `lib32-sdl3` + `sdl3` headers |
+
+The viewer target is skipped by CMake when `/usr/lib32/libSDL3.so` is missing,
+so the rest of the port still builds on machines without multilib SDL3.
+The disc image path and its local-only rule are in `STATE.md`.
+
 ## Rule zero
 
 **Build the baseline before you change anything.** If the baseline is broken,
@@ -79,6 +112,14 @@ Rules for this track:
   the hand copy is deleted (`tests/test_decomp_mtx.c` is the pattern).
 - Keep the prototype binary runnable: `--inspect`, `--view --frames` and
   `--scripted --frames` must keep working until the compiled path replaces them.
+- Compiled render + viewer smoke test (viewer needs `lib32-sdl3`):
+
+```sh
+./build/native/test_decomp_render --width 1280 --height 800 --shot /tmp/c.bmp
+./build/native/melee_decomp_viewer --frames 1 --hidden --shot /tmp/v.bmp
+# /tmp/v.bmp must match /tmp/c.bmp (RMSE < 0.01); the windowed run is for the
+# owner: ./build/native/melee_decomp_viewer
+```
 
 ## Sanitizer run (required for parser/memory changes)
 

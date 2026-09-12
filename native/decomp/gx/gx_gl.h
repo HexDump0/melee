@@ -8,8 +8,28 @@
  */
 #include <stddef.h>
 
-/* Creates an EGL pbuffer context and compiles the TEV program. */
+/* Creates an EGL pbuffer context and compiles the TEV program (headless). */
 int gx_gl_init(int width, int height, char* error, size_t error_size);
+
+/* Compiles the TEV program and allocates the streaming VBO assuming a GL
+ * context is already current (the SDL viewer owns its window/context). */
+int gx_gl_attach(int width, int height, char* error, size_t error_size);
+
+void gx_gl_set_size(int width, int height);
+
+/* Viewer toggles.  textures=0 forces white samples, lighting=0 forces the
+ * flat raster colour, only_draw renders one captured draw (-1 = all). */
+typedef struct GxGlOptions {
+    int textures;
+    int lighting;
+    int only_draw;
+} GxGlOptions;
+
+void gx_gl_set_options(const GxGlOptions* options);
+
+/* Deletes cached GL textures (call when switching models so recycled asset
+ * addresses cannot hit stale cache entries). */
+void gx_gl_clear_textures(void);
 
 /* Renders the last frame captured by gx_hle into the pbuffer.  Returns the
  * number of draws submitted, or -1 on failure. */

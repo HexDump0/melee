@@ -128,8 +128,10 @@ size_t gx_hle_skipped_count(void);
 size_t gx_hle_degenerate_count(void);
 
 /* Registers an asset buffer so gx_gl can bound texture decodes.  Multiple
- * buffers may be registered. */
+ * buffers may be registered.  gx_hle_reset_assets drops all registrations
+ * (the viewer does this when switching models). */
 void gx_hle_register_asset(const void* base, size_t size);
+void gx_hle_reset_assets(void);
 
 /* Bytes remaining in the registered asset containing ptr, or (size_t) -1
  * when ptr is not inside one. */

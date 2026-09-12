@@ -735,6 +735,30 @@ static void vis_show_variant(VisTable* v, size_t slot_off, size_t variant)
     }
 }
 
+static void vis_clear_jobjs(HSD_JObj* jobj, int depth)
+{
+    HSD_DObj* d;
+    if (jobj == NULL || depth > 256) {
+        return;
+    }
+    if (!(jobj->flags & JOBJ_HIDDEN)) {
+        for (d = jobj->u.dobj; d != NULL; d = d->next) {
+            HSD_DObjClearFlags(d, DOBJ_HIDDEN);
+        }
+    }
+    if (!(jobj->flags & JOBJ_INSTANCE)) {
+        vis_clear_jobjs(jobj->child, depth + 1);
+    }
+    vis_clear_jobjs(jobj->next, depth);
+}
+
+void hsd_scene_clear_visibility(HsdScene* scene)
+{
+    if (scene != NULL) {
+        vis_clear_jobjs(scene->root, 0);
+    }
+}
+
 /* JObjDisp order: DObjs of this joint, child subtree, then next. */
 static void vis_walk_jobjs(HSD_JObj* jobj, const VisTable* v, int* index,
                            int depth, int* hidden_count)

@@ -69,6 +69,8 @@ static GLint u_fog_type;
 static GLint u_fog_start;
 static GLint u_fog_end;
 static GLint u_fog_color;
+static GLint u_tex_enable;
+static GLint u_ras_flat;
 
 static GlTextureCache tex_cache[MAX_GL_TEXTURES];
 static size_t tex_cache_count;
@@ -76,6 +78,8 @@ static size_t tex_cache_count;
 static GLuint vertex_vao;
 static GLuint vertex_vbo;
 static size_t vertex_vbo_capacity;
+
+static GxGlOptions gl_options = { 1, 1, -1 };
 
 /* --------------------------------------------------------------- shaders */
 
@@ -136,6 +140,8 @@ static const char* FRAGMENT_SRC =
     "uniform float u_fog_start;\n"
     "uniform float u_fog_end;\n"
     "uniform vec3 u_fog_color;\n"
+    "uniform int u_tex_enable;\n"
+    "uniform int u_ras_flat;\n"
     
     "in vec4 v_color;\n"
     "in vec2 v_uv0;\n"
@@ -225,13 +231,14 @@ static const char* FRAGMENT_SRC =
     "        if (i >= u_stages) break;\n"
     "        ivec4 ord = u_tev_order[i];\n"
     "        vec4 tex = vec4(1.0);\n"
-    "        if (ord.y != 255) {\n"
+    "        if (u_tex_enable != 0 && ord.y != 255) {\n"
     "            vec2 uv = (ord.x == 1) ? v_uv1 : v_uv0;\n"
     "            if (ord.y == 0) tex = texture(u_tex0, uv);\n"
     "            else if (ord.y == 1) tex = texture(u_tex1, uv);\n"
     "        }\n"
     "        ivec4 sel = u_tev_sel[i];\n"
     "        vec4 ras = (ord.z == 1 || ord.z == 5) ? v_ras1 : v_ras0;\n"
+    "        if (u_ras_flat != 0) ras = vec4(1.0);\n"
     "        tex = swap4(tex, u_swap[sel.y]);\n"
     "        ras = swap4(ras, u_swap[sel.x]);\n"
     "        vec4 k = konst_color(sel.z, u_tev_kcolor[0], u_tev_kcolor[1],\n"
@@ -359,6 +366,8 @@ static int build_program(char* error, size_t error_size)
     u_fog_start = glGetUniformLocation(program, "u_fog_start");
     u_fog_end = glGetUniformLocation(program, "u_fog_end");
     u_fog_color = glGetUniformLocation(program, "u_fog_color");
+    u_tex_enable = glGetUniformLocation(program, "u_tex_enable");
+    u_ras_flat = glGetUniformLocation(program, "u_ras_flat");
     glUseProgram(program);
     glUniform1i(u_tex[0], 0);
     glUniform1i(u_tex[1], 1);
@@ -366,6 +375,61 @@ static int build_program(char* error, size_t error_size)
 }
 
 /* ------------------------------------------------------------------ EGL */
+
+static int gl_setup(char* error, size_t error_size)
+{
+    if (!build_program(error, error_size)) {
+        return 0;
+    }
+    /* GLES has no client-side vertex arrays; one streaming VBO holds the
+     * captured frame. */
+    glGenVertexArrays(1, &vertex_vao);
+    glBindVertexArray(vertex_vao);
+    glGenBuffers(1, &vertex_vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, vertex_vbo);
+    glBindVertexArray(0);
+    return 1;
+}
+
+int gx_gl_attach(int width, int height, char* error, size_t error_size)
+{
+    if (width > 0) {
+        gl_width = width;
+    }
+    if (height > 0) {
+        gl_height = height;
+    }
+    return gl_setup(error, error_size);
+}
+
+void gx_gl_set_size(int width, int height)
+{
+    if (width > 0) {
+        gl_width = width;
+    }
+    if (height > 0) {
+        gl_height = height;
+    }
+}
+
+void gx_gl_set_options(const GxGlOptions* options)
+{
+    if (options != NULL) {
+        gl_options = *options;
+    }
+}
+
+void gx_gl_clear_textures(void)
+{
+    size_t i;
+    for (i = 0; i < tex_cache_count; ++i) {
+        if (tex_cache[i].name != 0) {
+            glDeleteTextures(1, &tex_cache[i].name);
+        }
+    }
+    memset(tex_cache, 0, sizeof(tex_cache));
+    tex_cache_count = 0;
+}
 
 int gx_gl_init(int width, int height, char* error, size_t error_size)
 {
@@ -427,17 +491,7 @@ int gx_gl_init(int width, int height, char* error, size_t error_size)
     }
     printf("gx_gl: GL_VERSION=%s\n", (const char*) glGetString(GL_VERSION));
     printf("gx_gl: GL_RENDERER=%s\n", (const char*) glGetString(GL_RENDERER));
-    if (!build_program(error, error_size)) {
-        return 0;
-    }
-    /* GLES has no client-side vertex arrays; one streaming VBO holds the
-     * captured frame. */
-    glGenVertexArrays(1, &vertex_vao);
-    glBindVertexArray(vertex_vao);
-    glGenBuffers(1, &vertex_vbo);
-    glBindBuffer(GL_ARRAY_BUFFER, vertex_vbo);
-    glBindVertexArray(0);
-    return 1;
+    return gl_setup(error, error_size);
 }
 
 void gx_gl_set_clear(float r, float g, float b, float a)
@@ -806,6 +860,8 @@ static void upload_draw_uniforms(const GxHleDrawState* s)
     glUniform1f(u_fog_end, s->fog_end);
     glUniform3f(u_fog_color, s->fog_color[0], s->fog_color[1],
                 s->fog_color[2]);
+    glUniform1i(u_tex_enable, gl_options.textures);
+    glUniform1i(u_ras_flat, !gl_options.lighting);
 }
 
 int gx_gl_render_frame(void)
@@ -824,6 +880,9 @@ int gx_gl_render_frame(void)
     gx_hle_get_frame(&vertices, &vertex_count, &draws, &draw_count,
                      &textures, &texture_count);
     glViewport(0, 0, gl_width, gl_height);
+    /* The previous frame's GX state may have masked alpha writes; the window
+     * surface needs its alpha cleared or the compositor shows through. */
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glClearColor(clear_color[0], clear_color[1], clear_color[2],
                  clear_color[3]);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -831,7 +890,6 @@ int gx_gl_render_frame(void)
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
     glDepthMask(GL_TRUE);
-    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glFrontFace(GL_CW); /* GX front faces are clockwise */
 
     glUseProgram(program);
@@ -848,6 +906,10 @@ int gx_gl_render_frame(void)
         const GxHleDraw* d = &draws[i];
         const GxHleDrawState* s = &d->state;
         GLuint tex0 = 0;
+        if (gl_options.only_draw >= 0 &&
+            (size_t) gl_options.only_draw != i) {
+            continue;
+        }
         GLuint tex1 = 0;
 
         if (d->vertex_count == 0) {

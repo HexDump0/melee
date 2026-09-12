@@ -14,9 +14,15 @@
  * callback ABI consistent. This is a port-only type decision (ADR-0011
  * rule 1 — shim first); the GameCube build keeps the real <stdbool.h>.
  */
+#ifdef MELEE_SHIM_REAL_STDBOOL
+/* Host libraries (SDL3) require a 1-byte `_Bool`; TUs compiled with this
+ * define must not cross a bool ABI boundary with decomp TUs. */
+#include_next <stdbool.h>
+#else
 #define bool int
 #define true 1
 #define false 0
 #define __bool_true_false_are_defined 1
+#endif
 
 #endif /* MELEE_NATIVE_DECOMP_SHIM_STDBOOL_H */
