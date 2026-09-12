@@ -648,6 +648,11 @@ int render_scene_open(RenderScene* scene, const RenderSceneOptions* opt,
         if (loaded <= 0) {
             return loaded;
         }
+        /* Remember which fighter/model to come back to when toggling out of
+         * stage mode (scene_load_model uses scene->model_index). */
+        snprintf(scene->model, sizeof(scene->model), "%s",
+                 opt->fighter != NULL ? opt->fighter
+                                      : RENDER_SCENE_FIGHTER_DEFAULT);
         if (!opt->no_fighter) {
             const char* fighter = opt->fighter != NULL
                                       ? opt->fighter

@@ -30,7 +30,7 @@ static void usage(const char* argv0)
             "          [--no-fighter] [--shot FILE] [--width N] [--height N]\n"
             "          [--scale F] [--angle DEG] [--elevation DEG]\n"
             "          [--no-lights] [--dump] [--no-scale] [--no-gl]\n"
-            "          [--direct] [--efb]\n",
+            "          [--direct] [--efb] [--toggle-mode N]\n",
             argv0);
 }
 
@@ -463,6 +463,7 @@ int main(int argc, char** argv)
     const char* dump_world = NULL;
     int direct = 0;
     int efb = 0;
+    int toggle_mode = 0;
     int rendered;
     int loaded;
     size_t i;
@@ -528,6 +529,9 @@ int main(int argc, char** argv)
             direct = 1;
         } else if (strcmp(argv[i], "--efb") == 0) {
             efb = 1;
+        } else if (strcmp(argv[i], "--toggle-mode") == 0 &&
+                   (int) i + 1 < argc) {
+            toggle_mode = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--help") == 0) {
             usage(argv[0]);
             return 0;
@@ -565,6 +569,13 @@ int main(int argc, char** argv)
     if (loaded < 0) {
         fprintf(stderr, "decomp_render: load failed: %s\n", error);
         return 1;
+    }
+    while (toggle_mode-- > 0) {
+        if (!render_scene_toggle_mode(&scene, error, sizeof(error))) {
+            fprintf(stderr, "decomp_render: mode toggle failed: %s\n",
+                    error);
+            return 1;
+        }
     }
     printf("decomp_render: %s root=%p scale=%.4f hidden_dobjs=%d\n",
            scene.stage_mode ? scene.stage : scene.model,

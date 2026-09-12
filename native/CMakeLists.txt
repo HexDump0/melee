@@ -100,7 +100,7 @@ target_include_directories(test_decomp_hsd PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src
     ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
 target_compile_options(test_decomp_hsd PRIVATE
-    -m32 -w -ffunction-sections -fdata-sections -DPORT_PC=1
+    -m32 -malign-double -w -ffunction-sections -fdata-sections -DPORT_PC=1
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
 target_link_libraries(test_decomp_hsd PRIVATE m)
 target_link_options(test_decomp_hsd PRIVATE -m32 "LINKER:--gc-sections")
@@ -142,7 +142,7 @@ target_include_directories(test_decomp_assets PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src
     ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
 target_compile_options(test_decomp_assets PRIVATE
-    -m32 -w -ffunction-sections -fdata-sections -DPORT_PC=1
+    -m32 -malign-double -w -ffunction-sections -fdata-sections -DPORT_PC=1
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
 target_link_libraries(test_decomp_assets PRIVATE m)
 target_link_options(test_decomp_assets PRIVATE -m32 "LINKER:--gc-sections")
@@ -199,7 +199,7 @@ target_include_directories(melee_decomp_game BEFORE PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src
     ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
 target_compile_options(melee_decomp_game PRIVATE
-    -m32 -w -fgnu89-inline -ffunction-sections -fdata-sections
+    -m32 -malign-double -w -fgnu89-inline -ffunction-sections -fdata-sections
     -Wno-error=incompatible-pointer-types -DPORT_PC=1
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
 set_source_files_properties(
@@ -216,6 +216,7 @@ set_source_files_properties(
 add_executable(melee_decomp_boot
     decomp/boot/boot_main.c
     decomp/boot/boot_triage.c
+    decomp/boot/match_boot.c
     decomp/debug_port.c
     decomp/sdk_math.c
     decomp/assets/hsd_convert.c
@@ -239,12 +240,12 @@ target_include_directories(melee_decomp_boot SYSTEM PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src
     ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
 target_compile_options(melee_decomp_boot PRIVATE
-    -m32 -Wall -Wextra -Wpedantic -fgnu89-inline
+    -m32 -malign-double -Wall -Wextra -Wpedantic -fgnu89-inline
     -ffunction-sections -fdata-sections -rdynamic -D_GNU_SOURCE
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
 target_link_libraries(melee_decomp_boot PRIVATE m ${CMAKE_DL_LIBS})
 target_link_options(melee_decomp_boot PRIVATE
-    -m32 -rdynamic "LINKER:--gc-sections")
+    -m32 -malign-double -rdynamic "LINKER:--gc-sections")
 add_test(NAME decomp_boot
     COMMAND melee_decomp_boot --boot-frames 5 --boot-timeout 5)
 set_tests_properties(decomp_boot PROPERTIES
@@ -297,13 +298,13 @@ target_include_directories(test_decomp_render SYSTEM PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src
     ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
 target_compile_options(test_decomp_render PRIVATE
-    -m32 -Wall -Wextra -Wpedantic -Wno-overlength-strings -fgnu89-inline
+    -m32 -malign-double -Wall -Wextra -Wpedantic -Wno-overlength-strings -fgnu89-inline
     -ffunction-sections -fdata-sections -rdynamic -D_GNU_SOURCE
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
 target_link_libraries(test_decomp_render PRIVATE m EGL GLESv2
     ${CMAKE_DL_LIBS})
 target_link_options(test_decomp_render PRIVATE
-    -m32 -rdynamic "LINKER:--gc-sections")
+    -m32 -malign-double -rdynamic "LINKER:--gc-sections")
 add_test(NAME decomp_render COMMAND test_decomp_render
     --shot ${CMAKE_CURRENT_BINARY_DIR}/decomp_render.bmp)
 set_tests_properties(decomp_render PROPERTIES
@@ -327,6 +328,13 @@ set_tests_properties(decomp_stage PROPERTIES
 add_test(NAME decomp_stage_cam COMMAND test_decomp_render
     --stage GrNBa.dat --fighter PlMrNr.dat --stage-cam)
 set_tests_properties(decomp_stage_cam PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
+    PASS_REGULAR_EXPRESSION "decomp_render: PASS")
+# P-619 regression: stage -> model mode switch (viewer M key) must reload the
+# remembered model, not the first archive in the list.
+add_test(NAME decomp_stage_toggle COMMAND test_decomp_render
+    --stage GrNBa.dat --toggle-mode 1 --no-gl)
+set_tests_properties(decomp_stage_toggle PROPERTIES
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
     PASS_REGULAR_EXPRESSION "decomp_render: PASS")
 if(MELEE_SANITIZE)
@@ -376,7 +384,7 @@ if(MELEE_SDL3_LIB32)
       ${CMAKE_CURRENT_SOURCE_DIR}/../src
       ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
   target_compile_options(melee_decomp_viewer PRIVATE
-      -m32 -Wall -Wextra -Wpedantic -Wno-overlength-strings -fgnu89-inline
+      -m32 -malign-double -Wall -Wextra -Wpedantic -Wno-overlength-strings -fgnu89-inline
       -ffunction-sections -fdata-sections -rdynamic -D_GNU_SOURCE
       -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
   # SDL3 requires a 1-byte _Bool, so the viewer TU opts out of the bool=int
@@ -386,7 +394,7 @@ if(MELEE_SDL3_LIB32)
   target_link_libraries(melee_decomp_viewer PRIVATE
       ${MELEE_SDL3_LIB32} m EGL GLESv2 ${CMAKE_DL_LIBS})
   target_link_options(melee_decomp_viewer PRIVATE
-      -m32 -rdynamic "LINKER:--gc-sections")
+      -m32 -malign-double -rdynamic "LINKER:--gc-sections")
 else()
   message(STATUS "32-bit SDL3 not found; skipping melee_decomp_viewer")
 endif()
