@@ -162,6 +162,54 @@ int disc_load_default(const char *image_path, DiscFile *out, char *error, size_t
 }
 void disc_free(DiscFile *asset) { if (asset) { free(asset->data); asset->data=NULL; asset->size=0; } }
 
+int disc_mount(const char *image_path, DiscImage **out, char *error,
+               size_t error_size)
+{
+    Disc *d;
+    if (image_path == NULL || out == NULL) {
+        set_error(error, error_size, "bad argument");
+        return DISC_BAD_ARGUMENT;
+    }
+    d = malloc(sizeof(*d));
+    if (d == NULL) {
+        set_error(error, error_size, "out of memory");
+        return DISC_OUT_OF_MEMORY;
+    }
+    if (!disc_open(d, image_path)) {
+        free(d);
+        set_error(error, error_size, "cannot open disc image");
+        return DISC_OPEN_FAILED;
+    }
+    *out = (DiscImage *) d;
+    set_error(error, error_size, "ok");
+    return DISC_OK;
+}
+
+int disc_image_read(const DiscImage *image, uint64_t offset, void *dst,
+                    size_t size)
+{
+    if (image == NULL || dst == NULL) {
+        return DISC_BAD_ARGUMENT;
+    }
+    if (!disc_read((Disc *) image, offset, dst, size)) {
+        return DISC_IO_ERROR;
+    }
+    return DISC_OK;
+}
+
+uint64_t disc_image_size(const DiscImage *image)
+{
+    return image != NULL ? ((const Disc *) image)->file_size : 0;
+}
+
+void disc_unmount(DiscImage *image)
+{
+    if (image != NULL) {
+        disc_close((Disc *) image);
+        free(image);
+    }
+}
+
 void disc_list_free(DiscFileList *list)
 {
     size_t i;

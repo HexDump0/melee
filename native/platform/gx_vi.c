@@ -18,6 +18,7 @@
 #include <dolphin/vi.h>
 
 #include "decomp/boot/boot_triage.h"
+#include "platform/complete.h"
 #include "platform/platform.h"
 
 /* ------------------------------------------------------------ render modes
@@ -203,6 +204,9 @@ void VIInit(void)
  * the virtual clock, and charge the S1 frame budget. */
 void VIWaitForRetrace(void)
 {
+    /* Loader wait loops spin on this; hardware completions that were posted
+     * while interrupts stayed disabled also get delivered here. */
+    platform_pump_completions();
     vi_retrace_count++;
     if (vi_pre_callback != NULL) {
         vi_pre_callback(vi_retrace_count);

@@ -74,6 +74,7 @@ add_test(NAME decomp_mtx COMMAND test_decomp_mtx)
 add_executable(test_decomp_hsd
     tests/test_decomp_hsd.c
     platform/disc.c
+    decomp/assets/hsd_convert.c
     decomp/sdk_math.c
     decomp/hsd_port_stubs.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/archive.c
@@ -142,7 +143,11 @@ list(REMOVE_ITEM MELEE_DECOMP_SOURCES
 list(APPEND MELEE_DECOMP_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/os/OSArena.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/os/OSAlloc.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/mtx/mtx44.c)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/mtx/mtx44.c
+    # S3: the real DVDFS path/FST logic and the ARQ DMA queue; the drive and
+    # ARAM hardware under them live in native/platform/{dvd,ar}.c.
+    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/dvd/dvdfs.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/ar/arq.c)
 
 add_library(melee_decomp_game OBJECT ${MELEE_DECOMP_SOURCES})
 target_include_directories(melee_decomp_game BEFORE PRIVATE
@@ -151,20 +156,33 @@ target_include_directories(melee_decomp_game BEFORE PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
 target_compile_options(melee_decomp_game PRIVATE
     -m32 -w -fgnu89-inline -ffunction-sections -fdata-sections
+    -Wno-error=incompatible-pointer-types
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
 set_source_files_properties(
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/melee/gm/gmmain.c
     PROPERTIES COMPILE_DEFINITIONS "main=gm_main")
+
+# S3: archive.c defines the real HSD_ArchiveParse; the converter TU implements
+# the platform entry point.  Every other TU sees the shim's rename.
+set_source_files_properties(
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/archive.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/decomp/assets/hsd_convert.c
+    PROPERTIES COMPILE_DEFINITIONS "MELEE_ARCHIVE_INTERNAL=1")
 
 add_executable(melee_decomp_boot
     decomp/boot/boot_main.c
     decomp/boot/boot_triage.c
     decomp/debug_port.c
     decomp/sdk_math.c
+    decomp/assets/hsd_convert.c
     decomp/gx/gx_hle.c
     platform/os.c
     platform/gx_vi.c
     platform/dvd.c
+    platform/disc.c
+    platform/ar.c
+    platform/ssm.c
+    platform/complete.c
     platform/pad_card.c
     platform/audio.c
     platform/font_stub.c
@@ -184,9 +202,10 @@ target_link_libraries(melee_decomp_boot PRIVATE m ${CMAKE_DL_LIBS})
 target_link_options(melee_decomp_boot PRIVATE
     -m32 -rdynamic "LINKER:--gc-sections")
 add_test(NAME decomp_boot
-    COMMAND melee_decomp_boot --boot-frames 5 --boot-timeout 30)
+    COMMAND melee_decomp_boot --boot-frames 5 --boot-timeout 5)
 set_tests_properties(decomp_boot PROPERTIES
-    PASS_REGULAR_EXPRESSION "\\[boot\\] summary")
+    PASS_REGULAR_EXPRESSION "\\[boot\\] summary"
+    TIMEOUT 30)
 if(MELEE_SANITIZE)
   target_compile_options(melee_decomp_boot PRIVATE
       -fsanitize=address,undefined -fno-omit-frame-pointer)
@@ -207,6 +226,7 @@ add_executable(test_decomp_render
     tests/test_decomp_render.c
     decomp/render/render_scene.c
     decomp/hsd/hsd_scene.c
+    decomp/assets/hsd_convert.c
     decomp/gx/gx_hle.c
     decomp/gx/gx_gl.c
     decomp/debug_port.c
@@ -218,6 +238,9 @@ add_executable(test_decomp_render
     platform/os.c
     platform/gx_vi.c
     platform/dvd.c
+    platform/ar.c
+    platform/ssm.c
+    platform/complete.c
     platform/pad_card.c
     platform/audio.c
     platform/font_stub.c
@@ -265,6 +288,7 @@ if(MELEE_SDL3_LIB32)
       decomp/render/render_scene.c
       decomp/render/hud.c
       decomp/hsd/hsd_scene.c
+      decomp/assets/hsd_convert.c
       decomp/gx/gx_hle.c
       decomp/gx/gx_gl.c
       decomp/debug_port.c
@@ -276,6 +300,9 @@ if(MELEE_SDL3_LIB32)
       platform/os.c
       platform/gx_vi.c
       platform/dvd.c
+      platform/ar.c
+      platform/ssm.c
+      platform/complete.c
       platform/pad_card.c
       platform/audio.c
       platform/font_stub.c

@@ -11,6 +11,8 @@
 #include <sysdolphin/baselib/sislib.h>
 #include <sysdolphin/baselib/sislib_font.h>
 
+#include <melee/lb/lbarchive.h>
+
 #include "decomp/boot/boot_triage.h"
 
 DebugFontGlyph HSD_DebugFontAtlas[256];
@@ -318,13 +320,13 @@ void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
 
 HSD_Archive* HSD_SisLib_803A945C(char* name)
 {
-    (void) name;
-    boot_triage_stub("HSD_SisLib_803A945C", BOOT_CAT_HSD);
-    return NULL;
+    /* src/sysdolphin/baselib/hsd_3A76.c defines this as a plain archive load.
+     * The rest of that TU is excluded for the generated font atlases, but the
+     * archive plumbing is real and exercises the S3 DVD + converter path. */
+    return lbArchive_LoadArchive(name);
 }
 
 void HSD_SisLib_803A947C(HSD_Archive* archive)
 {
-    (void) archive;
-    boot_triage_stub("HSD_SisLib_803A947C", BOOT_CAT_HSD);
+    lbArchive_80016EFC(archive);
 }

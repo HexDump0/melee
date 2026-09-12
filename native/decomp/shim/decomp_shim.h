@@ -30,4 +30,15 @@
  */
 #include <stdint.h>
 
+/*
+ * S3 asset pipeline: every decompiled `HSD_ArchiveParse` call goes through the
+ * platform converter first, which turns the caller's archive buffer from
+ * big-endian GameCube data into host order in place (and consults the
+ * conversion cache).  archive.c itself and the converter TU define
+ * MELEE_ARCHIVE_INTERNAL so they see the real symbol.
+ */
+#ifndef MELEE_ARCHIVE_INTERNAL
+#define HSD_ArchiveParse melee_port_HSD_ArchiveParse
+#endif
+
 #endif /* MELEE_NATIVE_DECOMP_SHIM_H */

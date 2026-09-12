@@ -29,6 +29,7 @@
 #include <sys/mman.h>
 
 #include "decomp/boot/boot_triage.h"
+#include "platform/complete.h"
 
 #define OS_TICKS_PER_MSEC 40500ULL
 #define OS_TICKS_PER_SEC 40500000ULL
@@ -36,13 +37,16 @@
 #define OS_ARENA_SIZE (24u * 1024u * 1024u)
 
 /*
- * The decomp's SDK macros read the cached hardware-register page directly,
- * e.g. OS_TIMER_CLOCK expands to *(u32*)0x800000F8 / 4.  The host must put
- * real memory there before any of those macros is evaluated.  GameCube bus
- * clock is 162 MHz (timer 40.5 MHz); core clock 486 MHz.
+ * GameCube main RAM lives at the cached address 0x80000000 and the first
+ * 0x3000 bytes are the OS boot info (disk ID, clock speeds, arena bounds).
+ * The port maps the whole 24 MB there so compiled game code that classifies
+ * pointers by address keeps working: e.g. `lbFile_800164A4` chooses the DVD
+ * read type from `dst >= 0x80000000` and `ftData_80085E50` decides between an
+ * ARAM DMA and a memcpy with `addr < 0x80000000`.
  */
 #define GC_CACHED_BASE 0x80000000u
-#define GC_CACHED_SIZE 0x10000u
+#define GC_BOOT_INFO_SIZE 0x3000u
+#define GC_RAM_SIZE OS_ARENA_SIZE
 #define GC_BUS_CLOCK 162000000u
 #define GC_CORE_CLOCK 486000000u
 #define GC_PHYS_MEM_SIZE_OFF 0x0028u
@@ -55,17 +59,18 @@
 #define MAP_FIXED_NOREPLACE MAP_FIXED
 #endif
 
-static void map_gc_hardware_page(void)
+static void map_gc_ram(void)
 {
     void* page;
 
-    page = mmap((void*) GC_CACHED_BASE, GC_CACHED_SIZE, PROT_READ | PROT_WRITE,
+    page = mmap((void*) GC_CACHED_BASE, GC_RAM_SIZE,
+                PROT_READ | PROT_WRITE,
                 MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
     if (page == MAP_FAILED) {
-        boot_triage_note(
-            "[boot] OSInit: cannot map GC hardware page at 0x%08x; "
-            "absolute hardware reads will fault\n",
-            GC_CACHED_BASE);
+        boot_triage_note("[boot] OSInit: cannot map GC main RAM at 0x%08x; "
+                         "compiled game code cannot run\n",
+                         GC_CACHED_BASE);
+        boot_triage_stop("OSInit: GC main RAM mapping failed");
         return;
     }
     *(volatile u32*) (GC_CACHED_BASE + GC_PHYS_MEM_SIZE_OFF) = OS_ARENA_SIZE;
@@ -81,23 +86,18 @@ static BOOL interrupts_enabled = TRUE;
 static OSContext current_context;
 static OSErrorHandler error_table[OS_ERROR_MAX];
 
-static void* arena_start;
-
 /* ------------------------------------------------------------- arena / init */
 
 void OSInit(void)
 {
     boot_triage_real("OSInit", BOOT_CAT_OS);
 
-    map_gc_hardware_page();
-
-    arena_start = malloc(OS_ARENA_SIZE);
-    if (arena_start == NULL) {
-        boot_triage_note("[boot] OSInit: arena allocation failed\n");
-        boot_triage_stop("OSInit: arena allocation failed");
-    }
-    OSSetArenaLo(arena_start);
-    OSSetArenaHi((char*) arena_start + OS_ARENA_SIZE);
+    map_gc_ram();
+    /* Boot info keeps the first 0x3000 bytes, like the console; the arena is
+     * the rest of main RAM. */
+    OSSetArenaLo((void*) (GC_CACHED_BASE + GC_BOOT_INFO_SIZE));
+    OSSetArenaHi((void*) (GC_CACHED_BASE + GC_RAM_SIZE));
+    platform_complete_init();
 }
 
 u32 OSGetPhysicalMemSize(void)
@@ -202,7 +202,11 @@ void OSTicksToCalendarTime(OSTime ticks, OSCalendarTime* td)
     td->yday += td->mday - 1;
 }
 
-/* --------------------------------------------------------------- interrupts */
+/* --------------------------------------------------------------- interrupts
+ * The GameCube delivers hardware completions (DVD, ARQ DMA) from interrupt
+ * handlers, so the host runs its deferred completion queue at the point
+ * interrupts become enabled again.  DevCom/ARQ set their busy flags before
+ * that point, which is what keeps their re-entrancy-safe. */
 
 BOOL OSDisableInterrupts(void)
 {
@@ -214,8 +218,9 @@ BOOL OSDisableInterrupts(void)
 BOOL OSRestoreInterrupts(BOOL level)
 {
     BOOL old = interrupts_enabled;
+    interrupts_enabled = level;
     if (level) {
-        interrupts_enabled = TRUE;
+        platform_pump_completions();
     }
     return old;
 }
@@ -391,6 +396,27 @@ void OSPanic(char* file, int line, char* msg, ...)
 /* ------------------------------------------------------- alarm / thread stubs
  * The S1 boot does not schedule; the triage log records every hit so S4 can
  * quantify what a real thread/alarm backend must provide. */
+
+/* DVDFS's synchronous DVDReadPrio uses this queue.  Host DVD reads complete
+ * before the status loop runs (the block state is set by the backend), so the
+ * thread never actually has to block. */
+void OSInitThreadQueue(OSThreadQueue* queue)
+{
+    if (queue != NULL) {
+        memset(queue, 0, sizeof(*queue));
+    }
+}
+
+void OSSleepThread(OSThreadQueue* queue)
+{
+    (void) queue;
+    platform_pump_completions();
+}
+
+void OSWakeupThread(OSThreadQueue* queue)
+{
+    (void) queue;
+}
 
 void OSInitAlarm(void)
 {

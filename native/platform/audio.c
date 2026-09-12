@@ -61,73 +61,9 @@ void AISetDSPSampleRate(u32 rate)
     boot_triage_stub("AISetDSPSampleRate", BOOT_CAT_AX);
 }
 
-/* ---------------------------------------------------------------------- AR */
-
-/*
- * Host ARAM model: a bump allocator over a 16 MB window starting at
- * 0x10000000.  The synth's bank allocator only checks addresses and sizes
- * (HSD_SynthSFXAllocateBank), never dereferences them in S1, so a monotonic
- * host window is enough for the boot to lay out its banks exactly once.
- */
-#define ARAM_BASE 0x10000000u
-#define ARAM_SIZE (16u * 1024u * 1024u)
-
-static u32 aram_next;
-
-u32 ARInit(u32* stack_index_addr, u32 num_entries)
-{
-    (void) stack_index_addr;
-    (void) num_entries;
-    boot_triage_real("ARInit", BOOT_CAT_AR);
-    aram_next = ARAM_BASE;
-    return ARAM_BASE;
-}
-
-u32 ARGetSize(void)
-{
-    return ARAM_SIZE;
-}
-
-u32 ARAlloc(u32 length)
-{
-    u32 ptr = (aram_next + 31) & ~31u;
-
-    boot_triage_real("ARAlloc", BOOT_CAT_AR);
-    if (ptr + length > ARAM_BASE + ARAM_SIZE) {
-        boot_triage_note("[boot] ARAlloc: host ARAM exhausted (%u bytes)\n",
-                         length);
-        return 0;
-    }
-    aram_next = ptr + length;
-    return ptr;
-}
-
-u32 ARFree(u32* length)
-{
-    (void) length;
-    boot_triage_stub("ARFree", BOOT_CAT_AR);
-    return 0;
-}
-
-void ARQInit(void)
-{
-    boot_triage_stub("ARQInit", BOOT_CAT_AR);
-}
-
-void ARQPostRequest(struct ARQRequest* request, u32 owner, u32 type,
-                    u32 priority, u32 source, u32 dest, u32 length,
-                    ARQCallback callback)
-{
-    (void) request;
-    (void) owner;
-    (void) type;
-    (void) priority;
-    (void) source;
-    (void) dest;
-    (void) length;
-    (void) callback;
-    boot_triage_stub("ARQPostRequest", BOOT_CAT_AR);
-}
+/* -------------------------------------------------------------- AR (S3)
+ * ARInit/ARAlloc/ARFree live in platform/ar.c (host ARAM); ARQInit and
+ * ARQPostRequest come from the compiled extern/dolphin ARQ queue. */
 
 /* ---------------------------------------------------------------------- AX */
 
