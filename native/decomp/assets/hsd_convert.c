@@ -2891,11 +2891,21 @@ int hsd_asset_convert(unsigned char* data, size_t size,
  * conversion runs on the caller's buffer, then the real parser relocates the
  * now host-order pointers.
  */
+static void (*asset_register_hook)(const void*, size_t);
+
+void hsd_asset_set_register_hook(void (*fn)(const void*, size_t))
+{
+    asset_register_hook = fn;
+}
+
 s32 melee_port_HSD_ArchiveParse(HSD_Archive* archive, u8* src,
                                 size_t file_size)
 {
     if (src != NULL && file_size >= HSD_PREFIX_SIZE) {
         hsd_asset_convert((unsigned char*) src, file_size, NULL);
+        if (asset_register_hook != NULL) {
+            asset_register_hook(src, file_size);
+        }
     }
     return HSD_ArchiveParse(archive, src, file_size);
 }

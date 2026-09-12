@@ -973,3 +973,18 @@ consumed `DvdCompletion*` was still in the queue; a callback that calls
 `DVDCancel` visits the queue and reads the freed entry.
 **Fix:** clear each queue slot (`fn`/`arg` = NULL) before invoking its
 callback, and skip NULL slots in `platform_visit_completions`.
+
+## G-087: the viewer inherited the boot triage's 60-frame budget
+
+**Symptom:** `melee_decomp_viewer --match --frames 150` presented 60 frames,
+printed nothing after frame 60, exited 0 and never wrote `--shot`; it looked
+like a hang or the game exiting on its own.
+**Cause:** `boot_triage_frame()` stops at the static default
+`frame_budget = 60`; only `--boot-frames` sets it, and the viewer called
+`boot_triage_init(..., 0, 0)` without touching the budget, so
+`boot_triage_stop("frame budget reached")` called `exit(0)` from inside
+`VIWaitForRetrace`.
+**Fix:** `run_match` calls `boot_triage_set_frame_budget(limit + 240)` (0 =
+unlimited when no `--frames` is given).  When a viewer match stops early, run
+it under `gdb` with a breakpoint on `exit` or check the triage stop reason
+before debugging the game.

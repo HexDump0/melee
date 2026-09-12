@@ -22,6 +22,11 @@ void boot_platform_idle_tick(void);
  * The S4 boot uses it to script scene transitions (no window/OS thread yet). */
 void boot_platform_set_frame_hook(void (*hook)(void));
 
+/* Called once per emulated VI frame, after the frame hook.  The match viewer
+ * uses it to render and present the GX HLE frame captured during the previous
+ * game frame and to start the next capture. */
+void boot_platform_set_present_hook(void (*hook)(void));
+
 /*
  * Deterministic scripted input (S4).  `frames` is frame-major and
  * channel-minor: frames[frame * channels + channel].  Once the script is
@@ -41,6 +46,10 @@ typedef struct PadInputFrame {
 
 void pad_set_input_script(const PadInputFrame* frames, unsigned channels,
                           unsigned frame_count);
+
+/* When enabled the script restarts from frame 0 after its last frame instead
+ * of holding the last frame (the viewer's looping full-match demo input). */
+void pad_set_input_loop(int enable);
 
 /* Number of PADRead calls since the script was installed. */
 unsigned pad_input_frame(void);

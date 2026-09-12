@@ -25,6 +25,7 @@ static const PadInputFrame* pad_script;
 static unsigned pad_script_channels;
 static unsigned pad_script_frames;
 static unsigned pad_script_frame;
+static int pad_script_loop;
 
 void pad_set_input_script(const PadInputFrame* frames, unsigned channels,
                           unsigned frame_count)
@@ -33,6 +34,11 @@ void pad_set_input_script(const PadInputFrame* frames, unsigned channels,
     pad_script_channels = channels;
     pad_script_frames = frame_count;
     pad_script_frame = 0;
+}
+
+void pad_set_input_loop(int enable)
+{
+    pad_script_loop = enable != 0;
 }
 
 unsigned pad_input_frame(void)
@@ -57,8 +63,12 @@ static void pad_apply_script(PADStatus* status, int chan)
         status->err = PAD_ERR_NO_CONTROLLER;
         return;
     }
-    frame = pad_script_frame < pad_script_frames ? pad_script_frame
-                                                 : pad_script_frames - 1;
+    frame = pad_script_frame;
+    if (pad_script_loop) {
+        frame %= pad_script_frames;
+    } else if (frame >= pad_script_frames) {
+        frame = pad_script_frames - 1;
+    }
     f = &pad_script[frame * pad_script_channels + (unsigned) chan];
     status->err = PAD_ERR_NONE;
     status->button = f->buttons;

@@ -1350,6 +1350,44 @@ int gx_gl_save_bmp(const char* path)
     return 1;
 }
 
+int gx_gl_write_ppm(FILE* f)
+{
+    unsigned char* rgba_pixels;
+    size_t row;
+    int ok = 1;
+
+    if (program == 0 || f == NULL) {
+        return 0;
+    }
+    rgba_pixels = (unsigned char*) malloc((size_t) gl_width * gl_height * 4);
+    if (rgba_pixels == NULL) {
+        return 0;
+    }
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glFinish();
+    glReadPixels(0, 0, gl_width, gl_height, GL_RGBA, GL_UNSIGNED_BYTE,
+                 rgba_pixels);
+    if (fprintf(f, "P6\n%d %d\n255\n", gl_width, gl_height) < 0) {
+        ok = 0;
+    }
+    /* GL rows are bottom-up; PPM rows are top-down. */
+    for (row = (size_t) gl_height; row-- > 0 && ok;) {
+        const unsigned char* src = rgba_pixels + row * (size_t) gl_width * 4;
+        size_t x;
+        for (x = 0; x < (size_t) gl_width; ++x) {
+            if (fputc(src[0], f) == EOF || fputc(src[1], f) == EOF ||
+                fputc(src[2], f) == EOF)
+            {
+                ok = 0;
+                break;
+            }
+            src += 4;
+        }
+    }
+    free(rgba_pixels);
+    return ok;
+}
+
 void gx_gl_shutdown(void)
 {
     if (egl_display != EGL_NO_DISPLAY) {

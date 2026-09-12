@@ -10,6 +10,14 @@
  *   melee_decomp_viewer [--disc PATH] [--model NAME] [--width N] [--height N]
  *                       [--angle DEG] [--elevation DEG] [--zoom F]
  *                       [--frames N] [--shot FILE] [--hidden] [--no-lights]
+ *                       [--match [FRAME]]   live compiled match (S4)
+ *                       [--record FILE|-] [--record-every N]  PPM frames
+ *
+ * `--match` runs the compiled game itself (Link vs Mario, Final Destination)
+ * with scripted PAD input and presents every VI frame.  With no `--frames`
+ * it plays until ESC/window close, paced at 60 Hz, looping the input script
+ * so a full match stays in action.  `--record` streams raw PPM frames
+ * (concatenated P6) for ffmpeg; `-` writes to stdout.
  *
  * Keys: drag orbit, wheel zoom, N/P model, [ ] part, V part mode, shift+V
  *       variant, B slot, Y hidden, L lights, T textures, W wireframe, C cull,
@@ -21,11 +29,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
+#include "decomp/assets/hsd_convert.h"
+#include "decomp/boot/boot_triage.h"
+#include "decomp/boot/match_boot.h"
 #include "decomp/gx/gx_gl.h"
 #include "decomp/gx/gx_hle.h"
 #include "decomp/render/hud.h"
 #include "decomp/render/render_scene.h"
+#include "platform/platform.h"
+
+extern int gm_main(void);
 
 typedef struct Viewer {
     RenderScene scene;
@@ -267,11 +282,137 @@ static void usage(const char* argv0)
             "          [--no-fighter] [--width N] [--height N]\n"
             "          [--angle DEG] [--elevation DEG] [--zoom F]\n"
             "          [--frames N] [--shot FILE] [--hidden] [--no-lights]\n"
+            "          [--match [FRAME]] [--record FILE|-] [--record-every N]\n"
             "          [--unlit] [--wire] [--no-hud] [--cycle N] [--spin DEG]\n"
             "          [--cycle-maps N] [--freecam]\n"
             "          [--no-cull] [--no-alpha-test] [--part N] [--part-mode "
             "all|only|hide]\n",
             argv0);
+}
+
+/*
+ * Live match mode (S4): runs the compiled game's own main() in this process
+ * and presents the GX HLE frame captured during each game frame.  The game
+ * owns the simulation; this process only supplies the window, the GL context
+ * and the VI-frame present hook.
+ */
+typedef struct MatchView {
+    SDL_Window* window;
+    SDL_GLContext context;
+    const char* shot;
+    FILE* record;
+    Uint64 start_ns;
+    unsigned record_every;
+    int shot_written;
+    unsigned frames;
+    unsigned limit;
+    int quit;
+} MatchView;
+
+static MatchView match_view;
+
+static void match_present(void)
+{
+    SDL_Event e;
+
+    if (match_view.quit) {
+        SDL_GL_DestroyContext(match_view.context);
+        SDL_DestroyWindow(match_view.window);
+        SDL_Quit();
+        exit(0);
+    }
+    while (SDL_PollEvent(&e)) {
+        if (e.type == SDL_EVENT_QUIT) {
+            match_view.quit = 1;
+        } else if (e.type == SDL_EVENT_KEY_DOWN &&
+                   e.key.key == SDLK_ESCAPE)
+        {
+            match_view.quit = 1;
+        }
+    }
+    if (match_view.quit) {
+        return;
+    }
+
+    match_view.frames++;
+    {
+        int draws = gx_gl_render_frame();
+        if ((match_view.frames % 30) == 0) {
+            fprintf(stderr, "[match] frame %u draws=%d\n", match_view.frames,
+                    draws);
+        }
+    }
+    if (match_view.record != NULL &&
+        (match_view.frames % match_view.record_every) == 0)
+    {
+        gx_gl_write_ppm(match_view.record);
+        fflush(match_view.record);
+    }
+    if (match_view.shot != NULL && !match_view.shot_written &&
+        match_view.limit != 0 && match_view.frames >= match_view.limit)
+    {
+        match_view.shot_written = gx_gl_save_bmp(match_view.shot);
+    }
+    SDL_GL_SwapWindow(match_view.window);
+    gx_hle_begin_frame();
+
+    /* Interactive sessions run at the GameCube's 60 Hz regardless of the
+     * display refresh; capture/record runs stay unthrottled. */
+    if (match_view.record == NULL && match_view.shot == NULL) {
+        Uint64 target;
+        Uint64 now;
+        if (match_view.start_ns == 0) {
+            match_view.start_ns = SDL_GetTicksNS();
+        }
+        target = match_view.start_ns +
+                 (Uint64) match_view.frames * 1000000000ull / 60u;
+        now = SDL_GetTicksNS();
+        if (target > now) {
+            SDL_DelayNS(target - now);
+        }
+    }
+
+    if (match_view.limit != 0 && match_view.frames >= match_view.limit) {
+        SDL_GL_DestroyContext(match_view.context);
+        SDL_DestroyWindow(match_view.window);
+        SDL_Quit();
+        exit(0);
+    }
+}
+
+static int run_match(SDL_Window* window, SDL_GLContext context,
+                     const char* shot, FILE* record, unsigned record_every,
+                     unsigned match_frame, unsigned limit, GxGlOptions* gl)
+{
+    FILE* devnull = fopen("/dev/null", "w");
+
+    match_view.window = window;
+    match_view.context = context;
+    match_view.shot = shot;
+    match_view.record = record;
+    match_view.start_ns = 0;
+    match_view.record_every = record_every != 0 ? record_every : 1;
+    match_view.shot_written = 0;
+    match_view.frames = 0;
+    match_view.limit = limit;
+    match_view.quit = 0;
+
+    boot_triage_init(devnull != NULL ? devnull : stderr, 0, 0);
+    boot_triage_set_frame_budget(limit != 0 ? limit + 240 : 0);
+    hsd_asset_set_register_hook(gx_hle_register_asset);
+    gx_gl_set_options(gl);
+    boot_platform_set_present_hook(match_present);
+    match_boot_init(match_frame);
+    /* The S4 script is deterministic but finite; loop it so a full match
+     * keeps playing until the window is closed. */
+    pad_set_input_loop(1);
+    fprintf(stderr,
+            "viewer: match mode: compiled game, real camera, scripted PAD "
+            "input%s%s\n",
+            limit != 0 ? "" : " (looping, 60 Hz, ESC quits)",
+            record != NULL ? " (recording)" : "");
+    gm_main();
+    return 0;
 }
 
 int main(int argc, char** argv)
@@ -280,6 +421,9 @@ int main(int argc, char** argv)
     Viewer viewer;
     Viewer* v = &viewer;
     const char* shot = NULL;
+    const char* record_path = NULL;
+    FILE* record = NULL;
+    unsigned record_every = 1;
     int width = 1280;
     int height = 800;
     int frames = 0;
@@ -290,6 +434,8 @@ int main(int argc, char** argv)
     float spin = 0.0f;
     int hidden = 0;
     int want_shot = 0;
+    int match_mode = 0;
+    unsigned match_frame = 20;
     int quit = 0;
     int frame_count = 0;
     int draws = 0;
@@ -318,6 +464,17 @@ int main(int argc, char** argv)
             opt.disc = argv[++i];
         } else if (strcmp(argv[i], "--model") == 0 && (int) i + 1 < argc) {
             opt.model = argv[++i];
+        } else if (strcmp(argv[i], "--match") == 0) {
+            match_mode = 1;
+            if ((int) i + 1 < argc && argv[i + 1][0] != '-') {
+                match_frame = (unsigned) strtoul(argv[++i], NULL, 0);
+            }
+        } else if (strcmp(argv[i], "--record") == 0 &&
+                   (int) i + 1 < argc) {
+            record_path = argv[++i];
+        } else if (strcmp(argv[i], "--record-every") == 0 &&
+                   (int) i + 1 < argc) {
+            record_every = (unsigned) strtoul(argv[++i], NULL, 0);
         } else if (strcmp(argv[i], "--stage") == 0 && (int) i + 1 < argc) {
             opt.stage = argv[++i];
         } else if (strcmp(argv[i], "--fighter") == 0 && (int) i + 1 < argc) {
@@ -394,6 +551,29 @@ int main(int argc, char** argv)
     opt.width = width;
     opt.height = height;
 
+    if (match_mode && record_path != NULL && strcmp(record_path, "-") == 0) {
+        /* Keep stdout clean for the PPM pipe: move logs to /dev/null and
+         * hand the original fd to the recorder before anything prints. */
+        int fd;
+        fflush(stdout);
+        fd = dup(STDOUT_FILENO);
+        if (fd >= 0) {
+            freopen("/dev/null", "w", stdout);
+            record = fdopen(fd, "wb");
+        }
+        if (record == NULL) {
+            fprintf(stderr, "viewer: cannot open record stdout\n");
+            return 1;
+        }
+    } else if (match_mode && record_path != NULL) {
+        record = fopen(record_path, "wb");
+        if (record == NULL) {
+            fprintf(stderr, "viewer: cannot open record output %s\n",
+                    record_path);
+            return 1;
+        }
+    }
+
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         fprintf(stderr, "viewer: SDL_Init failed: %s\n", SDL_GetError());
         return 1;
@@ -448,6 +628,15 @@ int main(int argc, char** argv)
     }
     gx_gl_set_clear(0.05f, 0.06f, 0.09f, 1.0f);
     gx_gl_set_options(&v->gl);
+    if (match_mode) {
+        int status = run_match(window, context, shot, record, record_every,
+                               match_frame, (unsigned) frames, &v->gl);
+        if (record != NULL) {
+            fclose(record);
+        }
+        return status;
+    }
+
     if (!hud_init(error, sizeof(error))) {
         fprintf(stderr, "viewer: hud init failed: %s\n", error);
         return 1;

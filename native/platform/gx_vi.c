@@ -52,6 +52,7 @@ static GXDrawDoneCallback gx_draw_done_callback;
 static VIRetraceCallback vi_pre_callback;
 static VIRetraceCallback vi_post_callback;
 static void (*vi_frame_hook)(void);
+static void (*vi_present_hook)(void);
 static u32 vi_retrace_count;
 
 /* extern/dolphin/src/dolphin/gx/GXTexture.c: __GXGetTexTileShift (0x2B) */
@@ -206,6 +207,11 @@ void boot_platform_set_frame_hook(void (*hook)(void))
     vi_frame_hook = hook;
 }
 
+void boot_platform_set_present_hook(void (*hook)(void))
+{
+    vi_present_hook = hook;
+}
+
 /* One emulated display frame: run the HSD pre/post retrace callbacks, advance
  * the virtual clock, and charge the S1 frame budget. */
 void VIWaitForRetrace(void)
@@ -223,6 +229,9 @@ void VIWaitForRetrace(void)
     boot_platform_advance_frame();
     if (vi_frame_hook != NULL) {
         vi_frame_hook();
+    }
+    if (vi_present_hook != NULL) {
+        vi_present_hook();
     }
     boot_triage_frame();
 }

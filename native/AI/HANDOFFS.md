@@ -46,6 +46,7 @@ something the next agent must know, or finish a task that changes interfaces.
 | 2026-09-12 | P-618 GX channel slots + lit raster alpha | opencode (deepseek-flash) | [`2026-09-12-P-618-gx-channel-alpha.md`](handoffs/2026-09-12-P-618-gx-channel-alpha.md) |
 | 2026-09-12 | P-620 S4 match runs frames; command-script bitfield repack next | opencode (deepseek-v4.1-flash) | [`2026-09-12-P-620-s4-scripts.md`](handoffs/2026-09-12-P-620-s4-scripts.md) |
 | 2026-09-12 | P-620 S4 complete: deterministic scripted match + PAD backend | opencode (deepseek-v4.1-flash) | [`2026-09-12-P-620-s4-match.md`](handoffs/2026-09-12-P-620-s4-match.md) |
+| 2026-09-12 | P-623 live match in the compiled viewer + PPM recording | opencode (deepseek-v4.1-flash) | [`2026-09-12-P-623-viewer-match.md`](handoffs/2026-09-12-P-623-viewer-match.md) |
 
 ## Template
 

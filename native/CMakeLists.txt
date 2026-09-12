@@ -372,6 +372,7 @@ if(MELEE_SDL3_LIB32)
       decomp/debug_port.c
       decomp/sdk_math.c
       decomp/boot/boot_triage.c
+      decomp/boot/match_boot.c
       gx/texture.c
       hsd/light.c
       platform/disc.c

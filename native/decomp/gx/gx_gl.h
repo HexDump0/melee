@@ -7,6 +7,7 @@
  * gx_hle and evaluates the captured GX TEV/channel/texture state.
  */
 #include <stddef.h>
+#include <stdio.h>
 
 /* Creates an EGL pbuffer context and compiles the TEV program (headless). */
 int gx_gl_init(int width, int height, char* error, size_t error_size);
@@ -42,6 +43,10 @@ int gx_gl_render_frame(void);
 
 /* Reads the pbuffer back and writes a 24-bit BMP. */
 int gx_gl_save_bmp(const char* path);
+
+/* Reads the pbuffer back and appends one binary PPM (P6) frame to `f`.
+ * Concatenated frames form an image2pipe stream for ffmpeg (--record). */
+int gx_gl_write_ppm(FILE* f);
 
 void gx_gl_set_clear(float r, float g, float b, float a);
 void gx_gl_shutdown(void);

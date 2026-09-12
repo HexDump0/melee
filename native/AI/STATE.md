@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-12 (P-620 S4 passed: deterministic scripted match, PAD backend, ctest 12/12, ASan clean)
+Last updated: 2026-09-12 (P-623: live match in the viewer with `--match` + `--record` PPM capture)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -96,6 +96,18 @@ PAD backend and scripted input are the S4 input deliverable; the remaining
 open items are P-616 (Falcon eyes), P-617 (indirect/toon) and P-621 (stage
 colors), plus the boot/title scene re-entry noted in the handoff.
 
+**P-623 (2026-09-12):** `melee_decomp_viewer --match` runs that match live:
+the compiled `main()` runs inside the viewer process, a new VI present hook
+(`boot_platform_set_present_hook`) renders the captured GX frame each game
+frame, and the scripted PAD inputs loop (`pad_set_input_loop`) so the match
+stays in action.  Without `--frames` it paces at 60 Hz and runs until
+ESC/window close; `--frames N --shot F` captures a still; `--record FILE|-`
+streams concatenated PPM (P6) frames for `ffmpeg -f image2pipe` (the 40 s
+`/tmp/melee_match.mp4` was produced this way).  The S4 deterministic boot path
+is unchanged (ctest 12/12, ASan 600-frame run byte-identical positions).
+Known render artifact: the "GO!" logo draws as a black quad for ~20 frames;
+audio is S5.  See `gotchas/GOTCHAS.md` G-087 (viewer triage frame budget).
+
 ## TL;DR
 
 A playable two-player sandbox runs natively on Linux, rendering real disc
@@ -178,6 +190,7 @@ lightmap phases, alpha test, XLU blend) and every fighter is scaled by its
 | EFB capture + Z-texture (P-615) | `GXCopyTex` reads the EFB back at its point in the command stream and re-encodes RGB565/RGBA8 tiled memory; `GXSetZTexture(REPLACE/ADD)` runs a dedicated depth-only program (`gl_FragDepth` is ignored inside the big TEV shader on Mesa, G-068).  Direct-mode quads now flush at every draw-affecting setter (G-069).  ctest `decomp_efb` |
 | Bump texgen (P-612) | `GX_VA_NBT` keeps binormal/tangent; `GX_TG_BUMP0..7` implements the hardware emboss formula; Giga Koopa renders correctly (green/orange, previously magenta).  Indirect state is captured (P-617 evaluates it in S4).  `--direct` covers both |
 | Owner visual checks | 180 Hz viewer animation speed confirmed correct; face texture artifact gone (2026-09-11) |
+| Live match viewer (P-623) | `melee_decomp_viewer --match` runs the compiled game in-process (Link vs Mario, Final Destination): Ready countdown, both fighters walking/jumping, KO + `SCORE -1`, camera pan/zoom, respawn platforms; looping PAD script at 60 Hz until ESC; `--record -` piped to ffmpeg produces a 40 s H.264 of the same run |
 
 ## Known issues / gaps
 
@@ -244,6 +257,10 @@ SDL_VIDEODRIVER=offscreen ./build/native/melee --view --frames 1 --no-grid \
 ./build/native/test_decomp_render --no-gl   # asset bridge + GX capture only
 ./build/native/melee_decomp_viewer          # interactive (needs lib32-sdl3)
 ./build/native/melee_decomp_viewer --frames 1 --hidden --shot /tmp/v.bmp
+./build/native/melee_decomp_viewer --match  # live match, 60 Hz, ESC quits
+./build/native/melee_decomp_viewer --match --frames 2400 --record - 2>/dev/null \
+    | ffmpeg -y -f image2pipe -framerate 60 -i - -c:v libx264 -crf 21 \
+      -pix_fmt yuv420p /tmp/melee_match.mp4
 ```
 
 Expected `--inspect` tail:

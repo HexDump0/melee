@@ -60,4 +60,12 @@ typedef struct HsdConvertStats {
 int hsd_asset_convert(unsigned char* data, size_t size,
                       HsdConvertStats* stats);
 
+/*
+ * Optional per-archive hook, called by `melee_port_HSD_ArchiveParse` for every
+ * archive (including the mini-archives).  The match viewer installs
+ * `gx_hle_register_asset` here so the GX HLE can decode display lists/vertex
+ * arrays that point into any loaded archive.
+ */
+void hsd_asset_set_register_hook(void (*fn)(const void*, size_t));
+
 #endif
