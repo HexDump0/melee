@@ -78,8 +78,8 @@ same camera and lights differ by:
 
 | Metric | Value |
 |---|---|
-| RMSE over the model area (HUD/footer excluded) | **10.57 / 255** |
-| RMSE over pixels the prototype renders | 28.6 / 255 |
+| RMSE over the model area (HUD/footer excluded) | **10.53 / 255** |
+| RMSE over pixels the prototype renders | 28.3 / 255 |
 
 Two TEV/GX semantics bugs were fixed after the first S2 pass (they made
 Mario's boots grey, Luigi look "creepy" again and Link black when lighting
@@ -100,9 +100,20 @@ came on):
    `HSD_StateInvalidate(-1)` after the reset; cycling through all 33 models
    and back renders byte-identically to a fresh load.
 
+A third decoder bug caused the owner-visible triangular holes (Mario's hat,
+Link's leg, Bowser's horns, Giga Bowser's spikes): the streaming primitive
+assembler reused a 4-slot ring for TRIANGLES and QUADS, so every group after
+the first read stale slots and permuted vertices.  Only strips were safe
+(they need just the last three vertices).  `exec_primitive` now keeps the
+current group and the fan origin; the world-vertex differential against the
+prototype's own parser (`--dump-verts`/`--dump-raw` in the prototype,
+`--dump-world` in `test_decomp_render`) is exact: 0 mismatched vertices of
+17,724, worst 1.9e-06.
+
 The remaining residual is the channel-1 specular approximation (the prototype
 uses Blinn-Phong `pow(N·H, shininess)`, GX hardware a rational polynomial);
-boots, Luigi's gloves/face and Link now match the prototype.
+boots, Luigi's gloves/face and Link now match the prototype.  Giga Koopa's
+limbs still show a noise texture (P-610, POBJ_SKIN path).
 
 Other documented deviations:
 

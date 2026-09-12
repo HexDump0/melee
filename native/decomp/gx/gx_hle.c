@@ -756,49 +756,55 @@ static void exec_primitive(u8 op, const u8* list, size_t length,
     GXVtxFmt vtxfmt = (GXVtxFmt) (op & 7);
     u8 prim = op & 0xF8;
     GxHleVertex win[4];
+    GxHleVertex fan_first;
     unsigned i;
-    unsigned count = 0;
 
     for (i = 0; i < nverts; ++i) {
         GxRawVertex raw;
+        GxHleVertex* v;
         if (!read_vertex(list, length, cursor, vtxfmt, &raw)) {
             stat_skipped++;
             return;
         }
-        transform_vertex(&raw, &win[count & 3]);
-        ++count;
+        v = &win[i & 3];
+        transform_vertex(&raw, v);
+        if (i == 0) {
+            fan_first = *v;
+        }
         switch (prim) {
-        case 0x80: /* GX_QUADS */
-            if (count % 4 == 0) {
-                GxHleVertex q0 = win[0], q1 = win[1], q2 = win[2],
-                             q3 = win[3];
+        case 0x80: /* GX_QUADS: (0,1,2),(0,2,3) per group of four */
+            if ((i % 4) == 3) {
+                GxHleVertex q0 = win[(i - 3) & 3];
+                GxHleVertex q1 = win[(i - 2) & 3];
+                GxHleVertex q2 = win[(i - 1) & 3];
+                GxHleVertex q3 = win[i & 3];
                 submit_triangle(&q0, &q1, &q2);
                 submit_triangle(&q0, &q2, &q3);
             }
             break;
-        case 0x90: /* GX_TRIANGLES */
-            if (count % 3 == 0) {
-                GxHleVertex q0 = win[0], q1 = win[1], q2 = win[2];
+        case 0x90: /* GX_TRIANGLES: sequential triples */
+            if ((i % 3) == 2) {
+                GxHleVertex q0 = win[(i - 2) & 3];
+                GxHleVertex q1 = win[(i - 1) & 3];
+                GxHleVertex q2 = win[i & 3];
                 submit_triangle(&q0, &q1, &q2);
             }
             break;
-        case 0x98: /* GX_TRIANGLESTRIP */
-            if (count >= 3) {
-                unsigned k = count - 1;
-                unsigned ai = (k & 1) ? (k - 1) & 3 : (k - 2) & 3;
-                unsigned bi = (k & 1) ? (k - 2) & 3 : (k - 1) & 3;
+        case 0x98: /* GX_TRIANGLESTRIP: alternating winding */
+            if (i >= 2) {
+                unsigned ai = (i & 1) ? (i - 1) & 3 : (i - 2) & 3;
+                unsigned bi = (i & 1) ? (i - 2) & 3 : (i - 1) & 3;
                 GxHleVertex a = win[ai];
                 GxHleVertex b = win[bi];
-                GxHleVertex c = win[k & 3];
+                GxHleVertex c = win[i & 3];
                 submit_triangle(&a, &b, &c);
             }
             break;
-        case 0xA0: /* GX_TRIANGLEFAN: (0, k-1, k) */
-            if (count >= 3) {
-                unsigned k = count - 1;
-                GxHleVertex a = win[0];
-                GxHleVertex b = win[(k - 1) & 3];
-                GxHleVertex c = win[k & 3];
+        case 0xA0: /* GX_TRIANGLEFAN: (first, i-1, i) */
+            if (i >= 2) {
+                GxHleVertex a = fan_first;
+                GxHleVertex b = win[(i - 1) & 3];
+                GxHleVertex c = win[i & 3];
                 submit_triangle(&a, &b, &c);
             }
             break;

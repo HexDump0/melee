@@ -29,7 +29,9 @@ int main(int argc,char **argv)
     const char *dump_textures=NULL;
     const char *extract_file=NULL,*extract_out=NULL;
     const char *clip_name="Wait1",*anim_file=NULL,*dump_clip=NULL;
-    int animate=0,list_clips=0,force_no_cull=0,dump_tev=0,dump_lights=0,no_grid=0,dump_joints=0,no_controller=0;
+    const char *dump_verts_file=NULL;
+    const char *dump_raw_file=NULL;
+    int animate=0,list_clips=0,force_no_cull=0,dump_tev=0,dump_lights=0,no_grid=0,dump_joints=0,no_controller=0,dump_verts=0,dump_raw=0;
     float view_angle=25.0f,view_elev=-12.0f,view_zoom=1.0f;
     float anim_frame=-1.0f,anim_speed=1.0f;
     for(int i=1;i<argc;++i) {
@@ -54,6 +56,8 @@ int main(int argc,char **argv)
         else if(!strcmp(argv[i],"--no-grid"))no_grid=1;
         else if(!strcmp(argv[i],"--no-controller"))no_controller=1;
         else if(!strcmp(argv[i],"--dump-joints"))dump_joints=1;
+        else if(!strcmp(argv[i],"--dump-verts")&&i+1<argc){dump_verts=1;dump_verts_file=argv[++i];}
+        else if(!strcmp(argv[i],"--dump-raw")&&i+1<argc){dump_raw=1;dump_raw_file=argv[++i];}
         else if(!strcmp(argv[i],"--animate"))animate=1;
         else if(!strcmp(argv[i],"--clip")&&i+1<argc)clip_name=argv[++i];
         else if(!strcmp(argv[i],"--anim-frame")&&i+1<argc)anim_frame=(float)atof(argv[++i]);
@@ -218,6 +222,40 @@ int main(int argc,char **argv)
             printf("\n");
         }
         hsd_model_free(&visuals[0].model);free(visuals[0].model.vertices);return 0;
+    }
+    if(dump_verts) {
+        /* Dev tool: dump posed model-space vertices per batch for S2 parity. */
+        FILE *f=fopen(dump_verts_file,"wb");
+        size_t bi;
+        if(!f){fprintf(stderr,"cannot open %s\n",dump_verts_file);return 1;}
+        for(bi=0;bi<visuals[0].model.batch_count;++bi) {
+            HsdBatch *b=&visuals[0].model.batches[bi];
+            uint32_t count=(uint32_t)b->vertex_count;
+            size_t vi;
+            fwrite(&count,4,1,f);
+            for(vi=0;vi<b->vertex_count;++vi)
+                fwrite(visuals[0].model.vertices[b->first_vertex+vi].position,4,3,f);
+        }
+        fclose(f);
+        printf("Dumped %zu batches to %s\n",visuals[0].model.batch_count,dump_verts_file);
+        return 0;
+    }
+    if(dump_raw) {
+        /* Dev tool: dump the parsed (pre-skin) positions per batch. */
+        FILE *f=fopen(dump_raw_file,"wb");
+        size_t bi;
+        if(!f){fprintf(stderr,"cannot open %s\n",dump_raw_file);return 1;}
+        for(bi=0;bi<visuals[0].model.batch_count;++bi) {
+            HsdBatch *b=&visuals[0].model.batches[bi];
+            uint32_t count=(uint32_t)b->vertex_count;
+            size_t vi;
+            fwrite(&count,4,1,f);
+            for(vi=0;vi<b->vertex_count;++vi)
+                fwrite(&visuals[0].model.raw[(b->first_vertex+vi)*6],4,3,f);
+        }
+        fclose(f);
+        printf("Dumped raw %zu batches to %s\n",visuals[0].model.batch_count,dump_raw_file);
+        return 0;
     }
     if(dump_joints) {
         size_t ji;

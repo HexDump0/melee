@@ -254,6 +254,10 @@ int main(int argc, char** argv)
             opt.no_lights = 1;
         } else if (strcmp(argv[i], "--wire") == 0) {
             v->gl.wireframe = 1;
+        } else if (strcmp(argv[i], "--no-cull") == 0) {
+            v->gl.no_cull = 1;
+        } else if (strcmp(argv[i], "--no-alpha-test") == 0) {
+            v->gl.no_alpha_test = 1;
         } else if (strcmp(argv[i], "--no-hud") == 0) {
             v->hud = 0;
         } else if (strcmp(argv[i], "--cycle") == 0 && (int) i + 1 < argc) {

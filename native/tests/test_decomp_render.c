@@ -9,6 +9,7 @@
  * Exit code 0 = rendered (SKIP without a disc image); non-zero = failure.
  */
 #include <math.h>
+#include <sysdolphin/baselib/state.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -36,6 +37,7 @@ int main(int argc, char** argv)
     const char* shot = NULL;
     int dump = 0;
     int no_gl = 0;
+    const char* dump_world = NULL;
     int rendered;
     int loaded;
     size_t i;
@@ -80,6 +82,9 @@ int main(int argc, char** argv)
             opt.no_scale = 1;
         } else if (strcmp(argv[i], "--dump") == 0) {
             dump = 1;
+        } else if (strcmp(argv[i], "--dump-world") == 0 &&
+                   (int) i + 1 < argc) {
+            dump_world = argv[++i];
         } else if (strcmp(argv[i], "--no-gl") == 0) {
             no_gl = 1;
         } else if (strcmp(argv[i], "--help") == 0) {
@@ -113,6 +118,40 @@ int main(int argc, char** argv)
            scene.bounds_max[0], scene.bounds_max[1], scene.bounds_max[2]);
     if (scene.have_lights) {
         printf("decomp_render: lights=%zu\n", scene.lights.count);
+    }
+    if (dump_world != NULL) {
+        /* Dev diagnostic: world-space vertices per draw from an identity pass
+         * (compare with the prototype's --dump-verts to catch GX decode or
+         * primitive-assembly bugs; see learnings/decomp_viewer.md). */
+        static const float identity[4][4] = { { 1, 0, 0, 0 },
+                                              { 0, 1, 0, 0 },
+                                              { 0, 0, 1, 0 },
+                                              { 0, 0, 0, 1 } };
+        FILE* f;
+        gx_hle_begin_frame();
+        HSD_StateInvalidate(-1);
+        GXSetProjection((f32 (*)[4]) identity, GX_PERSPECTIVE);
+        HSD_JObjDispAll(scene.hsd.root, (f32 (*)[4]) identity, HSD_TRSP_ALL,
+                        0);
+        gx_hle_get_frame(&vertices, &vertex_count, &draws, &draw_count, NULL,
+                         NULL);
+        f = fopen(dump_world, "wb");
+        for (i = 0; i < draw_count && f != NULL; ++i) {
+            unsigned int count = (unsigned int) draws[i].vertex_count;
+            size_t k;
+            fwrite(&count, 4, 1, f);
+            for (k = 0; k < draws[i].vertex_count; ++k) {
+                fwrite(vertices[draws[i].first_vertex + k].view, 4, 3, f);
+            }
+        }
+        if (f != NULL) {
+            fclose(f);
+            printf("decomp_render: dumped %zu draws to %s\n", draw_count,
+                   dump_world);
+        } else {
+            fprintf(stderr, "decomp_render: cannot write %s\n", dump_world);
+            return 1;
+        }
     }
 
     render_scene_draw(&scene);

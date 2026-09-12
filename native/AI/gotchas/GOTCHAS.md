@@ -510,3 +510,18 @@ keeps its own caches (channel registers, TEV/state setters, vtx descriptors)
 and skips re-emitting unchanged state for the new model.
 **Fix:** call `HSD_StateInvalidate(-1)` after resetting the backend
 (`native/decomp/render/render_scene.c:compute_bounds`).
+
+## G-055: a shared ring buffer silently permutes TRIANGLES/QUADS
+
+**Symptom:** clean triangular holes in otherwise solid models (Mario's hat,
+Link's leg, Bowser's horns, Giga Bowser's spikes) that survive disabling
+culling and alpha test; vertex counts still match the prototype.
+**Cause:** the GX display-list assembler stored every vertex in a 4-slot ring
+and emitted `win[0..2]` for each triangle/quad group.  That is correct for the
+first group only; group two reads slots that now hold the next group's
+vertices, permuting connectivity.  Strips are safe because they only need the
+last three vertices.
+**Fix:** index the window by `i % stride` and emit the current group's slots
+(`gx_hle.c:exec_primitive`).  Verify with the world-vertex differential:
+prototype `melee --dump-verts f` vs `test_decomp_render --dump-world f`
+(0 mismatches expected).

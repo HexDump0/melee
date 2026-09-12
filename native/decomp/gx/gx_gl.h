@@ -26,6 +26,8 @@ typedef struct GxGlOptions {
     int only_draw;
     int hide_draw;
     int wireframe;
+    int no_cull; /* debug: draw both faces */
+    int no_alpha_test; /* debug: skip GX alpha compare */
 } GxGlOptions;
 
 void gx_gl_set_options(const GxGlOptions* options);

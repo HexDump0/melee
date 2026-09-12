@@ -79,7 +79,7 @@ static GLuint vertex_vao;
 static GLuint vertex_vbo;
 static size_t vertex_vbo_capacity;
 
-static GxGlOptions gl_options = { 1, 1, -1, -1, 0 };
+static GxGlOptions gl_options = { 1, 1, -1, -1, 0, 0, 0 };
 
 /* --------------------------------------------------------------- shaders */
 
@@ -726,6 +726,10 @@ static GLenum depth_func(unsigned char f)
 
 static void apply_draw_state(const GxHleDrawState* s)
 {
+    if (gl_options.no_cull) {
+        glDisable(GL_CULL_FACE);
+        return;
+    }
     switch (s->cull_mode) {
     case 1: /* GX_CULL_FRONT */
         glEnable(GL_CULL_FACE);
@@ -850,7 +854,7 @@ static void upload_draw_uniforms(const GxHleDrawState* s)
     glUniform4iv(u_tev_sel, MAX_TEV_STAGES, &sels[0][0]);
     glUniform2iv(u_tev_reg, MAX_TEV_STAGES, &regs[0][0]);
     glUniform4iv(u_swap, 16, &swaps[0][0]);
-    glUniform1i(u_alpha_test, 1); /* always apply GX alpha compare */
+    glUniform1i(u_alpha_test, gl_options.no_alpha_test ? 0 : 1);
     {
         GLint acomp[2] = { s->alpha_comp0, s->alpha_comp1 };
         GLfloat aref[2] = { (GLfloat) s->alpha_ref0,
