@@ -213,3 +213,17 @@ for the S0 probe.  No `extern/` file has been edited.
 | `src/melee/ft/ftdata.c` (`ft_800852B0`, `ft_800852B0_Reset_ft_8045993C`) | `#ifdef PORT_PC` to reference `ftData_Table_Unk0`/`ft_8045993C` directly | The retail code computes both addresses by pointer arithmetic from `CostumeListsForeachCharacter` (`+5940`, `gFtDataList[Ft_Kind_Max]`), relying on GameCube data/BSS adjacency. On the host the writes clobbered `ftMObj.head.info_init` (Zeba/`MObj` class), crashing `hsdChangeClass`. |
 | `src/melee/lb/lbanim.c` (`fn_8001E60C`) | under `PORT_PC`, write `fobj->next = NULL` only when `first != NULL` | The loop advances `track` only when it allocates, so a joint whose first track is obj_type 5/6/7 allocates nothing and `fobj` is uninitialized. On the console that writes a stale stack slot; on the host it faults (DK landing, frame 93). |
 | `src/melee/cm/camera.c` (`Camera_ApplyQuake`) | under `PORT_PC`, read `cm_803BCB64` instead of `(&cm_803BCB18)->desc` | The cast relies on `cm_803BCB18/3C/50/64` being adjacent in declaration order; GCC reorders statics, so the host read unrelated data (aspect 0, viewport -30905) and the camera translation became NaN (G-081). |
+
+### P-620 S4 follow-up patches (2026-09-12)
+
+The archive action-command scripts are big-endian **bitfield** words (MWCC packs
+MSB-first; GCC reads LSB-first, G-082).  Rather than repacking the data, the
+command structs are marked with GCC's
+`__attribute__((scalar_storage_order("big-endian")))` under `PORT_PC`, so bitfield
+loads read the raw big-endian words with the console's field order.
+
+| File | Patch | Reason |
+|---|---|---|
+| `src/melee/lb/types.h` | `#define CMD_BE __attribute__((scalar_storage_order("big-endian")))` (empty otherwise); the 76 `union CmdUnion` member structs use `struct CMD_BE <name> {` | Fixes every fighter/item action command (`ftAction_*`, `lbCommand_*`) without data conversion. Pointer-only members `Command_05`/`Command_07` are left unannotated (their words are host pointers fixed by `Locate`). |
+| `src/melee/ft/types.h` | `struct CMD_BE gmScriptEventDefault` | The dispatcher reads the opcode through this struct. |
+| `src/sysdolphin/baselib/synth.c` (`HSD_SynthSFXHeaderLoadCallback`) | under `PORT_PC`, when the target bank has less room than the group load, drop the group and run the load-queue completion | Audio is stubbed (S5); the ARAM bank sizes from `lbAudioAx_8002785C` can be smaller than a group in the port. Completing the queue keeps `HSD_SynthSFXWaitForLoadCompletion` from spinning. |

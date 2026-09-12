@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 46u
+#define HSD_CONVERTER_VERSION 48u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -1818,10 +1818,30 @@ static void conv_ft_vis_lookup(Conv* c, uint32_t off, int model_num)
     }
 }
 
+/* Fighter_WaitAnimData.x10_animCurrFlags is assigned to `Fighter.x594_s32`,
+ * a union of MSB-first bitfield overlays (x594_b0..b7, x596_bits, x594_bits,
+ * x597_bits).  MWCC packs the fields from the MSB of the big-endian word;
+ * GCC reads LSB-first.  Repack the word-view fields (x594_bits, x596_bits.x7,
+ * x597_bits) so the engine's part-vis masks and the animation kind read the
+ * console values; the low byte-view flags fall out of the pad field. */
+static void conv_waitanim_flags(Conv* c, uint32_t off)
+{
+    uint32_t w;
+    uint32_t h;
+
+    if (!in_data(c, off, 4) || c->num[off]) {
+        return;
+    }
+    c->num[off] = 1;
+    w = be32(c->data + off);
+    h = (w >> 22) | (((w >> 9) & 0x1fff) << 10) | (((w >> 6) & 7) << 23) |
+        ((w & 0x3f) << 26);
+    wr32(c->data + off, h);
+}
+
 static void conv_ft_data(Conv* c, uint32_t off)
 {
     uint32_t x8;
-    uint32_t arr;
     uint32_t x30;
     uint32_t x34;
     uint32_t x44;
@@ -1929,25 +1949,53 @@ static void conv_ft_data(Conv* c, uint32_t off)
             }
         }
     }
-    /* xC and x14 are Fighter_WaitAnimData arrays; convert every entry that
-     * looks in-bounds (the per-kind count lives in compiled data). */
-    arr = rd32(c, off + 0x0C);
-    for (i = 0; arr != 0 && i < 512; i++) {
-        uint32_t e = arr + (uint32_t) i * FT_WAITANIM_SIZE;
-        if (!in_data(c, e, FT_WAITANIM_SIZE)) {
-            break;
+    /* xC and x14 are Fighter_WaitAnimData arrays; convert every entry.  The
+     * arrays have different lengths (the compiled count is per fighter), so
+     * bound each one by the closest ftData pointer/field after its start;
+     * walking past the array corrupts the ftData struct itself. */
+    {
+        static const uint32_t wa_fields[] = {
+            0x08, 0x0C, 0x10, 0x14, 0x18, 0x1C, 0x20, 0x24, 0x28, 0x2C,
+            0x30, 0x34, 0x38, 0x3C, 0x40, 0x44, 0x48, 0x4C, 0x50, 0x58, 0x5C,
+        };
+        int pass;
+        for (pass = 0; pass < 2; pass++) {
+            uint32_t start = rd32(c, off + (pass == 0 ? 0x0C : 0x14));
+            uint32_t end = 0;
+            size_t fi;
+            int count;
+
+            if (start == 0) {
+                continue;
+            }
+            for (fi = 0; fi < ARRAY_SIZE(wa_fields); fi++) {
+                uint32_t p = rd32(c, off + wa_fields[fi]);
+                if (p > start && (end == 0 || p < end)) {
+                    end = p;
+                }
+            }
+            if (off > start && (end == 0 || off < end)) {
+                end = off;
+            }
+            if (end == 0) {
+                end = (uint32_t) c->data_size;
+            }
+            /* Floor: the array ends at the next structure, which need not be
+             * 0x18-aligned. */
+            count = (int) ((end - start) / FT_WAITANIM_SIZE);
+            if (count > 512) {
+                count = 512;
+            }
+            for (i = 0; i < count; i++) {
+                uint32_t e = start + (uint32_t) i * FT_WAITANIM_SIZE;
+                if (!in_data(c, e, FT_WAITANIM_SIZE)) {
+                    break;
+                }
+                conv_u32(c, e + 0x04);
+                conv_u32(c, e + 0x08);
+                conv_waitanim_flags(c, e + 0x10);
+            }
         }
-        conv_u32(c, e + 0x04);
-        conv_u32(c, e + 0x08);
-    }
-    arr = rd32(c, off + 0x14);
-    for (i = 0; arr != 0 && i < 512; i++) {
-        uint32_t e = arr + (uint32_t) i * FT_WAITANIM_SIZE;
-        if (!in_data(c, e, FT_WAITANIM_SIZE)) {
-            break;
-        }
-        conv_u32(c, e + 0x04);
-        conv_u32(c, e + 0x08);
     }
     if (x30 != 0 && in_data(c, x30, 8)) {
         int count;
