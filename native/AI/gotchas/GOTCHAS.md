@@ -1069,3 +1069,21 @@ hit the Go! logo and the fighters first.
 used entry (`last_used` stamp) instead of failing.  `--dump-draws FRAME`
 (melee_decomp_viewer) lists a captured frame's draws with texture bindings
 and NDC bounds for exactly this kind of hunt.
+
+## G-093: walk/run animations froze after one cycle
+
+**Symptom:** fighters slid in a fixed walk pose: `cur_anim_frame` stuck at the
+clip end (45.56 for WalkMiddle) and never wrapped, so only one walk cycle ever
+played.
+**Cause:** `ftAnim_8006EBE8` sets `AOBJ_LOOP` only when `fp->x594_b1_loop`, a
+byte-view bit of the word copied from
+`Fighter_WaitAnimData.x10_animCurrFlags`.  `conv_waitanim_flags` repacks that
+word for GCC's LSB-first bitfields but only for the word-view fields; the
+byte-view flags were left shifted two bits up in the pad field, so the
+console's `b1_loop` (= bit 30 of the big-endian word) landed where GCC never
+read it.  Walk entries have `b1_loop = 1`; Wait has 0.
+**Fix:** `conv_waitanim_flags` also bit-reverses the word's top byte into the
+low byte (converter v57), so the byte-view flags read the console bits.
+Verified: WalkMiddle/WalkFast frame counters now wrap (43 -> 7, 22 -> 2) and
+`x594_b1_loop` reads 1 for anim 7/8/9 and 0 for Wait.  Bump
+`HSD_CONVERTER_VERSION` whenever this word layout changes.

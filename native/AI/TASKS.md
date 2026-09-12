@@ -107,6 +107,7 @@ compiled render in S2/S4 instead.
 | P-622 | S4: archive action-command scripts read via `scalar_storage_order("big-endian")` on the `CmdUnion` structs (G-082) | opencode (deepseek-v4.1-flash) | this commit | 2026-09-12 |
 | P-623 | S4: live match in the viewer — `--match` runs the compiled game in-process with a VI present hook, looping PAD script and 60 Hz pacing; `--record FILE\|-` streams PPM frames for ffmpeg (G-087) | opencode (deepseek-v4.1-flash) | this commit | 2026-09-12 |
 | P-625 | S4: match fighters render fully textured — `FtStatusFlags` fixes the MWCC `x21FC_flag` draw bit (G-091) and `gx_gl` evicts its GL texture cache LRU instead of binding black (G-092); new `--dump-draws FRAME` | opencode (deepseek-v4.1-flash) | this commit | 2026-09-12 |
+| P-626 | S4: walk/run animations loop — `conv_waitanim_flags` bit-reverses the top byte of `x10_animCurrFlags` into the low byte so `x594_b1_loop` reads the console bit and `AOBJ_LOOP` is set (converter v57, G-093) | opencode (deepseek-v4.1-flash) | this commit | 2026-09-12 |
 | P-619 | Stage viewer: `Gr*.dat` `map_head` conversion (v9: maps, light anims, shape sets) + all-map Ground GObj layout + stage camera/lights/fog + posed fighter; `--stage/--fighter/--stage-map/--stage-cam`, `M`/`F`/`K`/`,`/`.`, HUD; ctest `decomp_stage`/`decomp_stage_cam` | opencode (deepseek-v4.1-flash) | 49fad9947 | 2026-09-12 |
 
 | ID | Task | Agent | Commit | Date |

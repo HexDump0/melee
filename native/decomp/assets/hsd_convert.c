@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 56u
+#define HSD_CONVERTER_VERSION 57u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -1837,18 +1837,31 @@ static void conv_ft_vis_lookup(Conv* c, uint32_t off, int model_num)
  * x597_bits).  MWCC packs the fields from the MSB of the big-endian word;
  * GCC reads LSB-first.  Repack the word-view fields (x594_bits, x596_bits.x7,
  * x597_bits) so the engine's part-vis masks and the animation kind read the
- * console values; the low byte-view flags fall out of the pad field. */
+ * console values, and bit-reverse the top byte into the low byte so the
+ * byte-view flags (x594_b1_loop, x594_b0/b5/b7) read the console bits too —
+ * without that, walk/run animations never get AOBJ_LOOP and freeze after one
+ * cycle. */
 static void conv_waitanim_flags(Conv* c, uint32_t off)
 {
     uint32_t w;
     uint32_t h;
+    uint32_t top;
+    uint32_t low = 0;
+    int b;
 
     if (!in_data(c, off, 4) || c->num[off]) {
         return;
     }
     c->num[off] = 1;
     w = be32(c->data + off);
-    h = (w >> 22) | (((w >> 9) & 0x1fff) << 10) | (((w >> 6) & 7) << 23) |
+    top = (w >> 24) & 0xFF;
+    for (b = 0; b < 8; b++) {
+        if (top & (1u << b)) {
+            low |= 1u << (7 - b);
+        }
+    }
+    h = low | (((w >> 22) & 3u) << 8) |
+        (((w >> 9) & 0x1fff) << 10) | (((w >> 6) & 7) << 23) |
         ((w & 0x3f) << 26);
     wr32(c->data + off, h);
 }
