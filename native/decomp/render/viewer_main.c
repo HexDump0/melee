@@ -189,8 +189,9 @@ static void usage(const char* argv0)
             "usage: %s [--disc PATH] [--model NAME] [--width N] [--height N]\n"
             "          [--angle DEG] [--elevation DEG] [--zoom F]\n"
             "          [--frames N] [--shot FILE] [--hidden] [--no-lights]\n"
-            "          [--wire] [--no-hud] [--part N] [--part-mode "
-            "all|only|hide] [--cycle N]\n",
+            "          [--unlit] [--wire] [--no-hud] [--cycle N] [--spin DEG]\n"
+            "          [--no-cull] [--no-alpha-test] [--part N] [--part-mode "
+            "all|only|hide]\n",
             argv0);
 }
 
@@ -204,6 +205,7 @@ int main(int argc, char** argv)
     int height = 800;
     int frames = 0;
     int cycle = 0;
+    float spin = 0.0f;
     int hidden = 0;
     int want_shot = 0;
     int quit = 0;
@@ -254,6 +256,8 @@ int main(int argc, char** argv)
             opt.no_lights = 1;
         } else if (strcmp(argv[i], "--unlit") == 0) {
             v->gl.lighting = 0;
+        } else if (strcmp(argv[i], "--spin") == 0 && (int) i + 1 < argc) {
+            spin = (float) atof(argv[++i]);
         } else if (strcmp(argv[i], "--wire") == 0) {
             v->gl.wireframe = 1;
         } else if (strcmp(argv[i], "--no-cull") == 0) {
@@ -426,6 +430,10 @@ int main(int argc, char** argv)
             }
         }
 
+        if (spin != 0.0f) {
+            v->scene.angle += spin;
+            v->scene.need_view_update = 1;
+        }
         render_scene_draw(&v->scene);
         draws = gx_gl_render_frame();
         {

@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-12 (S2 complete; interactive compiled viewer P-611)
+Last updated: 2026-09-12 (S2 complete; viewer P-611; P-610 fixed, TEV stage limit 8)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -41,7 +41,12 @@ surface for real (`94 stub_calls / 33 unique`).  Still no `src/`/`extern/`
 edits. **P-611 (2026-09-12):** `melee_decomp_viewer` presents the same
 compiled HSD + GX HLE frame in an SDL3 window (orbit/zoom/model cycle, part
 visibility, texture/light toggles, F12 screenshot); SDL3 is a new compiled-
-target dependency (ADR-0014, install list in `TESTING.md`). Next milestone:
+target dependency (ADR-0014, install list in `TESTING.md`). **P-610
+(2026-09-12):** Falcon's silver body was the P-607 `out_reg` fix; Giga Koopa's
+limb noise was a `GX_TG_TEXCOORDn` coord chain folded onto the 0/1 UV varyings
+(G-058); the draw state now captures 8 TEV stages (Master Hand uses 6, G-059)
+and each frame restores the depth/color write masks before `glClear` so
+camera orbits stop losing geometry (G-057). Next milestone:
 **S3** (host-endian asset pipeline + DVD/ARQ).
 
 ## TL;DR
@@ -112,7 +117,8 @@ lightmap phases, alpha test, XLU blend) and every fighter is scaled by its
 | Compiled boot skeleton (S1) | `melee_decomp_boot` runs the decomp's `main()` for 10 frames under the platform stubs, reaches the game's own loading wait, and stops on the frame budget with a deterministic triage log (`logs/2026-09-11-S1-boot-triage.md`); `ctest decomp_boot` is the regression |
 | Compiled HSD + GX HLE (S2) | `test_decomp_render` loads `PlMrNr.dat` through the compiled HSD display path and the `native/decomp/gx/` backend, applies the compiled `ftData` part visibility (16/59 hidden) and `Fighter_UpdateModelScale`, and renders with GLES3; world bounds equal the prototype's exactly, screenshot RMSE 10.94/255 (HUD excluded). `ctest decomp_render` is the regression; `logs/2026-09-12-S2-render.md` is the evidence |
 | Interactive compiled viewer (P-611) | `melee_decomp_viewer` (SDL3 window + EGL/GLES3 via `gx_gl_attach`) renders the compiled scene with drag orbit, wheel zoom, `N`/`P` model cycle, `[`/`]` + `V` part isolation, `B` slot, `V`/`shift+V` variant, `Y` show-hidden, `L` lights, `T` textures, `W` wireframe, HUD (`H`), `F12` screenshot; `--frames N --hidden --shot F` is the non-interactive smoke path and its BMP matches `test_decomp_render` to RMSE 0.000 |
-| GX HLE backend (S2) | `native/decomp/gx/gx_hle.c`: real GX state + `GXCallDisplayList` decode (68 lists, zero desync), XF/channel/texgen evaluation, per-draw snapshots; `gx_gl.c` evaluates up to 4 captured TEV stages with textures/TLUTs from `native/gx/texture.c` on an EGL/GLES3 pbuffer |
+| GX HLE backend (S2) | `native/decomp/gx/gx_hle.c`: real GX state + `GXCallDisplayList` decode (68 lists, zero desync), XF/channel/texgen evaluation, per-draw snapshots; `gx_gl.c` evaluates up to 8 captured TEV stages with textures/TLUTs from `native/gx/texture.c` on an EGL/GLES3 pbuffer |
+| Turn-stability (P-610) | Viewer static vs `--spin 360 --no-hud` RMSE 0.003/255 (Master Hand; residue is HSD lookat float rounding), frame1 vs frame240 and `--cycle 33` both RMSE 0.0 |
 | Owner visual checks | 180 Hz viewer animation speed confirmed correct; face texture artifact gone (2026-09-11) |
 
 ## Known issues / gaps
@@ -145,7 +151,7 @@ Ordered by impact.
    `HSD_TObjTev` active overrides and toon textures are unhandled (inactive /
    stage-only in the tested fighter archives). See
    `learnings/hsd_tev_materials.md`. Still P-204. **S2 update:** the compiled
-   path now evaluates the captured GX TEV state generically (up to 4 stages,
+   path now evaluates the captured GX TEV state generically (up to 8 stages,
    swap tables, konst, alpha test) in `native/decomp/gx/gx_gl.c`; the
    remaining TEV gaps are the specular channel approximation and fog (see
    `learnings/decomp_s2_gx_hle.md`).

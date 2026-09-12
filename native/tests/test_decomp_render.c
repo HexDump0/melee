@@ -141,7 +141,10 @@ int main(int argc, char** argv)
             size_t k;
             fwrite(&count, 4, 1, f);
             for (k = 0; k < draws[i].vertex_count; ++k) {
-                fwrite(vertices[draws[i].first_vertex + k].view, 4, 3, f);
+                const GxHleVertex* vv = &vertices[draws[i].first_vertex + k];
+                fwrite(vv->view, 4, 3, f);
+                fwrite(vv->uv[0], 4, 2, f);
+                fwrite(vv->uv[1], 4, 2, f);
             }
         }
         if (f != NULL) {

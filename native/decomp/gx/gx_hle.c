@@ -1371,6 +1371,30 @@ void GXBegin(GXPrimitive type, GXVtxFmt vtxfmt, u16 nverts)
     gx.begun = 1;
 }
 
+/*
+ * A stage may name a texcoord that was generated from an earlier texcoord
+ * through identity matrices (GX_TG_TEXCOORDn, e.g. Giga Koopa's add/sub
+ * bump pairs).  The fragment stage only carries two UV varyings, so fold
+ * such chains back onto the coord they alias.
+ */
+static void resolve_stage_coords(GxHleDrawState* s)
+{
+    int i;
+    for (i = 0; i < s->num_stages && i < GX_HLE_MAX_STAGES; ++i) {
+        int coord = s->stages[i].order_coord;
+        int guard = 0;
+        while (coord >= 2 && guard++ < 8) {
+            const GxHleTexGen* tg = &s->texgen[coord & 7];
+            if (tg->src < GX_TG_TEXCOORD0 || tg->src >= GX_TG_COLOR0 ||
+                tg->mtx_id != GX_IDENTITY || tg->postmtx != GX_PTIDENTITY) {
+                break;
+            }
+            coord = (int) tg->src - (int) GX_TG_TEXCOORD0;
+        }
+        s->stages[i].order_coord = (u8) coord;
+    }
+}
+
 void GXCallDisplayList(void* list, u32 nbytes)
 {
     const u8* p = (const u8*) list;
@@ -1384,6 +1408,7 @@ void GXCallDisplayList(void* list, u32 nbytes)
         frame_draws[frame_dcount].first_vertex = frame_vcount;
         frame_draws[frame_dcount].vertex_count = 0;
         frame_draws[frame_dcount].state = gx.cur;
+        resolve_stage_coords(&frame_draws[frame_dcount].state);
     }
     while (cursor + 3 <= length) {
         u8 op = p[cursor];

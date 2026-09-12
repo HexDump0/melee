@@ -23,7 +23,7 @@
 #include "gx/texture.h"
 
 #define MAX_GL_TEXTURES 256
-#define MAX_TEV_STAGES 4
+#define MAX_TEV_STAGES 8
 
 typedef struct {
     const void* image;
@@ -118,17 +118,17 @@ static const char* FRAGMENT_SRC =
     "uniform vec4 u_tev_color[4];\n"
     "uniform vec4 u_tev_kcolor[4];\n"
     "/* order: x=coord 0..7/255, y=map 0..7/255, z=channel, w=unused */\n"
-    "uniform ivec4 u_tev_order[4];\n"
+    "uniform ivec4 u_tev_order[8];\n"
     "/* color in: a,b,c,d */\n"
-    "uniform ivec4 u_tev_cin[4];\n"
+    "uniform ivec4 u_tev_cin[8];\n"
     "/* color op: op,bias,scale,clamp */\n"
-    "uniform ivec4 u_tev_cop[4];\n"
-    "uniform ivec4 u_tev_ain[4];\n"
-    "uniform ivec4 u_tev_aop[4];\n"
+    "uniform ivec4 u_tev_cop[8];\n"
+    "uniform ivec4 u_tev_ain[8];\n"
+    "uniform ivec4 u_tev_aop[8];\n"
     "/* sel: ras_sel, tex_sel, kc_sel, ka_sel */\n"
-    "uniform ivec4 u_tev_sel[4];\n"
+    "uniform ivec4 u_tev_sel[8];\n"
     "/* reg: color_reg, alpha_reg */\n"
-    "uniform ivec2 u_tev_reg[4];\n"
+    "uniform ivec2 u_tev_reg[8];\n"
     "uniform ivec4 u_swap[16];\n"
     "uniform int u_stages;\n"
     "uniform int u_alpha_test;\n"
@@ -227,7 +227,7 @@ static const char* FRAGMENT_SRC =
     "    vec4 c1 = u_tev_color[1];\n"
     "    vec4 c2 = u_tev_color[2];\n"
     "    vec4 prev = v_ras0;\n"
-    "    for (int i = 0; i < 4; ++i) {\n"
+    "    for (int i = 0; i < 8; ++i) {\n"
     "        if (i >= u_stages) break;\n"
     "        ivec4 ord = u_tev_order[i];\n"
     "        vec4 tex = vec4(1.0);\n"
@@ -895,9 +895,11 @@ int gx_gl_render_frame(void)
     gx_hle_get_frame(&vertices, &vertex_count, &draws, &draw_count,
                      &textures, &texture_count);
     glViewport(0, 0, gl_width, gl_height);
-    /* The previous frame's GX state may have masked alpha writes; the window
-     * surface needs its alpha cleared or the compositor shows through. */
+    /* The previous frame's GX state may have masked alpha writes or depth
+     * writes (RENDER_NO_ZUPDATE); without restoring both masks first, glClear
+     * leaves stale alpha/depth behind and rotating cameras lose geometry. */
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glDepthMask(GL_TRUE);
     glClearColor(clear_color[0], clear_color[1], clear_color[2],
                  clear_color[3]);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

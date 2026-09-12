@@ -536,3 +536,38 @@ prototype's `u_lighting = 0` both whitens the diffuse channel and zeroes the
 specular light.
 **Fix:** when `u_ras_flat` is set, channel 0 becomes white but channel 1/alpha1
 becomes black (`native/decomp/gx/gx_gl.c`).
+
+## G-057: `glClear` inherits the previous frame's write masks
+
+**Symptom:** rotating the camera around Master Hand (viewer `--spin`) makes the
+model vanish for part of the orbit; a static frame looks correct.
+**Cause:** GX draws can end a frame with `z_update = 0` (`RENDER_NO_ZUPDATE`)
+or alpha writes masked, and those settings were left in the GL pipeline.  The
+next frame's `glClear(GL_DEPTH_BUFFER_BIT)` then wrote nothing, so depth (and
+alpha) accumulated until the depth test rejected everything.
+**Fix:** restore `glColorMask(TRUE...)` **and** `glDepthMask(GL_TRUE)` before
+`glClear` (`gx_gl.c:gx_gl_render_frame`).  Regression check:
+`--frames 2 --shot` static vs `--frames 2 --spin 360 --no-hud --shot` is
+RMSE ~0.003 (max 1/255; the residue is HSD lookat float rounding).
+
+## G-058: TEV stages can order a texcoord generated from another texcoord
+
+**Symptom:** Giga Koopa's arms/legs show a high-contrast gold noise texture
+instead of smooth skin; Falcon unaffected.
+**Cause:** the material's bump-style TEV pair names `GX_TG_TEXCOORD1` as the
+source of coord 2 (type `GX_TG_MTX3x4`, identity matrices), i.e. coord 2 is a
+passthrough copy of coord 1.  The fragment stage only carries `v_uv0`/`v_uv1`
+and treated coord 2 as coord 0, so the add/sub pair sampled different UVs and
+the difference term never cancelled.
+**Fix:** fold `order_coord` down through identity-matrix `GX_TG_TEXCOORDn`
+chains onto the 0/1 varyings it aliases before snapshotting the draw
+(`gx_hle.c:resolve_stage_coords`).
+
+## G-059: capture up to 8 TEV stages (Master Hand uses 6)
+
+**Symptom:** materials with more than four stages lose their extra stages
+(Master Hand's cape/hand blend), while the rest of the model looks right.
+**Cause:** `GX_HLE_MAX_STAGES` and the GLES fragment shader were fixed at 4.
+**Fix:** raise `GX_HLE_MAX_STAGES`/`MAX_TEV_STAGES` to 8 and size the shader
+uniform arrays/loop accordingly (`gx_hle.h`, `gx_gl.c`).  Draws are clamped to
+the limit, so increasing it is safe for every existing model.

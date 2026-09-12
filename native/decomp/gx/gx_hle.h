@@ -19,7 +19,7 @@
 #define GX_HLE_MAX_VERTS (1 << 18)
 #define GX_HLE_MAX_TEXTURES 512
 #define GX_HLE_MAX_TLUTS 32
-#define GX_HLE_MAX_STAGES 4
+#define GX_HLE_MAX_STAGES 8
 
 typedef struct GxHleVertex {
     float clip[4];          /* post-projection clip space (GX y-down)     */
