@@ -1152,3 +1152,57 @@ GDB matrix probes over frames 650–720 (all finite) and `--match --frames 1200`
 (no leg draws above 10 ms game time).  Lesson: when adding a loader walk, list
 *every* pointer field's pointee numeric payload — `x58` was the one ftData
 sub-table with no walker.  `ftData->x1C` has the same omission (P-630).
+
+## G-097: GC DSP-ADPCM is 8-byte / 14-sample frames, scale in the low nibble
+
+**Symptom:** music and SFX render as **loud noise** through the mixer (peak
+near full scale, spectral flatness ~0.27, no stereo image). Typical ear
+damage if you had headphones on.
+**Cause:** the decoder assumed 9-byte frames with 16 samples and
+`scale = header >> 4`, `predictor = header & 0xF`. GC DSP-ADPCM is
+**8 bytes = header + 7 data bytes = 14 samples**, with
+`scale = 1 << (header & 0x0F)` and `coef_index = header >> 4`, decoded as
+`((nibble * scale) << 11) + 1024 + coef1*hist1 + coef2*hist2) >> 11`, nibbles
+high-first. (`AXPBADPCM.pred_scale` still equals the first frame's header,
+which made the wrong interpretation look plausible.)
+**Fix:** `native/audio/ax_mixer.c:voice_decode_frame`; frame addressing is
+16 AX units per frame and the mid-frame position fraction is `/14`. Verify
+with a fixed dump: flatness should be < 0.05 (tonal), not > 0.25.
+
+## G-098: `*(u32*) &hi` over two u16 fields is big-endian-only
+
+**Symptom:** SFX play from garbage addresses (`currentAddress` like
+`0x73528a3d`) and stay silent, or every voice's pitch is 1/65536.
+**Cause:** the engine stores `AXPBADDR` addresses and `AXPBSRC.ratioHi/Lo` as
+two adjacent u16s and pokes them with a single u32 store/load (correct on
+big-endian PowerPC). On little-endian the halves land in the wrong fields.
+**Fix:** use the `MELEE_PORT_AX_GET/SET_U16PAIR` / `SET_RATIO` macros from
+`decomp_shim.h` under `PORT_PC` (the S5 patch list in
+`learnings/decomp_port.md`). Never "fix" this by swapping the struct fields —
+the compiled SDK setters copy the fields one by one.
+
+## G-099: `smash2.sem`, `.hps` and `.ssm` need format-aware endian conversion
+
+**Symptom:** `AXDriver_8038DA70` segfaults right after loading `smash2.sem`;
+the HPS stream starts with `voice_count = 0x02000000` and crashes in
+`AXSyncVoiceMix`; SFX voices stay silent.
+**Cause:** unlike the HSD archives there is no relocation table: the audio
+files are raw big-endian structs that the compiled C reads as host values.
+**Fix:** convert on the DVD read path, keyed by file extension —
+`platform/sem.c` (5 count/list sections + every command-stream word),
+`platform/hps.c` (stream header, per-voice AXPBADDR/AXPBADPCM, 0x20-byte page
+tables), `platform/ssm.c` (header first, then u16 fields; address pairs are
+Hi/Lo u16 pairs). The `.ssm` converter is stateful across reads and each read
+has its own destination buffer: never pass the same buffer for two reads in a
+test (the second call would convert `dst[0]` as the window start).
+
+## G-100: synchronous loaders need the idle tick to pump completions
+
+**Symptom:** after `AXDriver_8038DA70` is compiled for real, `gm_main` spins
+in the `smash2.sem` loading screen calling `PADRead`/`CARDProbe` forever.
+**Cause:** it waits on a DVD callback from `while (flag == 0) callback();`,
+and its callback never reaches a `VIWaitForRetrace` or `OSRestoreInterrupts`
+point; the host delivers deferred completions only at those points.
+**Fix:** `boot_platform_idle_tick` (which `DVDGetDriveStatus` calls, the only
+hardware poll in that loop) pumps the completion queue when interrupts are
+enabled. Do not pump while interrupts are disabled (G-063's rule).

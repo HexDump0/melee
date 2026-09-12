@@ -55,6 +55,7 @@ native/AI/
 ├── DECISIONS.md           <- architecture decision log (ADR)
 ├── learnings/             <- durable technical knowledge
 │   ├── README.md
+│   ├── decomp_audio.md     (S5: AX stack, mixer, .ssm/.sem/.hps)
 │   ├── hsd_archive_format.md
 │   ├── hsd_models_and_skinning.md
 │   ├── gx_display_lists.md

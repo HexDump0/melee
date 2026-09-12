@@ -235,3 +235,17 @@ Platform-layer (not `src/`) fixes in the same batch:
 `native/platform/complete.c` clears a completion slot before its callback runs
 (heap-use-after-free when `DVDClose` cancels from inside a callback, G-086);
 `native/platform/pad_card.c` implements the frame-indexed scripted `PADRead`.
+
+## S5 `src/` portability patches (audio, 2026-09-12)
+
+All `#ifdef PORT_PC`-gated; see `learnings/decomp_audio.md` for the formats.
+
+| File | Patch | Reason |
+|---|---|---|
+| `src/sysdolphin/baselib/synth.c` (`HSD_SynthSFXSampleLoadCallback`) | addresses are read/poked as `(Hi<<16)|Lo` via `MELEE_PORT_AX_GET/SET_U16PAIR` instead of `*(u32*)(e+0x14)` | The record's loop/end/current fields are Hi/Lo u16 pairs. A u32 store on the little-endian host puts the low half in `Hi`; the console relies on big-endian adjacency. |
+| `src/sysdolphin/baselib/synth.c` (`HSD_SynthSFXGroupDataReaddress`) | same pair handling for `q+0x14/0x18/0x1C` | Same reason (bank readdress after unload). |
+| `src/sysdolphin/baselib/synth.c` (`HSD_Synth_80389334`, `HSD_Synth_8038B120`, `HSD_SynthPStreamHeaderCallback`) | `*(u32*) &HSD_Synth_80407FD8.ratioHi = x` becomes `MELEE_PORT_AX_SET_RATIO(HSD_Synth_80407FD8, x)` | `ratioHi`/`ratioLo` is a 16.16 value; the console writes it as a big-endian u32 over the two u16 fields. The host u32 store swapped the halves (pitch became 1/65536). |
+| `src/sysdolphin/baselib/synth.c` (`stopRange`, `HSD_Synth_8038ADD0`) | `*(size_t*)&...currentAddressHi` becomes `MELEE_PORT_AX_GET_ADDR(...pb.addr)` | Same big-endian pair aliasing; the page-advance/halt logic compared a byte-swapped address. |
+
+The `MELEE_PORT_AX_*` macros live in `native/decomp/shim/decomp_shim.h`
+(force-included on the host only), so the GC build sees the original code.

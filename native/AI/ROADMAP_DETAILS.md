@@ -116,12 +116,14 @@ Full detail in `learnings/decomp_port.md`; summary:
 - **Risks:** 64-bit/float divergence appears only in long simulations; tick and
   input order must match the GC.
 
-#### S5 — Audio
+#### S5 — Audio (done 2026-09-12)
 
-- **Goal:** in-match + menu audio.
-- **Deliverable:** AX/DSP HLE or equivalent, chosen by P-501/ADR first; ARAM and
-  audio tables via S3.
-- **Risks:** biggest single unknown; may adopt an existing approach.
+- **Result:** ADR-0013 option A.  Compiled `axdriver.c` + SDK AX layer +
+  `native/audio/{ax_hle,ax_mixer}.c` (DSP-ADPCM, SRC, `AXPBMIX`, VE, ITD,
+  loop/end/state write-back), `platform/{ssm,sem,hps}.c` converters,
+  `reverb_std` ported from asm, deterministic `--audio-dump`, SDL3 viewer
+  sink.  Four real bugs fixed on the way (G-097..G-100).  Open: owner
+  listening check P-637; `reverb_hi`/`chorus` are unused by Melee (P-638).
 
 #### S6 — Frontend + saves
 

@@ -34,6 +34,8 @@ Status values: `open`, `claimed`, `blocked`, `review`, `done`, `parked`
 | P-621 | Verify stage material/lighting colors against the real game (P-619 renders Battlefield geometry; surface tones still look off) | open | — | `native/decomp/gx/gx_gl.c`, `native/decomp/assets/hsd_convert.c` | Repro: `./build/native/test_decomp_render --stage GrNBa.dat --fighter PlMrNr.dat --stage-cam --shot /tmp/stage.bmp`. Compare against a Dolphin capture of Battlefield; check the stage MObj/TObj TEV template and the map light list (`lb_80011AC4`). |
 | P-624 | S6: enter the title screen in the retail state (`GM_TITLE` ordering / `gm_804D67EC` past 5400) — the debug flow freezes the logo on its frame-0 reveal card (G-090) | open | — | `native/decomp/boot/`, `src/melee/gm/gmtitle.c` (read-only) | Repro: `./build/native/melee_decomp_viewer --match --frames 70 --shot /tmp/t.bmp`; the grey card behind the logo must not exist once the title is entered after the opening movie. Full analysis in G-090; do not patch the GL layer for it. |
 | P-616 | Captain Falcon (`PlCaNr.dat`) eyes do not render | open | — | `native/decomp/gx/`, `native/decomp/assets/hsd_convert.c` | Confirmed against the prototype 2026-09-12: the prototype shows white eyes under the visor, the compiled path shows a dark band. Ruled out: visibility (`MELEE_NO_VIS`), culling (`--no-cull`), alpha test (`--no-alpha-test`), and the TEV KONST tables (P-614 was correct; a reg/comp "fix" was a no-op and reverted). Narrowed to **batch 96 / dobj 77** (`PlCaNr.dat`, the only 2-TObj material: TEX0=tex49 face, TEX1=tex51 eye overlay), which renders via the standard 4-stage template (stage2 map=1 coord=1, `cin=C2,TEXC,KONST,ZERO`, `kc_sel=0x1D`=K1_A=1.0) that bodies use successfully for specular maps. The overlay geometry is drawn (visible in wireframe) but its result is black. Next: trace the stage-2 texture sample for that draw (bind the same texture via a TEXMAP_NULL variant, or dump `C2`/`CPREV`); compare with a Dolphin capture. Evidence: handoff 2026-09-12-P-615-P-612 and `logs/`. |
+| P-637 | Owner listening check: boot/title music, match SFX, pan/fade/pause/mute; no noise, no clipping | open | — | `native/audio/` | Run `./build/native/melee_decomp_viewer --match` at low volume; compare with Dolphin. The renderer/mixer are verified headless (deterministic WAV, flatness < 0.05), so only "does it sound right" is open. |
+| P-638 | Optional: port `reverb_hi`/`chorus` (`native/decomp/axfx/axfx_port.c` stubs them; Melee never registers either) and refine the mixer's ITD ramp | open | — | `native/decomp/axfx/`, `native/audio/ax_mixer.c` | Not on the critical path: `lbAudioAx_8002838C` registers reverb_std + delay only. |
 | P-617 | Indirect-texture shader evaluation + toon ramp evaluation (GX HLE) | open | — | `native/decomp/gx/gx_gl.c` | **S4-only.** `GXSetTevIndirect`/`GXSetIndTex*` state is captured per draw (P-612); the GLES fragment path does not yet apply the indirect offsets. Only `lb/lbrefract.c` (stage refraction) uses it, so it cannot be validated until S4 runs a stage. Toon (`GX_TG_SRTG`) currently passes the source value through; stage-only content. |
 | P-601 | Full-tree GCC compile census + shim hardening (S0) | done | opencode (deepseek-flash), 2026-09-11 | `native/decomp/shim/`, `native/AI/learnings/decomp_port.md` | Done: 1021/1034 `src/*.c` compile; shims for `ssize_t`/`intptr_t`, GameCube `STATIC_ASSERT`, and `bool`=`int` callbacks. See Completed. |
 | P-602 | Probe: decomp `HSD_ArchiveParse` on a real `PlMrNr.dat` (S0a) | done | opencode (deepseek-flash), 2026-09-11 | `native/decomp/`, `native/CMakeLists.txt`, `native/tests/` | Done: 2/2 public symbols and offsets match the hand parser. See Completed. |
@@ -79,14 +81,25 @@ waits for its first sound-bank load. Ordered by what unblocks the boot:
 2. **S3 — DVD + HSD DevCom/ARQ**. `DVDConvertPathToEntrynum`/open/read and
    synchronous `ARQPostRequest` callbacks so `HSD_DevComRequest` can finish
    asset loads. Seed: `native/platform/disc.c`.
-3. **S5 — AX/DSP HLE**. `AXRegisterCallback` must drive
-   `HSD_SynthCallback` on the 5 ms/200 Hz audio frame for voice/mix state and
-   the AXDriver command clock (ADR-0013). The boot bank wait itself is
-   unblocked by S3's DVD/ARQ callbacks, not by AX.
+3. **S5 — AX/DSP HLE. DONE 2026-09-12.** The compiled AX stack + software
+   mixer drive `HSD_SynthCallback` on the 5 ms/200 Hz frame derived from VI,
+   and the `.ssm`/`.sem`/`.hps` converters feed real voices. See Completed
+   (P-632..P-636) and `learnings/decomp_audio.md`. Remaining owner check:
+   P-637 (listening).
 4. **S6 — CARD/EXI + fonts**. Card command pump (`hsd_803AAA48`) and a font
    source replacing the generated atlases.
 5. **S4 — alarms/threads** (`OSCreateAlarm`/`OSSetPeriodicAlarm` are stubs;
    the boot installs a periodic alarm during init).
+
+## S5 result
+
+ADR-0013 option A landed in four commits (`a658deb92`, `41a427348`,
+`c455ffd1e`, `bce5a84ba`).  The compiled SDK AX layer drives
+`native/audio/ax_mixer.c`; `platform/{ssm,sem,hps}.c` convert the audio
+assets; `--audio-dump`/SDL3 sinks and two ctest regressions guard it.  The
+DSP-ADPCM frame geometry, the engine's u16-pair aliasing, and the three
+formats are documented in `learnings/decomp_audio.md`; the four portability
+patches are in `learnings/decomp_port.md` (S5 section).
 
 ## Blocked / needs a human
 
@@ -105,6 +118,11 @@ compiled render in S2/S4 instead.
 
 | ID | Task | Agent | Commit | Date |
 |---|---|---|---|---|
+| P-632 | S5.1/S5.2: compile the SDK AX bookkeeping, add `native/audio/{ax_hle,ax_mixer}.c` (DSP-ADPCM, SRC, mix/VE/ITD, loop/end/state write-back, aux returns), VI-derived 200 Hz pump, `.ssm` record conversion, disc-free `ctest audio` | opencode (deepseek-v4.1-flash) | `a658deb92` | 2026-09-12 |
+| P-633 | S5.3: compile `axdriver.c` + AXFX, port `reverb_std` to C, convert `smash2.sem`/`.hps`, fix the u16-pair endianness and the synchronous-loader completion pump | opencode (deepseek-v4.1-flash) | `41a427348` | 2026-09-12 |
+| P-634 | S5.4: fix the DSP-ADPCM decode (8-byte/14-sample frames), add `--audio-dump` WAV + hash and the viewer's SDL3 sink, `ctest decomp_audio` | opencode (deepseek-v4.1-flash) | `c455ffd1e` | 2026-09-12 |
+| P-635 | S5: fix the `.ssm` address pairs (u16 Hi/Lo) and the header read order; regression test; match SFX audible | opencode (deepseek-v4.1-flash) | `bce5a84ba` | 2026-09-12 |
+| P-636 | S5.5: `learnings/decomp_audio.md`, gotchas G-097..G-100, STATE/TASKS/TESTING updates, ASan/UBSan 300-frame match clean | opencode (deepseek-v4.1-flash) | this commit | 2026-09-12 |
 | P-627 | Fix Link's missing/glitched legs: `native/decomp/assets/hsd_convert.c` v58 byte-swaps the `ftData_x58_t` leg-IK lengths (`x4`/`xC`/`x18`). The raw big-endian words read as `-490 / -1e27 / 7.7e35`, so `ft_80089B08` fed degenerate targets to `lbBgFlash_80021410`; its `acos` outputs went NaN and poisoned leg JObj matrices (parts 6–10, 12–16). Frame 720 now renders both legs, `--dump-draws 720` has zero non-finite NDC bounds, frames 600–1200 stay under 10 ms game time, ASan boot-match clean. Corrects the earlier P-629 overclaim | codex | this commit | 2026-09-12 |
 | P-629 | Fix the sustained 29 ms match plateau: native `__frsqrte` now has reciprocal-square-root semantics, all 32-bit decomp targets use SSE2 scalar FP instead of x87 excess precision, near-identical quaternion interpolation has a regression, and the pacer immediately re-anchors after a missed deadline. This did not fix Link's legs (P-627) | codex | 381ec2f68 | 2026-09-12 |
 | P-620 | S4: first match — deterministic headless Link/Mario match, PAD backend + scripted input, 600-frame ctest `decomp_match`, ASan clean | opencode (deepseek-v4.1-flash) | this commit | 2026-09-12 |

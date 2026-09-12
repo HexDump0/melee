@@ -7,11 +7,11 @@ references, acceptance commands and risks is
 [`TASKS.md`](TASKS.md) and current behavior is in [`STATE.md`](STATE.md).
 
 **Current position: the project pivoted on 2026-09-11 from the hand-written
-prototype to a decompilation-based full-game port (ADR-0010). The prototype
-(M0/M1/M2a) is done and becomes the platform backend. S0 — the feasibility
-spike — passed the same day: the compiled decomp's own HSD parser and JObj
-loader run on a retail model and reproduce the prototype's bind-pose matrices
-bitwise (see `learnings/decomp_port.md` §6). S1 (boot skeleton) is next.**
+prototype to a decompilation-based full-game port (ADR-0010). S0–S5 are done
+as of 2026-09-12: the compiled decomp boots, renders, loads every asset
+family, runs a deterministic match and now plays its own audio through a
+software AX mixer (see `STATE.md`). The next milestone is S6 (frontend and
+saves), with S5's owner listening check (P-637) outstanding.**
 
 ---
 
@@ -63,7 +63,7 @@ What this changes:
 | S2 | HSD runtime + GX HLE | **done 2026-09-12** | the compiled game renders through its own HSD/GX path on GL | 4–8 weeks |
 | S3 | Asset pipeline | **done 2026-09-12** | real disc assets load through compiled loaders | 3–6 weeks |
 | S4 | First match | **done 2026-09-12** | compiled fighters/items/stages; the game's own match loop | 6–12 weeks |
-| S5 | Audio | next | AX/DSP HLE | 4–12 weeks |
+| S5 | Audio | **done 2026-09-12** | the compiled AX stack plays SFX/HPS through a host mixer | 4–12 weeks |
 | S6 | Frontend + saves | later | menus, character select, results, memory card | 3–6 weeks |
 | S7 | Platforms + mods | stretch | Android, web, Windows/macOS parity, mod hooks, netplay | open ended |
 
@@ -154,15 +154,16 @@ own constants where possible; 600-frame ASan run clean.
 **Risks.** 64-bit/float divergences only show up in long simulations; input and
 tick order must match. Budget time for differential debugging.
 
-## S5 — Audio
+## S5 — Audio (done 2026-09-12)
 
-**Goal.** In-match and menu audio.
-
-**Deliverable.** AX/DSP HLE or an equivalent backend, chosen by the P-501
-memo/ADR before coding. ARAM and audio tables load through the S3 pipeline.
-
-**Risks.** The largest single unknown; DSP microcode emulation is a project of
-its own. This milestone may borrow an existing approach (see ACGC).
+**Result.** ADR-0013 option A: the decompilation's `axdriver.c`, the SDK's
+pure-C AX voice layer and a new host software mixer (`native/audio/`) run the
+game's own SFX/HPS code; `.ssm`/`.sem`/`.hps` convert in the DVD backend.
+Boot/title music and match SFX play deterministically (two runs
+byte-identical); `reverb_std` is ported from asm; quality is verified
+headlessly (`ctest audio`, `ctest decomp_audio`, `--audio-dump`). Only the
+owner listening check (P-637) is open. Evidence:
+`learnings/decomp_audio.md`, `STATE.md`.
 
 ## S6 — Frontend and saves
 

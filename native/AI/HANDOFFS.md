@@ -50,6 +50,7 @@ something the next agent must know, or finish a task that changes interfaces.
 | 2026-09-12 | P-625..P-628 fighters render/loop, GPU channel eval; P-629 slowdown open | opencode (deepseek-v4.1-flash) | [`2026-09-12-P-629-match-slowdown.md`](handoffs/2026-09-12-P-629-match-slowdown.md) |
 | 2026-09-12 | P-629 host-FP slowdown fixed (pose claim corrected by P-627) | codex | [`2026-09-12-P-629-fixed.md`](handoffs/2026-09-12-P-629-fixed.md) |
 | 2026-09-12 | P-627 fixed: byte-swap `ftData_x58_t` leg-IK lengths, converter v58 | codex | [`2026-09-12-P-627-ftdata-x58.md`](handoffs/2026-09-12-P-627-ftdata-x58.md) |
+| 2026-09-12 | S5 audio stack + software mixer + asset formats | opencode (deepseek-v4.1-flash) | [`2026-09-12-S5-audio.md`](handoffs/2026-09-12-S5-audio.md) |
 
 ## Template
 

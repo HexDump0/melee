@@ -123,6 +123,20 @@ Rules for this track:
 # owner: ./build/native/melee_decomp_viewer
 ```
 
+## Audio (S5)
+
+```sh
+./build/native/test_audio                       # disc-free mixer + .ssm test
+ctest --test-dir build/native -R decomp_audio   # two matches, byte-identical PCM
+./build/native/melee_decomp_boot --boot-frames 600 --boot-timeout 90 \
+    --boot-match 20 --audio-dump /tmp/melee.wav  # logs frames=N hash=...
+```
+
+A quality probe (no listening): the WAV should have spectral flatness < 0.05
+in loud windows, positive stereo correlation and no clipping.  The viewer's
+`--match` plays through SDL3 (`viewer: audio 32000 Hz stereo` when a device
+opens).  The owner listening check is TASKS.md P-637.
+
 ## Sanitizer run (required for parser/memory changes)
 
 ```sh

@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-12 (P-629 host-FP slowdown fixed; P-627 Link leg IK fixed by converting `ftData->x58`; converter v58)
+Last updated: 2026-09-12 (S5 audio: compiled AX stack + software mixer, .ssm/.sem/.hps conversion, HPS/BGM and SFX play)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -113,6 +113,27 @@ of the containing archive (G-089), which removed the title screen's decode
 spam and black logo rectangles.  Audio is S5.  See `gotchas/GOTCHAS.md` G-087
 (viewer triage frame budget).
 
+**S5 passed (2026-09-12):** the compiled game's whole AX stack runs on the
+host.  `src/sysdolphin/baselib/axdriver.c` and the SDK's pure-C AX voice layer
+(`extern/dolphin/src/dolphin/ax/{AX,AXAlloc,AXAux,AXSPB,AXVPB,AXCL}.c`) are
+compiled against `native/audio/` (`ax_hle.c` is the `AXOut`/DSP/AI boundary,
+`ax_mixer.c` is the software DSP: DSP-ADPCM, ratio SRC, `AXPBMIX` routing, VE
+ramps, ITD, loop/end/current-address and state write-back, aux returns).  The
+200 Hz AX clock is derived from VI (10 frames per 3 retraces).  `reverb_std`'s
+asm `HandleReverb` is ported to C (`native/decomp/axfx/axfx_port.c`);
+`reverb_hi`/`chorus` are not registered by Melee and are stubbed.
+`platform/{ssm,sem,hps}.c` convert the three audio asset formats on the DVD
+read path.  `melee_decomp_boot --audio-dump out.wav` writes a deterministic
+32 kHz mix and logs an FNV-1a hash; the viewer opens an SDL3 32 kHz stream.
+The 10 s scripted match renders character/match SFX and the boot/title HPS
+music (peak -1.3 dBFS, no clipping), `ctest` is 14/14 including `decomp_audio`
+(two runs byte-identical) and ASan/UBSan is clean.  Getting here fixed four
+real bugs: DSP-ADPCM is 8-byte/14-sample frames with the scale in the low
+nibble (the 9-byte/16-sample assumption was loud noise, G-097), the engine's
+u16-pair address/ratio aliasing needs host helpers (G-098), `.sem`/`.hps`
+needed endian conversion (G-099), and synchronous `.sem` loading needed the
+idle tick to pump completions (G-100).
+
 ## TL;DR
 
 A playable two-player sandbox runs natively on Linux, rendering real disc
@@ -196,6 +217,10 @@ lightmap phases, alpha test, XLU blend) and every fighter is scaled by its
 | Bump texgen (P-612) | `GX_VA_NBT` keeps binormal/tangent; `GX_TG_BUMP0..7` implements the hardware emboss formula; Giga Koopa renders correctly (green/orange, previously magenta).  Indirect state is captured (P-617 evaluates it in S4).  `--direct` covers both |
 | Owner visual checks | 180 Hz viewer animation speed confirmed correct; face texture artifact gone (2026-09-11) |
 | Live match viewer (P-623) | `melee_decomp_viewer --match` runs the compiled game in-process (Link vs Mario, Final Destination): Ready countdown, both fighters walking/jumping, KO + `SCORE -1`, camera pan/zoom, respawn platforms; looping PAD script at 60 Hz until ESC; `--record -` piped to ffmpeg produces a 40 s H.264 of the same run |
+| AX stack (S5) | The decomp's `axdriver.c` + SDK AX layer drive `native/audio/ax_mixer.c`: DSP-ADPCM 8-byte/14-sample frames, SRC, `AXPBMIX`, VE, ITD, loop/end/current write-back; `ctest audio` (synthetic fixture) and `decomp_audio` (two 300-frame matches byte-identical) pass |
+| Audio assets (S5) | `.ssm` banks, `smash2.sem` command table and `.hps` streams convert in `platform/{ssm,sem,hps}.c`; boot/title HPS pages advance and loop; the scripted match plays character SFX throughout; ASan/UBSan clean |
+| Audio output (S5) | `melee_decomp_boot --audio-dump out.wav` writes deterministic 32 kHz s16 stereo (peak -1.3 dBFS, no clipping) and logs `audio: frames=N hash=...`; `melee_decomp_viewer --match` plays through an SDL3 audio stream |
+| Reverb (S5) | `reverb_std`'s asm `HandleReverb` transcribed to C in `native/decomp/axfx/axfx_port.c`; registered by `lbAudioAx_8002838C` as aux A |
 | Match fighters visible (P-625) | The compiled fighters render fully textured in `--match`: `fighter.c`'s `x21FC_flag.u8 = 1` sets the MWCC `b7` bit only via the `FtStatusFlags` PORT_PC union (G-091), and the GL texture cache evicts LRU instead of returning black when full (G-092).  `--dump-draws FRAME` lists a captured frame's draws/textures/NDC bounds |
 | Fighter animations loop (P-626) | Walk/run cycles wrap instead of freezing at the clip end: `conv_waitanim_flags` now bit-reverses the top byte of `x10_animCurrFlags` into the low byte, so `x594_b1_loop` reads the console bit and `ftAnim_8006EBE8` sets `AOBJ_LOOP` (converter v57, G-093) |
 | GPU channel evaluation (P-628) | The GX channel/specular lighting now runs in the GL vertex shader (uniforms for 4 channels + 8 lights) instead of per-vertex C: `ctest decomp_render`/`decomp_gx_direct` pass, match-frame RMSE <= 3.4/255 vs the CPU path, spikes 8.5/s -> 3.4/s and worst frame 68 ms -> 26 ms |
@@ -234,9 +259,11 @@ Ordered by impact.
    as P-617 and only verifiable once S4 renders stages.  Stage light lists
    (`src/melee/gr/*`) still supersede the viewer's stand-in lights at S4.
    See `learnings/hsd_tev_materials.md` and `decomp_s2_gx_hle.md`.
-5. **No audio, menus, items, stages, results, netplay, WASM.** Audio is S5;
-   the S3 data path (DVD/DevCom/ARQ, `.ssm` header/record conversion) is in
-   place but `AXDriver_*`/AX are still stubs.
+5. **Audio landed in S5; menus/items/results/netplay/WASM are not there yet.**
+   In-match and boot/title audio play, but `AXFXReverbHi`/`AXFXChorus` are
+   stubbed (Melee never registers them) and the mixer's ITD is a simple delay
+   line; validate pan/fade/pause/mute by ear during the owner check.  Menus,
+   stage BGM selection and results are S6; netplay/WASM are S7.
 6. **Captain Falcon's eyes do not render** in the compiled path (P-616); the
    rest of the head now matches the prototype.  See TASKS.md.
 7. **Non-Mario physics values** are demo defaults, not per-character data.
@@ -273,6 +300,11 @@ SDL_VIDEODRIVER=offscreen ./build/native/melee --view --frames 1 --no-grid \
 ./build/native/melee_decomp_viewer          # interactive (needs lib32-sdl3)
 ./build/native/melee_decomp_viewer --frames 1 --hidden --shot /tmp/v.bmp
 ./build/native/melee_decomp_viewer --match  # live match, 60 Hz, ESC quits
+./build/native/melee_decomp_boot --boot-frames 600 --boot-timeout 90 \
+    --boot-match 20 --audio-dump /tmp/melee.wav   # deterministic 32 kHz mix;
+                                                  # logs frames=N hash=...
+native/tests/audio_determinism.sh ./build/native/melee_decomp_boot /tmp/aud
+./build/native/test_audio                      # disc-free mixer/ssm unit test
 ./build/native/melee_decomp_viewer --match --frames 2400 --record - 2>/dev/null \
     | ffmpeg -y -f image2pipe -framerate 60 -i - -c:v libx264 -crf 21 \
       -pix_fmt yuv420p /tmp/melee_match.mp4
