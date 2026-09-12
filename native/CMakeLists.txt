@@ -100,7 +100,7 @@ target_include_directories(test_decomp_hsd PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src
     ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
 target_compile_options(test_decomp_hsd PRIVATE
-    -m32 -w -ffunction-sections -fdata-sections
+    -m32 -w -ffunction-sections -fdata-sections -DPORT_PC=1
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
 target_link_libraries(test_decomp_hsd PRIVATE m)
 target_link_options(test_decomp_hsd PRIVATE -m32 "LINKER:--gc-sections")
@@ -142,7 +142,7 @@ target_include_directories(test_decomp_assets PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src
     ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
 target_compile_options(test_decomp_assets PRIVATE
-    -m32 -w -ffunction-sections -fdata-sections
+    -m32 -w -ffunction-sections -fdata-sections -DPORT_PC=1
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
 target_link_libraries(test_decomp_assets PRIVATE m)
 target_link_options(test_decomp_assets PRIVATE -m32 "LINKER:--gc-sections")
@@ -200,7 +200,7 @@ target_include_directories(melee_decomp_game BEFORE PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
 target_compile_options(melee_decomp_game PRIVATE
     -m32 -w -fgnu89-inline -ffunction-sections -fdata-sections
-    -Wno-error=incompatible-pointer-types
+    -Wno-error=incompatible-pointer-types -DPORT_PC=1
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
 set_source_files_properties(
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/melee/gm/gmmain.c

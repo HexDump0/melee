@@ -39,6 +39,15 @@ void platform_post_completion(PlatformCompletionFn fn, void* arg)
     queue_count++;
 }
 
+void platform_visit_completions(PlatformVisitFn visit, void* key)
+{
+    size_t i;
+
+    for (i = 0; i < queue_count; i++) {
+        visit((PlatformCompletionFn) queue[i].fn, queue[i].arg, key);
+    }
+}
+
 void platform_pump_completions(void)
 {
     size_t i;

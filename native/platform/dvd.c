@@ -262,6 +262,7 @@ typedef struct DvdCompletion {
     DVDCBCallback callback;
     s32 result;
     u32 transferred;
+    int canceled;
 } DvdCompletion;
 
 static void dvd_run_completion(void* arg)
@@ -269,6 +270,13 @@ static void dvd_run_completion(void* arg)
     DvdCompletion* done = arg;
     DVDCommandBlock* block = done->block;
 
+    if (done->canceled) {
+        /* DVDClose cancels a command whose DVDFileInfo (and command block)
+         * very often lives on the caller's stack; the command must not be
+         * touched after DVDCancel returns. */
+        free(done);
+        return;
+    }
     if (done->result == DVD_RESULT_CANCELED) {
         block->state = DVD_STATE_CANCELED;
     } else if (done->result < 0) {
@@ -295,6 +303,7 @@ static BOOL dvd_post(DVDCommandBlock* block, DVDCBCallback callback, s32 result,
     done->callback = callback;
     done->result = result;
     done->transferred = transferred;
+    done->canceled = 0;
     block->state = DVD_STATE_BUSY;
     platform_post_completion(dvd_run_completion, done);
     return TRUE;
@@ -365,13 +374,37 @@ int DVDPrepareStreamAbsAsync(DVDCommandBlock* block, u32 length, u32 offset,
     return dvd_post(block, callback, 0, 0);
 }
 
+/* Marks any queued completion for `block` as canceled; the pump then frees it
+ * without touching the (possibly dead) command block. */
+static void dvd_mark_canceled(PlatformCompletionFn fn, void* arg, void* key)
+{
+    DvdCompletion* done;
+    if (fn != dvd_run_completion) {
+        return;
+    }
+    done = arg;
+    if ((DVDCommandBlock*) key == done->block) {
+        done->canceled = 1;
+    }
+}
+
+static void dvd_mark_canceled_for(DVDCommandBlock* block)
+{
+    platform_visit_completions(dvd_mark_canceled, block);
+}
+
 int DVDCancelAsync(DVDCommandBlock* block, DVDCBCallback callback)
 {
     if (block == NULL) {
         return FALSE;
     }
-    block->callback = callback;
-    return dvd_post(block, callback, DVD_RESULT_CANCELED, 0);
+    dvd_mark_canceled_for(block);
+    block->state = DVD_STATE_CANCELED;
+    block->transferredSize = 0;
+    if (callback != NULL) {
+        callback(DVD_RESULT_CANCELED, block);
+    }
+    return TRUE;
 }
 
 long DVDCancel(volatile DVDCommandBlock* block)
@@ -379,7 +412,7 @@ long DVDCancel(volatile DVDCommandBlock* block)
     if (block == NULL) {
         return FALSE;
     }
-    return dvd_post((DVDCommandBlock*) block, NULL, DVD_RESULT_CANCELED, 0);
+    return DVDCancelAsync((DVDCommandBlock*) block, NULL);
 }
 
 long DVDGetCommandBlockStatus(DVDCommandBlock* block)

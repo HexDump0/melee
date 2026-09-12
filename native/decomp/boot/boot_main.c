@@ -31,6 +31,9 @@ static void handle_signal(int signo)
 static void install_handlers(void)
 {
     struct sigaction sa;
+    if (getenv("MELEE_NO_CRASH_HANDLER") != NULL) {
+        return; /* let a sanitizer runtime report the failure itself */
+    }
     int signals[] = { SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT, SIGALRM };
     size_t i;
 

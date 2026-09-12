@@ -17,9 +17,15 @@
  */
 
 typedef void (*PlatformCompletionFn)(void* arg);
+typedef void (*PlatformVisitFn)(PlatformCompletionFn fn, void* arg, void* key);
 
 void platform_complete_init(void);
 void platform_post_completion(PlatformCompletionFn fn, void* arg);
+
+/* Calls `visit(arg, key)` for every queued completion.  Used to mark a
+ * command's pending completion as canceled without removing it from the
+ * queue (the pump then discards it).  Safe to call while pumping. */
+void platform_visit_completions(PlatformVisitFn visit, void* key);
 
 /* Runs every completion queued so far; completions posted by a callback are
  * handled by the same drain.  Re-entrant calls return immediately. */
