@@ -295,3 +295,437 @@ targets. Platform code must not assume 64-bit `long`/pointers. The prototype's
 compile upstream decomp code are 32-bit.
 
 **Status:** accepted (2026-09-11).
+
+---
+
+## ADR-0013: Audio backend: host-side AX HLE over the decomp's in-tree AX voice layer
+
+**Context.** ADR-0010 compiles `src/` and requires the GameCube hardware to be
+implemented under `native/`. S1 (`melee_decomp_boot`) excluded
+`src/sysdolphin/baselib/axdriver.c` from the PC build and replaced it plus the
+whole AX/AI/AR surface with log-only stubs in `native/platform/audio.c`
+(`native/CMakeLists.txt:138` and `native/platform/audio.c:132-457`). The
+canonical 10-frame boot makes 30 AX-category stub calls and stops while the
+compiled game is inside `HSD_SynthSFXWaitForLoadCompletion`
+(`native/AI/logs/2026-09-11-S1-boot-triage.md:106`,
+`native/AI/learnings/decomp_boot.md:70-81`). S5 is "in-match + menu audio"
+(`native/AI/ROADMAP_DETAILS.md:109-114`), budgeted at 4-12 weeks in
+`native/AI/ROADMAP.md:66`. P-501 asks for this decision before any S5 code.
+
+This memo establishes five facts that decide the architecture.
+
+### 1. Melee targets the stock AX ucode, at 32 kHz, on a 5 ms / 200 Hz frame
+
+- The microcode is the standard AX ucode shipped with the SDK, not a game
+  custom: `axDspSlave` is defined in the repo's own SDK source
+  (`extern/dolphin/src/dolphin/ax/DSPCode.c:4-6`), sized
+  `AX_DSP_SLAVE_LENGTH 3312` words (`extern/dolphin/include/dolphin/ax.h:195`),
+  and loaded by the SDK's `__AXOutInitDSP`
+  (`extern/dolphin/src/dolphin/ax/AXOut.c:117-140`, init vector `0x10`,
+  resume `0x30`). No `src/` file carries or overrides a ucode
+  (`rg axDspSlave|DSPCode src/` returns nothing). `AXSetMode`/`AXGetMode`
+  (`AXCL.c:128-141`) are never called by the game (`rg AXSetMode src/` is
+  empty), so `__AXClMode` stays at its initial 0 (`AXCL.c:116`).
+- Output rate is 32 kHz: `HSD_SynthInit` calls `AISetDSPSampleRate(0)`
+  unconditionally (`src/sysdolphin/baselib/synth.c:1472`);
+  `AI_SAMPLERATE_32KHZ` is 0 (`extern/dolphin/include/dolphin/ai.h:16`).
+- The audio frame is 160 stereo samples. `__AXOutNewFrame` hands the AI DMA two
+  320-sample s16 buffers (`AXOut.c:7-8`, `AIInitDMA(..., 0x280)` at
+  `AXOut.c:61`) and calls the registered user callback once per frame
+  (`AXOut.c:52-54`). The game's own ramps divide by 160
+  (`synth.c:947` `(vol - node->x24) / 160`, `delta * 0xA0`;
+  `AXSPB.c:31` `frames = *hostSum / 160`). 160 stereo frames at 32 kHz = 5 ms,
+  i.e. **200 callbacks/second**.
+- This timing is functional, not cosmetic: `AXRegisterCallback(HSD_SynthCallback)`
+  (`synth.c:1477`) makes every audio frame advance the game's AXDriver state
+  machines. `HSD_SynthCallback` calls `driverMasterClockCallback` and
+  increments its frame counter (`synth.c:1176-1181`); that is `fn_8038CC1C`,
+  which increments `AXDriver_804D778C` and executes pending per-sound command
+  streams when `v->x30 == AXDriver_804D778C`
+  (`axdriver.c:440-487`, dispatch at `axdriver.c:320`). Driving these callbacks
+  at the 60 Hz VI rate would slow every SFX macro 3.33x.
+
+### 2. The exact AX surface Melee uses
+
+Game code calls the AX API only through `axdriver.c` and `synth.c`; 117
+distinct `AX*` identifiers appear in `src/` (`rg` count), of which these are the
+called functions:
+
+| Surface | Call sites |
+|---|---|
+| `AXInit`, `AXRegisterCallback` | `synth.c:1471`, `synth.c:1477` |
+| Voice allocation: `AXAcquireVoice`, `AXFreeVoice`, `AXSetVoicePriority` | `synth.c:556,1360,1429`, `synth.c:459,559,568,688,973`, `synth.c:613,712,859,1404` |
+| Address/format: `AXSetVoiceAddr`, `AXSetVoiceAdpcm`, `AXSetVoiceAdpcmLoop`, `AXSetVoiceCurrentAddr`, `AXSetVoiceEndAddr`, `AXSetVoiceLoop`, `AXSetVoiceLoopAddr` | `synth.c:619-621,1247,1259,1264,1311,1315,1320,1366-1367` |
+| Mix/volume: `AXSetVoiceMix`, `AXSetVoiceVe`, `AXSetVoiceVeDelta`, `AXSetVoiceSrc`, `AXSetVoiceSrcRatio` | `synth.c:1051-1073`, `synth.c:614,964,1302`, `synth.c:955`, `synth.c:618,1310`, `synth.c:834` |
+| ITD panning: `AXSetVoiceItdOn`, `AXSetVoiceItdTarget` | `synth.c:1092,1100` |
+| Aux effects: `AXRegisterAuxACallback`, `AXRegisterAuxBCallback`, `AXFXSetHooks`, `AXFXReverbStd/HiInit+Shutdown`, `AXFXDelayInit+Shutdown`, `AXFXChorusInit+Shutdown` | `axdriver.c:950,955,1015-1018`, `axdriver.c:961-1005`, `axdriver.c:1171` |
+| AI/AR: `AISetDSPSampleRate`, `AISetStreamVolLeft/Right`, `ARAlloc` | `synth.c:1464-1472,1479-1480`, `synth.c:1473,1476,1532` |
+
+Never used: `AXSetMode`, `AXSetVoiceType`, `AXSetVoiceDpop`, `AXSetVoiceFir`,
+`AXSetVoiceUpdateIncrement/Write`, `AXSetVoiceSrcType`, `AXQuit`,
+`AXInitProfile`, `AXSetMaxDspCycles`. That keeps the host API surface small.
+
+The voice data formats AX accepts are visible in `AXSetVoiceAddr`'s switch
+(`AXVPB.c:1041-1098`): format 0 (ADPCM) and formats 10/25. Melee's SFX path
+stores `AXPBADPCM`/`AXPBADPCMLOOP` per voice (`synth.c:512-520,620-622`) and
+the HPS path calls `AXSetVoiceAdpcm` from the stream header (`synth.c:1367`),
+so format 0 is the one to implement first; 10/25 must be measured (see Open
+Questions) before deciding to implement them.
+
+### 3. The game's own layers divide cleanly
+
+- `src/melee/lb/lbaudio_ax.c` is policy and asset loading: sound-ID to bank
+  mapping (`offsets_arr_803BC4E4`, `lbaudio_ax.static.h:289-300`), language
+  paths `/audio/` vs `/audio/us/` (`lbaudio_ax.c:1897-1912`), the dynamic bank-2
+  loader `lbAudioAx_80023B24` (`lbaudio_ax.c:346-377`), the sound-GObj pool with
+  positional pan/fade callbacks (`lbaudio_ax.c:1255-1460`), HPS track selection
+  (`lbAudioAx_80023F28`, `lbaudio_ax.c:425-436`) and the per-match bank load
+  `lbAudioAx_8002785C` (`lbaudio_ax.c:1853-1895`).
+- `src/sysdolphin/baselib/synth.c` is the game-side driver: the audio heap
+  (`HSD_AudioMalloc`, `synth.c:20-30`), bank allocation/unload
+  (`synth.c:273-316`), `.ssm` header+sample loads over `HSD_DevComRequest`
+  (`synth.c:151-224`), SFX voice playback on top of `AXVPB`
+  (`HSD_Synth_80389334`, `synth.c:531-639`), volume/pitch/mix bookkeeping
+  (`synth.c:767-1104`), HPS/PStream streaming and triple-buffered page advance
+  (`synth.c:1185-1459`), and `HSD_SynthCallback` (`synth.c:1144-1183`).
+- `src/sysdolphin/baselib/axdriver.c` is the hardware-facing half of the HSD
+  driver: the per-sound `HSD_SM` state machines and command-stream parser
+  (`AXDriver_8038CFF4`, `AXDriver_8038C6C0`, `axdriver.c:312-617`), the
+  `smash2.sem` command-table loader that relocates pointers in main RAM
+  (`AXDriver_8038DA70`, `axdriver.c:803-905`), aux effect setup over AXFX
+  (`axdriver.c:915-1083`) and the synth init wiring
+  (`AXDriver_8038E498`, `axdriver.c:1147-1172`).
+- Asset roles: `.ssm` files are the ARAM-resident sample banks loaded by
+  `HSD_SynthSFXLoad` into a bank allocated by `HSD_SynthSFXAllocateBank`
+  (`synth.c:197-224`, `273-285`); `smash2.sem` is the command/sequence table
+  loaded into the main-RAM audio heap by `AXDriver_8038DA70`
+  (`lbaudio_ax.c:1923,2185`); `.hps` is the streamed music, played through a
+  priority-0x1D AX voice fed from a 3-page ARAM window
+  (`HSD_Synth_8038B5AC`, `synth.c:1409-1459`; page advance in
+  `HSD_Synth_8038ADD0`, `synth.c:1230-1277`).
+- ARAM layout is fixed at init: `ARInit`/`ARQInit`/`AIInit`
+  (`lbaudio_ax.c:2098-2100`) then `AXDriver_8038E498(AX_MAX_VOICES, 0, 0x40,
+  lbl_804D3870)` (`lbaudio_ax.c:2122`) -> `HSD_SynthInit`, which ARAllocs
+  a 0x500-byte silence region, the ~0x700000 bank region, and a 0x30000-byte
+  HPS buffer (`synth.c:1469-1534`). The 7.34 MB bank region is split into three
+  banks (2,045,824 B main; 911,456 B pokemon+title; the remainder dynamic FGM,
+  summing to `lbl_804D3870 = 0x700000`, `lbaudio_ax.static.h:40`; splits at
+  `lbaudio_ax.c:2139-2141`). ARAM is 16 MB (`ar.c:316`).
+- Address convention: the real `ARAlloc` returns ARAM **byte offsets** starting
+  at 0x4000 (`extern/dolphin/src/dolphin/ar/ar.c:105-133`, `65-83`).
+  `HSD_SynthInit` doubles the silence address and every bank/HPS page address
+  before handing it to AX (`synth.c:1475`, `synth.c:111`,
+  `synth.c:737-738`); so an AX voice address is `ARAM_offset * 2` and the
+  mixer must translate back. **The S1 host ARAM model (`0x10000000` base,
+  `native/platform/audio.c:72-103`) does not use this convention and must be
+  replaced in S5.**
+
+### 4. Half of the SDK AX code is already in-tree, portable C
+
+`extern/dolphin/src/dolphin/ax/` contains the decompiled SDK AX modules. The
+voice bookkeeping half has no DSP/AI hardware dependencies and is exactly the
+code the game drives:
+
+- `AXAlloc.c` - voice priority stacks, acquire/free, callback stack
+  (`AXAlloc.c:17-31,160-221`).
+- `AXVPB.c` - every `AXSetVoice*` setter, the user/DSP shadow PB array,
+  `__AXSyncPBs` (`AXVPB.c:32-637`, formats at `1041-1098`), defaults and the
+  per-frame DSP cycle budget (`__AXVPBInit`, `AXVPB.c:655-720`;
+  `__AXMaxDspCycles = OS_BUS_CLOCK / 400` at `AXVPB.c:667`).
+- `AXSPB.c` - depop/studio state (`AXSPB.c:26-101`).
+- `AXAux.c` - the three aux buffers and `__AXProcessAux` that invokes the
+  registered aux callbacks (`AXAux.c:84-126`).
+- `AXCL.c` - command-list cycle accounting and mode (`AXCL.c:14-141`).
+- `axfx/axfx.c` + `reverb_std.c` + `reverb_hi.c` + `chorus.c` + `delay.c` -
+  the pure-C effect callbacks the game registers (`hooks`: `axfx.c:1-26`;
+  game use: `axdriver.c:961-1005`).
+
+Only `AX.c` (module init), `AXOut.c` (DSP task + AI DMA + user frame callback)
+and the parts of `AXCL.c` that encode the command list touch hardware. This is
+the decisive constraint: the DSP side can be replaced with a software mixer
+while every byte of the game's AX-facing driver code stays compiled and
+unmodified.
+
+### 5. License and dependency constraints
+
+- The repository publishes **no LICENSE/COPYING** and no license header of its
+  own (`git ls-files | rg -i '^(license|copying|notice)'` is empty; the origin
+  is `github.com/doldecomp/melee`, which likewise ships none).
+- Dolphin's DSP-HLE AX implementation is **GPL-2.0-or-later** (`AX.cpp`,
+  `AXVoice.h`: "SPDX-License-Identifier: GPL-2.0-or-later";
+  the repository README states GPLv2+). Importing it would copy
+  GPLv2+ code into an unlicensed tree and would force the combined work under
+  the GPL; it is also C++ tied to Dolphin's `DSPHLE`/`Memory`/mailbox
+  infrastructure.
+- AGENTS section 8 forbids new dependencies without a decision entry; the port
+  currently depends only on SDL2 + OpenGL + libm (`native/AI/AGENTS.md:125-131`).
+- The only in-tree "borrow an existing approach" candidate named by the roadmap
+  is ACGC (`ROADMAP.md:165`). ACGC-PC-Port is Animal Crossing's `jaudio_NES`
+  engine plus an N64 RSP audio simulator (`ACGC-PC-Port/src/static/jaudio_NES/
+  internal/rspsim.c`, `ACGC-PC-Port/pc/src/pc_audio.c`); grep finds no
+  `AXAcquireVoice`/`AXVPB`/AX API implementation in it. It is MIT/CC0
+  (`ACGC-PC-Port/LICENSE`) but architecturally irrelevant to Melee's AX stack.
+- Web check (2026-09-11): no standalone permissively licensed AX-ucode
+  interpreter library surfaced; the known implementations are Dolphin's GPL
+  DSP-LLE/AX-HLE lineage.
+
+## Alternatives considered
+
+**A. Host-side AX API reimplementation with the game's `axdriver.c` compiled
+against it, reusing the decomp's in-tree SDK voice bookkeeping
+(RECOMMENDED).** Compile `src/sysdolphin/baselib/axdriver.c` (already in the
+tree, currently excluded at `native/CMakeLists.txt:138`) and the pure-C SDK TUs
+from `extern/dolphin` (AXAlloc, AXAux, AXSPB, AXVPB, AXCL, axfx). Replace only
+the hardware boundary `AXOut` with a native module that, each 5 ms frame:
+`__AXSyncPBs(0)` -> `__AXPrintStudio()` -> `__AXGetCommandListAddress()` ->
+`__AXServiceCallbackStack()` -> `__AXProcessAux()` -> registered user callback
+(`HSD_SynthCallback`) -> `__AXNextFrame()` -> **software mix of the 64 PBs**
+(ADPCM/PCM decode, ratio SRC, `AXPBMIX` routing to stereo + aux A/B, VE ramp,
+loop/end/current-address and `pb.state` write-back). ARAM becomes a host 16 MB
+buffer with real `ARAlloc` offset semantics; AX addresses resolve as
+`offset*2`. Output goes to SDL2 audio (already a dependency) for the interactive
+build and to a null/WAV sink for the boot/test target, which currently links no
+SDL (`native/CMakeLists.txt:159-184`).
+
+- *Pros:* exactly ADR-0010's split (game logic compiled, hardware reimplemented);
+  ~2,300 lines of already-decompiled, allegedly-correct AX/voice/AXFX code is
+  reused instead of rewritten; no new dependency; no GPL contamination; the
+  remaining hand-written surface is small and directly suggested by `AXOut.c`'s
+  own frame ordering; behavior is exercised by the game's own driver code; the
+  callback cadence needed to drive the game's clock can be made deterministic.
+- *Cons/risks:* the software mixer is a hand-written approximation of the
+  ucode's DSP math (not bit-exact); `currentAddress`/`state`/`currentVolume`
+  write-back must be exact or the game's streaming (`synth.c:1242`) and
+  voice-stop logic (`synth.c:1166`, `synth.c:777`) misbehave; the ARAM model
+  change invalidates S1's address assumptions; S3 must complete DevCom/ARQ
+  callbacks on the same timebase.
+- *Effort:* S5.1 2-4 days; S5.2 1.5-3 weeks; S5.3 1-2 weeks; S5.4 1-2 weeks;
+  validation 3-5 days. Total ~4-8 focused weeks, inside the 4-12 week estimate
+  (`ROADMAP.md:66`). Risk: medium (fidelity and address bookkeeping), not high
+  (architecture is already proven by the decomp).
+
+**B. Reuse Dolphin's AX HLE lineage.** Rejected: GPL-2.0-or-later
+contamination of an unlicensed tree; C++/DSPHLE coupling; a new dependency
+without an ADR (AGENTS section 8). The design (interpret the AX command list,
+mix in a dedicated thread) is useful as a reference, but no code is imported.
+
+**C. Hybrid: compile the game's driver and emulate the DSP/microcode.**
+Rejected for S5: the ucode is the standard 3,312-word AX microcode
+(`DSPCode.c:6`, `ax.h:195`), so a full ADSP-2181 interpreter means instruction
+decode, DSP program/data memory, mailboxes, ARAM DMA and cycle timing -- a
+project of its own ("DSP microcode emulation is a project of its own",
+`ROADMAP.md:164`). It does not remove the need to handle ARAM/DVD integration
+and produces harder-to-debug output. Retained as a fallback only if option A
+proves audibly wrong after the tuning budget below is spent.
+
+**D. Per-game mixer replacing AX entirely** (reimplement AXDriver/HSD_Synth
+against a host audio library). Rejected: violates ADR-0010 section 0.1 (compile
+the game's logic; renounce hand transcription except where compile cannot work),
+discards `axdriver.c`/`synth.c` which already compile, creates a second source
+of truth, and would drift from frame-perfect command timing.
+
+**E. ACGC approach.** Rejected: ACGC-PC-Port implements Animal Crossing's
+`jaudio_NES`/`rspsim`, not the AX API or the AX ucode; there is nothing to
+reuse for Melee beyond the SDL producer-thread/ring-buffer pattern, which is
+itself straightforward.
+
+## Decision
+
+Implement **option A**: host-side AX HLE over the decompilation's own in-tree
+AX voice layer.
+
+1. Compile the game-side and SDK-side AX code as-is: add back
+   `src/sysdolphin/baselib/axdriver.c` and compile
+   `extern/dolphin/src/dolphin/ax/{AXAlloc,AXAux,AXSPB,AXVPB,AXCL}.c` plus
+   `extern/dolphin/src/dolphin/axfx/{axfx,reverb_std,reverb_hi,chorus,delay}.c`
+   (read-only; ADR-0011 permits compiling, never editing, `extern/`). Delete the
+   AXDriver_* and AX/AI/AR audio stubs from `native/platform/audio.c`, keeping
+   only what S3/S5 has not implemented yet.
+2. Add `native/audio/` (new): `ax_hle.c` (the `AXOut` replacement: `AXInit`,
+   `AXRegisterCallback`, `AXSetMode`=0, 5 ms frame pump, mixer entry) and
+   `aram.c` (16 MB host ARAM with real `ARAlloc` offset semantics and the
+   `offset*2` AX-address mapping). No new external dependency: interactive
+   output uses SDL2 (already required); the boot target uses a null/WAV sink.
+3. Implement the mixer to the ucode's observable contract, not to guessed
+   "nice" audio: ADPCM (format 0) first; PCM formats 10/25 only if boot/menu/
+   match instrumentation shows they occur (`AXVPB.c:1041-1098`). Honor
+   `AXPBMIX`, `AXPBVE` currentVolume/currentDelta, `AXPBSRC` ratio with
+   fractional position, loop/end/current addresses, `pb.state`, ITD shifts
+   (`AXSetVoiceItdOn/Target`, `synth.c:1088-1102`), and depop through the
+   studio state (`AXSPB.c:90-101`). Write decoded/mixed results back into the
+   `__AXPB` shadow so `__AXServiceVPB`'s sync==0 path (`AXVPB.c:44-49`) feeds
+   the game the state it reads at `synth.c:1166,777,1242`.
+4. Timing: one AX frame = 5 ms = 160 stereo samples at 32 kHz, with
+   `HSD_SynthCallback` invoked once per frame (200 Hz). In the deterministic
+   boot/test path, pump 10 audio frames per 3 `VIWaitForRetrace` frames
+   (60 x 10/3 = 200) from the main thread; never call compiled game code from
+   SDL's audio callback (host `OSDisableInterrupts` is bookkeeping only,
+   `native/platform/os.c:207-225`). The SDL callback or a dedicated thread only
+   drains a ring buffer filled by the pump. This preserves the deterministic
+   virtual timebase the S1 boot relies on
+   (`native/AI/learnings/decomp_boot.md:21-24,32`).
+
+## Consequences
+
+- `native/CMakeLists.txt` loses the `axdriver.c` exclusion and gains the
+  in-tree AX/AXFX TUs; `native/platform/audio.c` shrinks to the pieces S3/S5
+  still owns. No `src/` or `extern/` edit is expected; if a shim gap appears it
+  goes through `native/decomp/shim/` (ADR-0011 shim-first).
+- The boot stop at `HSD_SynthSFXWaitForLoadCompletion`
+  (`decomp_boot.md:74-81`) is unblocked by **S3** (DVD + DevCom/ARQ callbacks
+  decrement `HSD_Synth_804D772C` in `HSD_SynthSFXSampleLoadCallback`,
+  `synth.c:143`, via the DevCom completion path `devcom.c:216-235,267-320`);
+  the AX callback does not touch that counter. S5's boot deliverable is that
+  after S3 lands, the audio stack initializes, `AXRegisterCallback` is live, and
+  the load completes with `HSD_SynthSFXGetPendingLoadCount() == 0`. The S1
+  work-list wording that credited AX with the load completion is corrected in
+  `TASKS.md` with this decision.
+- "Done" for S5 means: (a) boot passes the bank-load wait; (b) menu SFX from
+  `.ssm`/`smash2.sem` plays; (c) a match has character/stage banks plus HPS BGM
+  that loops, with pan/fade/pause/mute behaving; (d) headless dumps are
+  deterministic and ASan-clean; (e) the owner confirms it sounds right
+  (AGENTS section 5).
+- Accepted fidelity gaps: the mixdown is mathematically equivalent in intent,
+  not bit-identical to the DSP. This is the main residual risk; see Open
+  Questions.
+
+**Status:** accepted (2026-09-12).
+
+## S5 implementation plan (candidate tasks; IDs to be assigned)
+
+### S5.1 - AX bookkeeping core and offline frame pump
+
+- **Goal:** `AXInit`/`AXRegisterCallback` are real; the in-tree AX bookkeeping
+  TUs build 32-bit behind the existing shim; one AX frame can be pumped with a
+  null sink and observed.
+- **Files:** `native/audio/ax_hle.c`, `native/audio/aram.c`,
+  `native/CMakeLists.txt`, `native/platform/audio.c` (drop the AX API stubs),
+  `native/tests/`.
+- **Acceptance:** warning-free `-m32` build; `melee_decomp_boot` no longer logs
+  `stub AXInit/AXRegisterCallback`; a unit test acquires a voice, sets
+  state/mix, pumps N frames, and sees the registered callback invoked N times
+  and `__AXServiceVPB`'s write-back reach the user PB.
+
+### S5.2 - Software mixer, ADPCM and ARAM
+
+- **Goal:** audible-correct rendering of the 64 `__AXPB` entries:
+  decode + ratio SRC + `AXPBMIX` + VE ramp + loop/end/current address +
+  `pb.state` + ITD + depop, over a host 16 MB ARAM with real offset semantics.
+- **Files:** `native/audio/ax_mixer.c`, `native/audio/aram.c`,
+  `native/platform/audio.c` (replace the S1 `0x10000000` ARAM model at
+  `audio.c:72-103`), `native/tests/`.
+- **Acceptance:** synthetic ADPCM fixture (generated, no game data, ADR-0005)
+  plays at the correct pitch/rate; loop points and end state transition are
+  exact; WAV/checksum of a fixed scripted run is byte-stable across two runs;
+  a differential test against a literal transcription of the ADPCM/SRC
+  formulas passes sample-for-sample; ASan clean.
+
+### S5.3 - Compile the game's AX driver, SFX and aux; unblock boot
+
+- **Goal:** `axdriver.c` replaces its stubs; `HSD_Synth_80389334` SFX voices,
+  the `smash2.sem` path and AXFX aux effects run through the mixer; the boot
+  bank load completes once S3 lands.
+- **Files:** `native/CMakeLists.txt` (compile
+  `src/sysdolphin/baselib/axdriver.c` and the in-tree AXFX TUs),
+  `native/platform/audio.c` (delete AXDriver_*/aux stubs), `native/audio/`.
+- **Acceptance:** `melee_decomp_boot` advances past
+  `HSD_SynthSFXWaitForLoadCompletion` and past frame 2 with
+  `HSD_SynthSFXGetPendingLoadCount() == 0`; a menu SFX produces the expected
+  voice lifecycle (acquire -> state 1 -> end -> state 0 -> free) and a stable
+  mixdown hash; aux A/B callbacks are invoked once per frame.
+
+### S5.4 - HPS streaming, match audio and SDL output
+
+- **Goal:** `lbAudioAx_8002785C` bank selection + `AXDriver_8038E8EC` HPS
+  streaming (`synth.c:1409-1459`, page advance `synth.c:1230-1277`) run against
+  S3's DevCom; the interactive build plays through SDL2 behind a ring buffer.
+- **Files:** `native/audio/ax_mixer.c` (current-address/loop bookkeeping),
+  `native/platform/sdl_audio.c`, `native/main.c`, `native/CMakeLists.txt`.
+- **Acceptance:** a scripted match streams BGM for >10 s without stall or
+  underrun; `HSD_Synth_8038ADD0` advances pages (observed in the audio trace);
+  in-match SFX from the character bank plays; the owner listening check
+  (AGENTS section 5) passes.
+
+### S5.5 - Conformance harness (can overlap S5.2)
+
+- **Goal:** headless proof and regression guard for everything above.
+- **Files:** `native/tests/`, `native/AI/logs/`, `native/AI/TESTING.md`.
+- **Acceptance:** a deterministic audio trace (per-frame callback count, active
+  voices, PB states, PCM SHA-256) recorded for boot/menu/match scenes; the
+  `decomp_boot` ctest asserts callback ordering and a non-silent mixdown after
+  S3; all asset-dependent tests skip cleanly without a disc.
+
+## What S5 can validate headlessly (no audio hardware on this machine)
+
+- **Callback ordering.** The backend must expose a frame counter and a
+  registered-callback pointer; tests assert `AXRegisterCallback` is called once
+  with `HSD_SynthCallback` (`synth.c:1477`), that the callback fires once per
+  5 ms frame, and that `driverMasterClockCallback` (`synth.c:1176-1178`) runs
+  before the mixer's write-back each frame.
+- **Mixdown checksum / WAV diff.** Render PCM into an offline sink and dump it:
+  `--audio-dump out.wav` plus a printed SHA-256. Because the engine's virtual
+  timebase is deterministic (`decomp_boot.md:32`), two runs with the same
+  arguments must be byte-identical. Build-to-build diffs of scripted scenes
+  (menu SFX, match BGM) are the regression signal; the media stays in `/tmp`
+  and no game-derived audio is committed (ADR-0005).
+- **Synthetic golden files.** A generated ADPCM sample + mix script with no
+  game data can be committed as a tiny fixture and compared against a literal
+  transcription of the decode/SRC math (the P-301-style differential pattern).
+- **State assertions.** Voice lifecycle, `pb.state` semantics for
+  `HSD_SynthSFXCheck` (`synth.c:767-784`), `currentAddress` monotonic/loop
+  behaviour for `HSD_Synth_8038ADD0` (`synth.c:1242`), and budget counter
+  consistency (`lbAudioAx_80028B2C`, `axdriver.c:1174-1182`).
+- **Boot gate.** With S3 in place: boot proceeds past the bank wait and the
+  triage log no longer lists AX or ARQ stubs.
+
+## Open questions and evidence that would change this decision
+
+1. **Do formats 10/25 (PCM) occur?** Instrument `AXSetVoiceAddr` during boot,
+   a menu, and a match and log `addr->format`. If only 0 occurs, the mixer may
+   assert on the others; if they occur, implement them (small cost). Scope
+   change, not architecture change.
+2. **Is linear interpolation sufficient for `AXPBSRC`?** The game never calls
+   `AXSetVoiceSrcType`, so `srcSelect/coefSelect` stay 0; measure the audible
+   result with a pitch-sweep fixture. If aliasing is audible, add the 4-tap
+   path and re-test. Scope change.
+3. **ITD and surround.** The game does enable ITD (`synth.c:1088-1102`,
+   `AXDriver_8038BF6C`). Decide whether the first mixer slice implements the
+   delay-line shifts or approximates them; a dry A/B against a reference
+   decides. Scope/tuning only.
+4. **Threading.** The recommended design pumps audio on the main thread for
+   determinism and to avoid calling compiled game code off-thread. If SDL
+   underruns or latency becomes a problem, revisit a producer thread with a
+   ring buffer (ACGC's `pc_audio.c` pattern) and emulated interrupt masking.
+5. **S3 ARQ completion model.** If S3 completes ARQ on a worker thread rather
+   than inline, the interaction with the 200 Hz pump and `HSD_DevCom*WakeUp`
+   needs a decision; the boot wait itself is S3's responsibility regardless.
+6. **Evidence that would flip the decision:** a permissively licensed
+   standalone AX-ucode interpreter that reproduces a Melee WAV diff without new
+   dependency problems (would make option B viable); or option A failing to
+   produce acceptable audio after the S5.2-S5.4 tuning budget, in which case
+   revisit option C (full ucode LLE) with a clean-room interpreter.
+
+## Evidence index
+
+- Boot stop and work list: `native/AI/learnings/decomp_boot.md:70-101`,
+  `native/AI/logs/2026-09-11-S1-boot-triage.md:106`.
+- Current exclusions/stubs: `native/CMakeLists.txt:131-145,159-184`,
+  `native/platform/audio.c:38-457`.
+- AX surface and layers: `src/sysdolphin/baselib/axdriver.c`,
+  `src/sysdolphin/baselib/synth.c`, `src/melee/lb/lbaudio_ax.c` (citations
+  inline above).
+- Ucode/rate/frame: `extern/dolphin/src/dolphin/ax/DSPCode.c:4-6`,
+  `extern/dolphin/include/dolphin/ax.h:195`,
+  `extern/dolphin/src/dolphin/ax/AXOut.c:7-8,52-61,117-140`,
+  `extern/dolphin/src/dolphin/ax/AXCL.c:116`,
+  `src/sysdolphin/baselib/synth.c:1471-1472`.
+- Reusable in-tree AX code: `extern/dolphin/src/dolphin/ax/AXAlloc.c`,
+  `AXVPB.c`, `AXAux.c`, `AXSPB.c`, `AXCL.c`;
+  `extern/dolphin/src/dolphin/axfx/*.c`.
+- ARAM: `extern/dolphin/src/dolphin/ar/ar.c:65-133,316`,
+  `src/sysdolphin/baselib/synth.c:1469-1534`,
+  `src/melee/lb/lbaudio_ax.c:2098-2141`,
+  `src/melee/lb/lbaudio_ax.static.h:40,289-300`.
+- Policy: ADR-0005, ADR-0010, ADR-0011, ADR-0012;
+  `native/AI/AGENTS.md:125-131`; `native/AI/ROADMAP.md:66,157-165`;
+  `native/AI/ROADMAP_DETAILS.md:109-114`; `native/AI/TASKS.md:49,73`.

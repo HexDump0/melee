@@ -50,7 +50,6 @@ Status values: `open`, `claimed`, `blocked`, `review`, `done`, `parked`
 | P-402 | Fuzz the HSD/disc parsers with a mutation harness | open | — | `native/` | Still useful: the hand parser becomes the asset-pipeline oracle, so any crash is a bug. Keep fixtures in `native/AI/logs/` (small, synthetic only). |
 | P-412 | Game & Watch residual pieces: identify why the collinear flat parts are not hidden (animation joint state vs vis tables) | parked | — | `native/hsd/model.c` | **PARKED by ADR-0010** — compiled joint/vis code (S2/S4) decides this; re-check against the compiled render before any investigation. |
 | P-411 | Generic per-character attributes (`ftData<Char>`), not just Mario | parked | — | `native/game/attributes.c` | **PARKED by ADR-0010** — compiled `ftData` (S4) replaces the hand attribute path; `learnings/fighter_data.md` stays as the format reference. |
-| P-501 | Audio backend design memo | open | — | `native/AI/DECISIONS.md` | **On the critical path for S5.** Options: reimplement AX/DSP, adopt an existing AX/DSP interpreter (ACGC/Dolphin lineage), or replace with a per-game mixer. 116 AX symbols + AR in `src/`. Write the ADR before coding. |
 | P-502 | WASM feasibility memo | open | — | `native/AI/DECISIONS.md` | **S7 groundwork.** Emscripten + SDL2 + WebGL2 (ES3 shaders already portable). Identify blockers: disc-image size/delivery, threading, audio, 60 Hz pacing. |
 
 ## P-201 result
@@ -74,8 +73,10 @@ waits for its first sound-bank load. Ordered by what unblocks the boot:
 2. **S3 — DVD + HSD DevCom/ARQ**. `DVDConvertPathToEntrynum`/open/read and
    synchronous `ARQPostRequest` callbacks so `HSD_DevComRequest` can finish
    asset loads. Seed: `native/platform/disc.c`.
-3. **S5 — AX/DSP callback**. `AXRegisterCallback` must drive
-   `HSD_SynthCallback` on the audio frame so synth loads complete.
+3. **S5 — AX/DSP HLE**. `AXRegisterCallback` must drive
+   `HSD_SynthCallback` on the 5 ms/200 Hz audio frame for voice/mix state and
+   the AXDriver command clock (ADR-0013). The boot bank wait itself is
+   unblocked by S3's DVD/ARQ callbacks, not by AX.
 4. **S6 — CARD/EXI + fonts**. Card command pump (`hsd_803AAA48`) and a font
    source replacing the generated atlases.
 5. **S4 — alarms/threads** (`OSCreateAlarm`/`OSSetPeriodicAlarm` are stubs;
@@ -98,6 +99,7 @@ compiled render in S2/S4 instead.
 
 | ID | Task | Agent | Commit | Date |
 |---|---|---|---|---|
+| P-501 | Audio backend design memo: ADR-0013 selects host-side AX HLE — compile the game's `src/sysdolphin/baselib/axdriver.c` plus the in-tree SDK AX voice layer, replace only `AXOut`/DSP with a 5 ms software mixer; contains rejected options, S5.1-S5.5 task plan and headless validation | opencode (deepseek-flash) | _pending_ | 2026-09-12 |
 | P-606 | S2: compiled HSD renders through the GX HLE (`native/decomp/gx/` + `hsd_scene.c` + `test_decomp_render`, ctest `decomp_render`; world bounds equal the prototype, screenshot RMSE 10.94/255, deviations in `learnings/decomp_s2_gx_hle.md`) | opencode (deepseek-flash) | e20356d97 | 2026-09-12 |
 | P-605 | S3 prep: host-endian conversion spec per asset format (535-line spec; `learnings/decomp_assets.md`) | opencode (docs session) | 805adb250 | 2026-09-11 |
 | P-403 | GX format census across 33 `Pl*Nr.dat` (967 textures; CMPR 883, CI8 47, RGBA8 12, I4 17, CI4 5) | opencode (docs session) | d8376e30e | 2026-09-11 |
