@@ -629,8 +629,16 @@ int main(int argc, char** argv)
     gx_gl_set_clear(0.05f, 0.06f, 0.09f, 1.0f);
     gx_gl_set_options(&v->gl);
     if (match_mode) {
-        int status = run_match(window, context, shot, record, record_every,
-                               match_frame, (unsigned) frames, &v->gl);
+        int status;
+        /* The HUD's part-isolation toggles are capture-side GL options, so
+         * they work in match mode too (find a draw in a live scene). */
+        if (v->part_mode == 1) {
+            v->gl.only_draw = v->part;
+        } else if (v->part_mode == 2) {
+            v->gl.hide_draw = v->part;
+        }
+        status = run_match(window, context, shot, record, record_every,
+                           match_frame, (unsigned) frames, &v->gl);
         if (record != NULL) {
             fclose(record);
         }
