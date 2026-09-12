@@ -41,4 +41,22 @@
 #define HSD_ArchiveParse melee_port_HSD_ArchiveParse
 #endif
 
+/*
+ * S5: the engine stores a 32-bit address / 16.16 ratio into adjacent u16
+ * fields with a `*(u32*) &pair = value` aliasing idiom (synth.c).  That is
+ * only correct on big-endian: the host would put the low half in the first
+ * field.  These helpers give the same layout on the host; the call sites are
+ * `#ifdef PORT_PC`-gated (listed in learnings/decomp_port.md).
+ */
+#ifdef PORT_PC
+#define MELEE_PORT_AX_SET_RATIO(dst, value)                                    \
+    ((dst).ratioHi = (u16) ((u32) (value) >> 16),                              \
+     (dst).ratioLo = (u16) (u32) (value))
+#define MELEE_PORT_AX_GET_ADDR(addr)                                           \
+    ((((u32) (addr).currentAddressHi) << 16) | (u32) (addr).currentAddressLo)
+#define MELEE_PORT_AX_GET_U16PAIR(hi, lo) ((((u32) (hi)) << 16) | (u32) (lo))
+#define MELEE_PORT_AX_SET_U16PAIR(hi, lo, value)                               \
+    ((hi) = (u16) ((u32) (value) >> 16), (lo) = (u16) (u32) (value))
+#endif
+
 #endif /* MELEE_NATIVE_DECOMP_SHIM_H */

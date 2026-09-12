@@ -220,10 +220,18 @@ void boot_platform_advance_frame(void)
 }
 
 /* 1 ms of virtual time; the compiled idle loops poll the drive status, so
- * that poll is where the alarm interrupt gets emulated (see platform.h). */
+ * that poll is where the alarm interrupt gets emulated (see platform.h).
+ * DVDGetDriveStatus is also the wait point of the engine's synchronous
+ * loaders (`AXDriver_8038DA70` spins on a DVD read callback with no VI in
+ * sight), so deferred hardware completions are delivered here too when
+ * interrupts are enabled; with interrupts disabled the completion must wait
+ * for the OSRestoreInterrupts point, exactly as on hardware. */
 void boot_platform_idle_tick(void)
 {
     advance_ticks(OS_TICKS_PER_MSEC);
+    if (interrupts_enabled) {
+        platform_pump_completions();
+    }
 }
 
 /* 2000-01-01 00:00:00 is the GameCube epoch. */

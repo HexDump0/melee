@@ -26,6 +26,8 @@
 
 #include <dolphin/ax.h>
 #include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define AX_FRAME_SAMPLES 160
@@ -44,6 +46,7 @@ typedef struct AxVoiceMix {
     int ended;       /* the sample reached its end this frame */
     s16 yn1, yn2;    /* ADPCM predictor history */
     u32 frame_addr;  /* AX address of the next frame to decode */
+    u32 write_addr;  /* currentAddress we last wrote back */
     s16 pcm[16];     /* decoded frame */
     int index;       /* next sample to consume in pcm[] (16 = need frame) */
     u32 frac;        /* 16.16 fraction between pcm[index] and pcm[index+1] */
@@ -102,20 +105,29 @@ static s16 clamp_s16(s32 v)
 
 static void voice_reset(AxVoiceMix* v, AXPB* pb)
 {
-    unsigned char* aram = platform_aram_base();
+    u32 cur = pb_cur_addr(pb);
+    s16 itd_l[AX_ITD_SAMPLES];
+    s16 itd_r[AX_ITD_SAMPLES];
+    unsigned itd_pos = v->itd_pos;
 
+    if (v->active) {
+        memcpy(itd_l, v->itd_l, sizeof(itd_l));
+        memcpy(itd_r, v->itd_r, sizeof(itd_r));
+    } else {
+        memset(itd_l, 0, sizeof(itd_l));
+        memset(itd_r, 0, sizeof(itd_r));
+        itd_pos = 0;
+    }
     memset(v, 0, sizeof(*v));
     v->active = 1;
-    v->frame_addr = pb_cur_addr(pb);
+    v->frame_addr = cur;
+    v->write_addr = cur;
     v->yn1 = (s16) pb->adpcm.yn1;
     v->yn2 = (s16) pb->adpcm.yn2;
     v->index = 16; /* force a frame decode */
-
-    if (pb->addr.format == 0 && pb->addr.currentAddressHi == 0 &&
-        pb->addr.currentAddressLo == 0 && pb->adpcm.yn1 == 0 &&
-        pb->adpcm.yn2 == 0 && aram == NULL) {
-        v->ended = 1;
-    }
+    memcpy(v->itd_l, itd_l, sizeof(itd_l));
+    memcpy(v->itd_r, itd_r, sizeof(itd_r));
+    v->itd_pos = itd_pos;
 }
 
 /* Decode one ADPCM/PCM frame into v->pcm.  Returns 0 at the end of a
@@ -300,7 +312,10 @@ void ax_mixer_frame(s16* out, unsigned frames)
             v->ended = 0;
             continue;
         }
-        if (!v->active) {
+        if (!v->active || pb_cur_addr(pb) != v->write_addr) {
+            /* New voice, or the game repositioned a live one (HPS stream
+             * start / page handoff, SFX voice reuse): restart the decoder
+             * from the address the game just wrote. */
             voice_reset(v, pb);
         }
 
@@ -386,7 +401,13 @@ void ax_mixer_frame(s16* out, unsigned frames)
                 addr -= 9 * 2;
                 addr += (u32) ((v->index * 9 * 2) / 16);
             }
+            if (getenv("AX_MIX_DEBUG") && addr > platform_aram_size() * 2u + 0x1000000u) {
+                fprintf(stderr, "mix dbg: voice %u write addr=%08x frame=%08x idx=%d ratio=%08x\n",
+                        i, addr, v->frame_addr, v->index,
+                        ((u32) pb->src.ratioHi << 16) | pb->src.ratioLo);
+            }
             pb_set_cur_addr(pb, addr);
+            v->write_addr = addr;
         }
 
         if (v->ended) {

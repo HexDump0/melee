@@ -47,7 +47,10 @@ set(MELEE_AX_SOURCES
     # AXFX: delay.c is portable C.  reverb_std/reverb_hi/chorus contain MWCC
     # asm in extern/ and are replaced by native/decomp/axfx/ (ADR-0011 rule 3).
     ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/axfx/axfx.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/axfx/delay.c)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/axfx/delay.c
+    # reverb_std/reverb_hi/chorus are hybrid asm in extern/ (ADR-0011 rule 3);
+    # this replacement TU ports reverb_std and stubs the two unused effects.
+    ${CMAKE_CURRENT_SOURCE_DIR}/decomp/axfx/axfx_port.c)
 
 add_executable(melee
     main.c
@@ -221,11 +224,14 @@ set_tests_properties(decomp_assets PROPERTIES
 #   src/MetroTRK/       GameCube debugger transport
 #   Runtime/__mem.c     MSL memcpys; glibc provides them
 #   baselib/debug.c     MSL FILE internals; replaced by decomp/debug_port.c
-#   baselib/axdriver.c  drives the DSP hardware; replaced by platform/audio.c
 #   sislib_font.c,
 #   hsd_3915.c,
 #   hsd_3A76.c          need generated font atlases (decomp build artifacts,
 #                       ADR-0005); replaced by platform/font_stub.c for S1
+#
+# S5: baselib/axdriver.c is compiled (it drives the AX voice layer, not the
+# DSP); the DSP/AI boundary is native/audio/ax_hle.c and the asm AXFX files
+# are replaced by native/decomp/axfx/axfx_port.c.
 #
 # The real backends vs log-only stubs are listed in
 # native/AI/learnings/decomp_boot.md.
@@ -236,7 +242,6 @@ list(FILTER MELEE_DECOMP_SOURCES EXCLUDE REGEX
 list(REMOVE_ITEM MELEE_DECOMP_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/Runtime/__mem.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/debug.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/axdriver.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/sislib_font.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/hsd_3915.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/hsd_3A76.c)
@@ -285,6 +290,8 @@ add_executable(melee_decomp_boot
     platform/disc.c
     platform/ar.c
     platform/ssm.c
+    platform/sem.c
+    platform/hps.c
     platform/complete.c
     platform/pad_card.c
     audio/ax_hle.c
@@ -355,6 +362,8 @@ add_executable(test_decomp_render
     platform/dvd.c
     platform/ar.c
     platform/ssm.c
+    platform/sem.c
+    platform/hps.c
     platform/complete.c
     platform/pad_card.c
     audio/ax_hle.c
@@ -445,6 +454,8 @@ if(MELEE_SDL3_LIB32)
       platform/dvd.c
       platform/ar.c
       platform/ssm.c
+      platform/sem.c
+      platform/hps.c
       platform/complete.c
       platform/pad_card.c
       audio/ax_hle.c

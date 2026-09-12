@@ -31,6 +31,8 @@
 #include "platform/complete.h"
 #include "platform/disc.h"
 #include "platform/platform.h"
+#include "platform/hps.h"
+#include "platform/sem.h"
 #include "platform/ssm.h"
 
 #define DEFAULT_DISC "iso/Super Smash Bros. Melee (USA) (En,Ja) (Rev 2).ciso"
@@ -55,6 +57,8 @@ typedef struct DvdFile {
     uint32_t length;
     const char* name;    /* basename inside the FST string table */
     int is_ssm;
+    int is_sem;
+    int is_hps;
     SsmStreamTable ssm;
 } DvdFile;
 
@@ -139,7 +143,11 @@ static void build_file_table(void)
         memcpy(&file->length, entry + 8, 4);
         file->name = (const char*) (fst + fst_strings + name_off);
         file->is_ssm = name_ends_with(file->name, ".ssm");
-        ssm_stream_init(&file->ssm);
+        file->is_sem = name_ends_with(file->name, ".sem");
+        file->is_hps = name_ends_with(file->name, ".hps");
+        if (file->is_ssm) {
+            ssm_stream_init(&file->ssm);
+        }
     }
 }
 
@@ -252,6 +260,15 @@ static int dvd_read_range(uint32_t offset, void* addr, uint32_t length)
     if (file != NULL && file->is_ssm) {
         uint32_t rel = offset - file->position;
         ssm_fix_read((unsigned char*) addr, rel, length, &file->ssm);
+    } else if (file != NULL && file->is_hps) {
+        hps_fix_read((unsigned char*) addr, offset - file->position, length);
+    } else if (file != NULL && file->is_sem && offset == file->position &&
+               length >= file->length) {
+        /* AXDriver_8038DA70 reads smash2.sem in one shot and consumes it as
+         * host-order words. */
+        if (!sem_fix_read((unsigned char*) addr, file->length)) {
+            boot_triage_note("[boot] sem: smash2.sem conversion failed\n");
+        }
     }
     return 1;
 }
