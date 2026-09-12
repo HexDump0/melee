@@ -2,6 +2,15 @@ cmake_minimum_required(VERSION 3.16)
 project(melee_native C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+
+# The compiled game is 32-bit for original HSD structure layout.  GCC would
+# otherwise evaluate scalar floating point through x87 and retain 80-bit
+# intermediates, violating the source types at sequence points.  In
+# particular, near-identical quaternion interpolation can take the spherical
+# branch in extended precision, round the acosf argument to 1.0f, and divide
+# by sin(0).  SSE2 keeps float/double evaluation at their declared widths and
+# is also the faster scalar backend on supported PC hosts.
+set(MELEE_32BIT_FP_OPTIONS -msse2 -mfpmath=sse)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
 find_package(OpenGL REQUIRED)
@@ -100,7 +109,8 @@ target_include_directories(test_decomp_hsd PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src
     ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
 target_compile_options(test_decomp_hsd PRIVATE
-    -m32 -malign-double -w -ffunction-sections -fdata-sections -DPORT_PC=1
+    -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS}
+    -w -ffunction-sections -fdata-sections -DPORT_PC=1
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
 target_link_libraries(test_decomp_hsd PRIVATE m)
 target_link_options(test_decomp_hsd PRIVATE -m32 "LINKER:--gc-sections")
@@ -142,7 +152,8 @@ target_include_directories(test_decomp_assets PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src
     ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
 target_compile_options(test_decomp_assets PRIVATE
-    -m32 -malign-double -w -ffunction-sections -fdata-sections -DPORT_PC=1
+    -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS}
+    -w -ffunction-sections -fdata-sections -DPORT_PC=1
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
 target_link_libraries(test_decomp_assets PRIVATE m)
 target_link_options(test_decomp_assets PRIVATE -m32 "LINKER:--gc-sections")
@@ -199,7 +210,8 @@ target_include_directories(melee_decomp_game BEFORE PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src
     ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
 target_compile_options(melee_decomp_game PRIVATE
-    -m32 -malign-double -w -fgnu89-inline -ffunction-sections -fdata-sections
+    -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS}
+    -w -fgnu89-inline -ffunction-sections -fdata-sections
     -Wno-error=incompatible-pointer-types -DPORT_PC=1
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
 set_source_files_properties(
@@ -240,7 +252,8 @@ target_include_directories(melee_decomp_boot SYSTEM PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src
     ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
 target_compile_options(melee_decomp_boot PRIVATE
-    -m32 -malign-double -Wall -Wextra -Wpedantic -fgnu89-inline
+    -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS}
+    -Wall -Wextra -Wpedantic -fgnu89-inline
     -ffunction-sections -fdata-sections -rdynamic -D_GNU_SOURCE
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
 target_link_libraries(melee_decomp_boot PRIVATE m ${CMAKE_DL_LIBS})
@@ -307,7 +320,8 @@ target_include_directories(test_decomp_render SYSTEM PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src
     ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
 target_compile_options(test_decomp_render PRIVATE
-    -m32 -malign-double -Wall -Wextra -Wpedantic -Wno-overlength-strings -fgnu89-inline
+    -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS}
+    -Wall -Wextra -Wpedantic -Wno-overlength-strings -fgnu89-inline
     -ffunction-sections -fdata-sections -rdynamic -D_GNU_SOURCE
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
 target_link_libraries(test_decomp_render PRIVATE m EGL GLESv2
@@ -394,7 +408,8 @@ if(MELEE_SDL3_LIB32)
       ${CMAKE_CURRENT_SOURCE_DIR}/../src
       ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
   target_compile_options(melee_decomp_viewer PRIVATE
-      -m32 -malign-double -Wall -Wextra -Wpedantic -Wno-overlength-strings -fgnu89-inline
+      -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS}
+      -Wall -Wextra -Wpedantic -Wno-overlength-strings -fgnu89-inline
       -ffunction-sections -fdata-sections -rdynamic -D_GNU_SOURCE
       -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
   # SDL3 requires a 1-byte _Bool, so the viewer TU opts out of the bool=int

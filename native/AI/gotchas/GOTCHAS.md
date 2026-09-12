@@ -1087,3 +1087,38 @@ low byte (converter v57), so the byte-view flags read the console bits.
 Verified: WalkMiddle/WalkFast frame counters now wrap (43 -> 7, 22 -> 2) and
 `x594_b1_loop` reads 1 for anim 7/8/9 and 0 for Wait.  Bump
 `HSD_CONVERTER_VERSION` whenever this word layout changes.
+
+## G-094: `__frsqrte` is reciprocal square root, not square root
+
+**Symptom:** Link's limbs folded into an impossible pose after KO/respawn and
+then stayed corrupt for hundreds of frames.  During the same interval, game
+work rose from ~2–5 ms to ~29 ms although draws, vertices, display lists and
+GL render time were unchanged.
+**Cause:** the non-Metrowerks fallback in `src/placeholder.h` defines
+`__frsqrte(x)` as `sqrt(x)`.  The game treats the intrinsic as a reciprocal
+square-root estimate and applies three Newton-Raphson refinements.  With the
+wrong starting function, Link's foot/leg IK eventually passed NaN angles into
+the JObj hierarchy.  The GX HLE then spent ~25 ms doing x87 matrix arithmetic
+on 40k+ NaN matrix components; the apparent renderer hot spots were a
+consequence, not the cause.
+**Fix:** `native/decomp/shim/placeholder.h` shadows the upstream header and
+redefines `__frsqrte(x)` as `1.0 / sqrt((double) x)`.  Keep this in the native
+shim; do not modify the decomp source merely to supply host intrinsic
+semantics.  `decomp_gx_direct` checks `__frsqrte(4) == 0.5`.
+
+## G-095: 32-bit GCC x87 excess precision can poison quaternion slerp
+
+**Symptom:** after correcting `__frsqrte`, the first match initially stopped
+at viewer frame 83 with `OSPanic` in `mpCollInterpolateECB`; the fighter's
+collision joints had become NaN during animation blending.
+**Cause:** the 32-bit build used GCC's x87 backend.  A `float` quaternion dot
+product remained just below 1 in an 80-bit register, so
+`HSD_QuatLib_8037EF28` selected its spherical interpolation branch.  Passing
+the same value to `acosf` rounded it to exactly `1.0f`; `sin(acos(1))` was
+zero and both interpolation weights became `0/0`.  PowerPC and normal SSE
+evaluation round the expression to its declared `float` width before the
+branch.
+**Fix:** all 32-bit decomp targets compile with `-msse2 -mfpmath=sse`.  This
+preserves the C float/double widths without `-ffloat-store`'s pervasive memory
+traffic and is faster on the supported PC baseline.  `decomp_gx_direct`
+regresses the exact near-identical quaternion pair that exposed the issue.

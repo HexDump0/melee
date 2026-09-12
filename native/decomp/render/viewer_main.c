@@ -504,6 +504,7 @@ static void match_present(void)
      * the compositor and stutter, so only pace when the swap returned
      * quickly.  Never burst-catch-up after a slow frame: re-anchor the clock
      * instead of running the next frames fast. */
+    match_view.sleep_ns = 0;
     if (match_view.record == NULL && match_view.shot == NULL &&
         match_view.swap_ns < 12000000ull) {
         const Uint64 period = 1000000000ull / 60u;
@@ -519,7 +520,7 @@ static void match_present(void)
             Uint64 sleep_start = SDL_GetTicksNS();
             SDL_DelayNS(target - now);
             match_view.sleep_ns = SDL_GetTicksNS() - sleep_start;
-        } else if (now - target > 2 * period) {
+        } else {
             match_view.start_ns = now - (Uint64) match_view.frames * period;
         }
     }

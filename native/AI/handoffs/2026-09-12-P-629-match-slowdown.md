@@ -1,5 +1,9 @@
 # Handoff: P-629 — sustained match slowdown from viewer frame ~670
 
+> **RESOLVED 2026-09-12:** the shared cause was non-finite fighter skeleton
+> math, not vertex color or NBT.  See
+> [`2026-09-12-P-629-fixed.md`](2026-09-12-P-629-fixed.md) and G-094/G-095.
+
 **Date:** 2026-09-12
 **Agent:** opencode (deepseek-v4.1-flash)
 **Commit:** working tree, includes this handoff

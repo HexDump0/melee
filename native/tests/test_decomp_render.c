@@ -10,6 +10,8 @@
  */
 #include <GLES3/gl3.h>
 #include <math.h>
+#include <placeholder.h>
+#include <sysdolphin/baselib/quatlib.h>
 #include <sysdolphin/baselib/state.h>
 #include <dolphin/gx/GXVert.h>
 #include <stdio.h>
@@ -50,6 +52,30 @@ static int direct_test(void)
     size_t vc = 0;
     size_t dc = 0;
     int fail = 0;
+
+    /* The compiled game refines __frsqrte as a reciprocal-square-root
+     * estimate.  The old host placeholder returned sqrt(x), which made the
+     * leg IK diverge to NaN and poisoned all skinned matrices using it. */
+    if (fabs(__frsqrte(4.0) - 0.5) > 1e-12) {
+        printf("direct: FAIL __frsqrte host semantics\n");
+        fail = 1;
+    }
+
+    /* These adjacent unit quaternions previously exposed x87 excess
+     * precision: the dot stayed just below 1.0 in an 80-bit register, then
+     * rounded to 1.0 at the acosf call, yielding sin(0) divisions. */
+    {
+        Quaternion p = { 0.232235119f, 0.0f, 0.0f, 0.972659707f };
+        Quaternion q = { 0.232617468f, 0.0f, 0.0f, 0.972568333f };
+        Quaternion out;
+        HSD_QuatLib_8037EF28(&p, &q, &out, 0.9f);
+        if (!isfinite(out.x) || !isfinite(out.y) || !isfinite(out.z) ||
+            !isfinite(out.w))
+        {
+            printf("direct: FAIL quaternion interpolation is not finite\n");
+            fail = 1;
+        }
+    }
 
     gx_hle_begin_frame();
     GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
@@ -264,19 +290,18 @@ static int direct_test(void)
     }
     {
         const GxHleDrawState* st = &draws[4].state;
-        const GxHleVertex* v = &verts[draws[4].first_vertex];
         if (!st->ch_enable[0] || st->ch_light_mask[0] != 0x1 ||
             st->ch_diff_fn[0] != GX_DF_CLAMP) {
             printf("direct: FAIL channels mask=0x%x enable=%u diff=%u\n",
                    st->ch_light_mask[0], st->ch_enable[0], st->ch_diff_fn[0]);
             fail = 1;
         }
-        /* Lit raster alpha: the paired ALPHA0 channel is disabled, so the
-         * material alpha (255) must survive; hardcoding 0 makes TEV graphs
-         * that multiply by RASA fully transparent (Master Hand's wrist). */
-        if (fabsf(v->ras[3] - 1.0f) > 1e-6f) {
-            printf("direct: FAIL raster alpha=%.3f (want 1.000)\n",
-                   (double) v->ras[3]);
+        /* Lit raster alpha is evaluated by the vertex shader now.  The
+         * paired ALPHA0 channel is disabled, so its registered material
+         * alpha must remain 1 for TEV graphs that multiply by RASA. */
+        if (fabsf(st->ch_mat[2][3] - 1.0f) > 1e-6f) {
+            printf("direct: FAIL channel alpha=%.3f (want 1.000)\n",
+                   (double) st->ch_mat[2][3]);
             fail = 1;
         }
     }
