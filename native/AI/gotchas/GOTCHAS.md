@@ -486,3 +486,27 @@ plain memory pointer to `glVertexAttribPointer`; after switching to a VBO,
 pbuffer config here does not accept RGB readback.
 **Fix:** upload the captured frame to a streaming VBO and read back
 `GL_RGBA`, converting to 24-bit BGR for the BMP writer.
+
+## G-053: TEV `out_reg` writes do not replace the previous-stage chain
+
+**Symptom:** HSD specular materials render as the light spec map only:
+Mario's boots grey instead of brown, and Luigi's face/gloves go grey/metallic
+(the G-044 look returns) even though the TObj phases are correct.
+**Cause:** the compiled TEV graph writes the specular accumulator to
+`GX_TEVREG2` (`GXSetTevColorOp(..., GX_TEVREG2)`), then computes
+`CPREV + RASC*C2`.  A shader that sets `prev = stage_result` unconditionally
+returns the spec map from the register-writing stage, so the diffuse saved two
+stages earlier is lost.
+**Fix:** emulate `out_reg`: only update the previous-stage value when the
+stage's output register is `GX_TEVPREV`; writes to C0/C1/C2 leave the chain
+untouched (`native/decomp/gx/gx_gl.c` fragment main).
+
+## G-054: resetting the GX HLE state must invalidate the engine's caches
+
+**Symptom:** after switching models in the compiled viewer, lighting turns
+everything black (textures-on, lights-on); the first model looks fine.
+**Cause:** `gx_hle_begin_frame` zeroes the backend state, but the compiled HSD
+keeps its own caches (channel registers, TEV/state setters, vtx descriptors)
+and skips re-emitting unchanged state for the new model.
+**Fix:** call `HSD_StateInvalidate(-1)` after resetting the backend
+(`native/decomp/render/render_scene.c:compute_bounds`).

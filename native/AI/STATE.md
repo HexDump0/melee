@@ -34,7 +34,7 @@ through the compiled `HSD_ArchiveParse`/`HSD_JObjLoadJoint`/`HSD_JObjDispAll`
 path and renders it through the new GX HLE + GLES3 backend
 (`native/decomp/gx/`, `native/decomp/hsd/`) with the compiled `ftData` part
 visibility (16/59 DObjs hidden) and the prototype's camera/lights.  Screenshot
-parity against the prototype viewer is RMSE 10.94/255 over the model region;
+parity against the prototype viewer is RMSE 10.57/255 over the model region;
 the residual is specular shading (explained in
 `learnings/decomp_s2_gx_hle.md`).  The S1 boot target now runs the GX command
 surface for real (`94 stub_calls / 33 unique`).  Still no `src/`/`extern/`

@@ -18,6 +18,7 @@
 #include <sysdolphin/baselib/initialize.h>
 #include <sysdolphin/baselib/jobj.h>
 #include <sysdolphin/baselib/lobj.h>
+#include <sysdolphin/baselib/state.h>
 #include <sysdolphin/baselib/wobj.h>
 
 #include "decomp/gx/gx_gl.h"
@@ -180,6 +181,10 @@ static int compute_bounds(RenderScene* scene)
     scene->bounds_max[0] = scene->bounds_max[1] = scene->bounds_max[2] =
         -1e30f;
     gx_hle_begin_frame();
+    /* The backend state was just reset; the compiled engine caches GX state
+     * (channel registers, TEV stages, vtx descs) and would otherwise skip
+     * re-emitting it for the next model, leaving the raster black. */
+    HSD_StateInvalidate(-1);
     GXSetProjection((f32 (*)[4]) identity, GX_PERSPECTIVE);
     HSD_JObjDispAll(scene->hsd.root, (f32 (*)[4]) identity, HSD_TRSP_ALL, 0);
     gx_hle_get_frame(&vertices, &vertex_count, NULL, NULL, NULL, NULL);

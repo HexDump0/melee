@@ -190,7 +190,7 @@ static void usage(const char* argv0)
             "          [--angle DEG] [--elevation DEG] [--zoom F]\n"
             "          [--frames N] [--shot FILE] [--hidden] [--no-lights]\n"
             "          [--wire] [--no-hud] [--part N] [--part-mode "
-            "all|only|hide]\n",
+            "all|only|hide] [--cycle N]\n",
             argv0);
 }
 
@@ -203,6 +203,7 @@ int main(int argc, char** argv)
     int width = 1280;
     int height = 800;
     int frames = 0;
+    int cycle = 0;
     int hidden = 0;
     int want_shot = 0;
     int quit = 0;
@@ -255,6 +256,8 @@ int main(int argc, char** argv)
             v->gl.wireframe = 1;
         } else if (strcmp(argv[i], "--no-hud") == 0) {
             v->hud = 0;
+        } else if (strcmp(argv[i], "--cycle") == 0 && (int) i + 1 < argc) {
+            cycle = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--part") == 0 && (int) i + 1 < argc) {
             v->part = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--part-mode") == 0 &&
@@ -351,6 +354,14 @@ int main(int argc, char** argv)
         fprintf(stderr, "viewer: load failed: %s\n", error);
         return 1;
     }
+    while (cycle-- > 0) {
+        char cycle_error[256];
+        if (!render_scene_cycle(&v->scene, 1, cycle_error,
+                                sizeof(cycle_error))) {
+            fprintf(stderr, "viewer: cycle failed: %s\n", cycle_error);
+            break;
+        }
+    }
     printf("viewer: drag=orbit wheel=zoom N/P=model [ ]=part V=mode "
            "shift+V=variant B=slot Y=hidden L=lights T=textures W=wire "
            "H=hud F12=shot R=reset ESC=quit\n");
@@ -371,7 +382,7 @@ int main(int argc, char** argv)
             case SDL_EVENT_MOUSE_MOTION:
                 if (e.motion.state & SDL_BUTTON_LMASK) {
                     v->scene.angle -= e.motion.xrel * 0.5f;
-                    v->scene.elevation += e.motion.yrel * 0.5f;
+                    v->scene.elevation -= e.motion.yrel * 0.5f;
                     if (v->scene.elevation > 85.0f) {
                         v->scene.elevation = 85.0f;
                     }

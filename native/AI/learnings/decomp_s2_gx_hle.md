@@ -78,18 +78,31 @@ same camera and lights differ by:
 
 | Metric | Value |
 |---|---|
-| RMSE over the model area (HUD/footer excluded) | **10.94 / 255** |
-| RMSE over pixels the prototype renders | 29.8 / 255 |
-| Worst channel difference | 241 |
+| RMSE over the model area (HUD/footer excluded) | **10.57 / 255** |
+| RMSE over pixels the prototype renders | 28.6 / 255 |
 
-The residual is dominated by the specular path.  The prototype uses
-Blinn-Phong `pow(N·H, shininess)` while GX hardware uses a rational
-polynomial (Dolphin `AttenuationFunc::Spec`); the port evaluates the
-prototype's formulation for channel 1 but still differs on some materials
-(Mario's boots end up grey instead of brown because the compiled TEV spec
-stage adds the light-grey spec map over the leather diffuse).  This is the
-same class of issue as G-044; the TEV phase routing is correct in the
-compiled graph, the channel value fed to it is the approximation.
+Two TEV/GX semantics bugs were fixed after the first S2 pass (they made
+Mario's boots grey, Luigi look "creepy" again and Link black when lighting
+came on):
+
+1. **`out_reg` does not clobber the previous-stage chain.**  HSD's specular
+   graphs write the spec map to C2 (`GXSetTevColorOp(..., GX_TEVREG2)`) and
+   then compute `CPREV + RASC*C2`, expecting CPREV to still be the diffuse
+   from the stage before.  The shader used to set `prev = out` on every stage
+   and returned the spec map instead of `diffuse + spec`.  `prev` now only
+   updates when the stage's out register is `GX_TEVPREV`; register writes
+   leave the chain untouched.
+2. **Resetting the GX HLE state requires invalidating the engine caches.**
+   The bounds/camera passes call `gx_hle_begin_frame`, which resets the
+   backend; the compiled HSD keeps its own caches (channel registers, TEV
+   stages, vtx descriptors) and would skip re-emitting them for the next
+   model, leaving the raster black.  `render_scene` now calls
+   `HSD_StateInvalidate(-1)` after the reset; cycling through all 33 models
+   and back renders byte-identically to a fresh load.
+
+The remaining residual is the channel-1 specular approximation (the prototype
+uses Blinn-Phong `pow(N·H, shininess)`, GX hardware a rational polynomial);
+boots, Luigi's gloves/face and Link now match the prototype.
 
 Other documented deviations:
 
