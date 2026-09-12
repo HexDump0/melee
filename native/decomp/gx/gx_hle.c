@@ -1962,6 +1962,10 @@ void gx_hle_discard_geometry(void)
 {
     frame_vcount = 0;
     frame_dcount = 0;
+    /* Texture descriptors are per captured frame; keeping them accumulated
+     * overflows GX_HLE_MAX_TEXTURES after a few frames and leaves every draw
+     * pointing at stale entries. */
+    frame_tcount = 0;
     stat_display_lists = 0;
     stat_primitives = 0;
     stat_skipped = 0;

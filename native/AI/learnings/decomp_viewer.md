@@ -44,11 +44,19 @@ toggles.
 
 ## Controls
 
-drag = orbit, wheel = zoom, `N`/`P` = next/prev `Pl*Nr.dat`, `B` = visibility
-slot, `V` = variant, `Y` = show game-hidden DObjs, `L` = lights, `T` =
-textures, `F12` = screenshot (or `--shot FILE`), `R` = reset view, `ESC` =
+drag = orbit, wheel = zoom, `N`/`P` = next/prev `Pl*Nr.dat`, `[`/`]` = part,
+`V` = part mode (ALL/ONLY/HIDE), `shift+V` = variant, `B` = visibility slot,
+`Y` = show game-hidden DObjs, `L` = lights, `T` = textures, `W` = wireframe,
+`H` = HUD, `F12` = screenshot (or `--shot FILE`), `R` = reset view, `ESC` =
 quit. `--frames N --hidden --shot F` runs without a visible window for smoke
-tests.
+tests; `--wire`, `--no-hud`, `--part N`, `--part-mode all|only|hide` mirror
+the keys for scripted shots.
+
+The HUD is `decomp/render/hud.c`: batched pixel quads over the port's own 5x7
+alphabet (`extras/font.h`, uppercase/`0-9`/`%:-/.+` only).  Wireframe draws
+each captured triangle as a `GL_LINE_LOOP` (GLES has no `glPolygonMode`), and
+part isolation is the existing `GxGlOptions.only_draw` / `hide_draw` draw
+filter.
 
 ## Known limits
 

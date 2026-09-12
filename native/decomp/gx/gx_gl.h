@@ -18,11 +18,14 @@ int gx_gl_attach(int width, int height, char* error, size_t error_size);
 void gx_gl_set_size(int width, int height);
 
 /* Viewer toggles.  textures=0 forces white samples, lighting=0 forces the
- * flat raster colour, only_draw renders one captured draw (-1 = all). */
+ * flat raster colour, only_draw/hide_draw isolate a captured draw (-1 =
+ * disabled), wireframe outlines each triangle. */
 typedef struct GxGlOptions {
     int textures;
     int lighting;
     int only_draw;
+    int hide_draw;
+    int wireframe;
 } GxGlOptions;
 
 void gx_gl_set_options(const GxGlOptions* options);

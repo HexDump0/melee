@@ -79,7 +79,7 @@ static GLuint vertex_vao;
 static GLuint vertex_vbo;
 static size_t vertex_vbo_capacity;
 
-static GxGlOptions gl_options = { 1, 1, -1 };
+static GxGlOptions gl_options = { 1, 1, -1, -1, 0 };
 
 /* --------------------------------------------------------------- shaders */
 
@@ -910,6 +910,10 @@ int gx_gl_render_frame(void)
             (size_t) gl_options.only_draw != i) {
             continue;
         }
+        if (gl_options.hide_draw >= 0 &&
+            (size_t) gl_options.hide_draw == i) {
+            continue;
+        }
         GLuint tex1 = 0;
 
         if (d->vertex_count == 0) {
@@ -958,8 +962,15 @@ int gx_gl_render_frame(void)
         glVertexAttribPointer(6, 3, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
                               (const void*) offsetof(GxHleVertex, view));
 
-        glDrawArrays(GL_TRIANGLES, (GLint) d->first_vertex,
-                     (GLsizei) d->vertex_count);
+        if (gl_options.wireframe) {
+            size_t k;
+            for (k = 0; k + 3 <= d->vertex_count; k += 3) {
+                glDrawArrays(GL_LINE_LOOP, (GLint) (d->first_vertex + k), 3);
+            }
+        } else {
+            glDrawArrays(GL_TRIANGLES, (GLint) d->first_vertex,
+                         (GLsizei) d->vertex_count);
+        }
     }
     glBindTexture(GL_TEXTURE_2D, 0);
     glBindVertexArray(0);

@@ -260,6 +260,7 @@ if(MELEE_SDL3_LIB32)
   add_executable(melee_decomp_viewer
       decomp/render/viewer_main.c
       decomp/render/render_scene.c
+      decomp/render/hud.c
       decomp/hsd/hsd_scene.c
       decomp/gx/gx_hle.c
       decomp/gx/gx_gl.c
