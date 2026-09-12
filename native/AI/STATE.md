@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-12 (P-623: live match viewer + `--record`; G-088/G-089: GX asset table grows and texture decodes use the GX-declared size — GO! logo and title logo decode)
+Last updated: 2026-09-12 (P-623: live match viewer + `--record`; G-088/G-089: GX asset table grows and texture decodes use the GX-declared size; G-090/P-624 filed for S6)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -234,7 +234,11 @@ Ordered by impact.
 6. **Captain Falcon's eyes do not render** in the compiled path (P-616); the
    rest of the head now matches the prototype.  See TASKS.md.
 7. **Non-Mario physics values** are demo defaults, not per-character data.
-8. **Windows/macOS untested.** Linux + Mesa is the only verified target.
+8. **Debug title freezes on the logo reveal card.**  `--match` reaches
+   `GM_TITLE` with `gm_804D67EC == 0`, so the logo stays at animation frame 0
+   and its opaque grey reveal card is visible; the retail title starts the
+   logo at frame 400.  S6/P-624; full analysis in G-090.
+9. **Windows/macOS untested.** Linux + Mesa is the only verified target.
 
 ## Baseline commands
 

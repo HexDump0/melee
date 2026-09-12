@@ -1018,3 +1018,24 @@ pointer merely happened to land near the end of a stale buffer).
 consumes; the archive lookup stays only as a fallback for unsupported
 formats.  Do not restore the archive bound — it produces false truncation
 failures for any texture outside a parsed archive.
+
+## G-090: the debug title freezes the logo on its reveal card
+
+**Symptom:** the title screen draws a large opaque grey card behind the
+"SUPER SMASH BROS. Melee" logo; the retail title shows the logo floating on
+the tunnel with no card.
+**Cause:** the card is draw 13 of the logo reveal (IA4 448x128 texture,
+material diffuse `179`, TEV alpha `A1 + TEXA*(K1_A - A1)` with
+`A1 = K1_A = 1` -> opaque — the captured GX state is faithful).  The card
+only exists in the logo animation's intro frames 0..~270: `gmtitle.c`
+starts the logo at frame 400 and loops 400..1600
+(`AnimLoopSettings {0, 1600, 400}`).  The S4 debug flow reaches `GM_TITLE`
+without the opening movie and without the retail mode ordering, so
+`gm_804D67EC == 0`, and `fn_801A1498` re-requests `gm_804D67EC - 5130`
+(clamped to frame 0) every frame — the reveal card never animates away.
+Forcing `GM_TITLE` from the harness black-screens, so this is not fixable
+from `--match`.
+**Fix (S6, P-624):** enter the title the way `gmboot`/`gmopening` do — mode
+is `GM_TITLE` by scene on-enter and/or `gm_804D67EC` is past 5400, so
+`gmTitle_801A165C` starts the logo at frame 400.  Do not "fix" this in the
+GL layer.
