@@ -214,3 +214,27 @@ select table (P-614), indirect/bump/toon (P-612), and texture/TMEM residency
 instead of per-frame decode.  Z-texture and EFB copy/read (P-615) are the S4
 shadow/erase/refraction dependency.  Direct-mode capture landed in P-608;
 scissor/dst-alpha/LOD landed in P-612, and fog is evaluated.
+
+## GPU channel evaluation (2026-09-12, P-628)
+
+The GX channel lighting (XF diffuse equation, Dolphin's specular
+attenuation, `GX_SRC_REG`/`GX_SRC_VTX`, the paired alpha channels) used to run
+per vertex in `gx_hle.c` (`channel_raster`/`channel_alpha`) and was the top
+CPU cost of a match frame (`perf`: 22.5% self; frame spikes of 40-70 ms with
+~150 draws).  It now runs in the GL vertex shader:
+
+- `GxHleVertex` carries the view-space normal and a `has_color` flag instead
+  of the precomputed rasters.
+- `upload_draw_uniforms` uploads the four channel slots
+  (`u_ch_enable/amb_src/mat_src/diff_fn/light_mask`, `u_ch_amb/mat`) and the
+  eight lights (`u_light_pos/color/a/k/dir`, colours normalised).
+- The vertex shader replicates `channel_raster`/`channel_alpha` exactly,
+  including the `quantize(x) = floor(clamp(x)*255+0.5)/255` step and the
+  specular `t^2 / (x + (1-x)t^2)` attenuation, then outputs `v_ras0/v_ras1`
+  for the unchanged TEV fragment stage.
+
+Verified by `ctest decomp_render`/`decomp_gx_direct` (same references) and a
+match frame diff of RMSE <= 3.4/255 against the CPU version.  Frame spikes
+drop from 8.5/s to 3.4/s and the worst frame from ~68 ms to ~26 ms; the
+remaining cost is CPU vertex read/position transform, normal transform
+(shared with texgen) and GL upload.

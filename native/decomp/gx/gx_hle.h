@@ -26,8 +26,8 @@ typedef struct GxHleVertex {
     float view[3];          /* position-matrix space (camera view)        */
     unsigned char color[4]; /* GX_VA_CLR0, zero when absent               */
     float uv[3][2];         /* generated TEXCOORD0/1/2                    */
-    float ras[4];           /* channel 0 raster, alpha = channel specular */
-    float ras1[4];          /* channel 1 raster, alpha = channel specular */
+    float nrm[3];           /* view-space normal (GPU channel evaluation) */
+    float has_color;        /* 1 when GX_VA_CLR0 was present              */
 } GxHleVertex;
 
 typedef struct GxHleTexture {

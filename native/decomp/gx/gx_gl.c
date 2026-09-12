@@ -85,6 +85,18 @@ static GLint u_ztex_bias_loc;
 static GLint u_tex_lod_bias;
 static GLint u_dst_alpha_enable;
 static GLint u_dst_alpha;
+static GLint u_ch_enable;
+static GLint u_ch_amb_src;
+static GLint u_ch_mat_src;
+static GLint u_ch_diff_fn;
+static GLint u_ch_light_mask;
+static GLint u_ch_amb;
+static GLint u_ch_mat;
+static GLint u_light_pos;
+static GLint u_light_color;
+static GLint u_light_a;
+static GLint u_light_k;
+static GLint u_light_dir;
 
 static GlTextureCache tex_cache[MAX_GL_TEXTURES];
 static size_t tex_cache_count;
@@ -99,17 +111,35 @@ static GxGlOptions gl_options = { 1, 1, -1, -1, 0, 0, 0 };
 
 /* --------------------------------------------------------------- shaders */
 
+/* Channel evaluation (GX_SetupChannelMode lighting) runs here on the GPU:
+ * it used to be per-vertex C in gx_hle.c and dominated the match frame time.
+ * The formulas mirror the deleted channel_raster/channel_alpha exactly
+ * (GX_DF_*, GX_SRC_REG/VTX, the XF light equation and the Dolphin specular
+ * attenuation function). */
 static const char* VERTEX_SRC =
     "#version 300 es\n"
     "precision highp float;\n"
+    "precision highp int;\n"
     "layout(location=0) in vec4 a_clip;\n"
     "layout(location=1) in vec4 a_color;\n"
     "layout(location=2) in vec2 a_uv0;\n"
     "layout(location=3) in vec2 a_uv1;\n"
-    "layout(location=4) in vec4 a_ras0;\n"
-    "layout(location=5) in vec4 a_ras1;\n"
+    "layout(location=4) in vec3 a_nrm;\n"
+    "layout(location=5) in float a_has_color;\n"
     "layout(location=6) in vec3 a_view;\n"
     "layout(location=7) in vec2 a_uv2;\n"
+    "uniform int u_ch_enable[4];\n"
+    "uniform int u_ch_amb_src[4];\n"
+    "uniform int u_ch_mat_src[4];\n"
+    "uniform int u_ch_diff_fn[4];\n"
+    "uniform int u_ch_light_mask[4];\n"
+    "uniform vec4 u_ch_amb[4];\n"
+    "uniform vec4 u_ch_mat[4];\n"
+    "uniform vec4 u_light_pos[8];\n"
+    "uniform vec4 u_light_color[8];\n"
+    "uniform vec4 u_light_a[8];\n"
+    "uniform vec4 u_light_k[8];\n"
+    "uniform vec4 u_light_dir[8];\n"
     "out vec4 v_color;\n"
     "out vec2 v_uv0;\n"
     "out vec2 v_uv1;\n"
@@ -117,14 +147,114 @@ static const char* VERTEX_SRC =
     "out vec4 v_ras0;\n"
     "out vec4 v_ras1;\n"
     "out float v_dist;\n"
+    "bool light_infinite(vec3 p) { return dot(p, p) > 1.0e10; }\n"
+    "void light_view_dir(int i, vec3 view, out vec3 ldir, out float attn) {\n"
+    "    vec3 p = u_light_pos[i].xyz;\n"
+    "    attn = 1.0;\n"
+    "    if (light_infinite(p)) {\n"
+    "        float len = length(p);\n"
+    "        ldir = len > 0.0 ? p / len : vec3(0.0, 0.0, 1.0);\n"
+    "    } else {\n"
+    "        vec3 d = p - view;\n"
+    "        float dist = length(d);\n"
+    "        ldir = dist > 0.0 ? d / dist : vec3(0.0, 0.0, 1.0);\n"
+    "        float dd = dist * dist;\n"
+    "        float den = u_light_k[i].x + u_light_k[i].y * dist +\n"
+    "                    u_light_k[i].z * dd;\n"
+    "        attn = (u_light_a[i].x + u_light_a[i].y * dist +\n"
+    "                u_light_a[i].z * dd) / den;\n"
+    "    }\n"
+    "}\n"
+    "float diffuse_term(int fn, float ndl) {\n"
+    "    if (fn == 0) return 1.0;\n"
+    "    if (fn == 1) return ndl;\n"
+    "    return ndl > 0.0 ? ndl : 0.0;\n"
+    "}\n"
+    "float quantize(float v) {\n"
+    "    return floor(clamp(v, 0.0, 1.0) * 255.0 + 0.5) / 255.0;\n"
+    "}\n"
+    "float channel_alpha(int ch, vec4 color, bool has_color) {\n"
+    "    int ac = ch + 2;\n"
+    "    float mat = (u_ch_mat_src[ac] == 1 && has_color) ? color.a\n"
+    "                                                     : u_ch_mat[ac].a;\n"
+    "    int mask = u_ch_light_mask[ac];\n"
+    "    if (u_ch_enable[ac] == 0 || mask == 0) return mat;\n"
+    "    float lacc = (u_ch_amb_src[ac] == 1 && has_color) ? color.a\n"
+    "                                                      : u_ch_amb[ac].a;\n"
+    "    for (int i = 0; i < 8; i++) {\n"
+    "        if ((mask & (1 << i)) == 0) continue;\n"
+    "        vec3 ldir; float attn;\n"
+    "        light_view_dir(i, a_view, ldir, attn);\n"
+    "        float ndl = dot(a_nrm, ldir);\n"
+    "        lacc += diffuse_term(u_ch_diff_fn[ac], ndl) * attn *\n"
+    "                u_light_color[i].a;\n"
+    "    }\n"
+    "    return mat * lacc;\n"
+    "}\n"
+    "vec4 channel_raster(int ch, vec4 color, bool has_color) {\n"
+    "    float alpha = channel_alpha(ch, color, has_color);\n"
+    "    int mask = u_ch_light_mask[ch];\n"
+    "    if (ch == 1 && mask != 0) {\n"
+    "        float spec = 0.0;\n"
+    "        for (int i = 0; i < 8; i++) {\n"
+    "            if ((mask & (1 << i)) == 0) continue;\n"
+    "            vec3 ldir; float attn;\n"
+    "            light_view_dir(i, a_view, ldir, attn);\n"
+    "            vec3 h;\n"
+    "            float hn = length(u_light_dir[i].xyz);\n"
+    "            if (hn > 1.0e-6) {\n"
+    "                h = u_light_dir[i].xyz / hn;\n"
+    "            } else {\n"
+    "                h = ldir + vec3(0.0, 0.0, 1.0);\n"
+    "                float hl = length(h);\n"
+    "                if (hl > 0.0) h = h / hl;\n"
+    "            }\n"
+    "            float nh = dot(a_nrm, h);\n"
+    "            nh = nh < 0.0 ? 0.0 : nh;\n"
+    "            if (dot(a_nrm, ldir) < 0.0) nh = 0.0;\n"
+    "            float spec_light = (u_light_color[i].r +\n"
+    "                                u_light_color[i].g +\n"
+    "                                u_light_color[i].b) / 3.0;\n"
+    "            float num = u_light_a[i].x + u_light_a[i].y * nh +\n"
+    "                        u_light_a[i].z * nh * nh;\n"
+    "            float den = u_light_k[i].x + u_light_k[i].y * nh +\n"
+    "                        u_light_k[i].z * nh * nh;\n"
+    "            if (den != 0.0 && num > 0.0) {\n"
+    "                spec += spec_light * (num / den);\n"
+    "            }\n"
+    "        }\n"
+    "        float s = clamp(spec, 0.0, 1.0);\n"
+    "        return vec4(s, s, s, alpha);\n"
+    "    }\n"
+    "    vec3 amb = (u_ch_amb_src[ch] == 1 && has_color) ? color.rgb\n"
+    "                                                   : u_ch_amb[ch].rgb;\n"
+    "    vec3 mat = (u_ch_mat_src[ch] == 1 && has_color) ? color.rgb\n"
+    "                                                   : u_ch_mat[ch].rgb;\n"
+    "    if (u_ch_enable[ch] == 0 || mask == 0) {\n"
+    "        return vec4(quantize(mat.r), quantize(mat.g), quantize(mat.b),\n"
+    "                    alpha);\n"
+    "    }\n"
+    "    vec3 lacc = amb;\n"
+    "    for (int i = 0; i < 8; i++) {\n"
+    "        if ((mask & (1 << i)) == 0) continue;\n"
+    "        vec3 ldir; float attn;\n"
+    "        light_view_dir(i, a_view, ldir, attn);\n"
+    "        float ndl = dot(a_nrm, ldir);\n"
+    "        float t = diffuse_term(u_ch_diff_fn[ch], ndl) * attn;\n"
+    "        lacc += t * u_light_color[i].rgb;\n"
+    "    }\n"
+    "    return vec4(quantize(mat.r * lacc.r), quantize(mat.g * lacc.g),\n"
+    "                quantize(mat.b * lacc.b), alpha);\n"
+    "}\n"
     "void main() {\n"
+    "    bool has_color = a_has_color > 0.5;\n"
     "    gl_Position = a_clip;\n"
     "    v_color = a_color;\n"
     "    v_uv0 = a_uv0;\n"
     "    v_uv1 = a_uv1;\n"
     "    v_uv2 = a_uv2;\n"
-    "    v_ras0 = a_ras0;\n"
-    "    v_ras1 = a_ras1;\n"
+    "    v_ras0 = channel_raster(0, a_color, has_color);\n"
+    "    v_ras1 = channel_raster(1, a_color, has_color);\n"
     "    v_dist = -a_view.z;\n"
     "}\n";
 
@@ -439,6 +569,18 @@ static int build_program(char* error, size_t error_size)
     u_tex_lod_bias = glGetUniformLocation(program, "u_tex_lod_bias");
     u_dst_alpha_enable = glGetUniformLocation(program, "u_dst_alpha_enable");
     u_dst_alpha = glGetUniformLocation(program, "u_dst_alpha");
+    u_ch_enable = glGetUniformLocation(program, "u_ch_enable");
+    u_ch_amb_src = glGetUniformLocation(program, "u_ch_amb_src");
+    u_ch_mat_src = glGetUniformLocation(program, "u_ch_mat_src");
+    u_ch_diff_fn = glGetUniformLocation(program, "u_ch_diff_fn");
+    u_ch_light_mask = glGetUniformLocation(program, "u_ch_light_mask");
+    u_ch_amb = glGetUniformLocation(program, "u_ch_amb");
+    u_ch_mat = glGetUniformLocation(program, "u_ch_mat");
+    u_light_pos = glGetUniformLocation(program, "u_light_pos");
+    u_light_color = glGetUniformLocation(program, "u_light_color");
+    u_light_a = glGetUniformLocation(program, "u_light_a");
+    u_light_k = glGetUniformLocation(program, "u_light_k");
+    u_light_dir = glGetUniformLocation(program, "u_light_dir");
 
     /* P-615: the Z-texture pass is a small dedicated program; writing
      * gl_FragDepth from the big TEV shader is ignored on Mesa/radeonsi. */
@@ -989,6 +1131,64 @@ static void upload_draw_uniforms(const GxHleDrawState* s)
     glUniform1i(u_stages, stages);
     glUniform4fv(u_tev_color, 4, &colors[0][0]);
     glUniform4fv(u_tev_kcolor, 4, &kcolors[0][0]);
+    {
+        GLint ch_enable[4];
+        GLint ch_amb_src[4];
+        GLint ch_mat_src[4];
+        GLint ch_diff_fn[4];
+        GLint ch_light_mask[4];
+        GLfloat ch_amb[4][4];
+        GLfloat ch_mat[4][4];
+        GLfloat light_pos[8][4];
+        GLfloat light_color[8][4];
+        GLfloat light_a[8][4];
+        GLfloat light_k[8][4];
+        GLfloat light_dir[8][4];
+        for (i = 0; i < 4; ++i) {
+            ch_enable[i] = s->ch_enable[i];
+            ch_amb_src[i] = s->ch_amb_src[i];
+            ch_mat_src[i] = s->ch_mat_src[i];
+            ch_diff_fn[i] = s->ch_diff_fn[i];
+            ch_light_mask[i] = (GLint) s->ch_light_mask[i];
+            memcpy(ch_amb[i], s->ch_amb[i], sizeof(ch_amb[i]));
+            memcpy(ch_mat[i], s->ch_mat[i], sizeof(ch_mat[i]));
+        }
+        for (i = 0; i < 8; ++i) {
+            const GxHleLight* l = &s->lights[i];
+            light_pos[i][0] = l->pos[0];
+            light_pos[i][1] = l->pos[1];
+            light_pos[i][2] = l->pos[2];
+            light_pos[i][3] = 0.0f;
+            light_color[i][0] = l->color.r / 255.0f;
+            light_color[i][1] = l->color.g / 255.0f;
+            light_color[i][2] = l->color.b / 255.0f;
+            light_color[i][3] = l->color.a / 255.0f;
+            light_a[i][0] = l->a[0];
+            light_a[i][1] = l->a[1];
+            light_a[i][2] = l->a[2];
+            light_a[i][3] = 0.0f;
+            light_k[i][0] = l->k[0];
+            light_k[i][1] = l->k[1];
+            light_k[i][2] = l->k[2];
+            light_k[i][3] = 0.0f;
+            light_dir[i][0] = l->dir[0];
+            light_dir[i][1] = l->dir[1];
+            light_dir[i][2] = l->dir[2];
+            light_dir[i][3] = 0.0f;
+        }
+        glUniform1iv(u_ch_enable, 4, ch_enable);
+        glUniform1iv(u_ch_amb_src, 4, ch_amb_src);
+        glUniform1iv(u_ch_mat_src, 4, ch_mat_src);
+        glUniform1iv(u_ch_diff_fn, 4, ch_diff_fn);
+        glUniform1iv(u_ch_light_mask, 4, ch_light_mask);
+        glUniform4fv(u_ch_amb, 4, &ch_amb[0][0]);
+        glUniform4fv(u_ch_mat, 4, &ch_mat[0][0]);
+        glUniform4fv(u_light_pos, 8, &light_pos[0][0]);
+        glUniform4fv(u_light_color, 8, &light_color[0][0]);
+        glUniform4fv(u_light_a, 8, &light_a[0][0]);
+        glUniform4fv(u_light_k, 8, &light_k[0][0]);
+        glUniform4fv(u_light_dir, 8, &light_dir[0][0]);
+    }
     glUniform4iv(u_tev_order, MAX_TEV_STAGES, &orders[0][0]);
     glUniform4iv(u_tev_cin, MAX_TEV_STAGES, &cins[0][0]);
     glUniform4iv(u_tev_cop, MAX_TEV_STAGES, &cops[0][0]);
@@ -1258,11 +1458,11 @@ int gx_gl_render_frame(void)
                               (const void*) (offsetof(GxHleVertex, uv) +
                                              2 * sizeof(float)));
         glEnableVertexAttribArray(4);
-        glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
-                              (const void*) offsetof(GxHleVertex, ras));
+        glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
+                              (const void*) offsetof(GxHleVertex, nrm));
         glEnableVertexAttribArray(5);
-        glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
-                              (const void*) offsetof(GxHleVertex, ras1));
+        glVertexAttribPointer(5, 1, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
+                              (const void*) offsetof(GxHleVertex, has_color));
         glEnableVertexAttribArray(6);
         glVertexAttribPointer(6, 3, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
                               (const void*) offsetof(GxHleVertex, view));
