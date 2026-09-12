@@ -464,6 +464,7 @@ int main(int argc, char** argv)
     int direct = 0;
     int efb = 0;
     int toggle_mode = 0;
+    int draw_first = 0;
     int rendered;
     int loaded;
     size_t i;
@@ -532,6 +533,9 @@ int main(int argc, char** argv)
         } else if (strcmp(argv[i], "--toggle-mode") == 0 &&
                    (int) i + 1 < argc) {
             toggle_mode = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--draw-first") == 0 &&
+                   (int) i + 1 < argc) {
+            draw_first = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--help") == 0) {
             usage(argv[0]);
             return 0;
@@ -569,6 +573,9 @@ int main(int argc, char** argv)
     if (loaded < 0) {
         fprintf(stderr, "decomp_render: load failed: %s\n", error);
         return 1;
+    }
+    while (draw_first-- > 0) {
+        render_scene_draw(&scene);
     }
     while (toggle_mode-- > 0) {
         if (!render_scene_toggle_mode(&scene, error, sizeof(error))) {

@@ -263,6 +263,11 @@ static int compute_bounds(RenderScene* scene)
 
 static void scene_unload_stage(RenderScene* scene)
 {
+    /* HSD keeps a global "current lights" list; the previous frame's draw
+     * may have installed this stage's (or the model's) light objects.
+     * Clear it before freeing anything, or the next HSD_JObjDispAll (e.g.
+     * compute_bounds) dereferences freed lights (HSD_LObjSetupSpecularInit). */
+    HSD_LObjSetCurrentAll(NULL);
     if (scene->hsd.stage_cobj != NULL) {
         hsdDelete((HSD_Class*) scene->hsd.stage_cobj);
         scene->hsd.stage_cobj = NULL;
@@ -851,6 +856,7 @@ int render_scene_cycle_map(RenderScene* scene, int dir, char* error,
 
 void render_scene_close(RenderScene* scene)
 {
+    HSD_LObjSetCurrentAll(NULL);
     if (scene->hsd.root != NULL || scene->fighter.root != NULL) {
         gx_hle_reset_assets();
         gx_gl_clear_textures();

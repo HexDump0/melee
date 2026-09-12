@@ -333,7 +333,7 @@ set_tests_properties(decomp_stage_cam PROPERTIES
 # P-619 regression: stage -> model mode switch (viewer M key) must reload the
 # remembered model, not the first archive in the list.
 add_test(NAME decomp_stage_toggle COMMAND test_decomp_render
-    --stage GrNBa.dat --toggle-mode 1 --no-gl)
+    --stage GrNBa.dat --draw-first 2 --toggle-mode 1 --no-gl)
 set_tests_properties(decomp_stage_toggle PROPERTIES
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
     PASS_REGULAR_EXPRESSION "decomp_render: PASS")
