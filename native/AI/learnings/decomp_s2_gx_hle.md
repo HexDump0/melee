@@ -146,6 +146,18 @@ Other documented deviations:
   double `pow` instead.
 - GLES has no client-side vertex arrays: the frame must be uploaded to a VBO
   before `glVertexAttribPointer`.
+- Direct mode (P-608): the decomp's `GXPosition*`/`GXColor*`/`GXTexCoord*` are
+  static-inline FIFO stores, so `GXVert.h` is shadowed by
+  `native/decomp/shim/dolphin/gx/GXVert.h` and routed to
+  `GXPortWGFifo*`.  The bytes are appended in FIFO (big-endian) order and
+  decoded by the same `exec_primitive`/`read_vertex` path as display lists;
+  `GXBegin` starts the draw snapshot so the state is the state at `GXBegin`.
+  There is no `GXEnd` callback (it is an empty inline in `GXGeometry.h`), so
+  the pending primitive is flushed by the next `GXBegin`/`GXCallDisplayList`
+  or by `gx_hle_get_frame`.  Callers in `src/` include `displayfunc.c`,
+  `pobj.c`, `psdisp.c`, `shadow.c`, `ftafterimage.c` and the `lb*` effects.
+  Regression: `test_decomp_render --direct` (`ctest decomp_gx_direct`) drives
+  a quad through the shim and checks the two assembled triangles.
 
 ## Sanitizers
 
@@ -163,7 +175,7 @@ Other documented deviations:
 ```sh
 cmake -S native -B build/native -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build/native -j4
-ctest --test-dir build/native --output-on-failure          # 5 tests
+ctest --test-dir build/native --output-on-failure          # 6 tests
 SDL_VIDEODRIVER=offscreen ./build/native/melee --view --frames 1 --no-grid \
     --screenshot /tmp/proto.bmp
 ./build/native/test_decomp_render --width 1280 --height 800 \
@@ -176,5 +188,6 @@ The render test SKIPs without the disc image (`iso/…ciso`).
 
 The focused `hsd_scene.c` converter becomes the real per-format asset
 pipeline (AOObj/FObj streams, shape sets, REL-free containers), and the GX HLE
-should gain: direct-mode capture, a faithful hardware specular polynomial,
-fog, and texture/TMEM residency instead of per-frame decode.
+should gain: a faithful hardware specular polynomial, fog, and texture/TMEM
+residency instead of per-frame decode.  (Direct-mode capture landed in P-608;
+the remaining GX polish is P-612.)

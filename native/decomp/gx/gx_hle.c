@@ -75,6 +75,20 @@ static size_t frame_tcount;
 static int draw_active;
 static size_t draw_vertex_start;
 
+/*
+ * Direct mode (GXBegin + the GXVert.h inline writers) is captured here in
+ * hardware byte order and decoded when the next command or the frame boundary
+ * arrives: GXEnd is an empty inline (GXGeometry.h), so there is no call to
+ * flush from.
+ */
+#define GX_HLE_BEGIN_BYTES (64 * 1024)
+static u8 begin_buf[GX_HLE_BEGIN_BYTES];
+static size_t begin_len;
+static u16 begin_nverts;
+static u8 begin_op;
+static int begin_pending;
+static int begin_overflow;
+
 static size_t stat_display_lists;
 static size_t stat_primitives;
 static size_t stat_skipped;
@@ -1358,20 +1372,6 @@ void GXSetArray(GXAttr attr, const void* base_ptr, u8 stride)
 }
 
 /*
- * Direct-mode vertex calls are static-inline writes to the hardware FIFO
- * address (GXVert.h); the platform maps that page as scratch, so GXBegin/
- * GXEnd only mark the mode.  HSD's character path renders from
- * GXCallDisplayList.
- */
-void GXBegin(GXPrimitive type, GXVtxFmt vtxfmt, u16 nverts)
-{
-    (void) type;
-    (void) vtxfmt;
-    (void) nverts;
-    gx.begun = 1;
-}
-
-/*
  * A stage may name a texcoord that was generated from an earlier texcoord
  * through identity matrices (GX_TG_TEXCOORDn, e.g. Giga Koopa's add/sub
  * bump pairs).  The fragment stage only carries two UV varyings, so fold
@@ -1395,13 +1395,9 @@ static void resolve_stage_coords(GxHleDrawState* s)
     }
 }
 
-void GXCallDisplayList(void* list, u32 nbytes)
+/* Start a draw snapshot unless one is already open. */
+static void begin_draw_snapshot(void)
 {
-    const u8* p = (const u8*) list;
-    size_t length = nbytes;
-    size_t cursor = 0;
-
-    stat_display_lists++;
     if (!draw_active && frame_dcount < GX_HLE_MAX_DRAWS) {
         draw_active = 1;
         draw_vertex_start = frame_vcount;
@@ -1410,6 +1406,118 @@ void GXCallDisplayList(void* list, u32 nbytes)
         frame_draws[frame_dcount].state = gx.cur;
         resolve_stage_coords(&frame_draws[frame_dcount].state);
     }
+}
+
+static void end_draw_snapshot(void)
+{
+    draw_active = 0;
+    if (frame_dcount < GX_HLE_MAX_DRAWS &&
+        frame_draws[frame_dcount].vertex_count > 0) {
+        frame_dcount++;
+    }
+}
+
+static void direct_append(const u8* bytes, size_t n)
+{
+    if (!begin_pending) {
+        return;
+    }
+    if (begin_len + n > sizeof(begin_buf)) {
+        begin_overflow = 1;
+        return;
+    }
+    memcpy(begin_buf + begin_len, bytes, n);
+    begin_len += n;
+}
+
+/* GXVert.h shim entry points; values must land in FIFO (big-endian) order. */
+void GXPortWGFifoU8(u8 x) { direct_append(&x, 1); }
+
+void GXPortWGFifoU16(u16 x)
+{
+    u8 b[2];
+    b[0] = (u8) (x >> 8);
+    b[1] = (u8) x;
+    direct_append(b, 2);
+}
+
+void GXPortWGFifoU32(u32 x)
+{
+    u8 b[4];
+    b[0] = (u8) (x >> 24);
+    b[1] = (u8) (x >> 16);
+    b[2] = (u8) (x >> 8);
+    b[3] = (u8) x;
+    direct_append(b, 4);
+}
+
+void GXPortWGFifoS8(s8 x) { direct_append((const u8*) &x, 1); }
+
+void GXPortWGFifoS16(s16 x)
+{
+    u16 v = (u16) x;
+    GXPortWGFifoU16(v);
+}
+
+void GXPortWGFifoS32(s32 x)
+{
+    u32 v = (u32) x;
+    GXPortWGFifoU32(v);
+}
+
+void GXPortWGFifoF32(f32 x)
+{
+    u32 v;
+    memcpy(&v, &x, sizeof(v));
+    GXPortWGFifoU32(v);
+}
+
+static void flush_direct(void)
+{
+    if (!begin_pending) {
+        return;
+    }
+    begin_pending = 0;
+    if (begin_overflow) {
+        stat_primitives++;
+        stat_skipped++;
+    } else if (begin_len > 0) {
+        size_t cursor = 0;
+        stat_primitives++;
+        exec_primitive(begin_op, begin_buf, begin_len, &cursor, begin_nverts);
+    }
+    begin_len = 0;
+    begin_overflow = 0;
+    end_draw_snapshot();
+}
+
+/*
+ * Direct mode (GXBegin + the GXVert.h inline writers) starts a draw snapshot
+ * here and captures the attribute writes; the primitive is decoded when the
+ * next command or the frame boundary arrives because GXEnd is an empty inline
+ * (GXGeometry.h).  The draw's state is the state at GXBegin, as on hardware.
+ */
+void GXBegin(GXPrimitive type, GXVtxFmt vtxfmt, u16 nverts)
+{
+    flush_direct();
+    gx.begun = 1;
+    begin_op = (u8) ((u8) type | (u8) vtxfmt);
+    begin_nverts = nverts;
+    begin_len = 0;
+    begin_overflow = 0;
+    begin_pending = 1;
+    begin_draw_snapshot();
+}
+
+void GXCallDisplayList(void* list, u32 nbytes)
+{
+    const u8* p = (const u8*) list;
+    size_t length = nbytes;
+    size_t cursor = 0;
+
+    flush_direct();
+    stat_display_lists++;
+    begin_draw_snapshot();
     while (cursor + 3 <= length) {
         u8 op = p[cursor];
         u16 n;
@@ -1421,12 +1529,8 @@ void GXCallDisplayList(void* list, u32 nbytes)
         stat_primitives++;
         exec_primitive(op, p, length, &cursor, n);
     }
-    draw_active = 0;
     (void) draw_vertex_start;
-    if (frame_dcount < GX_HLE_MAX_DRAWS &&
-        frame_draws[frame_dcount].vertex_count > 0) {
-        frame_dcount++;
-    }
+    end_draw_snapshot();
 }
 
 void GXSetNumIndStages(u8 nIndStages) { (void) nIndStages; }
@@ -1978,6 +2082,10 @@ static void reset_state(void)
 void gx_hle_begin_frame(void)
 {
     ensure_vertex_buffer();
+    begin_pending = 0;
+    begin_len = 0;
+    begin_overflow = 0;
+    draw_active = 0;
     frame_vcount = 0;
     frame_dcount = 0;
     frame_tcount = 0;
@@ -1991,6 +2099,10 @@ void gx_hle_begin_frame(void)
 
 void gx_hle_discard_geometry(void)
 {
+    begin_pending = 0;
+    begin_len = 0;
+    begin_overflow = 0;
+    draw_active = 0;
     frame_vcount = 0;
     frame_dcount = 0;
     /* Texture descriptors are per captured frame; keeping them accumulated
@@ -2006,6 +2118,7 @@ int gx_hle_get_frame(const GxHleVertex** vertices, size_t* vertex_count,
                      const GxHleDraw** draws, size_t* draw_count,
                      GxHleTexture** textures, size_t* texture_count)
 {
+    flush_direct();
     if (vertices) {
         *vertices = frame_verts;
     }

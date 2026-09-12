@@ -28,7 +28,6 @@ Status values: `open`, `claimed`, `blocked`, `review`, `done`, `parked`
 
 | ID | Task | Status | Agent | Files | Notes / acceptance |
 |---|---|---|---|---|---|
-| P-608 | Capture direct-mode GX vertices (`GXBegin` + inline `GXPosition*`/`GXColor*`/`GXTexCoord*`) | open | — | `native/decomp/gx/`, `native/decomp/shim/` (GXVert.h shim) | S2 leaves the compiled inline writes to a scratch FIFO page, so HUD/particle/shape-anim direct draws are dropped. Needs a GXVert.h shim that routes the inline functions to host calls. |
 | P-612 | GX HLE polish: texture LOD bias/anisotropy, scissor, dither/dst-alpha, indirect/bump/toon, NBT normals | open | — | `native/decomp/gx/gx_hle.c`, `gx_gl.c` | **Partial:** >4 TEV stages done (limit is now 8; Master Hand needs 6, G-059). Remaining: texture LOD bias/anisotropy, scissor, dither/dst-alpha, indirect/bump/toon, NBT normals. Not blocking the viewer/S4; take items as they show up in play. |
 | P-609 | S3: host-endian asset pipeline + DVD/ARQ completion | open | — | `native/decomp/hsd/`, `native/platform/dvd.c`, `native/platform/audio.c` | Next milestone. The S2 `hsd_scene.c` converter is the seed; follow `learnings/decomp_assets.md` §7 and the S1 work list. |
 | P-601 | Full-tree GCC compile census + shim hardening (S0) | done | opencode (deepseek-flash), 2026-09-11 | `native/decomp/shim/`, `native/AI/learnings/decomp_port.md` | Done: 1021/1034 `src/*.c` compile; shims for `ssize_t`/`intptr_t`, GameCube `STATIC_ASSERT`, and `bool`=`int` callbacks. See Completed. |
@@ -67,7 +66,9 @@ waits for its first sound-bank load. Ordered by what unblocks the boot:
 
 1. **S2 — GX + VI HLE** (DONE 2026-09-12, P-606). The GX command surface is
    real in `native/decomp/gx/gx_hle.c`; the boot log now shows 94 stub calls /
-   33 unique (GX no longer triaged). Remaining S2 follow-ups: P-607/P-608.
+   33 unique (GX no longer triaged). S2 follow-ups P-607/P-608/P-610 are done;
+   P-612 (LOD/aniso, scissor, dither/dst-alpha, indirect/bump/toon, NBT)
+   stays open.
 2. **S3 — DVD + HSD DevCom/ARQ**. `DVDConvertPathToEntrynum`/open/read and
    synchronous `ARQPostRequest` callbacks so `HSD_DevComRequest` can finish
    asset loads. Seed: `native/platform/disc.c`.
@@ -97,6 +98,7 @@ compiled render in S2/S4 instead.
 
 | ID | Task | Agent | Commit | Date |
 |---|---|---|---|---|
+| P-608 | Direct-mode GX capture: `native/decomp/shim/dolphin/gx/GXVert.h` shadows the SDK header and routes the inline `GXPosition*`/`GXColor*`/`GXTexCoord*` writers to `GXPortWGFifo*`; `GXBegin` starts a draw snapshot and the big-endian capture is decoded by the display-list path at the next command/frame boundary. Regression `ctest decomp_gx_direct` (`test_decomp_render --direct`) | opencode (deepseek-flash) | pending | 2026-09-12 |
 | P-610 | POBJ_SKIN shared-vertex gaps: Falcon silver fixed by the P-607 `out_reg` fix; Giga Koopa limb noise fixed by folding `GX_TG_TEXCOORDn` texgen chains onto the 0/1 UV varyings (G-058); Bowser's magenta prototype look confirmed parity (2-texture archive) | opencode (deepseek-flash) | 347bf81f6 | 2026-09-12 |
 | P-607 | GX specular/material parity: boots brown, Luigi/Link correct — fixed by emulating TEV `out_reg` (register writes keep the previous-stage chain) and invalidating HSD's GX caches when the backend resets; overall prototype RMSE 10.57/255. The hardware specular polynomial is still approximated by the prototype's Blinn-Phong (documented) | opencode (deepseek-flash) | e773eff93 | 2026-09-12 |
 | P-611 | Interactive compiled-path viewer: `melee_decomp_viewer` (SDL3 window + EGL/GLES3; orbit/zoom, N/P model cycle, slot/variant, texture/light toggles; `--frames/--hidden/--shot` smoke path) sharing `render_scene.c` with the headless test; SDL3 dependency in ADR-0014 + `TESTING.md` | opencode (deepseek-flash) | 983f1eaf3 | 2026-09-12 |

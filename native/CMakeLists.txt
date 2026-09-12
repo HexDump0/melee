@@ -242,6 +242,9 @@ add_test(NAME decomp_render COMMAND test_decomp_render
 set_tests_properties(decomp_render PROPERTIES
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
     PASS_REGULAR_EXPRESSION "decomp_render: PASS")
+add_test(NAME decomp_gx_direct COMMAND test_decomp_render --direct)
+set_tests_properties(decomp_gx_direct PROPERTIES
+    PASS_REGULAR_EXPRESSION "direct: PASS")
 if(MELEE_SANITIZE)
   target_compile_options(test_decomp_render PRIVATE
       -fsanitize=address,undefined -fno-omit-frame-pointer)

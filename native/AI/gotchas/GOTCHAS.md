@@ -571,3 +571,20 @@ chains onto the 0/1 varyings it aliases before snapshotting the draw
 **Fix:** raise `GX_HLE_MAX_STAGES`/`MAX_TEV_STAGES` to 8 and size the shader
 uniform arrays/loop accordingly (`gx_hle.h`, `gx_gl.c`).  Draws are clamped to
 the limit, so increasing it is safe for every existing model.
+
+## G-060: adding a shim header that shadows an existing include needs a clean rebuild
+
+**Symptom:** P-608's `native/decomp/shim/dolphin/gx/GXVert.h` had no effect on
+the compiled game: `displayfunc.o` still referenced the SDK inline FIFO writes
+(GCC silently kept using the extern header), and only `test_decomp_render`,
+which was recompiled for an unrelated edit, used the shim.
+**Cause:** the shim directory was already on the include path, so adding a file
+there changes no compile command and make's dependency graph has no edge to the
+new file. 932 objects include `GXVert.h` transitively and none of them are
+rebuilt.
+**Fix:** after adding/removing a shadowing header, force the TUs that include
+it to rebuild (e.g. `rm -rf build/native/CMakeFiles/melee_decomp_game.dir`
+followed by `cmake -S native -B build/native` to regenerate `build.make`, then
+build).  Verify with
+`objdump -dr .../displayfunc.c.o | grep GXPortWGFifo` and
+`.o.d` showing the shim path.

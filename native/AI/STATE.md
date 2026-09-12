@@ -46,7 +46,13 @@ target dependency (ADR-0014, install list in `TESTING.md`). **P-610
 limb noise was a `GX_TG_TEXCOORDn` coord chain folded onto the 0/1 UV varyings
 (G-058); the draw state now captures 8 TEV stages (Master Hand uses 6, G-059)
 and each frame restores the depth/color write masks before `glClear` so
-camera orbits stop losing geometry (G-057). Next milestone:
+camera orbits stop losing geometry (G-057).  **P-608 (2026-09-12):**
+direct-mode draws (`GXBegin` + the inline `GXPosition*`/`GXColor*`/
+`GXTexCoord*` writers used by `displayfunc.c`, `pobj.c`, `psdisp.c`, the
+shadow/afterimage/effect code) are captured and decoded through the same
+vertex path as display lists via the shadowing
+`native/decomp/shim/dolphin/gx/GXVert.h`; `ctest decomp_gx_direct` is the
+regression.  Next milestone:
 **S3** (host-endian asset pipeline + DVD/ARQ).
 
 ## TL;DR
@@ -118,6 +124,7 @@ lightmap phases, alpha test, XLU blend) and every fighter is scaled by its
 | Compiled HSD + GX HLE (S2) | `test_decomp_render` loads `PlMrNr.dat` through the compiled HSD display path and the `native/decomp/gx/` backend, applies the compiled `ftData` part visibility (16/59 hidden) and `Fighter_UpdateModelScale`, and renders with GLES3; world bounds equal the prototype's exactly, screenshot RMSE 10.94/255 (HUD excluded). `ctest decomp_render` is the regression; `logs/2026-09-12-S2-render.md` is the evidence |
 | Interactive compiled viewer (P-611) | `melee_decomp_viewer` (SDL3 window + EGL/GLES3 via `gx_gl_attach`) renders the compiled scene with drag orbit, wheel zoom, `N`/`P` model cycle, `[`/`]` + `V` part isolation, `B` slot, `V`/`shift+V` variant, `Y` show-hidden, `L` lights, `T` textures, `W` wireframe, HUD (`H`), `F12` screenshot; `--frames N --hidden --shot F` is the non-interactive smoke path and its BMP matches `test_decomp_render` to RMSE 0.000 |
 | GX HLE backend (S2) | `native/decomp/gx/gx_hle.c`: real GX state + `GXCallDisplayList` decode (68 lists, zero desync), XF/channel/texgen evaluation, per-draw snapshots; `gx_gl.c` evaluates up to 8 captured TEV stages with textures/TLUTs from `native/gx/texture.c` on an EGL/GLES3 pbuffer |
+| Direct-mode capture (P-608) | `native/decomp/shim/dolphin/gx/GXVert.h` routes the decomp's inline FIFO writers to `GXPortWGFifo*`; `GXBegin` + 4-vertex quad through the shim decodes to exactly 2 triangles / 6 vertices with the source pos/color/UV in `ctest decomp_gx_direct` |
 | Turn-stability (P-610) | Viewer static vs `--spin 360 --no-hud` RMSE 0.003/255 (Master Hand; residue is HSD lookat float rounding), frame1 vs frame240 and `--cycle 33` both RMSE 0.0 |
 | Owner visual checks | 180 Hz viewer animation speed confirmed correct; face texture artifact gone (2026-09-11) |
 
@@ -179,6 +186,7 @@ SDL_VIDEODRIVER=offscreen ./build/native/melee --view --frames 1 --no-grid \
     --screenshot /tmp/viewer.bmp
 ./build/native/test_decomp_render --width 1280 --height 800 \
     --shot /tmp/compiled.bmp --dump
+./build/native/test_decomp_render --direct   # direct-mode capture (P-608)
 ./build/native/test_decomp_render --no-gl   # asset bridge + GX capture only
 ./build/native/melee_decomp_viewer          # interactive (needs lib32-sdl3)
 ./build/native/melee_decomp_viewer --frames 1 --hidden --shot /tmp/v.bmp

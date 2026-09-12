@@ -10,6 +10,7 @@
  */
 #include <math.h>
 #include <sysdolphin/baselib/state.h>
+#include <dolphin/gx/GXVert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,8 +26,100 @@ static void usage(const char* argv0)
             "usage: %s [--disc PATH] [--model NAME] [--shot FILE]\n"
             "          [--width N] [--height N] [--scale F]\n"
             "          [--angle DEG] [--elevation DEG] [--no-lights]\n"
-            "          [--dump] [--no-scale] [--no-gl]\n",
+            "          [--dump] [--no-scale] [--no-gl] [--direct]\n",
             argv0);
+}
+
+/*
+ * P-608: exercise the GXVert.h shim end to end.  A quad written through the
+ * shim's inline GXPosition/GXColor/GXTexCoord functions must come back as one
+ * draw whose two triangles carry the source attributes.  Runs without a disc.
+ */
+static int direct_test(void)
+{
+    static const float identity[4][4] = { { 1, 0, 0, 0 },
+                                          { 0, 1, 0, 0 },
+                                          { 0, 0, 1, 0 },
+                                          { 0, 0, 0, 1 } };
+    const GxHleVertex* verts = NULL;
+    const GxHleDraw* draws = NULL;
+    size_t vc = 0;
+    size_t dc = 0;
+    int fail = 0;
+
+    gx_hle_begin_frame();
+    GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
+    GXClearVtxDesc();
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
+    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+    GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+
+    GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+    GXPosition3f32(0.0f, 0.0f, 0.0f);
+    GXColor4u8(255, 0, 0, 255);
+    GXTexCoord2f32(0.0f, 0.0f);
+    GXPosition3f32(1.0f, 0.0f, 0.0f);
+    GXColor4u8(0, 255, 0, 255);
+    GXTexCoord2f32(1.0f, 0.0f);
+    GXPosition3f32(1.0f, 1.0f, 0.0f);
+    GXColor4u8(0, 0, 255, 255);
+    GXTexCoord2f32(1.0f, 1.0f);
+    GXPosition3f32(0.0f, 1.0f, 0.0f);
+    GXColor4u8(255, 255, 255, 128);
+    GXTexCoord2f32(0.0f, 1.0f);
+    gx_hle_get_frame(&verts, &vc, &draws, &dc, NULL, NULL);
+
+    if (dc != 1 || vc != 6) {
+        printf("direct: FAIL draws=%zu verts=%zu (want 1/6)\n", dc, vc);
+        return 0;
+    }
+    /* QUADS (0,1,2),(0,2,3): tri 1 = p0,p1,p2; tri 2 = p0,p2,p3. */
+    {
+        static const float want_pos[6][3] = {
+            { 0, 0, 0 }, { 1, 0, 0 }, { 1, 1, 0 },
+            { 0, 0, 0 }, { 1, 1, 0 }, { 0, 1, 0 }
+        };
+        static const unsigned char want_rgba[6][4] = {
+            { 255, 0, 0, 255 },   { 0, 255, 0, 255 },   { 0, 0, 255, 255 },
+            { 255, 0, 0, 255 },   { 0, 0, 255, 255 },   { 255, 255, 255, 128 }
+        };
+        static const float want_uv[6][2] = {
+            { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 0 }, { 1, 1 }, { 0, 1 }
+        };
+        size_t k;
+        int a;
+        for (k = 0; k < 6; ++k) {
+            const GxHleVertex* v = &verts[draws[0].first_vertex + k];
+            for (a = 0; a < 3; ++a) {
+                if (fabsf(v->view[a] - want_pos[k][a]) > 1e-6f) {
+                    printf("direct: FAIL vert %zu pos[%d]=%.3f want %.3f\n", k,
+                           a, (double) v->view[a], (double) want_pos[k][a]);
+                    fail = 1;
+                }
+            }
+            for (a = 0; a < 4; ++a) {
+                if (v->color[a] != want_rgba[k][a]) {
+                    printf("direct: FAIL vert %zu clr[%d]=%u want %u\n", k, a,
+                           v->color[a], want_rgba[k][a]);
+                    fail = 1;
+                }
+            }
+            for (a = 0; a < 2; ++a) {
+                if (fabsf(v->uv[0][a] - want_uv[k][a]) > 1e-6f) {
+                    printf("direct: FAIL vert %zu uv[%d]=%.3f want %.3f\n", k,
+                           a, (double) v->uv[0][a], (double) want_uv[k][a]);
+                    fail = 1;
+                }
+            }
+        }
+    }
+    printf("direct: %s draws=%zu verts=%zu primitives=%u\n",
+           fail ? "FAIL" : "PASS", dc, vc,
+           (unsigned) gx_hle_primitive_count());
+    return !fail;
 }
 
 int main(int argc, char** argv)
@@ -38,6 +131,7 @@ int main(int argc, char** argv)
     int dump = 0;
     int no_gl = 0;
     const char* dump_world = NULL;
+    int direct = 0;
     int rendered;
     int loaded;
     size_t i;
@@ -87,6 +181,8 @@ int main(int argc, char** argv)
             dump_world = argv[++i];
         } else if (strcmp(argv[i], "--no-gl") == 0) {
             no_gl = 1;
+        } else if (strcmp(argv[i], "--direct") == 0) {
+            direct = 1;
         } else if (strcmp(argv[i], "--help") == 0) {
             usage(argv[0]);
             return 0;
@@ -95,6 +191,10 @@ int main(int argc, char** argv)
             usage(argv[0]);
             return 2;
         }
+    }
+
+    if (direct) {
+        return direct_test() ? 0 : 1;
     }
 
     if (!render_scene_boot()) {
