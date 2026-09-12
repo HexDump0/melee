@@ -30,6 +30,17 @@
 #define ARAM_ALLOC_START 0x4000u
 
 static unsigned char* aram;
+
+/* S5: the AX mixer reads sample data straight out of host ARAM. */
+unsigned char* platform_aram_base(void)
+{
+    return aram;
+}
+
+unsigned platform_aram_size(void)
+{
+    return ARAM_SIZE;
+}
 static u32 stack_pointer;
 static u32* block_length;
 static u32 free_blocks;

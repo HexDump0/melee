@@ -17,6 +17,7 @@
 #include <dolphin/gx.h>
 #include <dolphin/vi.h>
 
+#include "audio/ax_hle.h"
 #include "decomp/boot/boot_triage.h"
 #include "platform/complete.h"
 #include "platform/platform.h"
@@ -219,6 +220,10 @@ void VIWaitForRetrace(void)
     /* Loader wait loops spin on this; hardware completions that were posted
      * while interrupts stayed disabled also get delivered here. */
     platform_pump_completions();
+    /* S5: the AI frame clock is derived from VI (10 AX frames per 3
+     * retraces); this keeps the 200 Hz AXDriver state machines in sync with
+     * gameplay without a second timebase. */
+    ax_hle_pump_video_frame();
     vi_retrace_count++;
     if (vi_pre_callback != NULL) {
         vi_pre_callback(vi_retrace_count);

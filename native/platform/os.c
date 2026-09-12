@@ -439,6 +439,12 @@ void DCStoreRange(void* addr, u32 nBytes)
     (void) nBytes;
 }
 
+void DCFlushRangeNoSync(void* addr, u32 nBytes)
+{
+    (void) addr;
+    (void) nBytes;
+}
+
 void DCInvalidateRange(void* addr, u32 nBytes)
 {
     (void) addr;

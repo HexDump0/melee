@@ -1,10 +1,11 @@
 /*
- * S1 audio/video backend: log-only stubs for AI, AR, AX, the HSD AX driver
- * and the THP movie decoder.
+ * S1 audio/video backend: log-only stubs for the HSD AX driver and the THP
+ * movie decoder.
  *
- * The boot only initializes these subsystems; nothing here produces sound or
- * video yet.  Each entry is recorded by the triage logger.  S5 replaces the
- * AX/DSP surface (P-501/ADR) and the AR/ARQ streaming backend.
+ * The AX/AI backends are real as of S5 (`native/audio/`, ADR-0013) and the
+ * AR/ARQ backend is real as of S3 (`native/platform/ar.c`).  What remains
+ * here is the HSD AX driver surface (replaced by compiling the decompilation's
+ * `src/sysdolphin/baselib/axdriver.c` in S5.3) and THP.
  */
 #include <dolphin/ai.h>
 #include <dolphin/ar.h>
@@ -35,175 +36,10 @@ s32 THPDec_8032F8D4(u8* data, THPDec_8032FD40_Data* out);
 void THPDec_80331340(s32 arg0, void* arg1, void* arg2, void* arg3);
 void THPDec_803313D0(s32 arg0, void* arg1, void* arg2, void* arg3, u32 arg4);
 
-/* ---------------------------------------------------------------------- AI */
-
-void AIInit(u8* stack)
-{
-    (void) stack;
-    boot_triage_stub("AIInit", BOOT_CAT_AX);
-}
-
-void AISetStreamVolLeft(u8 vol)
-{
-    (void) vol;
-    boot_triage_stub("AISetStreamVolLeft", BOOT_CAT_AX);
-}
-
-void AISetStreamVolRight(u8 vol)
-{
-    (void) vol;
-    boot_triage_stub("AISetStreamVolRight", BOOT_CAT_AX);
-}
-
-void AISetDSPSampleRate(u32 rate)
-{
-    (void) rate;
-    boot_triage_stub("AISetDSPSampleRate", BOOT_CAT_AX);
-}
-
 /* -------------------------------------------------------------- AR (S3)
  * ARInit/ARAlloc/ARFree live in platform/ar.c (host ARAM); ARQInit and
- * ARQPostRequest come from the compiled extern/dolphin ARQ queue. */
-
-/* ---------------------------------------------------------------------- AX */
-
-void AXInit(void)
-{
-    boot_triage_stub("AXInit", BOOT_CAT_AX);
-}
-
-void AXRegisterCallback(void (*callback)(void))
-{
-    (void) callback;
-    boot_triage_stub("AXRegisterCallback", BOOT_CAT_AX);
-}
-
-AXVPB* AXAcquireVoice(u32 priority, void (*callback)(void*), u32 userContext)
-{
-    (void) priority;
-    (void) callback;
-    (void) userContext;
-    boot_triage_stub("AXAcquireVoice", BOOT_CAT_AX);
-    return NULL;
-}
-
-void AXSetVoiceAddr(AXVPB* p, AXPBADDR* addr)
-{
-    (void) p;
-    (void) addr;
-    boot_triage_stub("AXSetVoiceAddr", BOOT_CAT_AX);
-}
-
-void AXSetVoiceAdpcm(AXVPB* p, AXPBADPCM* adpcm)
-{
-    (void) p;
-    (void) adpcm;
-    boot_triage_stub("AXSetVoiceAdpcm", BOOT_CAT_AX);
-}
-
-void AXSetVoiceAdpcmLoop(AXVPB* p, AXPBADPCMLOOP* adpcmloop)
-{
-    (void) p;
-    (void) adpcmloop;
-    boot_triage_stub("AXSetVoiceAdpcmLoop", BOOT_CAT_AX);
-}
-
-void AXSetVoiceCurrentAddr(AXVPB* p, u32 addr)
-{
-    (void) p;
-    (void) addr;
-    boot_triage_stub("AXSetVoiceCurrentAddr", BOOT_CAT_AX);
-}
-
-void AXSetVoiceEndAddr(AXVPB* p, u32 addr)
-{
-    (void) p;
-    (void) addr;
-    boot_triage_stub("AXSetVoiceEndAddr", BOOT_CAT_AX);
-}
-
-void AXSetVoiceLoop(AXVPB* p, u16 loop)
-{
-    (void) p;
-    (void) loop;
-    boot_triage_stub("AXSetVoiceLoop", BOOT_CAT_AX);
-}
-
-void AXSetVoiceLoopAddr(AXVPB* p, u32 addr)
-{
-    (void) p;
-    (void) addr;
-    boot_triage_stub("AXSetVoiceLoopAddr", BOOT_CAT_AX);
-}
-
-void AXSetVoicePriority(AXVPB* p, u32 priority)
-{
-    (void) p;
-    (void) priority;
-    boot_triage_stub("AXSetVoicePriority", BOOT_CAT_AX);
-}
-
-void AXSetVoiceSrc(AXVPB* p, AXPBSRC* src_)
-{
-    (void) p;
-    (void) src_;
-    boot_triage_stub("AXSetVoiceSrc", BOOT_CAT_AX);
-}
-
-void AXSetVoiceSrcRatio(AXVPB* p, float ratio)
-{
-    (void) p;
-    (void) ratio;
-    boot_triage_stub("AXSetVoiceSrcRatio", BOOT_CAT_AX);
-}
-
-void AXSetVoiceState(AXVPB* p, u16 state)
-{
-    (void) p;
-    (void) state;
-    boot_triage_stub("AXSetVoiceState", BOOT_CAT_AX);
-}
-
-void AXSetVoiceVe(AXVPB* p, AXPBVE* ve)
-{
-    (void) p;
-    (void) ve;
-    boot_triage_stub("AXSetVoiceVe", BOOT_CAT_AX);
-}
-
-void AXSetVoiceVeDelta(AXVPB* p, s16 delta)
-{
-    (void) p;
-    (void) delta;
-    boot_triage_stub("AXSetVoiceVeDelta", BOOT_CAT_AX);
-}
-
-void AXFreeVoice(AXVPB* p)
-{
-    (void) p;
-    boot_triage_stub("AXFreeVoice", BOOT_CAT_AX);
-}
-
-void AXSetVoiceItdOn(AXVPB* p)
-{
-    (void) p;
-    boot_triage_stub("AXSetVoiceItdOn", BOOT_CAT_AX);
-}
-
-void AXSetVoiceItdTarget(AXVPB* p, u16 lShift, u16 rShift)
-{
-    (void) p;
-    (void) lShift;
-    (void) rShift;
-    boot_triage_stub("AXSetVoiceItdTarget", BOOT_CAT_AX);
-}
-
-void AXSetVoiceMix(AXVPB* p, AXPBMIX* mix)
-{
-    (void) p;
-    (void) mix;
-    boot_triage_stub("AXSetVoiceMix", BOOT_CAT_AX);
-}
+ * ARQPostRequest come from the compiled extern/dolphin ARQ queue.
+ * AI/AX live in native/audio/ax_hle.c (S5). */
 
 /* -------------------------------------------------------------- HSD AX driver
  * src/sysdolphin/baselib/axdriver.c is excluded from the PC build (it drives

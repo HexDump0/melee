@@ -33,6 +33,22 @@ target_compile_options(melee_decomp_math PRIVATE
     -w -ffunction-sections -fdata-sections
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
 
+# S5 (ADR-0013): the SDK AX bookkeeping/voice layer is pure C and runs
+# unchanged against the host mixer; only DSP/AI (AXOut.c) is replaced by
+# native/audio/ax_hle.c.  Kept as a list so the audio unit test can link it
+# without the whole game library.
+set(MELEE_AX_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/ax/AX.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/ax/AXAlloc.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/ax/AXAux.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/ax/AXSPB.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/ax/AXVPB.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/ax/AXCL.c
+    # AXFX: delay.c is portable C.  reverb_std/reverb_hi/chorus contain MWCC
+    # asm in extern/ and are replaced by native/decomp/axfx/ (ADR-0011 rule 3).
+    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/axfx/axfx.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/axfx/delay.c)
+
 add_executable(melee
     main.c
     platform/disc.c
@@ -119,6 +135,35 @@ set_tests_properties(decomp_hsd PROPERTIES
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
 # ---------------------------------------------------------------------------
+# S5 (ADR-0013): the software AX mixer unit test.  Synthesizes its own ADPCM
+# fixture and host ARAM, so it needs no disc, GPU or audio device.
+add_executable(test_audio
+    tests/test_audio.c
+    audio/ax_hle.c
+    audio/ax_mixer.c
+    platform/os.c
+    platform/complete.c
+    decomp/boot/boot_triage.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/os/OSArena.c
+    ${MELEE_AX_SOURCES})
+set_source_files_properties(${MELEE_AX_SOURCES} PROPERTIES COMPILE_OPTIONS "-w")
+target_include_directories(test_audio BEFORE PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(test_audio SYSTEM PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
+target_compile_options(test_audio PRIVATE
+    -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS}
+    -Wall -Wextra -Wpedantic -fgnu89-inline
+    -ffunction-sections -fdata-sections -DPORT_PC=1 -D_GNU_SOURCE
+    -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
+target_link_libraries(test_audio PRIVATE m)
+target_link_options(test_audio PRIVATE
+    -m32 -malign-double "LINKER:--gc-sections")
+add_test(NAME audio COMMAND test_audio)
+set_tests_properties(audio PROPERTIES PASS_REGULAR_EXPRESSION "test_audio: PASS")
+
+# ---------------------------------------------------------------------------
 # S3 (P-609): asset pipeline sweep.  Every Pl*Nr archive, one stage and the
 # common scene archives load through the compiled loader after the platform
 # converter has converted them; `stats.ok` fails the test on any relocation
@@ -202,7 +247,8 @@ list(APPEND MELEE_DECOMP_SOURCES
     # S3: the real DVDFS path/FST logic and the ARQ DMA queue; the drive and
     # ARAM hardware under them live in native/platform/{dvd,ar}.c.
     ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/dvd/dvdfs.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/ar/arq.c)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/ar/arq.c
+    ${MELEE_AX_SOURCES})
 
 add_library(melee_decomp_game OBJECT ${MELEE_DECOMP_SOURCES})
 target_include_directories(melee_decomp_game BEFORE PRIVATE
@@ -241,6 +287,8 @@ add_executable(melee_decomp_boot
     platform/ssm.c
     platform/complete.c
     platform/pad_card.c
+    audio/ax_hle.c
+    audio/ax_mixer.c
     platform/audio.c
     platform/font_stub.c
     platform/misc.c
@@ -309,6 +357,8 @@ add_executable(test_decomp_render
     platform/ssm.c
     platform/complete.c
     platform/pad_card.c
+    audio/ax_hle.c
+    audio/ax_mixer.c
     platform/audio.c
     platform/font_stub.c
     platform/misc.c
@@ -397,6 +447,8 @@ if(MELEE_SDL3_LIB32)
       platform/ssm.c
       platform/complete.c
       platform/pad_card.c
+      audio/ax_hle.c
+      audio/ax_mixer.c
       platform/audio.c
       platform/font_stub.c
       platform/misc.c
