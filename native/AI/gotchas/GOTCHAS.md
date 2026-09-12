@@ -910,3 +910,15 @@ MSB-first to LSB-first field order using the `CmdUnion` structs in
 `src/melee/lb/types.h`. A plain byte swap is **not** the transform (it maps
 the opcode to bits 24..29). Pointer words (Goto/Subroutine) are relocation
 targets and are already host order.
+
+**Alternative lead (may be cleaner):** GCC supports
+`__attribute__((scalar_storage_order("big-endian")))`, which makes bitfield
+loads read MSB-first from the raw bytes. A two-line test on the actual DK
+landing word reads `opcode=55 bone=0 state=0x404` (the console values) with no
+data conversion. Adding the attribute (under `PORT_PC`) to the `CmdUnion`
+member structs in `src/melee/lb/types.h` / `src/melee/it/*` would let the
+engine read archive scripts in place. Caveats: do not annotate pointer-only
+members (Command_05/07 `ptr`; they are host pointers fixed by `Locate`),
+expect `-Wscalar-storage-order` warnings at mixed-union accesses, and this is
+a large ADR-0011 header patch (list it in `decomp_port.md`). Try this before
+the walker.
