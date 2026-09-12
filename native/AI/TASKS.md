@@ -100,7 +100,7 @@ compiled render in S2/S4 instead.
 
 | ID | Task | Agent | Commit | Date |
 |---|---|---|---|---|
-| P-618 | GX HLE channel state: four slots so `GX_ALPHA0/1` no longer clobbers COLOR0/1 (model switches keep their lighting), and lit raster alpha evaluated from the paired alpha channel (hand wrist connector stays translucent). G-071/G-072 | opencode (deepseek-flash) | _pending_ | 2026-09-12 |
+| P-618 | GX HLE channel state: four slots so `GX_ALPHA0/1` no longer clobbers COLOR0/1 (model switches keep their lighting), and lit raster alpha evaluated from the paired alpha channel (hand wrist connector stays translucent). G-071/G-072 | opencode (deepseek-flash) | f8a8b48d2 | 2026-09-12 |
 | P-609 | S3: host-endian asset pipeline + DVD/ARQ completion | opencode (deepseek-flash) | d4fc2f9b3, ec408b535, 297921685, 37b718104 | 2026-09-12 |
 | P-615 | Z-texture and EFB copy/read (`GXSetZTexture`, `GXCopyTex`, `GXCopyDisp`) | opencode (deepseek-flash) | 2b2fd837a, 697d90d9c | 2026-09-12 |
 | P-612 | GX HLE polish: faithful `GX_TG_BUMPn` emboss + indirect state capture | opencode (deepseek-flash) | 8f5396cac, 697d90d9c | 2026-09-12 |

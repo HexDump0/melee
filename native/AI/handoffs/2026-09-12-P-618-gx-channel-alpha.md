@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-12
 **Agent:** opencode (deepseek-flash)
-**Commit:** this commit (hash recorded in TASKS.md)
+**Commit:** `f8a8b48d2`
 **Tree state:** builds warning-free; `ctest --test-dir build/native` 8/8;
 32-bit ASan/UBSan `test_decomp_render --direct` and full `PlMhNr` render clean.
 
