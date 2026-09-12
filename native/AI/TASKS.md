@@ -98,7 +98,7 @@ compiled render in S2/S4 instead.
 
 | ID | Task | Agent | Commit | Date |
 |---|---|---|---|---|
-| P-611 | Interactive compiled-path viewer: `melee_decomp_viewer` (SDL3 window + EGL/GLES3; orbit/zoom, N/P model cycle, slot/variant, texture/light toggles; `--frames/--hidden/--shot` smoke path) sharing `render_scene.c` with the headless test; SDL3 dependency in ADR-0014 + `TESTING.md` | opencode (deepseek-flash) | _pending_ | 2026-09-12 |
+| P-611 | Interactive compiled-path viewer: `melee_decomp_viewer` (SDL3 window + EGL/GLES3; orbit/zoom, N/P model cycle, slot/variant, texture/light toggles; `--frames/--hidden/--shot` smoke path) sharing `render_scene.c` with the headless test; SDL3 dependency in ADR-0014 + `TESTING.md` | opencode (deepseek-flash) | 983f1eaf3 | 2026-09-12 |
 | P-501 | Audio backend design memo: ADR-0013 selects host-side AX HLE — compile the game's `src/sysdolphin/baselib/axdriver.c` plus the in-tree SDK AX voice layer, replace only `AXOut`/DSP with a 5 ms software mixer; contains rejected options, S5.1-S5.5 task plan and headless validation | opencode (deepseek-flash) | 801662d90 | 2026-09-12 |
 | P-606 | S2: compiled HSD renders through the GX HLE (`native/decomp/gx/` + `hsd_scene.c` + `test_decomp_render`, ctest `decomp_render`; world bounds equal the prototype, screenshot RMSE 10.94/255, deviations in `learnings/decomp_s2_gx_hle.md`) | opencode (deepseek-flash) | e20356d97 | 2026-09-12 |
 | P-605 | S3 prep: host-endian conversion spec per asset format (535-line spec; `learnings/decomp_assets.md`) | opencode (docs session) | 805adb250 | 2026-09-11 |
