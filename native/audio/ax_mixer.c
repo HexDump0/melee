@@ -6,7 +6,7 @@
  * user PB and the DSP shadow PB (`__AXGetPBs()`); this file consumes the
  * shadow exactly like the DSP would:
  *
- *   - ADPCM format 0 (9-byte / 16-sample frames, `AXPBADPCM.a[pred]`
+ *   - DSP-ADPCM format 0 (8-byte / 14-sample frames, `AXPBADPCM.a[pred]`
  *     coefficients), PCM formats 10/25,
  *   - `AXPBSRC` ratio SRC with a 16.16 fractional position and linear
  *     interpolation,
@@ -26,8 +26,6 @@
 
 #include <dolphin/ax.h>
 #include <stddef.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #define AX_FRAME_SAMPLES 160
@@ -124,7 +122,7 @@ static void voice_reset(AxVoiceMix* v, AXPB* pb)
     v->write_addr = cur;
     v->yn1 = (s16) pb->adpcm.yn1;
     v->yn2 = (s16) pb->adpcm.yn2;
-    v->index = 16; /* force a frame decode */
+    v->index = 14; /* force a frame decode */
     memcpy(v->itd_l, itd_l, sizeof(itd_l));
     memcpy(v->itd_r, itd_r, sizeof(itd_r));
     v->itd_pos = itd_pos;
@@ -196,9 +194,13 @@ static int voice_decode_frame(AxVoiceMix* v, AXPB* pb)
     }
 
     {
+        /* DSP-ADPCM: 8-byte frame = 1 header + 7 data bytes, 14 samples.
+         * The header packs the coefficient index in the high nibble and the
+         * scale exponent in the low nibble (DSPADPCM spec; the nibbles are
+         * decoded high-first and sign-extended). */
         unsigned char hdr = aram[off];
-        unsigned scale = hdr >> 4;
-        unsigned pred = hdr & 0x0F;
+        s32 scale = 1 << (hdr & 0x0F);
+        unsigned pred = (hdr >> 4) & 0x0F;
         s32 c0;
         s32 c1;
 
@@ -208,7 +210,7 @@ static int voice_decode_frame(AxVoiceMix* v, AXPB* pb)
         c0 = (s16) pb->adpcm.a[pred][0];
         c1 = (s16) pb->adpcm.a[pred][1];
 
-        for (i = 0; i < 16; i++) {
+        for (i = 0; i < 14; i++) {
             unsigned byte = aram[off + 1 + (i >> 1)];
             s32 nib = (i & 1) ? (byte & 0x0F) : (byte >> 4);
             s32 sample;
@@ -216,8 +218,8 @@ static int voice_decode_frame(AxVoiceMix* v, AXPB* pb)
             if (nib >= 8) {
                 nib -= 16;
             }
-            sample = (nib << scale) +
-                     ((c0 * v->yn1 + c1 * v->yn2 + 1024) >> 11);
+            sample = (nib * scale * 2048 + 1024 + c0 * v->yn1 + c1 * v->yn2) >>
+                     11;
             sample = clamp_s16(sample);
             v->pcm[i] = (s16) sample;
             v->yn2 = v->yn1;
@@ -225,7 +227,7 @@ static int voice_decode_frame(AxVoiceMix* v, AXPB* pb)
         }
     }
 
-    v->frame_addr += 9 * 2;
+    v->frame_addr += 8 * 2;
     v->index = 0;
     return 1;
 }
@@ -238,14 +240,14 @@ static s16 voice_source_sample(AxVoiceMix* v, AXPB* pb)
     u32 ratio;
     s16 out;
 
-    if (v->index >= 16) {
+    if (v->index >= 14) {
         if (!voice_decode_frame(v, pb)) {
             return 0;
         }
     }
 
     cur = v->pcm[v->index];
-    nxt = (v->index < 15) ? v->pcm[v->index + 1] : v->pcm[15];
+    nxt = (v->index < 13) ? v->pcm[v->index + 1] : v->pcm[13];
     out = (s16) (cur + (((nxt - cur) * (s32) (v->frac >> 16)) >> 16));
 
     ratio = ((u32) pb->src.ratioHi << 16) | pb->src.ratioLo;
@@ -253,7 +255,7 @@ static s16 voice_source_sample(AxVoiceMix* v, AXPB* pb)
     while (v->frac >= AX_SRC_ONE) {
         v->frac -= AX_SRC_ONE;
         v->index++;
-        if (v->index >= 16) {
+        if (v->index >= 14) {
             if (!voice_decode_frame(v, pb)) {
                 break;
             }
@@ -397,14 +399,9 @@ void ax_mixer_frame(s16* out, unsigned frames)
          * polls currentAddress for stream page advance and voice teardown. */
         {
             u32 addr = v->frame_addr;
-            if (v->index < 16) {
-                addr -= 9 * 2;
-                addr += (u32) ((v->index * 9 * 2) / 16);
-            }
-            if (getenv("AX_MIX_DEBUG") && addr > platform_aram_size() * 2u + 0x1000000u) {
-                fprintf(stderr, "mix dbg: voice %u write addr=%08x frame=%08x idx=%d ratio=%08x\n",
-                        i, addr, v->frame_addr, v->index,
-                        ((u32) pb->src.ratioHi << 16) | pb->src.ratioLo);
+            if (v->index < 14) {
+                addr -= 8 * 2;
+                addr += (u32) ((v->index * 8 * 2) / 14);
             }
             pb_set_cur_addr(pb, addr);
             v->write_addr = addr;

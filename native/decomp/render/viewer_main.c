@@ -39,6 +39,7 @@
 #include "decomp/gx/gx_hle.h"
 #include "decomp/render/hud.h"
 #include "decomp/render/render_scene.h"
+#include "decomp/render/sdl_audio.h"
 #include "platform/platform.h"
 
 extern int gm_main(void);
@@ -734,10 +735,11 @@ int main(int argc, char** argv)
         }
     }
 
-    if (!SDL_Init(SDL_INIT_VIDEO)) {
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
         fprintf(stderr, "viewer: SDL_Init failed: %s\n", SDL_GetError());
         return 1;
     }
+    viewer_audio_init();
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
                         SDL_GL_CONTEXT_PROFILE_ES);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);

@@ -16,6 +16,9 @@
 #include "boot_triage.h"
 #include "match_boot.h"
 
+#include "audio/ax_hle.h"
+#include "audio/wav.h"
+
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -53,7 +56,8 @@ static void usage(const char* argv0)
             "usage: %s [--boot-log FILE] [--boot-frames N]\n"
             "          [--boot-stub-limit N] [--boot-timeout SECONDS]\n"
             "          [--boot-match FRAME] [--boot-trace] "
-            "[--boot-no-watchdog]\n",
+            "[--boot-no-watchdog]\n"
+            "          [--audio-dump FILE.wav]\n",
             argv0);
 }
 
@@ -65,6 +69,8 @@ int main(int argc, char** argv)
     unsigned long stub_limit = 5000000;
     unsigned timeout = 30;
     unsigned match_frame = 0;
+    const char* audio_dump = NULL;
+    WavSink* wav = NULL;
     int trace = 0;
     int watchdog = 1;
     sigjmp_buf stop;
@@ -81,6 +87,8 @@ int main(int argc, char** argv)
             timeout = (unsigned) strtoul(argv[++i], NULL, 0);
         } else if (strcmp(argv[i], "--boot-match") == 0 && i + 1 < argc) {
             match_frame = (unsigned) strtoul(argv[++i], NULL, 0);
+        } else if (strcmp(argv[i], "--audio-dump") == 0 && i + 1 < argc) {
+            audio_dump = argv[++i];
         } else if (strcmp(argv[i], "--boot-trace") == 0) {
             trace = 1;
         } else if (strcmp(argv[i], "--boot-no-watchdog") == 0) {
@@ -104,6 +112,15 @@ int main(int argc, char** argv)
         }
     }
 
+    if (audio_dump != NULL) {
+        wav = wav_sink_open(audio_dump);
+        if (wav == NULL) {
+            fprintf(stderr, "%s: cannot open audio dump: %s\n", argv[0],
+                    audio_dump);
+            return 1;
+        }
+        ax_hle_set_sink(wav_sink_write, wav);
+    }
     boot_triage_init(out, trace, stub_limit);
     boot_triage_set_frame_budget(frames);
     boot_triage_install_stop_target(&stop);
@@ -132,7 +149,10 @@ int main(int argc, char** argv)
         }
     }
 
+    boot_triage_note("[boot] audio: frames=%u hash=%016llx\n",
+                     ax_hle_frame_count(), (unsigned long long) ax_hle_pcm_hash());
     boot_triage_summary(out);
+    wav_sink_close(wav);
     if (out != stderr) {
         fclose(out);
     }

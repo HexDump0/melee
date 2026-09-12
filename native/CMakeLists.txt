@@ -296,6 +296,7 @@ add_executable(melee_decomp_boot
     platform/pad_card.c
     audio/ax_hle.c
     audio/ax_mixer.c
+    audio/wav.c
     platform/audio.c
     platform/font_stub.c
     platform/misc.c
@@ -324,6 +325,16 @@ set_tests_properties(decomp_boot PROPERTIES
 # budget is a stable regression value (two runs are byte-identical).
 add_test(NAME decomp_match
     COMMAND melee_decomp_boot --boot-frames 600 --boot-timeout 90 --boot-match 20)
+# S5.5: the compiled AX stack must render byte-identical PCM for the same
+# scripted match (two runs, WAV compare + hash).
+add_test(NAME decomp_audio
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/audio_determinism.sh
+            $<TARGET_FILE:melee_decomp_boot>
+            ${CMAKE_CURRENT_BINARY_DIR}/audio-determinism)
+set_tests_properties(decomp_audio PROPERTIES
+    PASS_REGULAR_EXPRESSION "audio_determinism: PASS"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    TIMEOUT 240)
 set_tests_properties(decomp_match PROPERTIES
     PASS_REGULAR_EXPRESSION "slot 0 stocks=3 dmg=0 pos=\\(10\\.75,33\\.45,0\\.00\\)"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
@@ -438,6 +449,7 @@ if(MELEE_SDL3_LIB32)
       decomp/render/viewer_main.c
       decomp/render/render_scene.c
       decomp/render/hud.c
+      decomp/render/sdl_audio.c
       decomp/hsd/hsd_scene.c
       decomp/assets/hsd_convert.c
       decomp/gx/gx_hle.c
@@ -477,8 +489,10 @@ if(MELEE_SDL3_LIB32)
       -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
   # SDL3 requires a 1-byte _Bool, so the viewer TU opts out of the bool=int
   # shim (it never calls a decomp function with a bool parameter).
-  set_source_files_properties(decomp/render/viewer_main.c PROPERTIES
-      COMPILE_DEFINITIONS "MELEE_SHIM_REAL_STDBOOL")
+  set_source_files_properties(
+      decomp/render/viewer_main.c
+      decomp/render/sdl_audio.c
+      PROPERTIES COMPILE_DEFINITIONS "MELEE_SHIM_REAL_STDBOOL")
   target_link_libraries(melee_decomp_viewer PRIVATE
       ${MELEE_SDL3_LIB32} m EGL GLESv2 ${CMAKE_DL_LIBS})
   target_link_options(melee_decomp_viewer PRIVATE

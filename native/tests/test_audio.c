@@ -43,12 +43,13 @@ unsigned platform_aram_size(void)
 
 /* ----------------------------------------------------------------- fixture */
 
-/* One ADPCM frame: predictor 0, scale 0, coefficients 0 => each nibble is
- * the sample value (-8..7). */
-static const unsigned char ramp_frame[9] = { 0x00, 0x89, 0xAB, 0xCD, 0xEF,
-                                             0x01, 0x23, 0x45, 0x67 };
-static const int ramp_expected[16] = { -8, -7, -6, -5, -4, -3, -2, -1,
-                                       0,  1,  2,  3,  4,  5,  6,  7 };
+/* One DSP-ADPCM frame: coefficient index 0, scale 0, zero coefficients =>
+ * each nibble is the sample value.  8 bytes = header + 7 data bytes = 14
+ * samples (-7..6). */
+static const unsigned char ramp_frame[8] = { 0x00, 0x9A, 0xBC, 0xDE,
+                                             0xF0, 0x12, 0x34, 0x56 };
+static const int ramp_expected[14] = { -7, -6, -5, -4, -3, -2, -1, 0,
+                                       1,  2,  3,  4,  5,  6 };
 
 #define AX_FRAME_SAMPLES 160
 
@@ -153,16 +154,16 @@ int main(void)
 
     /* 1. One-shot ADPCM ramp at ratio 1.0. */
     callback_count = 0;
-    voice = setup_voice(20, 0, 2, 0x10000);
+    voice = setup_voice(18, 0, 2, 0x10000);
     ax_hle_pump_frames(1);
     check(callback_count == 1, "callback fires once per frame");
-    for (i = 0; i < 16; i++) {
+    for (i = 0; i < 14; i++) {
         if (!near(captured[i * 2], ramp_expected[i])) {
             break;
         }
     }
-    check(i == 16, "ADPCM ramp decodes");
-    check(captured[16 * 2] == 0 && captured[16 * 2 + 1] == 0,
+    check(i == 14, "ADPCM ramp decodes");
+    check(captured[14 * 2] == 0 && captured[14 * 2 + 1] == 0,
           "one-shot goes silent after end");
     ax_hle_pump_frames(1);
     check(voice != NULL && voice->pb.state == 0,
@@ -172,16 +173,16 @@ int main(void)
     }
 
     /* 2. Looped voice wraps at endAddress and stays in state 1. */
-    memcpy(test_aram + 9, ramp_frame, sizeof(ramp_frame));
+    memcpy(test_aram + 8, ramp_frame, sizeof(ramp_frame));
     callback_count = 0;
-    voice = setup_voice(38, 1, 2, 0x10000);
+    voice = setup_voice(34, 1, 2, 0x10000);
     ax_hle_pump_frames(1);
-    for (i = 0; i < 16; i++) {
-        if (!near(captured[(16 + i) * 2], ramp_expected[i])) {
+    for (i = 0; i < 14; i++) {
+        if (!near(captured[(14 + i) * 2], ramp_expected[i])) {
             break;
         }
     }
-    check(i == 16, "looped voice replays the loop");
+    check(i == 14, "looped voice replays the loop");
     check(voice != NULL && voice->pb.state == 1, "looping voice stays active");
     if (voice != NULL) {
         AXSetVoiceState(voice, 0);
@@ -190,10 +191,10 @@ int main(void)
     }
 
     /* 3. SRC ratio 0.5 holds each input sample for two outputs. */
-    voice = setup_voice(20, 0, 2, 0x8000);
+    voice = setup_voice(18, 0, 2, 0x8000);
     ax_hle_pump_frames(1);
-    check(near(captured[0], -8) && near(captured[2], -8) &&
-              near(captured[4], -7) && near(captured[6], -7),
+    check(near(captured[0], -7) && near(captured[2], -7) &&
+              near(captured[4], -6) && near(captured[6], -6),
           "0.5x SRC resamples");
     if (voice != NULL) {
         AXFreeVoice(voice);
