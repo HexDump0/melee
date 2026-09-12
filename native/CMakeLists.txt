@@ -109,6 +109,50 @@ set_tests_properties(decomp_hsd PROPERTIES
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
 # ---------------------------------------------------------------------------
+# S3 (P-609): asset pipeline sweep.  Every Pl*Nr archive, one stage and the
+# common scene archives load through the compiled loader after the platform
+# converter has converted them; `stats.ok` fails the test on any relocation
+# target the converter did not understand (desync detector).
+add_executable(test_decomp_assets
+    tests/test_decomp_assets.c
+    platform/disc.c
+    decomp/assets/hsd_convert.c
+    decomp/sdk_math.c
+    decomp/hsd_port_stubs.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/archive.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/aobj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/class.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/cobj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/dobj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/id.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/jobj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/list.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/memory.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/mobj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/mtx.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/object.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/objalloc.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/pobj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/robj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/spline.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/tobj.c)
+target_include_directories(test_decomp_assets PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
+    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
+target_compile_options(test_decomp_assets PRIVATE
+    -m32 -w -ffunction-sections -fdata-sections
+    -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
+target_link_libraries(test_decomp_assets PRIVATE m)
+target_link_options(test_decomp_assets PRIVATE -m32 "LINKER:--gc-sections")
+add_test(NAME decomp_assets COMMAND test_decomp_assets)
+set_tests_properties(decomp_assets PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
+    PASS_REGULAR_EXPRESSION "decomp_assets: (PASS|SKIP)"
+    ENVIRONMENT "MELEE_ASSET_CACHE=${CMAKE_CURRENT_BINARY_DIR}/asset-cache")
+
+# ---------------------------------------------------------------------------
 # S1 (P-604): boot skeleton.  Compile the decompilation's own main()
 # (src/melee/gm/gmmain.c, renamed gm_main) for the host with the platform
 # layer stubbed, and stop in a controlled way with a triage log.
