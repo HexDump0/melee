@@ -47,6 +47,7 @@ something the next agent must know, or finish a task that changes interfaces.
 | 2026-09-12 | P-620 S4 match runs frames; command-script bitfield repack next | opencode (deepseek-v4.1-flash) | [`2026-09-12-P-620-s4-scripts.md`](handoffs/2026-09-12-P-620-s4-scripts.md) |
 | 2026-09-12 | P-620 S4 complete: deterministic scripted match + PAD backend | opencode (deepseek-v4.1-flash) | [`2026-09-12-P-620-s4-match.md`](handoffs/2026-09-12-P-620-s4-match.md) |
 | 2026-09-12 | P-623 live match in the compiled viewer + PPM recording | opencode (deepseek-v4.1-flash) | [`2026-09-12-P-623-viewer-match.md`](handoffs/2026-09-12-P-623-viewer-match.md) |
+| 2026-09-12 | P-625..P-628 fighters render/loop, GPU channel eval; P-629 slowdown open | opencode (deepseek-v4.1-flash) | [`2026-09-12-P-629-match-slowdown.md`](handoffs/2026-09-12-P-629-match-slowdown.md) |
 
 ## Template
 

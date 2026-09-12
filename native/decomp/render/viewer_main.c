@@ -29,6 +29,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "decomp/assets/hsd_convert.h"
@@ -310,6 +311,10 @@ typedef struct MatchView {
     Uint64 max_interval_ns;
     Uint64 game_start_ns;
     Uint64 game_ns;
+    Uint64 sleep_ns;
+    Uint64 last_cpu_ns;
+    Uint64 cpu_ns;
+    size_t last_verts;
     Uint64 swap_start;
     Uint64 swap_ns;
     int shot_written;
@@ -369,11 +374,19 @@ static void dump_draws(unsigned frame)
         }
         fprintf(stderr,
                 "[draw %zu] v=%zu tex0=%d tex1=%d blend=%d/%d/%d z=%d/%d "
-                "ndc x[%.2f,%.2f] y[%.2f,%.2f]\n",
+                "gens=%d ndc x[%.2f,%.2f] y[%.2f,%.2f]",
                 i, d->vertex_count, d->state.texmap[0], d->state.texmap[1],
                 d->state.blend_type, d->state.blend_src, d->state.blend_dst,
-                d->state.z_enable, d->state.z_func, min_x, max_x, min_y,
-                max_y);
+                d->state.z_enable, d->state.z_func,
+                (int) d->state.num_texgens, min_x, max_x, min_y, max_y);
+        {
+            int g;
+            for (g = 0; g < (int) d->state.num_texgens && g < 8; ++g) {
+                fprintf(stderr, " %d:%d", (int) d->state.texgen[g].type,
+                        (int) d->state.texgen[g].src);
+            }
+        }
+        fprintf(stderr, "\n");
         if (d->state.texmap[0] >= 0 &&
             (size_t) d->state.texmap[0] < texture_count)
         {
@@ -420,24 +433,48 @@ static void match_present(void)
         }
         match_view.game_ns = frame_start - match_view.game_start_ns;
         match_view.last_present_ns = frame_start;
+        {
+            struct timespec ts;
+            Uint64 cpu;
+            clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
+            cpu = (Uint64) ts.tv_sec * 1000000000ull + (Uint64) ts.tv_nsec;
+            if (match_view.last_cpu_ns != 0) {
+                match_view.cpu_ns += cpu - match_view.last_cpu_ns;
+            }
+            match_view.last_cpu_ns = cpu;
+        }
         draws = gx_gl_render_frame();
         match_view.last_render_ns = SDL_GetTicksNS() - frame_start;
+        {
+            size_t vc = 0;
+            gx_hle_get_frame(NULL, &vc, NULL, NULL, NULL, NULL);
+            match_view.last_verts = vc;
+        }
         if (interval > 25000000ull) {
             fprintf(stderr, "[match] spike frame=%u interval=%.1fms "
-                    "game=%.2fms render=%.2fms draws=%d\n",
+                    "game=%.2fms sleep=%.2fms render=%.2fms draws=%d "
+                    "verts=%zu\n",
                     match_view.frames, (double) interval / 1e6,
                     (double) match_view.game_ns / 1e6,
-                    (double) match_view.last_render_ns / 1e6, draws);
+                    (double) match_view.sleep_ns / 1e6,
+                    (double) match_view.last_render_ns / 1e6, draws,
+                    match_view.last_verts);
         }
         if ((match_view.frames % 30) == 0) {
             fprintf(stderr,
-                    "[match] frame %u draws=%d render=%.2fms frame=%.2fms "
-                    "max=%.2fms\n",
-                    match_view.frames, draws,
+                    "[match] frame %u draws=%d verts=%zu lists=%zu prims=%zu "
+                    "game=%.2fms cpu=%.2fms sleep=%.2fms render=%.2fms "
+                    "frame=%.2fms max=%.2fms\n",
+                    match_view.frames, draws, match_view.last_verts,
+                    gx_hle_display_list_count(), gx_hle_primitive_count(),
+                    (double) match_view.game_ns / 1e6,
+                    (double) (match_view.cpu_ns / 30) / 1e6,
+                    (double) match_view.sleep_ns / 1e6,
                     (double) match_view.last_render_ns / 1e6,
                     (double) interval / 1e6,
                     (double) match_view.max_interval_ns / 1e6);
             match_view.max_interval_ns = 0;
+            match_view.cpu_ns = 0;
         }
     }
     if (match_view.dump_frame != 0 &&
@@ -460,7 +497,6 @@ static void match_present(void)
     SDL_GL_SwapWindow(match_view.window);
     match_view.swap_ns = SDL_GetTicksNS() - match_view.swap_start;
     gx_hle_begin_frame();
-    match_view.game_start_ns = SDL_GetTicksNS();
 
     /* Interactive sessions run at the GameCube's 60 Hz regardless of the
      * display refresh; capture/record runs stay unthrottled.  When the swap
@@ -480,11 +516,14 @@ static void match_present(void)
                  (Uint64) match_view.frames * period;
         now = SDL_GetTicksNS();
         if (target > now) {
+            Uint64 sleep_start = SDL_GetTicksNS();
             SDL_DelayNS(target - now);
+            match_view.sleep_ns = SDL_GetTicksNS() - sleep_start;
         } else if (now - target > 2 * period) {
             match_view.start_ns = now - (Uint64) match_view.frames * period;
         }
     }
+    match_view.game_start_ns = SDL_GetTicksNS();
 
     if (match_view.limit != 0 && match_view.frames >= match_view.limit) {
         SDL_GL_DestroyContext(match_view.context);

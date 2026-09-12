@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-12 (P-628: GX channel lighting moved to the vertex shader; match frame spikes cut ~2.5x)
+Last updated: 2026-09-12 (P-628: GPU channel lighting; P-629 open: sustained 2x match slowdown from frame ~670 with identical capture counts)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -242,7 +242,13 @@ Ordered by impact.
    `GM_TITLE` with `gm_804D67EC == 0`, so the logo stays at animation frame 0
    and its opaque grey reveal card is visible; the retail title starts the
    logo at frame 400.  S6/P-624; full analysis in G-090.
-9. **Windows/macOS untested.** Linux + Mesa is the only verified target.
+9. **Match phase slowdown (P-629).**  From viewer frame ~670 (and until
+   ~1080) the game side of each frame goes from ~4 ms to ~29 ms CPU with
+   identical capture counts (draws/verts/lists/prims, texgens and a
+   `--dump-draws` diff), together with the P-627 broken Link pose.  The
+   `perf` hot spots are the CPU vertex transforms and `decode_color`;
+   metrics and reproduction in `handoffs/2026-09-12-P-629-match-slowdown.md`.
+10. **Windows/macOS untested.** Linux + Mesa is the only verified target.
 
 ## Baseline commands
 
