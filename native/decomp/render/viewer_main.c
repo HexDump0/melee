@@ -305,6 +305,9 @@ typedef struct MatchView {
     Uint64 start_ns;
     unsigned record_every;
     unsigned dump_frame;
+    Uint64 last_render_ns;
+    Uint64 swap_start;
+    Uint64 swap_ns;
     int shot_written;
     unsigned frames;
     unsigned limit;
@@ -402,10 +405,14 @@ static void match_present(void)
 
     match_view.frames++;
     {
+        Uint64 frame_start = SDL_GetTicksNS();
         int draws = gx_gl_render_frame();
+        match_view.last_render_ns = SDL_GetTicksNS() - frame_start;
         if ((match_view.frames % 30) == 0) {
-            fprintf(stderr, "[match] frame %u draws=%d\n", match_view.frames,
-                    draws);
+            fprintf(stderr,
+                    "[match] frame %u draws=%d render=%.2fms\n",
+                    match_view.frames, draws,
+                    (double) match_view.last_render_ns / 1e6);
         }
     }
     if (match_view.dump_frame != 0 &&
@@ -424,22 +431,32 @@ static void match_present(void)
     {
         match_view.shot_written = gx_gl_save_bmp(match_view.shot);
     }
+    match_view.swap_start = SDL_GetTicksNS();
     SDL_GL_SwapWindow(match_view.window);
+    match_view.swap_ns = SDL_GetTicksNS() - match_view.swap_start;
     gx_hle_begin_frame();
 
     /* Interactive sessions run at the GameCube's 60 Hz regardless of the
-     * display refresh; capture/record runs stay unthrottled. */
-    if (match_view.record == NULL && match_view.shot == NULL) {
+     * display refresh; capture/record runs stay unthrottled.  When the swap
+     * already blocks for a refresh (vsync), adding our own delay would fight
+     * the compositor and stutter, so only pace when the swap returned
+     * quickly.  Never burst-catch-up after a slow frame: re-anchor the clock
+     * instead of running the next frames fast. */
+    if (match_view.record == NULL && match_view.shot == NULL &&
+        match_view.swap_ns < 12000000ull) {
+        const Uint64 period = 1000000000ull / 60u;
         Uint64 target;
         Uint64 now;
         if (match_view.start_ns == 0) {
             match_view.start_ns = SDL_GetTicksNS();
         }
         target = match_view.start_ns +
-                 (Uint64) match_view.frames * 1000000000ull / 60u;
+                 (Uint64) match_view.frames * period;
         now = SDL_GetTicksNS();
         if (target > now) {
             SDL_DelayNS(target - now);
+        } else if (now - target > 2 * period) {
+            match_view.start_ns = now - (Uint64) match_view.frames * period;
         }
     }
 
