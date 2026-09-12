@@ -96,7 +96,7 @@ compiled render in S2/S4 instead.
 
 | ID | Task | Agent | Commit | Date |
 |---|---|---|---|---|
-| P-606 | S2: compiled HSD renders through the GX HLE (`native/decomp/gx/` + `hsd_scene.c` + `test_decomp_render`, ctest `decomp_render`; world bounds equal the prototype, screenshot RMSE 10.94/255, deviations in `learnings/decomp_s2_gx_hle.md`) | opencode (deepseek-flash) | _pending_ | 2026-09-12 |
+| P-606 | S2: compiled HSD renders through the GX HLE (`native/decomp/gx/` + `hsd_scene.c` + `test_decomp_render`, ctest `decomp_render`; world bounds equal the prototype, screenshot RMSE 10.94/255, deviations in `learnings/decomp_s2_gx_hle.md`) | opencode (deepseek-flash) | e20356d97 | 2026-09-12 |
 | P-605 | S3 prep: host-endian conversion spec per asset format (535-line spec; `learnings/decomp_assets.md`) | opencode (docs session) | 805adb250 | 2026-09-11 |
 | P-403 | GX format census across 33 `Pl*Nr.dat` (967 textures; CMPR 883, CI8 47, RGBA8 12, I4 17, CI4 5) | opencode (docs session) | d8376e30e | 2026-09-11 |
 | P-604 | S1: platform boot skeleton — compiled `main()` runs under OS/DVD/GX/VI stubs to a controlled triage stop (`melee_decomp_boot`, `decomp_boot` ctest, log + work list in `learnings/decomp_boot.md`) | opencode (deepseek-flash) | f527f7572 | 2026-09-11 |
