@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-11 (S1 boot skeleton complete; prototype baseline unchanged)
+Last updated: 2026-09-12 (S2 complete: compiled HSD renders through the GX HLE)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -28,6 +28,17 @@ the OS/DVD/GX/VI platform layer to a controlled stop, with the triage log and
 backend work list in `learnings/decomp_boot.md` and
 `logs/2026-09-11-S1-boot-triage.md`. The next milestone is **S2**
 (HSD runtime + GX HLE). No `src/` or `extern/` file was changed in S1.
+
+**S2 passed (2026-09-12):** `test_decomp_render` loads a retail `PlMrNr.dat`
+through the compiled `HSD_ArchiveParse`/`HSD_JObjLoadJoint`/`HSD_JObjDispAll`
+path and renders it through the new GX HLE + GLES3 backend
+(`native/decomp/gx/`, `native/decomp/hsd/`) with the compiled `ftData` part
+visibility (16/59 DObjs hidden) and the prototype's camera/lights.  Screenshot
+parity against the prototype viewer is RMSE 10.94/255 over the model region;
+the residual is specular shading (explained in
+`learnings/decomp_s2_gx_hle.md`).  The S1 boot target now runs the GX command
+surface for real (`94 stub_calls / 33 unique`).  Still no `src/`/`extern/`
+edits. Next milestone: **S3** (host-endian asset pipeline + DVD/ARQ).
 
 ## TL;DR
 
@@ -95,6 +106,8 @@ lightmap phases, alpha test, XLU blend) and every fighter is scaled by its
 | Unit tests | `ctest --test-dir build/native` (hand matrix math + compiled `HSD_MtxSRT` bitwise parity) |
 | Compiled decomp math | `HSD_MtxSRT` built verbatim from `src/sysdolphin/baselib/mtx.c` behind `native/decomp/shim/`; SDK mtx/vec pairs are Metrowerks asm and stay hand-ported (P-301, `learnings/decomp_shim.md`). Bind/animate/scripted BMPs byte-identical |
 | Compiled boot skeleton (S1) | `melee_decomp_boot` runs the decomp's `main()` for 10 frames under the platform stubs, reaches the game's own loading wait, and stops on the frame budget with a deterministic triage log (`logs/2026-09-11-S1-boot-triage.md`); `ctest decomp_boot` is the regression |
+| Compiled HSD + GX HLE (S2) | `test_decomp_render` loads `PlMrNr.dat` through the compiled HSD display path and the `native/decomp/gx/` backend, applies the compiled `ftData` part visibility (16/59 hidden) and `Fighter_UpdateModelScale`, and renders with GLES3; world bounds equal the prototype's exactly, screenshot RMSE 10.94/255 (HUD excluded). `ctest decomp_render` is the regression; `logs/2026-09-12-S2-render.md` is the evidence |
+| GX HLE backend (S2) | `native/decomp/gx/gx_hle.c`: real GX state + `GXCallDisplayList` decode (68 lists, zero desync), XF/channel/texgen evaluation, per-draw snapshots; `gx_gl.c` evaluates up to 4 captured TEV stages with textures/TLUTs from `native/gx/texture.c` on an EGL/GLES3 pbuffer |
 | Owner visual checks | 180 Hz viewer animation speed confirmed correct; face texture artifact gone (2026-09-11) |
 
 ## Known issues / gaps
@@ -126,7 +139,11 @@ Ordered by impact.
    code (`src/melee/gr/*`), so `lobj.c` + stage light lists are the next step.
    `HSD_TObjTev` active overrides and toon textures are unhandled (inactive /
    stage-only in the tested fighter archives). See
-   `learnings/hsd_tev_materials.md`. Still P-204.
+   `learnings/hsd_tev_materials.md`. Still P-204. **S2 update:** the compiled
+   path now evaluates the captured GX TEV state generically (up to 4 stages,
+   swap tables, konst, alpha test) in `native/decomp/gx/gx_gl.c`; the
+   remaining TEV gaps are the specular channel approximation and fog (see
+   `learnings/decomp_s2_gx_hle.md`).
 5. **No audio, menus, items, stages, results, netplay, WASM.**
 6. **Non-Mario physics values** are demo defaults, not per-character data.
 7. **Windows/macOS untested.** Linux + Mesa is the only verified target.
@@ -147,6 +164,11 @@ SDL_VIDEODRIVER=offscreen ./build/native/melee --scripted --frames 240 \
     --screenshot /tmp/baseline.bmp
 ./build/native/melee_decomp_boot --boot-frames 10 --boot-timeout 30 \
     --boot-log /tmp/boot.log
+SDL_VIDEODRIVER=offscreen ./build/native/melee --view --frames 1 --no-grid \
+    --screenshot /tmp/viewer.bmp
+./build/native/test_decomp_render --width 1280 --height 800 \
+    --shot /tmp/compiled.bmp --dump
+./build/native/test_decomp_render --no-gl   # asset bridge + GX capture only
 ```
 
 Expected `--inspect` tail:

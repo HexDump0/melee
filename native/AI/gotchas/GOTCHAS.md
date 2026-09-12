@@ -440,3 +440,49 @@ must be disabled, not "fixed" by moving fields. (3) `dolphin/types.h` defines
 layout assertions, and decide the `BOOL`/`bool` convention per ADR-0011. Record
 every `src/` patch in `learnings/decomp_port.md`. The syntax census and current
 numbers live there too.
+
+## G-049: `GX_CULL_*` values are not the prototype's cull numbering
+
+**Symptom:** the compiled S2 render shows the inside of the model, textures
+mirrored/garbled, and channel lighting collapses to ambient-only (all back
+faces have normals pointing away from the light).
+**Cause:** GX enums are `GX_CULL_NONE=0, GX_CULL_FRONT=1, GX_CULL_BACK=2,
+GX_CULL_ALL=3`, but `native/hsd/model.c` stores `(pobj_flags & 0xC000) >> 14`
+where 1 = `POBJ_CULLFRONT` and 2 = `POBJ_CULLBACK`.  The numbers happen to
+overlap with opposite meaning.
+**Fix:** map GX values directly (`GX_CULL_FRONT -> glCullFace(GL_FRONT)`,
+`GX_CULL_BACK -> glCullFace(GL_BACK)`) after `glFrontFace(GL_CW)`, and do not
+copy the prototype parser's numbering into GX code.
+
+## G-050: HSD texture matrices are *post* texture matrices (GX_PTTEXMTX0 = 64)
+
+**Symptom:** compiled HSD textures land on the wrong part of the atlas (face
+looks like a different region, logos missing) even though the texture images
+decode correctly.
+**Cause:** `tobj->mtxid = HSD_TexMapID2PTTexMtx(tobj->id)` is `GX_PTTEXMTX0 =
+64 + 3*map`, loaded by `GXLoadTexMtxImm(tobj->mtx, tobj->mtxid, ...)` and
+passed as `pt_texmtx` to `GXSetTexCoordGen2`; the `mtx` argument is
+`GX_IDENTITY` in the common path (`tobj.c:setupTextureCoordGen`).
+**Fix:** record both the `GX_TEXMTX0..9` (30..57) and `GX_PTTEXMTX0..7`
+(64..85) banks in the GX HLE and apply `post * mtx` in texcoord generation.
+
+## G-051: the game's own `powf`/`expf` can hang
+
+**Symptom:** `test_decomp_render` spins forever under `-O0`/ASan inside
+`expf`/`powf` (`src/melee/lb/lb_00CE.c:51/84`).
+**Cause:** the decomp's `powf` is `expf(y * 2*atanh(x))` and its `expf` sums a
+Taylor series until the float stops changing.  For large exponents/high
+`atanh(x)` the series diverges and `var_f3 != temp_f5` never becomes false.
+**Fix:** never call the game's float `powf`/`expf` from port code (the linker
+prefers them over libm).  Use double `pow`/`exp` explicitly and cast, or a
+bounded implementation.
+
+## G-052: GLES has no client-side vertex arrays and this pbuffer only reads RGBA
+
+**Symptom:** `glDrawArrays` segfaults inside Mesa when the S2 renderer passed a
+plain memory pointer to `glVertexAttribPointer`; after switching to a VBO,
+`glReadPixels(..., GL_RGB, ...)` returns `GL_INVALID_OPERATION` and zeros.
+**Cause:** OpenGL ES requires buffer objects (no client arrays); the EGL
+pbuffer config here does not accept RGB readback.
+**Fix:** upload the captured frame to a streaming VBO and read back
+`GL_RGBA`, converting to 24-bit BGR for the BMP writer.

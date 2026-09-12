@@ -18,15 +18,33 @@
 
 #define MAX_LOBS 8
 
+#ifndef LOBJ_AMBIENT
 #define LOBJ_AMBIENT 0u
+#endif
+#ifndef LOBJ_INFINITE
 #define LOBJ_INFINITE 1u
+#endif
+#ifndef LOBJ_POINT
 #define LOBJ_POINT 2u
+#endif
+#ifndef LOBJ_SPOT
 #define LOBJ_SPOT 3u
+#endif
+#ifndef LOBJ_DIFFUSE
 #define LOBJ_DIFFUSE 0x04u
+#endif
+#ifndef LOBJ_SPECULAR
 #define LOBJ_SPECULAR 0x08u
+#endif
+#ifndef LOBJ_ALPHA
 #define LOBJ_ALPHA 0x10u
+#endif
+#ifndef LOBJ_HIDDEN
 #define LOBJ_HIDDEN 0x20u
+#endif
+#ifndef LOBJ_RAW_PARAM
 #define LOBJ_RAW_PARAM 0x40u
+#endif
 
 typedef struct SceneLight {
     uint16_t flags;

@@ -73,7 +73,7 @@ Full detail in `learnings/decomp_port.md`; summary:
 - **Exit:** reproducible boot trace; backend work list derived from it.
 - **Risks:** arena/thread/interrupt boot order; the 5 incomplete units.
 
-#### S2 — HSD runtime + GX HLE
+#### S2 — HSD runtime + GX HLE (DONE 2026-09-12, gate passed)
 
 - **Goal:** compiled HSD renders.
 - **Deliverable:** full `src/sysdolphin` compile; GX backend for the
@@ -83,6 +83,16 @@ Full detail in `learnings/decomp_port.md`; summary:
   deviations explained.
 - **Risks:** GX surface larger than the prototype batch model; display-list
   endianness handled in the backend.
+- **Result (P-606):** `test_decomp_render` loads `PlMrNr.dat` through the
+  compiled `HSD_ArchiveParse`/`HSD_JObjLoadJoint`/`HSD_JObjDispAll` path and
+  renders it with the new GX HLE (`native/decomp/gx/`) + GLES3
+  (`native/gx/texture.c` decoder reused).  The compiled `ftData` visibility
+  hides 16/59 DObjs and `Fighter_UpdateModelScale` is applied; world bounds
+  match the prototype exactly and the 1280x800 screenshot RMSE is
+  10.94/255 over the model region (specular shading is the residual).
+  Evidence: `learnings/decomp_s2_gx_hle.md`,
+  `logs/2026-09-12-S2-render.md`, ctest `decomp_render`.  Follow-ups:
+  P-607 (faithful specular), P-608 (direct-mode capture).
 
 #### S3 — Asset pipeline
 

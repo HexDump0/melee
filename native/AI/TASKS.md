@@ -28,6 +28,9 @@ Status values: `open`, `claimed`, `blocked`, `review`, `done`, `parked`
 
 | ID | Task | Status | Agent | Files | Notes / acceptance |
 |---|---|---|---|---|---|
+| P-607 | Faithful GX specular channel + material parity (Mario boots, highlights) | open | — | `native/decomp/gx/gx_hle.c`, `gx_gl.c` | S2 evaluates the prototype's Blinn-Phong approximation for channel 1; the GX hardware uses a rational polynomial (Dolphin `AttenuationFunc::Spec`). Reproduce: `test_decomp_render --width 1280 --height 800 --shot` vs prototype; boots read grey (RMSE residual). Compare against GX hardware/dolphin before changing. |
+| P-608 | Capture direct-mode GX vertices (`GXBegin` + inline `GXPosition*`/`GXColor*`/`GXTexCoord*`) | open | — | `native/decomp/gx/`, `native/decomp/shim/` (GXVert.h shim) | S2 leaves the compiled inline writes to a scratch FIFO page, so HUD/particle/shape-anim direct draws are dropped. Needs a GXVert.h shim that routes the inline functions to host calls. |
+| P-609 | S3: host-endian asset pipeline + DVD/ARQ completion | open | — | `native/decomp/hsd/`, `native/platform/dvd.c`, `native/platform/audio.c` | Next milestone. The S2 `hsd_scene.c` converter is the seed; follow `learnings/decomp_assets.md` §7 and the S1 work list. |
 | P-601 | Full-tree GCC compile census + shim hardening (S0) | done | opencode (deepseek-flash), 2026-09-11 | `native/decomp/shim/`, `native/AI/learnings/decomp_port.md` | Done: 1021/1034 `src/*.c` compile; shims for `ssize_t`/`intptr_t`, GameCube `STATIC_ASSERT`, and `bool`=`int` callbacks. See Completed. |
 | P-602 | Probe: decomp `HSD_ArchiveParse` on a real `PlMrNr.dat` (S0a) | done | opencode (deepseek-flash), 2026-09-11 | `native/decomp/`, `native/CMakeLists.txt`, `native/tests/` | Done: 2/2 public symbols and offsets match the hand parser. See Completed. |
 | P-603 | Probe: decomp `HSD_JObjLoadJoint` bind-pose parity (S0b) | done | opencode (deepseek-flash), 2026-09-11 | `native/decomp/`, `native/tests/`, `native/AI/learnings/decomp_port.md` | Done: 61/61 joints loaded and world matrices bitwise-equal to the hand pose math. **S0 gate passed.** See Completed. |
@@ -63,18 +66,18 @@ The S1 boot log (`native/AI/logs/2026-09-11-S1-boot-triage.md`, analysis in
 `learnings/decomp_boot.md`) reaches a controlled stop while the compiled game
 waits for its first sound-bank load. Ordered by what unblocks the boot:
 
-1. **S2 — GX + VI HLE** (146 GX + 21 VI calls in 10 frames). Real GX FIFO,
-      state/TEV, textures; real VI present. Seed: `native/gx/`, skeleton:
-      `native/platform/gx_vi.c`.
+1. **S2 — GX + VI HLE** (DONE 2026-09-12, P-606). The GX command surface is
+   real in `native/decomp/gx/gx_hle.c`; the boot log now shows 94 stub calls /
+   33 unique (GX no longer triaged). Remaining S2 follow-ups: P-607/P-608.
 2. **S3 — DVD + HSD DevCom/ARQ**. `DVDConvertPathToEntrynum`/open/read and
-      synchronous `ARQPostRequest` callbacks so `HSD_DevComRequest` can finish
-      asset loads. Seed: `native/platform/disc.c`.
+   synchronous `ARQPostRequest` callbacks so `HSD_DevComRequest` can finish
+   asset loads. Seed: `native/platform/disc.c`.
 3. **S5 — AX/DSP callback**. `AXRegisterCallback` must drive
-      `HSD_SynthCallback` on the audio frame so synth loads complete.
+   `HSD_SynthCallback` on the audio frame so synth loads complete.
 4. **S6 — CARD/EXI + fonts**. Card command pump (`hsd_803AAA48`) and a font
-      source replacing the generated atlases.
+   source replacing the generated atlases.
 5. **S4 — alarms/threads** (`OSCreateAlarm`/`OSSetPeriodicAlarm` are stubs;
-      the boot installs a periodic alarm during init).
+   the boot installs a periodic alarm during init).
 
 ## Blocked / needs a human
 
@@ -93,6 +96,7 @@ compiled render in S2/S4 instead.
 
 | ID | Task | Agent | Commit | Date |
 |---|---|---|---|---|
+| P-606 | S2: compiled HSD renders through the GX HLE (`native/decomp/gx/` + `hsd_scene.c` + `test_decomp_render`, ctest `decomp_render`; world bounds equal the prototype, screenshot RMSE 10.94/255, deviations in `learnings/decomp_s2_gx_hle.md`) | opencode (deepseek-flash) | _pending_ | 2026-09-12 |
 | P-605 | S3 prep: host-endian conversion spec per asset format (535-line spec; `learnings/decomp_assets.md`) | opencode (docs session) | 805adb250 | 2026-09-11 |
 | P-403 | GX format census across 33 `Pl*Nr.dat` (967 textures; CMPR 883, CI8 47, RGBA8 12, I4 17, CI4 5) | opencode (docs session) | d8376e30e | 2026-09-11 |
 | P-604 | S1: platform boot skeleton — compiled `main()` runs under OS/DVD/GX/VI stubs to a controlled triage stop (`melee_decomp_boot`, `decomp_boot` ctest, log + work list in `learnings/decomp_boot.md`) | opencode (deepseek-flash) | f527f7572 | 2026-09-11 |

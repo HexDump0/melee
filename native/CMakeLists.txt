@@ -161,6 +161,7 @@ add_executable(melee_decomp_boot
     decomp/boot/boot_triage.c
     decomp/debug_port.c
     decomp/sdk_math.c
+    decomp/gx/gx_hle.c
     platform/os.c
     platform/gx_vi.c
     platform/dvd.c
@@ -190,5 +191,59 @@ if(MELEE_SANITIZE)
   target_compile_options(melee_decomp_boot PRIVATE
       -fsanitize=address,undefined -fno-omit-frame-pointer)
   target_link_options(melee_decomp_boot PRIVATE
+      -fsanitize=address,undefined)
+endif()
+
+# ---------------------------------------------------------------------------
+# S2 (P-606): compiled HSD + GX HLE character render.
+#
+# The same 32-bit game object library is driven by tests/test_decomp_render.c
+# through the S2 asset bridge (decomp/hsd/hsd_scene.c) and the GX HLE backend
+# (decomp/gx/gx_hle.c + gx_gl.c).  GLES3/EGL is used instead of SDL/desktop GL
+# because 32-bit SDL2 is not installed on the reference machine; the shaders
+# stay in ADR-0009's ES3 subset.  The prototype's texture decoder and scene
+# light reader are reused (native/gx/texture.c, native/hsd/light.c).
+add_executable(test_decomp_render
+    tests/test_decomp_render.c
+    decomp/hsd/hsd_scene.c
+    decomp/gx/gx_hle.c
+    decomp/gx/gx_gl.c
+    decomp/debug_port.c
+    decomp/sdk_math.c
+    decomp/boot/boot_triage.c
+    gx/texture.c
+    hsd/light.c
+    platform/disc.c
+    platform/os.c
+    platform/gx_vi.c
+    platform/dvd.c
+    platform/pad_card.c
+    platform/audio.c
+    platform/font_stub.c
+    platform/misc.c
+    $<TARGET_OBJECTS:melee_decomp_game>)
+target_include_directories(test_decomp_render BEFORE PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(test_decomp_render SYSTEM PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
+    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
+target_compile_options(test_decomp_render PRIVATE
+    -m32 -Wall -Wextra -Wpedantic -Wno-overlength-strings -fgnu89-inline
+    -ffunction-sections -fdata-sections -rdynamic -D_GNU_SOURCE
+    -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
+target_link_libraries(test_decomp_render PRIVATE m EGL GLESv2
+    ${CMAKE_DL_LIBS})
+target_link_options(test_decomp_render PRIVATE
+    -m32 -rdynamic "LINKER:--gc-sections")
+add_test(NAME decomp_render COMMAND test_decomp_render
+    --shot ${CMAKE_CURRENT_BINARY_DIR}/decomp_render.bmp)
+set_tests_properties(decomp_render PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
+    PASS_REGULAR_EXPRESSION "decomp_render: PASS")
+if(MELEE_SANITIZE)
+  target_compile_options(test_decomp_render PRIVATE
+      -fsanitize=address,undefined -fno-omit-frame-pointer)
+  target_link_options(test_decomp_render PRIVATE
       -fsanitize=address,undefined)
 endif()
