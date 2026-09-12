@@ -103,7 +103,7 @@ compiled render in S2/S4 instead.
 
 | ID | Task | Agent | Commit | Date |
 |---|---|---|---|---|
-| P-619 | Stage viewer: `Gr*.dat` `map_head` conversion + stage camera/lights/fog + posed fighter; `--stage/--fighter/--stage-map/--stage-cam`, `M`/`F`/`K`/`,`/`.`, HUD; ctest `decomp_stage`/`decomp_stage_cam` | opencode (deepseek-v4.1-flash) | _this commit_ | 2026-09-12 |
+| P-619 | Stage viewer: `Gr*.dat` `map_head` conversion (v9: maps, light anims, shape sets) + all-map Ground GObj layout + stage camera/lights/fog + posed fighter; `--stage/--fighter/--stage-map/--stage-cam`, `M`/`F`/`K`/`,`/`.`, HUD; ctest `decomp_stage`/`decomp_stage_cam` | opencode (deepseek-v4.1-flash) | 49fad9947 | 2026-09-12 |
 
 | ID | Task | Agent | Commit | Date |
 |---|---|---|---|---|
