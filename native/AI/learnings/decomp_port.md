@@ -227,3 +227,10 @@ loads read the raw big-endian words with the console's field order.
 | `src/melee/lb/types.h` | `#define CMD_BE __attribute__((scalar_storage_order("big-endian")))` (empty otherwise); the 76 `union CmdUnion` member structs use `struct CMD_BE <name> {` | Fixes every fighter/item action command (`ftAction_*`, `lbCommand_*`) without data conversion. Pointer-only members `Command_05`/`Command_07` are left unannotated (their words are host pointers fixed by `Locate`). |
 | `src/melee/ft/types.h` | `struct CMD_BE gmScriptEventDefault` | The dispatcher reads the opcode through this struct. |
 | `src/sysdolphin/baselib/synth.c` (`HSD_SynthSFXHeaderLoadCallback`) | under `PORT_PC`, when the target bank has less room than the group load, drop the group and run the load-queue completion | Audio is stubbed (S5); the ARAM bank sizes from `lbAudioAx_8002785C` can be smaller than a group in the port. Completing the queue keeps `HSD_SynthSFXWaitForLoadCompletion` from spinning. |
+| `src/melee/gr/types.h` (`StageCallbacks`) | under `PORT_PC`, declare the `flags_b0..b7` aliases at bit positions 31..24 (`u32 pad_hi:24; u32 flags_b7:1; ... flags_b0:1;`) | Compiled tables initialize `flags` with `0x80000000`/`0x40000000`; MWCC's `u8` bitfields are MSB-first, so `flags_b0` is bit 31. `scalar_storage_order` does not reorder bitfields within a byte (G-084). |
+| `src/sysdolphin/baselib/hsd_4D11.c` (`hsd_804D1138`) | under `PORT_PC`, define the card work area as `u8[0x1510]` instead of `u8[0x10]` | `hsd_3A94.c` casts it to `CardContext` (0x1510); the console tiles `hsd_804D1138`, `hsd_804D1148` and `hsd_804D2348` contiguously, GCC may not. ASan caught the 0x20 write on every mode change; release clobbered adjacent globals (G-085). |
+
+Platform-layer (not `src/`) fixes in the same batch:
+`native/platform/complete.c` clears a completion slot before its callback runs
+(heap-use-after-free when `DVDClose` cancels from inside a callback, G-086);
+`native/platform/pad_card.c` implements the frame-indexed scripted `PADRead`.

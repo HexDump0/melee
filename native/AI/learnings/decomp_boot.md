@@ -175,12 +175,44 @@ costume joint tree), and the `ft_800852B0` adjacency patch (see
 `decomp_port.md`).  Fighter creation now reaches part visibility
 (`ftParts_800749CC` -> `HSD_DObjSetFlags`).
 
-**Where it stops today (2026-09-12, converter v46):** the match boots, creates
-the fighters on Zebes and runs `gm_Scene_Vs_OnFrame` for real.  The stop is
-`ftcoll.c:3171 "in ftCollisionSetHitStatus illegal parts!"` because the
-archive action command scripts are big-endian **bitfield** words and are not
-converted (MWCC packs MSB-first, GCC reads LSB-first — see G-082 and
-`handoffs/2026-09-12-P-620-s4-scripts.md` for the exact walker needed).
+**S4 result (2026-09-12, converter v56):** the deterministic headless match
+passes.  `--boot-match N` enters `GM_DEBUG_VS` (Link/Mario, Final Destination);
+the harness sets stocks, installs the frame-indexed PAD script and logs
+positions; 600-frame release and ASan runs report the same final position
+(`slot 0 pos=(10.75,33.45,0.00)`) and `ctest decomp_match` is the regression.
+Mario's decoded `ftCo_DatAttrs` match the prototype's retail values
+(friction 0.060, gravity 0.095, terminal 1.70, jump 2.30).  The PAD backend is
+in `native/platform/pad_card.c` (frame-major `PadInputFrame`, connected for
+the scripted channels only, advancing once per `PADRead`), so the game's own
+`HSD_PadRenewRawStatus` + 60 Hz alarm pipeline is untouched.
+
+**Remaining known edges** (documented in the handoff): the boot/title state
+machine still posts `GM_OPENING_MV` once around frame 110, so the harness
+re-forces `GM_DEBUG_VS` and the scene re-enters; the run is deterministic but
+a cleaner single entry would come from the S6 frontend.  Fighter attacks do
+not connect in the script yet (damage stays 0), and `GM_DEBUG_VS` is a time
+match so respawns do not consume stocks.
+
+**Later S4 blocker chain** (all converter fixes in `hsd_convert.c`):
+- `ftData->x24` WaitStruct array (`ftCo_Wait_Anim`/`getAnimID`): 8-byte
+  `{s32 id; s32 weight}` entries, `0xFFFFFFFF`-terminated.
+- `Stc_scemdls`/`_scene_models` sections are `DynamicModelDesc**` arrays; the
+  old `conv_static_model` read the symbol itself as a `StaticModelDesc`, so
+  the HUD nametag/damage models kept raw `ImageDesc.format` (tobj.c:1236).
+- `Ef*.dat` `eff*DataTable` is `{cmd_bank; tex_bank; EF_EffectDesc descs[]}`:
+  `efAsync` sets `efAsync_DatEntries[..].data = &symbol->data`, so the desc
+  array starts at symbol+8 and ends at the first bank; each desc is
+  `{f32 lifetime; StaticModelDesc model_desc}` (0x14).
+- `PlCo.dat` pData[16]/pData[20] are shared `HSD_Joint` trees (the entry/trophy
+  platform accessory) that were never walked.
+- `MapCollData`/pair-table details: the `Ground_801C34AC` entry's `pairs`
+  pointer can legitimately be data offset 0 (G-023) and `pair_count` counts
+  *pairs*, not u16s (G-083).
+- MWCC packs union bitfields MSB-first, so all `CmdUnion` structs (fighters and
+  items) and `gmScriptEventDefault` are marked with
+  `scalar_storage_order("big-endian")` under `PORT_PC` (G-082); compiled-data
+  bitfields with explicit masks (`StageCallbacks.flags_b0` = `0x80000000`) get
+  host bit positions under `PORT_PC` (G-084).
 
 **S4 blocker chain resolved after the first handoff** (all converter fixes in
 `hsd_convert.c`):

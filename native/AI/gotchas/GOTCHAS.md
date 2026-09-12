@@ -922,3 +922,54 @@ members (Command_05/07 `ptr`; they are host pointers fixed by `Locate`),
 expect `-Wscalar-storage-order` warnings at mixed-union accesses, and this is
 a large ADR-0011 header patch (list it in `decomp_port.md`). Try this before
 the walker.
+
+## G-083: `Ground_801C34AC` pair count counts pairs, and `pairs` may be offset 0
+
+**Symptom:** Final Destination's spawn joints (`stage_info.x280[]`) were all
+NULL, so `Player_80032768` stored an uninitialized stack vector and the
+fighter's first collision produced a ~1e14 position.
+**Cause:** two bugs in `conv_stage_maphead`'s entry loop.  The retail
+`Ground_801C34AC` entry `{void* joint; s16* pairs; s32 count}` stores the
+number of `(joint,target)` *pairs* in `count` and advances `pair += 2`; the
+converter swapped only `count` u16s.  And the `pairs` pointer may point at
+data offset 0, which `pairs != 0` mistook for NULL even though it is a
+relocation target (G-023 applies here too).
+**Fix:** bound the u16 loop by `pair_count * 2` and accept `pairs == 0` when
+`c->reloc[e + 4]` is set.
+
+## G-084: compiled-data bitfields with explicit masks need host bit positions
+
+**Symptom:** `Ground_801C466C` never selected a per-map light list
+(`callbacks->flags_b0 == 1` never matched) and fell back to the default list,
+which then asserted in `Ground_801C43C4`.
+**Cause:** `grLast_StageCallbacks[].flags` is initialized with `0x80000000`;
+MWCC packs the `u8 flags_b0:1` aliases MSB-first, so `flags_b0` is bit 31,
+while GCC puts it at bit 0.
+**Fix:** under `PORT_PC`, declare the alias fields at the matching host bit
+positions (24 bits of pad, then `flags_b7..flags_b0`) in `StageCallbacks`.
+This is not `scalar_storage_order` (which does not reorder bitfields inside a
+byte).  Check other compiled structs whose initializers use bit-31 masks.
+
+## G-085: card work area is one 0x1510-byte `CardContext`, not 0x10 bytes
+
+**Symptom:** ASan: `SEGV on unknown address 0x20` in `hsd_803AAA48`
+(`hsd_3A94.c:1071`) on every game-mode change; release clobbered adjacent
+globals silently.
+**Cause:** `hsd_4D11.c` declares `u8 hsd_804D1138[0x10]`, but `hsd_3A94.c`
+casts it to `CardContext` (0x1510 = 4 header words + `CardCmd[128]` +
+`HsdCmdEntry[32]`).  On the console the three card/JPEG symbols are
+contiguous (`0x4D1138 + 0x1510 == 0x4D2348 + 0x300`); GCC may order them
+differently.
+**Fix:** `hsd_4D11.c` defines `hsd_804D1138[0x1510]` under `PORT_PC`.  The
+card path is still S6 work, but the pump must not write out of bounds.
+
+## G-086: completion queue held freed entries during callbacks
+
+**Symptom:** ASan: heap-use-after-free in `dvd_mark_canceled`
+(`native/platform/dvd.c`) when `DVDClose` cancels a command from inside a
+completion callback.
+**Cause:** `platform_pump_completions` invoked each callback while the
+consumed `DvdCompletion*` was still in the queue; a callback that calls
+`DVDCancel` visits the queue and reads the freed entry.
+**Fix:** clear each queue slot (`fn`/`arg` = NULL) before invoking its
+callback, and skip NULL slots in `platform_visit_completions`.
