@@ -52,7 +52,10 @@ direct-mode draws (`GXBegin` + the inline `GXPosition*`/`GXColor*`/
 shadow/afterimage/effect code) are captured and decoded through the same
 vertex path as display lists via the shadowing
 `native/decomp/shim/dolphin/gx/GXVert.h`; `ctest decomp_gx_direct` is the
-regression.  Next milestone:
+regression.  **P-612 (partial):** `GXSetScissor` (scaled from 640x480 EFB
+pixels), `GXSetDstAlpha`, texture LOD bias/min-max LOD/anisotropy, and the
+missing `HSD_VIData` render-mode init the scissor exposed (G-061) are in;
+indirect/bump/toon and NBT binormal/tangent remain.  Next milestone:
 **S3** (host-endian asset pipeline + DVD/ARQ).
 
 ## TL;DR
@@ -123,7 +126,7 @@ lightmap phases, alpha test, XLU blend) and every fighter is scaled by its
 | Compiled boot skeleton (S1) | `melee_decomp_boot` runs the decomp's `main()` for 10 frames under the platform stubs, reaches the game's own loading wait, and stops on the frame budget with a deterministic triage log (`logs/2026-09-11-S1-boot-triage.md`); `ctest decomp_boot` is the regression |
 | Compiled HSD + GX HLE (S2) | `test_decomp_render` loads `PlMrNr.dat` through the compiled HSD display path and the `native/decomp/gx/` backend, applies the compiled `ftData` part visibility (16/59 hidden) and `Fighter_UpdateModelScale`, and renders with GLES3; world bounds equal the prototype's exactly, screenshot RMSE 10.94/255 (HUD excluded). `ctest decomp_render` is the regression; `logs/2026-09-12-S2-render.md` is the evidence |
 | Interactive compiled viewer (P-611) | `melee_decomp_viewer` (SDL3 window + EGL/GLES3 via `gx_gl_attach`) renders the compiled scene with drag orbit, wheel zoom, `N`/`P` model cycle, `[`/`]` + `V` part isolation, `B` slot, `V`/`shift+V` variant, `Y` show-hidden, `L` lights, `T` textures, `W` wireframe, HUD (`H`), `F12` screenshot; `--frames N --hidden --shot F` is the non-interactive smoke path and its BMP matches `test_decomp_render` to RMSE 0.000 |
-| GX HLE backend (S2) | `native/decomp/gx/gx_hle.c`: real GX state + `GXCallDisplayList` decode (68 lists, zero desync), XF/channel/texgen evaluation, per-draw snapshots; `gx_gl.c` evaluates up to 8 captured TEV stages with textures/TLUTs from `native/gx/texture.c` on an EGL/GLES3 pbuffer |
+| GX HLE backend (S2) | `native/decomp/gx/gx_hle.c`: real GX state + `GXCallDisplayList` decode (68 lists, zero desync), XF/channel/texgen evaluation, per-draw snapshots; `gx_gl.c` evaluates up to 8 captured TEV stages with textures/TLUTs from `native/gx/texture.c` on an EGL/GLES3 pbuffer, honours scissor/dst-alpha and applies per-TObj LOD bias/min-max LOD/anisotropy |
 | Direct-mode capture (P-608) | `native/decomp/shim/dolphin/gx/GXVert.h` routes the decomp's inline FIFO writers to `GXPortWGFifo*`; `GXBegin` + 4-vertex quad through the shim decodes to exactly 2 triangles / 6 vertices with the source pos/color/UV in `ctest decomp_gx_direct` |
 | Turn-stability (P-610) | Viewer static vs `--spin 360 --no-hud` RMSE 0.003/255 (Master Hand; residue is HSD lookat float rounding), frame1 vs frame240 and `--cycle 33` both RMSE 0.0 |
 | Owner visual checks | 180 Hz viewer animation speed confirmed correct; face texture artifact gone (2026-09-11) |

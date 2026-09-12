@@ -907,10 +907,10 @@ void GXSetViewportJitter(f32 left, f32 top, f32 wd, f32 ht, f32 nearz,
 
 void GXSetScissor(u32 left, u32 top, u32 wd, u32 ht)
 {
-    (void) left;
-    (void) top;
-    (void) wd;
-    (void) ht;
+    gx.cur.scissor_x = (unsigned short) left;
+    gx.cur.scissor_y = (unsigned short) top;
+    gx.cur.scissor_w = (unsigned short) wd;
+    gx.cur.scissor_h = (unsigned short) ht;
 }
 
 void GXSetCullMode(GXCullMode mode)
@@ -932,8 +932,8 @@ void GXSetAlphaUpdate(GXBool enable)
 
 void GXSetDstAlpha(GXBool enable, u8 alpha)
 {
-    (void) enable;
-    (void) alpha;
+    gx.cur.dst_alpha_enable = (u8) enable;
+    gx.cur.dst_alpha = alpha;
 }
 
 void GXSetZMode(GXBool compare_enable, GXCompare func, GXBool update_enable)
@@ -2052,6 +2052,10 @@ static void reset_state(void)
     gx.cur.alpha_comp0 = GX_ALWAYS;
     gx.cur.alpha_comp1 = GX_ALWAYS;
     gx.cur.alpha_op = GX_AOP_AND;
+    /* GX scissor defaults to the full EFB; HSD overwrites it in
+     * HSD_CObjSetup, but leave a sane value for draws before that. */
+    gx.cur.scissor_w = 640;
+    gx.cur.scissor_h = 480;
     gx.cur.ch_mat[0][3] = 1.0f;
     gx.cur.ch_mat[1][3] = 1.0f;
     for (i = 0; i < 8; ++i) {

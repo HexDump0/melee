@@ -83,6 +83,8 @@ typedef struct GxHleDrawState {
     unsigned char color_update, alpha_update;
     unsigned char z_enable, z_func, z_update, z_comp_loc;
     unsigned char dither;
+    unsigned char dst_alpha_enable, dst_alpha;
+    unsigned short scissor_x, scissor_y, scissor_w, scissor_h; /* EFB pixels */
     unsigned char alpha_comp0, alpha_ref0, alpha_op, alpha_comp1, alpha_ref1;
     unsigned char num_stages, num_texgens, num_chans;
     GxHleTevStage stages[GX_HLE_MAX_STAGES];

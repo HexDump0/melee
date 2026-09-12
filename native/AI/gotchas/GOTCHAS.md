@@ -588,3 +588,17 @@ followed by `cmake -S native -B build/native` to regenerate `build.make`, then
 build).  Verify with
 `objdump -dr .../displayfunc.c.o | grep GXPortWGFifo` and
 `.o.d` showing the shim path.
+
+## G-061: the S2 harness never set the VI render mode, so camera setup got zero scales
+
+**Symptom:** after implementing `GXSetScissor` (P-612), every draw was clipped
+away (blank frame).  `setupNormalCamera` computes
+`x_scale = fbWidth / viWidth` from `HSD_VIGetRenderMode()`; with a zeroed
+render mode that is NaN/0, so the viewport and scissor rects collapse to
+`0,0,0,0`.
+**Cause:** `HSD_CObjSetCurrent` reads `HSD_VIData.current.vi.rmode`, which
+`HSD_InitComponent` fills via `HSD_VIInit`.  The S2 harness
+(`hsd_scene_boot`) boots the pools by hand and never calls it, so the render
+mode stayed zero.  Invisible until the port actually used viewport/scissor.
+**Fix:** assign `HSD_VIData.current.vi.rmode = GXNtsc480IntDf` in
+`hsd_scene_boot()` (`native/decomp/hsd/hsd_scene.c`).

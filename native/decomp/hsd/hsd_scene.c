@@ -34,6 +34,7 @@
 #include <sysdolphin/baselib/robj.h>
 #include <sysdolphin/baselib/shadow.h>
 #include <sysdolphin/baselib/tev.h>
+#include <sysdolphin/baselib/video.h>
 
 #include "platform/disc.h"
 
@@ -477,6 +478,11 @@ int hsd_scene_boot(void)
     HSD_ZListInitAllocData();
     HSD_IDSetup();
     JObjInfoInit();
+    /* HSD_InitComponent normally fills HSD_VIData via HSD_VIInit; this harness
+     * skips it.  HSD_CObjSetCurrent reads the render mode for VIEWPORT/scissor
+     * scaling, so without it HSD_VIGetRenderMode returns a zeroed object and
+     * the scissor becomes 0x0 (P-612). */
+    HSD_VIData.current.vi.rmode = GXNtsc480IntDf;
     return 1;
 }
 

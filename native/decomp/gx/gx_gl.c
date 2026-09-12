@@ -25,6 +25,10 @@
 #define MAX_GL_TEXTURES 256
 #define MAX_TEV_STAGES 8
 
+#ifndef GL_TEXTURE_MAX_ANISOTROPY_EXT
+#define GL_TEXTURE_MAX_ANISOTROPY_EXT 0x84FE
+#endif
+
 typedef struct {
     const void* image;
     const void* palette;
@@ -36,7 +40,9 @@ typedef struct {
     unsigned char wrap_s, wrap_t;
     unsigned char mag_filt, min_filt;
     unsigned char mipmap;
+    unsigned char anisotropy;
     float lod_bias;
+    float min_lod, max_lod;
     GLuint name;
 } GlTextureCache;
 
@@ -71,9 +77,13 @@ static GLint u_fog_end;
 static GLint u_fog_color;
 static GLint u_tex_enable;
 static GLint u_ras_flat;
+static GLint u_tex_lod_bias;
+static GLint u_dst_alpha_enable;
+static GLint u_dst_alpha;
 
 static GlTextureCache tex_cache[MAX_GL_TEXTURES];
 static size_t tex_cache_count;
+static int aniso_supported;
 
 static GLuint vertex_vao;
 static GLuint vertex_vbo;
@@ -141,6 +151,9 @@ static const char* FRAGMENT_SRC =
     "uniform float u_fog_end;\n"
     "uniform vec3 u_fog_color;\n"
     "uniform int u_tex_enable;\n"
+    "uniform vec2 u_tex_lod_bias;\n"
+    "uniform int u_dst_alpha_enable;\n"
+    "uniform float u_dst_alpha;\n"
     "uniform int u_ras_flat;\n"
     
     "in vec4 v_color;\n"
@@ -233,8 +246,8 @@ static const char* FRAGMENT_SRC =
     "        vec4 tex = vec4(1.0);\n"
     "        if (u_tex_enable != 0 && ord.y != 255) {\n"
     "            vec2 uv = (ord.x == 1) ? v_uv1 : v_uv0;\n"
-    "            if (ord.y == 0) tex = texture(u_tex0, uv);\n"
-    "            else if (ord.y == 1) tex = texture(u_tex1, uv);\n"
+    "            if (ord.y == 0) tex = texture(u_tex0, uv, u_tex_lod_bias.x);\n"
+    "            else if (ord.y == 1) tex = texture(u_tex1, uv, u_tex_lod_bias.y);\n"
     "        }\n"
     "        ivec4 sel = u_tev_sel[i];\n"
     "        vec4 ras = (ord.z == 1 || ord.z == 5) ? v_ras1 : v_ras0;\n"
@@ -312,6 +325,8 @@ static const char* FRAGMENT_SRC =
     "        }\n"
     "        color.rgb = mix(u_fog_color, color.rgb, f);\n"
     "    }\n"
+    "    /* GXSetDstAlpha replaces the framebuffer alpha after the TEV chain. */\n"
+    "    if (u_dst_alpha_enable != 0) color.a = u_dst_alpha;\n"
     "    frag_color = color;\n"
     "}\n";
 
@@ -379,6 +394,9 @@ static int build_program(char* error, size_t error_size)
     u_fog_color = glGetUniformLocation(program, "u_fog_color");
     u_tex_enable = glGetUniformLocation(program, "u_tex_enable");
     u_ras_flat = glGetUniformLocation(program, "u_ras_flat");
+    u_tex_lod_bias = glGetUniformLocation(program, "u_tex_lod_bias");
+    u_dst_alpha_enable = glGetUniformLocation(program, "u_dst_alpha_enable");
+    u_dst_alpha = glGetUniformLocation(program, "u_dst_alpha");
     glUseProgram(program);
     glUniform1i(u_tex[0], 0);
     glUniform1i(u_tex[1], 1);
@@ -389,9 +407,14 @@ static int build_program(char* error, size_t error_size)
 
 static int gl_setup(char* error, size_t error_size)
 {
+    const char* extensions;
     if (!build_program(error, error_size)) {
         return 0;
     }
+    extensions = (const char*) glGetString(GL_EXTENSIONS);
+    aniso_supported = extensions != NULL &&
+                      strstr(extensions,
+                             "GL_EXT_texture_filter_anisotropic") != NULL;
     /* GLES has no client-side vertex arrays; one streaming VBO holds the
      * captured frame. */
     glGenVertexArrays(1, &vertex_vao);
@@ -605,7 +628,9 @@ static GLuint texture_for(const GxHleTexture* t)
             e->format == t->format && e->width == t->width &&
             e->height == t->height && e->wrap_s == t->wrap_s &&
             e->wrap_t == t->wrap_t && e->mag_filt == t->mag_filt &&
-            e->min_filt == t->min_filt && e->mipmap == t->mipmap) {
+            e->min_filt == t->min_filt && e->mipmap == t->mipmap &&
+            e->lod_bias == t->lod_bias && e->min_lod == t->min_lod &&
+            e->max_lod == t->max_lod && e->anisotropy == t->anisotropy) {
             return e->name;
         }
     }
@@ -663,6 +688,13 @@ static GLuint texture_for(const GxHleTexture* t)
                         wrap_to_gl(t->wrap_s));
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,
                         wrap_to_gl(t->wrap_t));
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_LOD, t->min_lod);
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_LOD, t->max_lod);
+        if (aniso_supported && t->anisotropy > 0) {
+            GLfloat samples = (GLfloat) (1u << t->anisotropy);
+            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT,
+                            samples);
+        }
         e->image = image;
         e->palette = palette;
         e->format = t->format;
@@ -676,6 +708,9 @@ static GLuint texture_for(const GxHleTexture* t)
         e->min_filt = t->min_filt;
         e->mipmap = t->mipmap;
         e->lod_bias = t->lod_bias;
+        e->min_lod = t->min_lod;
+        e->max_lod = t->max_lod;
+        e->anisotropy = t->anisotropy;
         tex_cache_count++;
         free(rgba);
         return e->name;
@@ -877,6 +912,8 @@ static void upload_draw_uniforms(const GxHleDrawState* s)
                 s->fog_color[2]);
     glUniform1i(u_tex_enable, gl_options.textures);
     glUniform1i(u_ras_flat, !gl_options.lighting);
+    glUniform1i(u_dst_alpha_enable, s->dst_alpha_enable);
+    glUniform1f(u_dst_alpha, (GLfloat) s->dst_alpha / 255.0f);
 }
 
 int gx_gl_render_frame(void)
@@ -900,6 +937,8 @@ int gx_gl_render_frame(void)
      * leaves stale alpha/depth behind and rotating cameras lose geometry. */
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glDepthMask(GL_TRUE);
+    /* ...and the scissor test from the last draw would clip the clear. */
+    glDisable(GL_SCISSOR_TEST);
     glClearColor(clear_color[0], clear_color[1], clear_color[2],
                  clear_color[3]);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -922,6 +961,8 @@ int gx_gl_render_frame(void)
     for (i = 0; i < draw_count; ++i) {
         const GxHleDraw* d = &draws[i];
         const GxHleDrawState* s = &d->state;
+        const GxHleTexture* t0 = NULL;
+        const GxHleTexture* t1 = NULL;
         GLuint tex0 = 0;
         if (gl_options.only_draw >= 0 &&
             (size_t) gl_options.only_draw != i) {
@@ -942,18 +983,43 @@ int gx_gl_render_frame(void)
         upload_draw_uniforms(s);
 
         if (s->texmap[0] >= 0 && (size_t) s->texmap[0] < texture_count) {
-            tex0 = texture_for(&textures[s->texmap[0]]);
+            t0 = &textures[s->texmap[0]];
+            tex0 = texture_for(t0);
         }
         if (s->texmap[1] >= 0 && (size_t) s->texmap[1] < texture_count) {
-            tex1 = texture_for(&textures[s->texmap[1]]);
+            t1 = &textures[s->texmap[1]];
+            tex1 = texture_for(t1);
         }
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, tex0);
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, tex1);
         glActiveTexture(GL_TEXTURE0);
+        {
+            GLfloat bias[2] = { t0 != NULL ? t0->lod_bias : 0.0f,
+                                t1 != NULL ? t1->lod_bias : 0.0f };
+            glUniform2fv(u_tex_lod_bias, 1, bias);
+        }
 
         apply_draw_state(s);
+        /* GX scissor is in 640x480 EFB pixels; scale it onto the surface the
+         * same way the projection/viewport stretch is applied. */
+        {
+            GLfloat sx = (GLfloat) gl_width / 640.0f;
+            GLfloat sy = (GLfloat) gl_height / 480.0f;
+            GLint sc_x = (GLint) (s->scissor_x * sx + 0.5f);
+            GLint sc_y = (GLint) (s->scissor_y * sy + 0.5f);
+            GLint sc_w = (GLint) (s->scissor_w * sx + 0.5f);
+            GLint sc_h = (GLint) (s->scissor_h * sy + 0.5f);
+            if (sc_w < 0) {
+                sc_w = 0;
+            }
+            if (sc_h < 0) {
+                sc_h = 0;
+            }
+            glEnable(GL_SCISSOR_TEST);
+            glScissor(sc_x, gl_height - sc_y - sc_h, sc_w, sc_h);
+        }
 
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
