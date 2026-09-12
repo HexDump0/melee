@@ -251,6 +251,15 @@ add_test(NAME decomp_boot
 set_tests_properties(decomp_boot PROPERTIES
     PASS_REGULAR_EXPRESSION "\\[boot\\] summary"
     TIMEOUT 30)
+# S4: the deterministic scripted match (GM_DEBUG_VS, Link/Mario on Final
+# Destination, built-in 900-frame input script).  The position at the 600-frame
+# budget is a stable regression value (two runs are byte-identical).
+add_test(NAME decomp_match
+    COMMAND melee_decomp_boot --boot-frames 600 --boot-timeout 90 --boot-match 20)
+set_tests_properties(decomp_match PROPERTIES
+    PASS_REGULAR_EXPRESSION "slot 0 stocks=3 dmg=0 pos=\\(10\\.75,33\\.45,0\\.00\\)"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    TIMEOUT 240)
 if(MELEE_SANITIZE)
   target_compile_options(melee_decomp_boot PRIVATE
       -fsanitize=address,undefined -fno-omit-frame-pointer)

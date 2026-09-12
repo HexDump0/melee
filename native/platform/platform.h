@@ -22,4 +22,27 @@ void boot_platform_idle_tick(void);
  * The S4 boot uses it to script scene transitions (no window/OS thread yet). */
 void boot_platform_set_frame_hook(void (*hook)(void));
 
+/*
+ * Deterministic scripted input (S4).  `frames` is frame-major and
+ * channel-minor: frames[frame * channels + channel].  Once the script is
+ * exhausted every channel holds its last frame.  `channels` channels are
+ * reported connected; the rest stay PAD_ERR_NO_CONTROLLER so the boot paths
+ * that expect no controller are unaffected until a script is installed.
+ */
+typedef struct PadInputFrame {
+    unsigned short buttons;
+    signed char stick_x;
+    signed char stick_y;
+    signed char cstick_x;
+    signed char cstick_y;
+    unsigned char trigger_l;
+    unsigned char trigger_r;
+} PadInputFrame;
+
+void pad_set_input_script(const PadInputFrame* frames, unsigned channels,
+                          unsigned frame_count);
+
+/* Number of PADRead calls since the script was installed. */
+unsigned pad_input_frame(void);
+
 #endif /* MELEE_PLATFORM_PLATFORM_H */

@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-12 (P-620 S4: match runs real frames; command-script bitfield repack is the next blocker)
+Last updated: 2026-09-12 (P-620 S4 passed: deterministic scripted match, PAD backend, ctest 12/12, ASan clean)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -77,17 +77,24 @@ plus `GrNBa`/`MnSlChr`/`IfAll`/`NtMsgWin` load through the compiled HSD path
 with full relocation coverage.  ASan/UBSan is clean (the boot's DVD-cancel
 stack-write bug and the `.ssm` overlapping copy were fixed; see G-063/G-064).
 
-**S4 in progress (2026-09-12):** `melee_decomp_boot --boot-match N` enters the
-game's own `GM_DEBUG_VS` on Zebes and runs `gm_Scene_Vs_OnFrame` for real
-frames (fighters created, stage collision/dynamics, stock HUD, camera, motion
-state changes).  Converter v46 fixes `grGroundParam`, `itemdata`, `map_plit`,
-`Stc_scemdls`, `MapCollData.dynamic_*`, `FtPartsVis` model entries and the
-`ftData` x34/x38/x3C/dynamics blocks; two more `PORT_PC` patches (`lbanim.c`,
-`camera.c`) are listed in `learnings/decomp_port.md`.  The stop is
-`ftcoll.c:3171` because the archive action-command scripts are big-endian
-bitfield words and need an MSB-first→LSB-first repack (G-082; handoff
-`2026-09-12-P-620-s4-scripts.md` has the walker recipe).  The PAD backend and
-the scripted input source are still to do.
+**S4 passed (2026-09-12):** the compiled game runs a deterministic headless
+match.  `melee_decomp_boot --boot-match N` enters `GM_DEBUG_VS` (the game's own
+Link/Mario match on Final Destination), and the harness sets stocks, installs
+a frame-indexed scripted PAD source (`native/platform/pad_card.c`) and logs
+player positions/flags; two runs at 600 frames are byte-identical and a
+release vs ASan run reports the same position.  The compiled `ft`/`it`/`gr`/`gm`
+code does the rest (engine physics, stage collision and lights, camera, HUD
+stocks/nametags, respawns).  Converter v56 walks the remaining tables
+(`grGroundParam`, `itemdata`, `map_plit`, `Stc_scemdls`/`_scene_models`,
+`MapCollData.dynamic_*`, `FtPartsVis` model entries, `ftData` x24/x34/x38/x3C/
+dynamics, `Ef*.dat` effect models, PlCo pData[16]/[20]); five `PORT_PC` patches
+are listed in `learnings/decomp_port.md` (including two real host-only bugs:
+the 0x10-byte card work area used as a 0x1510-byte `CardContext`, and a
+use-after-free in the completion queue).  `ctest` is 12/12 including the new
+600-frame `decomp_match` regression; ASan/UBSan 600-frame run is clean.  The
+PAD backend and scripted input are the S4 input deliverable; the remaining
+open items are P-616 (Falcon eyes), P-617 (indirect/toon) and P-621 (stage
+colors), plus the boot/title scene re-entry noted in the handoff.
 
 ## TL;DR
 

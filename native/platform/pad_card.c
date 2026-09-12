@@ -17,13 +17,59 @@
 #include <string.h>
 
 #include "decomp/boot/boot_triage.h"
+#include "platform/platform.h"
 
 /* --------------------------------------------------------------------- PAD */
+
+static const PadInputFrame* pad_script;
+static unsigned pad_script_channels;
+static unsigned pad_script_frames;
+static unsigned pad_script_frame;
+
+void pad_set_input_script(const PadInputFrame* frames, unsigned channels,
+                          unsigned frame_count)
+{
+    pad_script = frames;
+    pad_script_channels = channels;
+    pad_script_frames = frame_count;
+    pad_script_frame = 0;
+}
+
+unsigned pad_input_frame(void)
+{
+    return pad_script_frame;
+}
 
 BOOL PADInit(void)
 {
     boot_triage_real("PADInit", BOOT_CAT_PAD);
     return TRUE;
+}
+
+static void pad_apply_script(PADStatus* status, int chan)
+{
+    const PadInputFrame* f;
+    unsigned frame;
+
+    if (pad_script == NULL || chan >= (int) pad_script_channels ||
+        pad_script_frames == 0)
+    {
+        status->err = PAD_ERR_NO_CONTROLLER;
+        return;
+    }
+    frame = pad_script_frame < pad_script_frames ? pad_script_frame
+                                                 : pad_script_frames - 1;
+    f = &pad_script[frame * pad_script_channels + (unsigned) chan];
+    status->err = PAD_ERR_NONE;
+    status->button = f->buttons;
+    status->stickX = f->stick_x;
+    status->stickY = f->stick_y;
+    status->substickX = f->cstick_x;
+    status->substickY = f->cstick_y;
+    status->triggerLeft = f->trigger_l;
+    status->triggerRight = f->trigger_r;
+    status->analogA = 0;
+    status->analogB = 0;
 }
 
 u32 PADRead(struct PADStatus* status)
@@ -34,9 +80,10 @@ u32 PADRead(struct PADStatus* status)
     if (status != NULL) {
         memset(status, 0, sizeof(PADStatus) * 4);
         for (i = 0; i < 4; i++) {
-            status[i].err = PAD_ERR_NO_CONTROLLER;
+            pad_apply_script(&status[i], i);
         }
     }
+    pad_script_frame++;
     return 0;
 }
 

@@ -44,6 +44,9 @@ void platform_visit_completions(PlatformVisitFn visit, void* key)
     size_t i;
 
     for (i = 0; i < queue_count; i++) {
+        if (queue[i].fn == NULL) {
+            continue;
+        }
         visit((PlatformCompletionFn) queue[i].fn, queue[i].arg, key);
     }
 }
@@ -59,10 +62,14 @@ void platform_pump_completions(void)
     /*
      * queue_count grows while callbacks post follow-up completions; re-read it
      * every iteration and re-fetch the base pointer because a callback may
-     * realloc the queue.
+     * realloc the queue.  Clear each slot before invoking its callback: a
+     * callback can call DVDCancel, which visits the queue, and the consumed
+     * completion (and its argument) is freed by the callback.
      */
     for (i = 0; i < queue_count; i++) {
         PlatformCompletion done = queue[i];
+        queue[i].fn = NULL;
+        queue[i].arg = NULL;
         done.fn(done.arg);
     }
     queue_count = 0;

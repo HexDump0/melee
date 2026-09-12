@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 48u
+#define HSD_CONVERTER_VERSION 56u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -197,7 +197,7 @@ static void conv_wobjanim(Conv* c, uint32_t off);
 static void conv_lightanim(Conv* c, uint32_t off);
 static void conv_fogdesc(Conv* c, uint32_t off);
 static void conv_scene_desc(Conv* c, uint32_t off);
-static void conv_static_model(Conv* c, uint32_t off);
+static void conv_static_model_full(Conv* c, uint32_t off);
 static void conv_stage_maphead(Conv* c, uint32_t off);
 static void conv_shapeanim_joint(Conv* c, uint32_t off);
 static void conv_dynamic_models(Conv* c, uint32_t off);
@@ -1755,6 +1755,20 @@ static void conv_ft_common_data(Conv* c, uint32_t off)
             }
         }
     }
+    /* pData[16] is the trophy-platform accessory joint
+     * (`Fighter_804D6514`, ftCommon_SetAccessory) and pData[20]
+     * (`Fighter_804D6504`) is another shared model; both are HSD_Joint trees
+     * in PlCo.dat and their MObj rendering state must be converted. */
+    {
+        uint32_t acc = rd32(c, off + 16 * 4);
+        uint32_t mdl = rd32(c, off + 20 * 4);
+        if (acc != 0 && in_data(c, acc, HSD_JOINT_SIZE)) {
+            conv_joint(c, acc);
+        }
+        if (mdl != 0 && in_data(c, mdl, HSD_JOINT_SIZE)) {
+            conv_joint(c, mdl);
+        }
+    }
     /* Fighter_804D6540 (pData[5]): per-kind { {u8 part,x1,x2,depth}*; int n }
      * hidden-part lists.  ftParts_8007506C skips a part when it is listed, so
      * an unconverted count makes the tree walk and parts_num diverge. */
@@ -2096,6 +2110,28 @@ static void conv_ft_data(Conv* c, uint32_t off)
             }
         }
     }
+    /* ftData->x24 is the WaitStruct array used by ftCo_Wait_Anim /
+     * getAnimID: 8-byte {s32 x; s32 y} entries, 0xFFFFFFFF-terminated.  The
+     * first word is the anim id (returned through the union's `p.x`). */
+    {
+        uint32_t x24 = rd32(c, off + 0x24);
+        if (x24 != 0 && in_data(c, x24, 8)) {
+            int n;
+            for (n = 0; n < 256; n++) {
+                uint32_t e = x24 + (uint32_t) n * 8;
+                uint32_t first;
+                if (!in_data(c, e, 8)) {
+                    break;
+                }
+                first = be32(c->data + e);
+                conv_u32(c, e);
+                conv_u32(c, e + 4);
+                if (first == 0xFFFFFFFFu) {
+                    break;
+                }
+            }
+        }
+    }
     /* ftData_x44_t: six s16 then four f32 (0x1C). */
     if (x44 != 0 && in_data(c, x44, 0x1C)) {
         for (i = 0; i < 6; i++) {
@@ -2194,6 +2230,35 @@ static void conv_ef_dat(Conv* c, uint32_t off)
     if (tex != 0 && in_data(c, tex, 0x10)) {
         conv_ps_tex_bank(c, tex);
     }
+    /* The EF_EffectDesc array follows the two bank pointers: efAsync sets
+     * `efAsync_DatEntries[..].data = &symbol->data` (the address of +0x08),
+     * and efLib_Create indexes that as EF_EffectDesc[].  Each entry is
+     * { f32 lifetime; StaticModelDesc model_desc } (0x14); the effect models
+     * (e.g. the entry/trophy platform) load through efLib_Create. */
+    {
+        uint32_t descs = off + 0x08;
+        if (in_data(c, descs, 0x14)) {
+            uint32_t end = (uint32_t) c->data_size;
+            int n;
+            int i;
+            /* The desc array ends where the first bank blob starts. */
+            if (cmd > descs && cmd < end) {
+                end = cmd;
+            }
+            if (tex > descs && tex < end) {
+                end = tex;
+            }
+            n = (int) ((end - descs) / 0x14);
+            if (n > 1024) {
+                n = 1024;
+            }
+            for (i = 0; i < n; i++) {
+                uint32_t e = descs + (uint32_t) i * 0x14;
+                conv_u32(c, e);
+                conv_static_model_full(c, e + 4);
+            }
+        }
+    }
 }
 
 static void conv_fogdesc(Conv* c, uint32_t off)
@@ -2273,15 +2338,18 @@ static void conv_scene_desc(Conv* c, uint32_t off)
     }
 }
 
-static void conv_static_model(Conv* c, uint32_t off)
+/* StaticModelDesc (sc/types.h): joint + animjoint + matanim_joint +
+ * shapeanim_joint.  Used by the EF_EffectDesc model table. */
+static void conv_static_model_full(Conv* c, uint32_t off)
 {
     uint32_t joint;
     uint32_t animjoint;
+    uint32_t matanim;
+    uint32_t shapeanim;
 
-    if (!in_data(c, off, 0x10) || !mark(c, off)) {
+    if (!in_data(c, off, 0x10)) {
         return;
     }
-    c->st.scene_descs++;
     joint = rd32(c, off + 0x00);
     if (joint != 0) {
         conv_joint(c, joint);
@@ -2289,6 +2357,14 @@ static void conv_static_model(Conv* c, uint32_t off)
     animjoint = rd32(c, off + 0x04);
     if (animjoint != 0) {
         conv_anim_joint(c, animjoint);
+    }
+    matanim = rd32(c, off + 0x08);
+    if (matanim != 0) {
+        conv_matanim_joint(c, matanim);
+    }
+    shapeanim = rd32(c, off + 0x0C);
+    if (shapeanim != 0) {
+        conv_shapeanim_joint(c, shapeanim);
     }
 }
 
@@ -2331,8 +2407,13 @@ static void conv_stage_maphead(Conv* c, uint32_t off)
                 pairs = rd32(c, e + 4);
                 conv_u32(c, e + 8);
                 pair_count = (int) rd32(c, e + 8);
-                if (pairs != 0 && pair_count > 0 && pair_count <= 2048) {
-                    for (pj = 0; pj < pair_count; pj++) {
+                /* `pairs` may legitimately point at data offset 0 (G-023);
+                 * it is a relocation target either way. */
+                if ((pairs != 0 || c->reloc[e + 4]) && pair_count > 0 &&
+                    pair_count <= 2048) {
+                    /* `pair_count` is the number of (joint,target) pairs;
+                     * Ground_801C34AC advances `pair += 2` per pair. */
+                    for (pj = 0; pj < pair_count * 2; pj++) {
                         conv_u16(c, pairs + (uint32_t) pj * 2);
                     }
                 }
@@ -2493,8 +2574,10 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
             c->st.roots_unknown++;
             conv_scene_desc(c, data_off);
         } else if (name_ends_with(name, length, "_scene_models")) {
+            /* Scene/HUD sections are DynamicModelDesc** arrays
+             * (lbArchive_LoadSections + x[0]->joint), not StaticModelDesc. */
             c->st.roots_unknown++;
-            conv_static_model(c, data_off);
+            conv_dynamic_models(c, data_off);
         } else if (name_ends_with(name, length, "scemdls")) {
             /* IfAll/If* `Stc_scemdls`-style sections: DynamicModelDesc* array */
             c->st.roots_unknown++;
