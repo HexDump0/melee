@@ -525,3 +525,14 @@ last three vertices.
 (`gx_hle.c:exec_primitive`).  Verify with the world-vertex differential:
 prototype `melee --dump-verts f` vs `test_decomp_render --dump-world f`
 (0 mismatches expected).
+
+## G-056: viewer lights-off must zero the specular channel
+
+**Symptom:** toggling `L` (lights off) makes several models look *worse* than
+the prototype — blown-out, metallic or grey, especially shiny parts.
+**Cause:** the flat-raster override forced both GX channels to white, so every
+specular TEV stage added `C2 * 1` (the spec map at full strength).  The
+prototype's `u_lighting = 0` both whitens the diffuse channel and zeroes the
+specular light.
+**Fix:** when `u_ras_flat` is set, channel 0 becomes white but channel 1/alpha1
+becomes black (`native/decomp/gx/gx_gl.c`).

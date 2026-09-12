@@ -252,6 +252,8 @@ int main(int argc, char** argv)
             hidden = 1;
         } else if (strcmp(argv[i], "--no-lights") == 0) {
             opt.no_lights = 1;
+        } else if (strcmp(argv[i], "--unlit") == 0) {
+            v->gl.lighting = 0;
         } else if (strcmp(argv[i], "--wire") == 0) {
             v->gl.wireframe = 1;
         } else if (strcmp(argv[i], "--no-cull") == 0) {

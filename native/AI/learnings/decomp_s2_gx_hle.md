@@ -117,9 +117,9 @@ limbs still show a noise texture (P-610, POBJ_SKIN path).
 
 Other documented deviations:
 
-- **Fog** is captured but not evaluated; the character-select fog
-  (linear 500..1000) does not reach the model at the viewer's distance, so it
-  has no effect on the parity image.
+- **Fog** is captured and evaluated in the shader (type/start/end/color); the
+  character-select fog (linear 500..1000) simply does not reach the model at
+  the viewer's distance, so it has no effect on the parity image.
 - **Direct-mode GX** (`GXBegin` + `GXPosition3f32`/... ) is not captured: the
   compiled calls are static-inline writes to the hardware FIFO address, which
   the platform maps as scratch.  HSD's character path uses display lists; the

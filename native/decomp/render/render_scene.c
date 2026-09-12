@@ -309,6 +309,9 @@ void render_scene_draw(RenderScene* scene)
         HSD_LObjSetupInit(scene->cobj);
     }
     HSD_JObjDispAll(scene->hsd.root, NULL, HSD_TRSP_ALL, 0);
+    /* Flush HSD's XLU z-sort list: joints whose draws were queued by
+     * HSD_JObjDispDObj are only submitted by HSD_CObjEndCurrent. */
+    HSD_CObjEndCurrent();
 }
 
 int render_scene_open(RenderScene* scene, const RenderSceneOptions* opt,
