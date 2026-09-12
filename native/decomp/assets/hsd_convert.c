@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 31u
+#define HSD_CONVERTER_VERSION 36u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -1548,6 +1548,32 @@ static void conv_ft_common_data(Conv* c, uint32_t off)
  * they stay big-endian).  Also the x8->x0 model_num and a few leaf structs. */
 #define FT_WAITANIM_SIZE 0x18
 
+/* FtPartsVisLookup { int count; TempS* } with TempS { int count; u8* }.
+ * The lookups hang off ftData_x8.x0.vis_table[costume][4]. */
+static void conv_ft_vis_lookup(Conv* c, uint32_t off)
+{
+    int count;
+    uint32_t temps;
+    int i;
+
+    if (!in_data(c, off, 8) || !mark(c, off)) {
+        return;
+    }
+    conv_u32(c, off + 0x00);
+    count = (int) rd32(c, off + 0x00);
+    temps = rd32(c, off + 0x04);
+    if (temps != 0 && count > 0 && count <= 64) {
+        for (i = 0; i < count; i++) {
+            uint32_t t = temps + (uint32_t) i * 8;
+            if (!in_data(c, t, 8) || !mark(c, t)) {
+                break;
+            }
+            conv_u32(c, t + 0x00);
+            /* the u8 DObj-index list at t+4 is byte data */
+        }
+    }
+}
+
 static void conv_ft_data(Conv* c, uint32_t off)
 {
     uint32_t x8;
@@ -1562,6 +1588,17 @@ static void conv_ft_data(Conv* c, uint32_t off)
         return;
     }
     x8 = rd32(c, off + 0x08);
+    {
+        /* ftCo_DatAttrs (fighter_dat_attrs_alloc_data size 0x424): dense
+         * 4-byte floats/ints; ftMr_Init_OnLoad reads item kinds from it. */
+        uint32_t attrs = rd32(c, off + 0x00);
+        if (attrs != 0 && in_data(c, attrs, 0x424)) {
+            uint32_t ai;
+            for (ai = 0; ai < 0x424; ai += 4) {
+                conv_u32(c, attrs + ai);
+            }
+        }
+    }
     x30 = rd32(c, off + 0x30);
     /* x5C is the costume joint tree (its MObj rendermodes feed DObjLoad). */
     {
@@ -1583,6 +1620,35 @@ static void conv_ft_data(Conv* c, uint32_t off)
         int k;
         conv_u32(c, x8 + 0x00); /* FtPartsDesc.model_num */
         conv_u32(c, x8 + 0x08); /* ftData_x8_x8.x8 */
+        {
+            uint32_t vis_table = rd32(c, x8 + 0x04);
+            int costume;
+            if (vis_table != 0) {
+                for (costume = 0; costume < 8; costume++) {
+                    int col;
+                    for (col = 0; col < 4; col++) {
+                        uint32_t p = vis_table +
+                                     ((uint32_t) costume * 4 +
+                                      (uint32_t) col) * 4;
+                        uint32_t lookup;
+                        if (!in_data(c, p, 4)) {
+                            break;
+                        }
+                        lookup = rd32(c, p);
+                        if (lookup == 0) {
+                            continue;
+                        }
+                        /* Every real vis_table slot is a relocation target;
+                         * the first non-pointer word is past the table (the
+                         * costume TObj array follows it). */
+                        if (!c->reloc[p]) {
+                            break;
+                        }
+                        conv_ft_vis_lookup(c, lookup);
+                    }
+                }
+            }
+        }
         /* ftData_x8_x8.xC: per-costume u16 arrays of TObj indices (the
          * values are numeric and looked up in the model tree). */
         n_tobjs = (int) rd32(c, x8 + 0x08);
@@ -1600,10 +1666,16 @@ static void conv_ft_data(Conv* c, uint32_t off)
                     continue;
                 }
                 for (j = 0; j < n_tobjs; j++) {
-                    if (!in_data(c, arr + (uint32_t) j * 2, 2)) {
+                    uint32_t u = arr + (uint32_t) j * 2;
+                    if (!in_data(c, u, 2)) {
                         break;
                     }
-                    conv_u16(c, arr + (uint32_t) j * 2);
+                    /* If the 4-byte word containing this u16 is a relocation
+                     * target, the reloc pass already byte-swapped it (two
+                     * u16s at once); converting again would undo it. */
+                    if (!c->reloc[u & ~3u]) {
+                        conv_u16(c, u);
+                    }
                 }
             }
         }
@@ -1629,7 +1701,34 @@ static void conv_ft_data(Conv* c, uint32_t off)
         conv_u32(c, e + 0x08);
     }
     if (x30 != 0 && in_data(c, x30, 8)) {
+        int count;
+        uint32_t inits;
+        int hi;
         conv_u32(c, x30 + 0x00); /* hurtbox init count */
+        count = (int) rd32(c, x30 + 0x00);
+        inits = rd32(c, x30 + 0x04);
+        /* ftHurtboxInit (ftCommon/types.h): six 4-byte fields + two Vec3,
+         * 0x28 bytes; bone_idx/offsets feed ftColl_8007B320. */
+        if (inits != 0 && count > 0 && count <= 16) {
+            for (hi = 0; hi < count; hi++) {
+                uint32_t e = inits + (uint32_t) hi * 0x28;
+                int w;
+                if (!in_data(c, e, 0x28)) {
+                    break;
+                }
+                for (w = 0; w < 0x28; w += 4) {
+                    conv_u32(c, e + (uint32_t) w);
+                }
+            }
+        }
+    }
+    {
+        /* ftDynamics: dynamicsNum, ftDynamicBones*, x4, x8, x10. */
+        uint32_t dyn = rd32(c, off + 0x2C);
+        if (dyn != 0 && in_data(c, dyn, 0x14)) {
+            conv_u32(c, dyn + 0x00);
+            conv_u32(c, dyn + 0x08);
+        }
     }
     if (x34 != 0 && in_data(c, x34, 8)) {
         conv_u32(c, x34 + 0x04); /* scale */
