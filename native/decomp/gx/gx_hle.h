@@ -25,7 +25,7 @@ typedef struct GxHleVertex {
     float clip[4];          /* post-projection clip space (GX y-down)     */
     float view[3];          /* position-matrix space (camera view)        */
     unsigned char color[4]; /* GX_VA_CLR0, zero when absent               */
-    float uv[2][2];         /* generated TEXCOORD0/1                      */
+    float uv[3][2];         /* generated TEXCOORD0/1/2                    */
     float ras[4];           /* channel 0 raster, alpha = channel specular */
     float ras1[4];          /* channel 1 raster, alpha = channel specular */
 } GxHleVertex;
@@ -66,7 +66,18 @@ typedef struct GxHleTevStage {
     unsigned char alpha_op, alpha_bias, alpha_scale, alpha_clamp, alpha_reg;
     unsigned char ras_sel, tex_sel;
     unsigned char kc_sel, ka_sel;
+    /* P-612 indirect texturing (GXSetTevIndirect/GXSetTevIndWarp). */
+    unsigned char ind_enable, ind_stage, ind_format, ind_bias;
+    unsigned char ind_mtx, ind_wrap_s, ind_wrap_t, ind_add_prev;
 } GxHleTevStage;
+
+typedef struct GxHleIndStage {
+    unsigned char tex_coord;
+    unsigned char tex_map;
+    unsigned char scale_s, scale_t;
+    float mtx[2][3];
+    float scale; /* 2^scale_exp */
+} GxHleIndStage;
 
 typedef struct GxHleTexGen {
     unsigned char type; /* GXTexGenType */
@@ -100,15 +111,31 @@ typedef struct GxHleDrawState {
     float ch_amb[2][4], ch_mat[2][4];
     GxHleLight lights[8];
     int texmap[8]; /* index into the frame texture table, -1 = none */
+    unsigned char num_ind_stages;
+    GxHleIndStage ind[4];
     float fog_start, fog_end;
     float fog_color[3];
     unsigned char fog_enable, fog_type;
+    /* P-615: GXSetZTexture depth output (GX_ZT_DISABLE/ADD/REPLACE). */
+    unsigned char ztex_op, ztex_fmt;
+    float ztex_bias;
 } GxHleDrawState;
+
+/* P-615: GXCopyTex appears at its point in the command stream, so the GL
+ * backend can capture the EFB before the next draw samples it. */
+#define GX_HLE_DRAW_PRIM 0
+#define GX_HLE_DRAW_COPY_TEX 1
 
 typedef struct GxHleDraw {
     size_t first_vertex;
     size_t vertex_count;
     GxHleDrawState state;
+    int kind;
+    void* copy_dest;
+    unsigned short copy_left, copy_top, copy_w, copy_h; /* EFB source rect */
+    unsigned short copy_dst_w, copy_dst_h;              /* texture size */
+    unsigned int copy_fmt;
+    unsigned char copy_clear;
 } GxHleDraw;
 
 /* Call once before submitting a frame's GX commands. */

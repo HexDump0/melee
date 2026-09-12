@@ -127,10 +127,12 @@ static float bef32(const void* p)
 typedef struct {
     float pos[3];
     float nrm[3];
+    float binormal[3];
+    float tangent[3];
     float uv[8][2];
     u8 color[4];
     u8 matrix;
-    int has_pos, has_nrm, has_color, has_uv[8];
+    int has_pos, has_nrm, has_nbt, has_color, has_uv[8];
 } GxRawVertex;
 
 static size_t scalar_size(u32 type)
@@ -309,6 +311,17 @@ static int read_vertex(const u8* list, size_t length, size_t* cursor,
                                             src + a * scalar_size(f->type));
                 }
                 out->has_nrm = 1;
+                if (attr == GX_VA_NBT) {
+                    for (a = 0; a < 3; ++a) {
+                        out->binormal[a] = read_comp(
+                            f->type, f->frac,
+                            src + (3 + a) * scalar_size(f->type));
+                        out->tangent[a] = read_comp(
+                            f->type, f->frac,
+                            src + (6 + a) * scalar_size(f->type));
+                    }
+                    out->has_nbt = 1;
+                }
             } else if (attr >= GX_VA_TEX0 && attr <= GX_VA_TEX7) {
                 int t = attr - GX_VA_TEX0;
                 for (a = 0; a < count && a < 2; ++a) {
@@ -356,6 +369,17 @@ static int read_vertex(const u8* list, size_t length, size_t* cursor,
                                             elem + a * scalar_size(f->type));
                 }
                 out->has_nrm = 1;
+                if (attr == GX_VA_NBT) {
+                    for (a = 0; a < 3; ++a) {
+                        out->binormal[a] = read_comp(
+                            f->type, f->frac,
+                            elem + (3 + a) * scalar_size(f->type));
+                        out->tangent[a] = read_comp(
+                            f->type, f->frac,
+                            elem + (6 + a) * scalar_size(f->type));
+                    }
+                    out->has_nbt = 1;
+                }
             } else if (attr >= GX_VA_TEX0 && attr <= GX_VA_TEX7) {
                 int t = attr - GX_VA_TEX0;
                 for (a = 0; a < count && a < 2; ++a) {
@@ -649,12 +673,60 @@ static int tex_mtx_slot(u32 id)
 }
 
 static void texgen_coord(int coord, const GxRawVertex* raw, const float pos[3],
-                         const float nrm[3], float out[2])
+                         const float nrm[3], const float binormal[3],
+                         const float tangent[3], float out[2])
 {
     const GxHleTexGen* tg = &gx.cur.texgen[coord & 7];
     float in[3];
     const float* m;
     int id;
+
+    if (tg->type >= GX_TG_BUMP0 && tg->type <= GX_TG_BUMP7) {
+        /* GX emboss/bump: the source coordinate plus the light direction
+         * projected on the vertex's binormal/tangent (Dolphin
+         * VertexShaderGen.cpp, TexGenType::EmbossMap). */
+        int light = (int) tg->type - (int) GX_TG_BUMP0;
+        int src_coord = (int) tg->src - (int) GX_TG_TEXCOORD0;
+        const GxHleLight* l = &gx.cur.lights[light & 7];
+        float ldir[3];
+        float base[2];
+        float len;
+        if (src_coord < 0 || src_coord > 7) {
+            src_coord = 0;
+        }
+        texgen_coord(src_coord, raw, pos, nrm, binormal, tangent, base);
+        if (light_is_infinite(l->pos)) {
+            len = sqrtf(l->pos[0] * l->pos[0] + l->pos[1] * l->pos[1] +
+                        l->pos[2] * l->pos[2]);
+            if (len > 0.0f) {
+                ldir[0] = l->pos[0] / len;
+                ldir[1] = l->pos[1] / len;
+                ldir[2] = l->pos[2] / len;
+            } else {
+                ldir[0] = ldir[1] = 0.0f;
+                ldir[2] = 1.0f;
+            }
+        } else {
+            float d[3];
+            d[0] = l->pos[0] - pos[0];
+            d[1] = l->pos[1] - pos[1];
+            d[2] = l->pos[2] - pos[2];
+            len = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+            if (len > 0.0f) {
+                ldir[0] = d[0] / len;
+                ldir[1] = d[1] / len;
+                ldir[2] = d[2] / len;
+            } else {
+                ldir[0] = ldir[1] = 0.0f;
+                ldir[2] = 1.0f;
+            }
+        }
+        out[0] = base[0] + ldir[0] * tangent[0] + ldir[1] * tangent[1] +
+                 ldir[2] * tangent[2];
+        out[1] = base[1] + ldir[0] * binormal[0] + ldir[1] * binormal[1] +
+                 ldir[2] * binormal[2];
+        return;
+    }
 
     switch (tg->src) {
     case GX_TG_POS:
@@ -693,7 +765,7 @@ static void texgen_coord(int coord, const GxRawVertex* raw, const float pos[3],
         break;
     }
 
-    if (tg->type == GX_TG_SRTG || tg->type >= GX_TG_BUMP0) {
+    if (tg->type == GX_TG_SRTG) {
         out[0] = in[0];
         out[1] = in[1];
         return;
@@ -736,8 +808,12 @@ static void transform_vertex(const GxRawVertex* raw, GxHleVertex* v)
     if (idx < 0 || idx > 29) {
         idx = 0;
     }
+    float binormal[3];
+    float tangent[3];
     mtx3x4_mul_vec(&gx.pos_mtx[idx][0][0], raw->pos, pos);
     mtx3x3_mul_vec(&gx.nrm_mtx[idx][0][0], raw->nrm, nrm);
+    mtx3x3_mul_vec(&gx.nrm_mtx[idx][0][0], raw->binormal, binormal);
+    mtx3x3_mul_vec(&gx.nrm_mtx[idx][0][0], raw->tangent, tangent);
     {
         float len = sqrtf(nrm[0] * nrm[0] + nrm[1] * nrm[1] +
                           nrm[2] * nrm[2]);
@@ -745,6 +821,20 @@ static void transform_vertex(const GxRawVertex* raw, GxHleVertex* v)
             nrm[0] /= len;
             nrm[1] /= len;
             nrm[2] /= len;
+        }
+        len = sqrtf(binormal[0] * binormal[0] + binormal[1] * binormal[1] +
+                    binormal[2] * binormal[2]);
+        if (len > 1e-8f) {
+            binormal[0] /= len;
+            binormal[1] /= len;
+            binormal[2] /= len;
+        }
+        len = sqrtf(tangent[0] * tangent[0] + tangent[1] * tangent[1] +
+                    tangent[2] * tangent[2]);
+        if (len > 1e-8f) {
+            tangent[0] /= len;
+            tangent[1] /= len;
+            tangent[2] /= len;
         }
     }
     v4[0] = pos[0];
@@ -761,8 +851,9 @@ static void transform_vertex(const GxRawVertex* raw, GxHleVertex* v)
     v->view[1] = pos[1];
     v->view[2] = pos[2];
     memcpy(v->color, raw->color, 4);
-    texgen_coord(0, raw, pos, nrm, v->uv[0]);
-    texgen_coord(1, raw, pos, nrm, v->uv[1]);
+    texgen_coord(0, raw, pos, nrm, binormal, tangent, v->uv[0]);
+    texgen_coord(1, raw, pos, nrm, binormal, tangent, v->uv[1]);
+    texgen_coord(2, raw, pos, nrm, binormal, tangent, v->uv[2]);
     channel_raster(0, raw, pos, nrm, v->ras);
     channel_raster(1, raw, pos, nrm, v->ras1);
 }
@@ -1451,7 +1542,8 @@ static void resolve_stage_coords(GxHleDrawState* s)
         int guard = 0;
         while (coord >= 2 && guard++ < 8) {
             const GxHleTexGen* tg = &s->texgen[coord & 7];
-            if (tg->src < GX_TG_TEXCOORD0 || tg->src >= GX_TG_COLOR0 ||
+            if (tg->type >= GX_TG_BUMP0 ||
+                tg->src < GX_TG_TEXCOORD0 || tg->src >= GX_TG_COLOR0 ||
                 tg->mtx_id != GX_IDENTITY || tg->postmtx != GX_PTIDENTITY) {
                 break;
             }
@@ -1603,29 +1695,48 @@ void GXCallDisplayList(void* list, u32 nbytes)
     end_draw_snapshot();
 }
 
-void GXSetNumIndStages(u8 nIndStages) { (void) nIndStages; }
+/* P-612: indirect texturing state.  The commands are captured per draw; the
+ * GLES evaluation lands with the S4 effects that use it (lb/lbrefract.c). */
+
+void GXSetNumIndStages(u8 nIndStages)
+{
+    gx.cur.num_ind_stages = nIndStages > 4 ? 4 : nIndStages;
+}
 
 void GXSetIndTexOrder(GXIndTexStageID ind_stage, GXTexCoordID tex_coord,
                       GXTexMapID tex_map)
 {
-    (void) ind_stage;
-    (void) tex_coord;
-    (void) tex_map;
+    GxHleIndStage* ind;
+    if ((int) ind_stage >= 4) {
+        return;
+    }
+    ind = &gx.cur.ind[ind_stage];
+    ind->tex_coord = (unsigned char) tex_coord;
+    ind->tex_map = (unsigned char) tex_map;
 }
 
-void GXSetIndTexCoordScale(GXIndTexStageID ind_state, GXIndTexScale scale_s,
+void GXSetIndTexCoordScale(GXIndTexStageID ind_stage, GXIndTexScale scale_s,
                            GXIndTexScale scale_t)
 {
-    (void) ind_state;
-    (void) scale_s;
-    (void) scale_t;
+    GxHleIndStage* ind;
+    if ((int) ind_stage >= 4) {
+        return;
+    }
+    ind = &gx.cur.ind[ind_stage];
+    ind->scale_s = (unsigned char) scale_s;
+    ind->scale_t = (unsigned char) scale_t;
 }
 
 void GXSetIndTexMtx(GXIndTexMtxID mtx_id, f32 offset[2][3], s8 scale_exp)
 {
-    (void) mtx_id;
-    (void) offset;
-    (void) scale_exp;
+    /* GX_ITM_0..2 map to the even indirect matrices, _S0..S2 to the odd
+     * ones; HSD only uses GX_ITM_0 (lbrefract.c:636). */
+    int slot = (int) mtx_id - (int) GX_ITM_0;
+    if (slot < 0 || slot >= 4) {
+        return;
+    }
+    memcpy(gx.cur.ind[slot].mtx, offset, sizeof(gx.cur.ind[slot].mtx));
+    gx.cur.ind[slot].scale = ldexpf(1.0f, scale_exp);
 }
 
 void GXSetTevIndirect(GXTevStageID tev_stage, GXIndTexStageID ind_stage,
@@ -1634,14 +1745,19 @@ void GXSetTevIndirect(GXTevStageID tev_stage, GXIndTexStageID ind_stage,
                       GXIndTexWrap wrap_t, GXBool add_prev, GXBool utc_lod,
                       GXIndTexAlphaSel alpha_sel)
 {
-    (void) tev_stage;
-    (void) ind_stage;
-    (void) format;
-    (void) bias_sel;
-    (void) matrix_sel;
-    (void) wrap_s;
-    (void) wrap_t;
-    (void) add_prev;
+    GxHleTevStage* st;
+    if ((int) tev_stage >= GX_HLE_MAX_STAGES) {
+        return;
+    }
+    st = &gx.cur.stages[tev_stage];
+    st->ind_enable = 1;
+    st->ind_stage = (unsigned char) ind_stage;
+    st->ind_format = (unsigned char) format;
+    st->ind_bias = (unsigned char) bias_sel;
+    st->ind_mtx = (unsigned char) matrix_sel;
+    st->ind_wrap_s = (unsigned char) wrap_s;
+    st->ind_wrap_t = (unsigned char) wrap_t;
+    st->ind_add_prev = (unsigned char) add_prev;
     (void) utc_lod;
     (void) alpha_sel;
 }
@@ -1650,11 +1766,11 @@ void GXSetTevIndWarp(GXTevStageID tev_stage, GXIndTexStageID ind_stage,
                      GXBool signed_offset, GXBool replace_mode,
                      GXIndTexMtxID matrix_sel)
 {
-    (void) tev_stage;
-    (void) ind_stage;
-    (void) signed_offset;
-    (void) replace_mode;
-    (void) matrix_sel;
+    GXSetTevIndirect(tev_stage, ind_stage,
+                     signed_offset ? GX_ITF_8 : GX_ITF_8,
+                     signed_offset ? GX_ITB_ST : GX_ITB_NONE, matrix_sel,
+                     replace_mode ? GX_ITW_OFF : GX_ITW_0, GX_ITW_0,
+                     GX_DISABLE, GX_DISABLE, GX_ITBA_OFF);
 }
 
 /* -------------------------------------------------------------- textures */

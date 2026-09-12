@@ -154,6 +154,89 @@ static int direct_test(void)
             }
         }
     }
+    /* P-612: GX_TG_BUMP0 emboss texgen on coord 2 adds the light direction
+     * projected on the vertex binormal/tangent to the source coordinate. */
+    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY,
+                      GX_NONE, GX_PTIDENTITY);
+    GXSetTexCoordGen2(GX_TEXCOORD2, GX_TG_BUMP0, GX_TG_TEXCOORD0, GX_IDENTITY,
+                      GX_NONE, GX_PTIDENTITY);
+    {
+        GXLightObj lo;
+        GXInitLightPos(&lo, 0.0f, 1.0e6f, 0.0f); /* infinite, dir (0,1,0) */
+        GXLoadLightObjImm(&lo, GX_LIGHT0);
+    }
+    GXClearVtxDesc();
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_NBT, GX_NRM_NBT, GX_F32, 0);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
+    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+    GXSetVtxDesc(GX_VA_NBT, GX_DIRECT);
+    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+    GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+    {
+        int v;
+        for (v = 0; v < 3; ++v) {
+            GXPosition3f32((float) v + 3.0f, 0.0f, 0.0f);
+            GXNormal3f32(1.0f, 0.0f, 0.0f); /* normal  */
+            GXNormal3f32(0.0f, 1.0f, 0.0f); /* binormal */
+            GXNormal3f32(0.0f, 0.0f, 1.0f); /* tangent */
+            GXTexCoord2f32(0.25f, 0.5f);
+        }
+    }
+    gx_hle_get_frame(&verts, &vc, &draws, &dc, NULL, NULL);
+    if (dc != 3 || vc != 12) {
+        printf("direct: FAIL bump draws=%zu verts=%zu (want 3/12)\n", dc, vc);
+        return 0;
+    }
+    {
+        const GxHleVertex* v = &verts[draws[2].first_vertex];
+        if (fabsf(v->uv[2][0] - 0.25f) > 1e-5f ||
+            fabsf(v->uv[2][1] - 1.5f) > 1e-5f) {
+            printf("direct: FAIL bump uv=(%.3f,%.3f) want (0.250,1.500)\n",
+                   (double) v->uv[2][0], (double) v->uv[2][1]);
+            fail = 1;
+        }
+    }
+
+    /* P-612: indirect-texture state is captured per draw (shader evaluation
+     * lands with the S4 effects that use it). */
+    GXSetNumIndStages(1);
+    GXSetIndTexOrder(GX_INDTEXSTAGE0, GX_TEXCOORD0, GX_TEXMAP0);
+    GXSetIndTexCoordScale(GX_INDTEXSTAGE0, GX_ITS_1, GX_ITS_1);
+    {
+        f32 off[2][3] = { { 0.5f, 0.25f, 0.0f }, { 0.0f, 0.5f, 0.25f } };
+        GXSetIndTexMtx(GX_ITM_0, off, 1);
+    }
+    GXSetTevIndirect(GX_TEVSTAGE0, GX_INDTEXSTAGE0, GX_ITF_8, GX_ITB_ST,
+                     GX_ITM_0, GX_ITW_0, GX_ITW_0, GX_DISABLE, GX_DISABLE,
+                     GX_ITBA_OFF);
+    GXClearVtxDesc();
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+    GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+    {
+        int v;
+        for (v = 0; v < 3; ++v) {
+            GXPosition3f32((float) v + 6.0f, 0.0f, 0.0f);
+        }
+    }
+    gx_hle_get_frame(&verts, &vc, &draws, &dc, NULL, NULL);
+    if (dc != 4) {
+        printf("direct: FAIL indirect draws=%zu (want 4)\n", dc);
+        return 0;
+    }
+    {
+        const GxHleDrawState* st = &draws[3].state;
+        if (st->num_ind_stages != 1 ||
+            st->ind[0].tex_map != GX_TEXMAP0 ||
+            st->ind[0].tex_coord != GX_TEXCOORD0 ||
+            st->ind[0].mtx[0][0] != 0.5f || st->ind[0].scale != 2.0f ||
+            !st->stages[0].ind_enable || st->stages[0].ind_mtx != GX_ITM_0) {
+            printf("direct: FAIL indirect state\n");
+            fail = 1;
+        }
+    }
+
     printf("direct: %s draws=%zu verts=%zu primitives=%u\n",
            fail ? "FAIL" : "PASS", dc, vc,
            (unsigned) gx_hle_primitive_count());

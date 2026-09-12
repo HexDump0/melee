@@ -107,9 +107,11 @@ static const char* VERTEX_SRC =
     "layout(location=4) in vec4 a_ras0;\n"
     "layout(location=5) in vec4 a_ras1;\n"
     "layout(location=6) in vec3 a_view;\n"
+    "layout(location=7) in vec2 a_uv2;\n"
     "out vec4 v_color;\n"
     "out vec2 v_uv0;\n"
     "out vec2 v_uv1;\n"
+    "out vec2 v_uv2;\n"
     "out vec4 v_ras0;\n"
     "out vec4 v_ras1;\n"
     "out float v_dist;\n"
@@ -118,6 +120,7 @@ static const char* VERTEX_SRC =
     "    v_color = a_color;\n"
     "    v_uv0 = a_uv0;\n"
     "    v_uv1 = a_uv1;\n"
+    "    v_uv2 = a_uv2;\n"
     "    v_ras0 = a_ras0;\n"
     "    v_ras1 = a_ras1;\n"
     "    v_dist = -a_view.z;\n"
@@ -178,6 +181,7 @@ static const char* FRAGMENT_SRC =
     "in vec4 v_color;\n"
     "in vec2 v_uv0;\n"
     "in vec2 v_uv1;\n"
+    "in vec2 v_uv2;\n"
     "in vec4 v_ras0;\n"
     "in vec4 v_ras1;\n"
     "in float v_dist;\n"
@@ -277,7 +281,8 @@ static const char* FRAGMENT_SRC =
     "        ivec4 ord = u_tev_order[i];\n"
     "        vec4 tex = vec4(1.0);\n"
     "        if (u_tex_enable != 0 && ord.y != 255) {\n"
-    "            vec2 uv = (ord.x == 1) ? v_uv1 : v_uv0;\n"
+    "            vec2 uv = (ord.x == 2) ? v_uv2 :\n"
+    "                      (ord.x == 1) ? v_uv1 : v_uv0;\n"
     "            if (ord.y == 0) tex = texture(u_tex0, uv, u_tex_lod_bias.x);\n"
     "            else if (ord.y == 1) tex = texture(u_tex1, uv, u_tex_lod_bias.y);\n"
 
@@ -1228,6 +1233,10 @@ int gx_gl_render_frame(void)
         glEnableVertexAttribArray(6);
         glVertexAttribPointer(6, 3, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
                               (const void*) offsetof(GxHleVertex, view));
+        glEnableVertexAttribArray(7);
+        glVertexAttribPointer(7, 2, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
+                              (const void*) (offsetof(GxHleVertex, uv) +
+                                             4 * sizeof(float)));
 
         if (gl_options.wireframe) {
             size_t k;
