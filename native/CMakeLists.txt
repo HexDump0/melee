@@ -316,6 +316,19 @@ set_tests_properties(decomp_gx_direct PROPERTIES
 add_test(NAME decomp_efb COMMAND test_decomp_render --efb)
 set_tests_properties(decomp_efb PROPERTIES
     PASS_REGULAR_EXPRESSION "efb: PASS")
+# P-619: stage asset path (Gr*.dat map_head conversion + stage camera/lights)
+# with a posed fighter placed on the stage.
+add_test(NAME decomp_stage COMMAND test_decomp_render
+    --stage GrNBa.dat --fighter PlMrNr.dat
+    --shot ${CMAKE_CURRENT_BINARY_DIR}/decomp_stage.bmp)
+set_tests_properties(decomp_stage PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
+    PASS_REGULAR_EXPRESSION "decomp_render: PASS")
+add_test(NAME decomp_stage_cam COMMAND test_decomp_render
+    --stage GrNBa.dat --fighter PlMrNr.dat --stage-cam)
+set_tests_properties(decomp_stage_cam PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
+    PASS_REGULAR_EXPRESSION "decomp_render: PASS")
 if(MELEE_SANITIZE)
   target_compile_options(test_decomp_render PRIVATE
       -fsanitize=address,undefined -fno-omit-frame-pointer)

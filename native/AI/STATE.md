@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-12 (S3 complete; P-615/P-612 landed; G-071/G-072 viewer lighting + hand-alpha fixes; P-616 open)
+Last updated: 2026-09-12 (P-619 stage viewer landed; S3 complete; P-615/P-612 landed; P-616 open)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -154,6 +154,7 @@ lightmap phases, alpha test, XLU blend) and every fighter is scaled by its
 | Host-endian converter (S3) | `native/decomp/assets/hsd_convert.c`; every archive's relocation targets convert (`reloc_valid == reloc_total`), content-hash + version disk cache, `MELEE_ASSET_CACHE`/`MELEE_NO_ASSET_CACHE` controls |
 | Asset sweep (S3) | `test_decomp_assets` (ctest `decomp_assets`): 33/33 `Pl*Nr.dat` + `GrNBa.dat` + `MnSlChr.dat` + `IfAll.dat` + `NtMsgWin.dat` parse, pose and convert with 0 desyncs |
 | Common scene assets (S3) | `NtMsgWin.dat` `SceneDesc` camera/light/fog + CObj descriptors convert; the boot loads the scene camera and only then waits for pad input |
+| Stage viewer (P-619) | `Gr*.dat` `map_head` converts (`UnkStageDat`/`UnkStageDat_x8_t`: per-map joint tree, camera, lights, fog, light anims, shape sets; converter v9); `hsd_scene_load_stage_all` loads every map as a Ground GObj (platform + background layers) like the game, `hsd_scene_load_stage` isolates one; `melee_decomp_viewer --stage GrNBa.dat --fighter PlMrNr.dat` renders the full stage with a posed fighter and `--stage-cam` through the stage's own camera; `M` model/stage, `N`/`P` cycle, `,`/`.` map, `F` fighter, `K` camera; all 71 `Gr*.dat` load headless and a 70-stage cycle runs clean; ctest `decomp_stage`/`decomp_stage_cam` |
 | Sanitizers (S3) | 32-bit ASan/UBSan: `test_decomp_assets` PASS and `melee_decomp_boot` clean with 0 sanitizer errors; fixed a DVD-cancel write into a dead stack frame (G-063) and the `.ssm` overlapping copy (PORT_PC memmove, G-064) |
 | EFB capture + Z-texture (P-615) | `GXCopyTex` reads the EFB back at its point in the command stream and re-encodes RGB565/RGBA8 tiled memory; `GXSetZTexture(REPLACE/ADD)` runs a dedicated depth-only program (`gl_FragDepth` is ignored inside the big TEV shader on Mesa, G-068).  Direct-mode quads now flush at every draw-affecting setter (G-069).  ctest `decomp_efb` |
 | Bump texgen (P-612) | `GX_VA_NBT` keeps binormal/tangent; `GX_TG_BUMP0..7` implements the hardware emboss formula; Giga Koopa renders correctly (green/orange, previously magenta).  Indirect state is captured (P-617 evaluates it in S4).  `--direct` covers both |

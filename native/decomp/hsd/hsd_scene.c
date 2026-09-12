@@ -16,6 +16,7 @@
 
 #include <dolphin/gx.h>
 #include <dolphin/os.h>
+#include <melee/lb/lbspdisplay.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,6 +26,7 @@
 #include <sysdolphin/baselib/displayfunc.h>
 #include <sysdolphin/baselib/dobj.h>
 #include <sysdolphin/baselib/fobj.h>
+#include <sysdolphin/baselib/fog.h>
 #include <sysdolphin/baselib/id.h>
 #include <sysdolphin/baselib/initialize.h>
 #include <sysdolphin/baselib/list.h>
@@ -102,13 +104,14 @@ int hsd_scene_boot(void)
 
 /* --------------------------------------------------------------- load */
 
-int hsd_scene_load(HsdScene* scene, const char* disc, const char* model,
-                   char* error, size_t error_size)
+static int scene_open_archive(HsdScene* scene, const char* disc,
+                              const char* path, char* error,
+                              size_t error_size)
 {
     DiscFile file;
 
     memset(scene, 0, sizeof(*scene));
-    if (disc_load(disc, model, &file, error, error_size) != DISC_OK) {
+    if (disc_load(disc, path, &file, error, error_size) != DISC_OK) {
         return 0; /* caller SKIPs */
     }
     scene->work = (unsigned char*) malloc(file.size);
@@ -119,43 +122,177 @@ int hsd_scene_load(HsdScene* scene, const char* disc, const char* model,
     }
     memcpy(scene->work, file.data, file.size);
     scene->work_size = file.size;
-    snprintf(scene->model, sizeof(scene->model), "%s", model);
+    snprintf(scene->model, sizeof(scene->model), "%s", path);
+    disc_free(&file);
 
     /* HSD_ArchiveParse is the platform wrapper: it converts the buffer in
      * place and then runs the compiled parser. */
-    if (HSD_ArchiveParse(&scene->archive, scene->work, file.size) != 0) {
+    if (HSD_ArchiveParse(&scene->archive, scene->work, scene->work_size) !=
+        0) {
         snprintf(error, error_size, "HSD_ArchiveParse failed");
+        free(scene->work);
+        scene->work = NULL;
+        return -1;
+    }
+    return 1;
+}
+
+int hsd_scene_load(HsdScene* scene, const char* disc, const char* model,
+                   char* error, size_t error_size)
+{
+    int opened = scene_open_archive(scene, disc, model, error, error_size);
+    char* name = NULL;
+    size_t j;
+
+    if (opened <= 0) {
+        return opened;
+    }
+    for (j = 0; j < scene->archive.header.nb_public; ++j) {
+        const char* sym =
+            scene->archive.symbols + scene->archive.public_info[j].symbol;
+        if (strstr(sym, "_joint") != NULL &&
+            strstr(sym, "matanim") == NULL) {
+            name = (char*) sym;
+            break;
+        }
+    }
+    if (name == NULL) {
+        snprintf(error, error_size, "root joint symbol missing");
         goto fail;
     }
-    {
-        char* name = NULL;
-        size_t j;
-        for (j = 0; j < scene->archive.header.nb_public; ++j) {
-            const char* sym =
-                scene->archive.symbols + scene->archive.public_info[j].symbol;
-            if (strstr(sym, "_joint") != NULL &&
-                strstr(sym, "matanim") == NULL) {
-                name = (char*) sym;
-                break;
-            }
-        }
-        if (name == NULL) {
-            snprintf(error, error_size, "root joint symbol missing");
-            goto fail;
-        }
-        scene->root = HSD_JObjLoadJoint(
-            (HSD_Joint*) HSD_ArchiveGetPublicAddress(&scene->archive, name));
-    }
+    scene->root = HSD_JObjLoadJoint(
+        (HSD_Joint*) HSD_ArchiveGetPublicAddress(&scene->archive, name));
     if (scene->root == NULL) {
         snprintf(error, error_size, "HSD_JObjLoadJoint failed");
         goto fail;
     }
     HSD_JObjSetupMatrix(scene->root);
-    disc_free(&file);
     return 1;
 
 fail:
-    disc_free(&file);
+    free(scene->work);
+    scene->work = NULL;
+    return -1;
+}
+
+static int scene_ptr_valid(const HsdScene* scene, const void* p)
+{
+    const unsigned char* base = scene->work;
+    const unsigned char* end = scene->work + scene->work_size;
+    const unsigned char* q = (const unsigned char*) p;
+    return q >= base && q < end;
+}
+
+int hsd_scene_load_stage(HsdScene* scene, const char* disc, const char* stage,
+                         int map_id, char* error, size_t error_size)
+{
+    HsdStageData* data;
+    HsdStageMap* map;
+    int opened = scene_open_archive(scene, disc, stage, error, error_size);
+
+    if (opened <= 0) {
+        return opened;
+    }
+    scene->stage_mode = 1;
+    /* The map_head symbol is the UnkStageDat header (src/melee/gr/types.h);
+     * item `map_id` holds the stage joint tree and the map's own
+     * camera/lights/fog, exactly what Ground_GetStageGObj uses. */
+    data = (HsdStageData*) HSD_ArchiveGetPublicAddress(&scene->archive,
+                                                       "map_head");
+    if (data == NULL || data->maps == NULL || map_id < 0 ||
+        map_id >= data->map_count) {
+        snprintf(error, error_size, "map_head/map %d missing", map_id);
+        goto fail;
+    }
+    map = &data->maps[map_id];
+    scene->stage_map = map;
+    scene->stage_map_count = data->map_count;
+    if (!scene_ptr_valid(scene, map->joint)) {
+        snprintf(error, error_size, "stage map %d has no joint", map_id);
+        goto fail;
+    }
+    scene->root = HSD_JObjLoadJoint(map->joint);
+    if (scene->root == NULL) {
+        snprintf(error, error_size, "stage HSD_JObjLoadJoint failed");
+        goto fail;
+    }
+    HSD_JObjSetupMatrix(scene->root);
+    scene->stage_roots[0] = scene->root;
+    scene->stage_root_count = 1;
+    if (scene_ptr_valid(scene, map->camera)) {
+        scene->stage_cobj =
+            lb_80013B14((HSD_CameraDescPerspective*) map->camera);
+    }
+    if (scene_ptr_valid(scene, map->lights)) {
+        scene->stage_lobj = lb_80011AC4((LightList**) map->lights);
+    }
+    if (scene_ptr_valid(scene, map->fog)) {
+        scene->stage_fog = HSD_FogLoadDesc((HSD_FogDesc*) map->fog);
+    }
+    return 1;
+
+fail:
+    free(scene->work);
+    scene->work = NULL;
+    return -1;
+}
+
+int hsd_scene_load_stage_all(HsdScene* scene, const char* disc,
+                             const char* stage, int camera_map_id,
+                             char* error, size_t error_size)
+{
+    HsdStageData* data;
+    HsdStageMap* camera_map;
+    int i;
+    int opened = scene_open_archive(scene, disc, stage, error, error_size);
+
+    if (opened <= 0) {
+        return opened;
+    }
+    scene->stage_mode = 1;
+    data = (HsdStageData*) HSD_ArchiveGetPublicAddress(&scene->archive,
+                                                       "map_head");
+    if (data == NULL || data->maps == NULL || camera_map_id < 0 ||
+        camera_map_id >= data->map_count) {
+        snprintf(error, error_size, "map_head/map %d missing", camera_map_id);
+        goto fail;
+    }
+    scene->stage_map_count = data->map_count;
+    for (i = 0; i < data->map_count; i++) {
+        HSD_JObj* root;
+        if (!scene_ptr_valid(scene, data->maps[i].joint) ||
+            scene->stage_root_count >=
+                (int) (sizeof(scene->stage_roots) /
+                       sizeof(scene->stage_roots[0]))) {
+            continue;
+        }
+        root = HSD_JObjLoadJoint(data->maps[i].joint);
+        if (root == NULL) {
+            continue;
+        }
+        HSD_JObjSetupMatrix(root);
+        scene->stage_roots[scene->stage_root_count++] = root;
+    }
+    if (scene->stage_root_count == 0) {
+        snprintf(error, error_size, "stage has no joints");
+        goto fail;
+    }
+    scene->root = scene->stage_roots[0];
+    camera_map = &data->maps[camera_map_id];
+    scene->stage_map = camera_map;
+    if (scene_ptr_valid(scene, camera_map->camera)) {
+        scene->stage_cobj =
+            lb_80013B14((HSD_CameraDescPerspective*) camera_map->camera);
+    }
+    if (scene_ptr_valid(scene, camera_map->lights)) {
+        scene->stage_lobj = lb_80011AC4((LightList**) camera_map->lights);
+    }
+    if (scene_ptr_valid(scene, camera_map->fog)) {
+        scene->stage_fog = HSD_FogLoadDesc((HSD_FogDesc*) camera_map->fog);
+    }
+    return 1;
+
+fail:
     free(scene->work);
     scene->work = NULL;
     return -1;
@@ -163,7 +300,17 @@ fail:
 
 void hsd_scene_free(HsdScene* scene)
 {
-    if (scene->root != NULL) {
+    if (scene->stage_root_count > 0) {
+        int i;
+        for (i = 0; i < scene->stage_root_count; i++) {
+            if (scene->stage_roots[i] != NULL) {
+                HSD_JObjUnrefThis(scene->stage_roots[i]);
+            }
+            scene->stage_roots[i] = NULL;
+        }
+        scene->stage_root_count = 0;
+        scene->root = NULL;
+    } else if (scene->root != NULL) {
         HSD_JObjUnrefThis(scene->root);
         scene->root = NULL;
     }

@@ -61,6 +61,30 @@ back/interior edges stay visible (the prototype viewer defaults CULL OFF);
 part isolation is the existing `GxGlOptions.only_draw` / `hide_draw` draw
 filter.
 
+## Stage viewer (P-619)
+
+`--stage GrNBa.dat` switches the viewer to stage mode.  The converter walks
+`Gr*.dat`'s `map_head` public symbol (see `learnings/decomp_assets.md`) and
+`hsd_scene_load_stage` loads the map's `HSD_Joint` plus the map's own
+`HSD_CObj` (`lb_80013B14`), `HSD_LObj` list (`lb_80011AC4`) and `HSD_Fog`
+(`HSD_FogLoadDesc`) exactly like `Ground_GetStageGObj`/`Ground_801C1E94` do.
+A posed fighter (`--fighter`, default `PlMrNr.dat`) loads through the normal
+`Pl*Nr.dat` path with its `ftData` scale/visibility and is placed at the origin
+(Melee model origins are at the feet).
+
+Controls added: `M` toggles model/stage mode, `F` shows/hides the fighter,
+`K` toggles orbit vs the stage's own camera, `,`/`.` cycle `map_head` ids,
+`N`/`P` cycle stages in stage mode.  The HUD shows `STAGE`/`MODEL`, `MAP`,
+`FIGHTER` and `CAMERA` state.
+
+`map_head` ids are per-camera variants (`Ground_GetStageGObj(map_id)`), and
+some ids are empty placeholders (GrNBa map 0) or far background layers
+(GrNBa maps 1..5 are huge).  Without `--stage-map` the viewer picks the map
+with the smallest bounds, which is the playable geometry.
+
+Stage material colors are not yet verified against the real game; P-621 tracks
+that.  The geometry, camera, lights and fog paths are the compiled ones.
+
 ## Known limits
 
 - Bind pose only: animation arrives with the compiled `fobj`/AJ path (S3/S4).

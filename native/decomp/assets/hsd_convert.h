@@ -44,6 +44,7 @@ typedef struct HsdConvertStats {
     unsigned figatrees;
     unsigned robjdescs;
     unsigned scene_descs;
+    unsigned stage_maps;
     unsigned reloc_total;
     unsigned reloc_valid;
     int ok; /* header/tables valid and every relocation target converted */

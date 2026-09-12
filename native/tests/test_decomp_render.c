@@ -25,10 +25,12 @@
 static void usage(const char* argv0)
 {
     fprintf(stderr,
-            "usage: %s [--disc PATH] [--model NAME] [--shot FILE]\n"
-            "          [--width N] [--height N] [--scale F]\n"
-            "          [--angle DEG] [--elevation DEG] [--no-lights]\n"
-            "          [--dump] [--no-scale] [--no-gl] [--direct] [--efb]\n",
+            "usage: %s [--disc PATH] [--model NAME] [--stage NAME]\n"
+            "          [--fighter NAME] [--stage-map N] [--stage-cam]\n"
+            "          [--no-fighter] [--shot FILE] [--width N] [--height N]\n"
+            "          [--scale F] [--angle DEG] [--elevation DEG]\n"
+            "          [--no-lights] [--dump] [--no-scale] [--no-gl]\n"
+            "          [--direct] [--efb]\n",
             argv0);
 }
 
@@ -474,6 +476,7 @@ int main(int argc, char** argv)
     memset(&opt, 0, sizeof(opt));
     opt.disc = RENDER_SCENE_DISC_DEFAULT;
     opt.model = RENDER_SCENE_MODEL_DEFAULT;
+    opt.stage_map = -1; /* all maps */
     opt.width = 640;
     opt.height = 480;
     opt.angle = 25.0f;
@@ -486,6 +489,17 @@ int main(int argc, char** argv)
             opt.disc = argv[++i];
         } else if (strcmp(argv[i], "--model") == 0 && (int) i + 1 < argc) {
             opt.model = argv[++i];
+        } else if (strcmp(argv[i], "--stage") == 0 && (int) i + 1 < argc) {
+            opt.stage = argv[++i];
+        } else if (strcmp(argv[i], "--fighter") == 0 && (int) i + 1 < argc) {
+            opt.fighter = argv[++i];
+        } else if (strcmp(argv[i], "--stage-map") == 0 &&
+                   (int) i + 1 < argc) {
+            opt.stage_map = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--stage-cam") == 0) {
+            opt.stage_camera = 1;
+        } else if (strcmp(argv[i], "--no-fighter") == 0) {
+            opt.no_fighter = 1;
         } else if (strcmp(argv[i], "--shot") == 0 && (int) i + 1 < argc) {
             shot = argv[++i];
         } else if (strcmp(argv[i], "--width") == 0 && (int) i + 1 < argc) {
@@ -553,8 +567,20 @@ int main(int argc, char** argv)
         return 1;
     }
     printf("decomp_render: %s root=%p scale=%.4f hidden_dobjs=%d\n",
-           scene.model, (void*) scene.hsd.root, (double) scene.model_scale,
+           scene.stage_mode ? scene.stage : scene.model,
+           (void*) scene.hsd.root, (double) scene.model_scale,
            scene.hidden_dobjs);
+    if (scene.stage_mode) {
+        printf("stage: %s map=%d root=%p fighter=%s%s scale=%.4f "
+               "camera=%s lights=%s fog=%s\n",
+               scene.stage, scene.stage_map, (void*) scene.hsd.root,
+               scene.have_fighter ? scene.fighter_name : "(none)",
+               scene.have_fighter && scene.show_fighter ? "" : " (hidden)",
+               (double) scene.fighter_scale,
+               scene.hsd.stage_cobj != NULL ? "yes" : "no",
+               scene.hsd.stage_lobj != NULL ? "yes" : "no",
+               scene.hsd.stage_fog != NULL ? "yes" : "no");
+    }
     printf("decomp_render: bounds [%.2f %.2f %.2f] to [%.2f %.2f %.2f]\n",
            scene.bounds_min[0], scene.bounds_min[1], scene.bounds_min[2],
            scene.bounds_max[0], scene.bounds_max[1], scene.bounds_max[2]);

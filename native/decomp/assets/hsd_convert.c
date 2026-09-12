@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 3u
+#define HSD_CONVERTER_VERSION 9u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -51,6 +51,7 @@
 #define HSD_TOBJTEVDESC_SIZE 0x20
 #define HSD_MATERIAL_SIZE 0x14
 #define HSD_ROBJDESC_SIZE 0x0C
+#define HSD_SHAPESETDESC_SIZE 0x1C
 #define HSD_ANIMJOINT_SIZE 0x14
 #define HSD_AOBJDESC_SIZE 0x10
 #define HSD_FOBJDESC_SIZE 0x14
@@ -63,6 +64,7 @@
 
 #define HSD_POBJ_TYPE_MASK 0x3000u
 #define HSD_POBJ_ENVELOPE (2u << 12)
+#define HSD_POBJ_SHAPEANIM (1u << 12)
 
 #define HSD_ROBJ_TYPE_MASK 0x70000000u
 #define HSD_ROBJ_EXP 0x00000000u
@@ -179,9 +181,12 @@ static void conv_figatree(Conv* c, uint32_t off);
 static void conv_wobjdesc(Conv* c, uint32_t off);
 static void conv_cobjdesc(Conv* c, uint32_t off);
 static void conv_lightdesc(Conv* c, uint32_t off);
+static void conv_wobjanim(Conv* c, uint32_t off);
+static void conv_lightanim(Conv* c, uint32_t off);
 static void conv_fogdesc(Conv* c, uint32_t off);
 static void conv_scene_desc(Conv* c, uint32_t off);
 static void conv_static_model(Conv* c, uint32_t off);
+static void conv_stage_maphead(Conv* c, uint32_t off);
 
 static void conv_imagedesc(Conv* c, uint32_t off)
 {
@@ -346,6 +351,30 @@ static void conv_envelopes(Conv* c, uint32_t off)
     }
 }
 
+/* HSD_ShapeSetDesc (pobj.h:89): flags/nb_shape/vertex count + VtxDesc lists.
+ * The vertex/normal index lists are byte arrays and stay big-endian. */
+static void conv_shapesetdesc(Conv* c, uint32_t off)
+{
+    uint32_t vtxdesc;
+    uint32_t nrmdesc;
+
+    if (!in_data(c, off, HSD_SHAPESETDESC_SIZE) || !mark(c, off)) {
+        return;
+    }
+    conv_u16(c, off + 0x00);
+    conv_u16(c, off + 0x02);
+    conv_u32(c, off + 0x04);
+    conv_u32(c, off + 0x10);
+    vtxdesc = rd32(c, off + 0x08);
+    nrmdesc = rd32(c, off + 0x14);
+    if (vtxdesc != 0) {
+        conv_vtxdesc(c, vtxdesc);
+    }
+    if (nrmdesc != 0) {
+        conv_vtxdesc(c, nrmdesc);
+    }
+}
+
 static void conv_pobj(Conv* c, uint32_t off)
 {
     uint32_t next;
@@ -371,6 +400,9 @@ static void conv_pobj(Conv* c, uint32_t off)
     }
     if ((flags & HSD_POBJ_TYPE_MASK) == HSD_POBJ_ENVELOPE && upt != 0) {
         conv_envelopes(c, upt);
+    } else if ((flags & HSD_POBJ_TYPE_MASK) == HSD_POBJ_SHAPEANIM &&
+               upt != 0) {
+        conv_shapesetdesc(c, upt);
     }
 }
 
@@ -533,6 +565,26 @@ static void conv_aobjdesc(Conv* c, uint32_t off)
                 break;
             }
         }
+    }
+}
+
+/* AObjDesc.obj_id is an ID for AnimJoint tracks, but a *JObj offset* for the
+ * WObj/Light animation tracks (`HSD_AObjLoadDesc` falls back to
+ * HSD_JObjLoadJoint when the ID lookup misses).  Convert the referenced joint
+ * tree as well; its MObjs are otherwise left big-endian (GrNLa light anims
+ * crashed there).  Relocation targets are still data-relative offsets at
+ * conversion time (the loader adds the base in `Locate`). */
+static void conv_aobjdesc_ref(Conv* c, uint32_t off)
+{
+    uint32_t obj;
+
+    if (!in_data(c, off, HSD_AOBJDESC_SIZE)) {
+        return;
+    }
+    conv_aobjdesc(c, off);
+    obj = rd32(c, off + 0x0C);
+    if (obj != 0 && in_data(c, obj, HSD_JOINT_SIZE)) {
+        conv_joint(c, obj);
     }
 }
 
@@ -745,6 +797,78 @@ static void conv_lightdesc(Conv* c, uint32_t off)
     { uint32_t next = rd32(c, off + 0x04); if (next != 0) conv_lightdesc(c, next); }
 }
 
+/* HSD_WObjAnim { HSD_AObjDesc* aobjdesc; HSD_RObjAnimJoint* robjanim; } */
+static void conv_wobjanim(Conv* c, uint32_t off)
+{
+    uint32_t aobj;
+    uint32_t robjanim;
+
+    if (!in_data(c, off, 8) || !mark(c, off)) {
+        return;
+    }
+    aobj = rd32(c, off + 0x00);
+    robjanim = rd32(c, off + 0x04);
+    if (aobj != 0) {
+        conv_aobjdesc_ref(c, aobj);
+    }
+    if (robjanim != 0) {
+        conv_robj_anim(c, robjanim);
+    }
+}
+
+/* HSD_LightAnim { next; aobjdesc; position_anim; interest_anim; } — the chain
+ * `lb_80011AC4` feeds to HSD_LObjAddAnimAll for stage/scene light lists. */
+static void conv_lightanim(Conv* c, uint32_t off)
+{
+    uint32_t next;
+    uint32_t aobj;
+    uint32_t position;
+    uint32_t interest;
+
+    if (!in_data(c, off, 0x10) || !mark(c, off)) {
+        return;
+    }
+    next = rd32(c, off + 0x00);
+    aobj = rd32(c, off + 0x04);
+    position = rd32(c, off + 0x08);
+    interest = rd32(c, off + 0x0C);
+    if (aobj != 0) {
+        conv_aobjdesc_ref(c, aobj);
+    }
+    if (position != 0) {
+        conv_wobjanim(c, position);
+    }
+    if (interest != 0) {
+        conv_wobjanim(c, interest);
+    }
+    if (next != 0) {
+        conv_lightanim(c, next);
+    }
+}
+
+/* LightList { HSD_LightDesc* desc; HSD_LightAnim** anims; }; both
+ * lb_80011AC4 (stages/scenes) and the game's light setup read anims[0]. */
+static void conv_lightlist(Conv* c, uint32_t off)
+{
+    uint32_t desc;
+    uint32_t anims;
+
+    if (!in_data(c, off, 8) || !mark(c, off)) {
+        return;
+    }
+    desc = rd32(c, off + 0x00);
+    anims = rd32(c, off + 0x04);
+    if (desc != 0) {
+        conv_lightdesc(c, desc);
+    }
+    if (anims != 0 && in_data(c, anims, 4)) {
+        uint32_t anim = rd32(c, anims);
+        if (anim != 0) {
+            conv_lightanim(c, anim);
+        }
+    }
+}
+
 static void conv_fogdesc(Conv* c, uint32_t off)
 {
     uint32_t adj;
@@ -821,14 +945,10 @@ static void conv_scene_desc(Conv* c, uint32_t off)
         uint32_t p = lights;
         for (guard = 0; guard < 64; guard++) {
             uint32_t list = rd32(c, p);
-            uint32_t desc;
             if (list == 0 || !in_data(c, list, 8)) {
                 break;
             }
-            desc = rd32(c, list);
-            if (desc != 0) {
-                conv_lightdesc(c, desc);
-            }
+            conv_lightlist(c, list);
             p += 4;
         }
     }
@@ -861,6 +981,86 @@ static void conv_static_model(Conv* c, uint32_t off)
     animjoint = rd32(c, off + 0x04);
     if (animjoint != 0) {
         conv_anim_joint(c, animjoint);
+    }
+}
+
+/* Gr*.dat `map_head`: the stage's own descriptor table (src/melee/gr/types.h
+ * UnkStageDat / UnkStageDat_x8_t).  The game loads item 0's`unk0` as the
+ * stage JObj (Ground_GetStageGObj, ground.c:873), item 0's x10 through
+ * lb_80013B14 (camera) and x18 through lb_80011AC4 (lights), and x1C through
+ * HSD_FogLoadDesc (Ground_801C1E94).  Only the numeric fields of each
+ * descriptor are converted here; pointers are relocation targets already in
+ * host order.  MatAnim/ShapeAnim chains are stage animation and stay
+ * big-endian until a consumer needs them. */
+static void conv_stage_maphead(Conv* c, uint32_t off)
+{
+    uint32_t maps;
+    uint32_t count;
+    uint32_t i;
+    int guard;
+
+    if (!in_data(c, off, 0x30) || !mark(c, off)) {
+        return;
+    }
+    c->st.stage_maps++;
+    conv_u32(c, off + 0x04);
+    conv_u32(c, off + 0x0C);
+    conv_u32(c, off + 0x14);
+    conv_u32(c, off + 0x1C);
+    conv_u32(c, off + 0x24);
+    conv_u32(c, off + 0x2C);
+
+    maps = rd32(c, off + 0x08);
+    count = rd32(c, off + 0x0C);
+    if (maps == 0 || count > 256) {
+        return;
+    }
+    for (i = 0; i < count; i++) {
+        uint32_t e = maps + i * 0x34;
+        uint32_t joint;
+        uint32_t arr;
+        uint32_t cam;
+        uint32_t lights;
+        uint32_t fog;
+
+        if (!in_data(c, e, 0x34)) {
+            break;
+        }
+        conv_u32(c, e + 0x24);
+        conv_u32(c, e + 0x30);
+        joint = rd32(c, e + 0x00);
+        if (joint != 0) {
+            conv_joint(c, joint);
+        }
+        arr = rd32(c, e + 0x04);
+        for (guard = 0; guard < 128 && arr != 0; guard++) {
+            uint32_t a = rd32(c, arr + (uint32_t) guard * 4);
+            if (a == 0 || !in_data(c, a, HSD_ANIMJOINT_SIZE)) {
+                break;
+            }
+            conv_anim_joint(c, a);
+        }
+        cam = rd32(c, e + 0x10);
+        if (cam != 0) {
+            conv_cobjdesc(c, cam);
+        }
+        lights = rd32(c, e + 0x18);
+        for (guard = 0; guard < 128 && lights != 0; guard++) {
+            uint32_t p = lights + (uint32_t) guard * 4;
+            uint32_t list;
+            if (!in_data(c, p, 4)) {
+                break;
+            }
+            list = rd32(c, p);
+            if (list == 0 || !in_data(c, list, 8)) {
+                break;
+            }
+            conv_lightlist(c, list);
+        }
+        fog = rd32(c, e + 0x1C);
+        if (fog != 0) {
+            conv_fogdesc(c, fog);
+        }
     }
 }
 
@@ -945,6 +1145,8 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
         } else if (name_ends_with(name, length, "_scene_models")) {
             c->st.roots_unknown++;
             conv_static_model(c, data_off);
+        } else if (length == 8 && memcmp(name, "map_head", 8) == 0) {
+            conv_stage_maphead(c, data_off);
         } else {
             c->st.roots_unknown++;
         }

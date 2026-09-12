@@ -760,3 +760,53 @@ function, and use it for the diffuse, unlit and specular outputs.  Regression:
 the `v->ras[3] == 1.0` check in `test_decomp_render --direct`.  Verified:
 Mario, Kirby, Giga Koopa and Link screenshots are byte-identical; only the two
 hand models change (the connector renders translucent again).
+
+## G-073: `map_head` is a struct, not an archive, and its map ids are camera variants
+
+**Symptom:** `Gr*.dat` loads through the asset sweep but the viewer's stage
+path shows nothing: picking a `_joint` public symbol fails (stage archives have
+none), and parsing the `map_head` symbol data as an HSD archive gives garbage
+publics.
+**Cause:** `Gr*.dat` stages put their geometry in the `map_head` public, which
+is the `UnkStageDat` struct (`src/melee/gr/types.h`): a `maps` array of
+`UnkStageDat_x8_t`, each with a joint tree + anim/matanim/shapeanim + camera +
+light list + fog.  The archive's other publics are textures (`*_image`) and
+stage data (`coll_data`, `map_plit`, ...).
+**Fix:** `conv_stage_maphead` in `hsd_convert.c` (converter version 4) walks
+the struct and the descriptor chains; `hsd_scene_load_stage` loads
+`maps[map_id].joint`.  Note `map_id` is a **camera id**, not a stage id:
+`Ground_GetStageGObj(map_id)` builds one GObj per id, some are empty
+(GrNBa 0) and some are far background layers (GrNBa 1..5).  For display, pick
+the smallest-bounds non-empty map.
+
+## G-074: stage light anims and shape sets need their own converter walks
+
+**Symptom:** cycling stages crashes in `MObjLoad` (GrNLa) or trips
+`pobj.c:842 vertex_buffer_size >= shape_set->nb_vertex_index` (GrNSr); GrPs
+segfaults inside the converter itself.
+**Cause:** three separate gaps.
+1. `LightList.anims[0]` is an `HSD_LightAnim` whose `WObjAnim.aobjdesc.obj_id`
+   is a *JObj offset*, not an animation ID; `HSD_AObjLoadDesc` falls back to
+   `HSD_JObjLoadJoint`.  Nothing walked that joint tree, so its MObjDescs
+   stayed big-endian.
+2. `POBJ_SHAPEANIM` `PObjDesc.u.shape_set` is an `HSD_ShapeSetDesc` (0x1C):
+   its counts and two VtxDesc lists must be converted.
+3. `map_head` placeholder entries use `0xffffffff` sentinels; the light-list
+   walker read through them and went out of bounds.
+**Fix:** `conv_aobjdesc_ref` (AObj → referenced joint), `conv_shapesetdesc`
+(shape set → VtxDesc lists), and range checks on every `LightList`/`anims`
+read.  Converter version 9.  Rule: when a converter walker follows a pointer,
+check `in_data` (and treat `0xffffffff` as invalid) before dereferencing.
+
+## G-075: a Melee stage is *all* `map_head` maps, not one
+
+**Symptom:** the stage viewer showed only the platform or only a background
+layer; the game shows both together.
+**Cause:** `Ground_GetStageGObj(map_id)` is called once per map id by the
+stage callbacks; each id is a separate Ground GObj (foreground platform,
+background layers, sky) rendered in the same scene.  Choosing the "main" map
+by smallest bounds is only for the camera/lights/fog source.
+**Fix:** `hsd_scene_load_stage_all` loads every map joint into
+`HsdScene.stage_roots[]` (bounded at 64), `compute_bounds`/`render_scene_draw`
+iterate them, and the camera map only supplies camera/lights/fog.  `,`/`.`
+still isolates one map (`--stage-map N`) for inspection.

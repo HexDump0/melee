@@ -69,13 +69,27 @@ static void print_status(const Viewer* v)
     printf("[viewer] %s  angle=%.0f elev=%.0f zoom=%.2f  part=%d/%d %s  "
            "slot=%d variant=%d hidden=%s  textures=%s lights=%s wire=%s  "
            "%d draws, %d hidden DObjs\n",
-           v->scene.model, (double) v->scene.angle, (double) v->scene.elevation,
+           v->scene.stage_mode ? v->scene.stage : v->scene.model,
+           (double) v->scene.angle, (double) v->scene.elevation,
            (double) v->scene.zoom, v->part + 1, v->draw_total,
            part_mode_name(v->part_mode), v->scene.vis_slot,
            v->scene.vis_variant, v->scene.show_hidden ? "shown" : "game",
            v->gl.textures ? "on" : "off", v->gl.lighting ? "on" : "off",
            v->gl.wireframe ? "on" : "off", (int) v->draw_total,
            v->scene.hidden_dobjs);
+    if (v->scene.stage_mode && v->scene.have_fighter) {
+        if (v->scene.stage_map < 0) {
+            printf("[viewer] map=ALL(cam %d) fighter=%s%s  camera=%s\n",
+                   v->scene.stage_camera_map, v->scene.fighter_name,
+                   v->scene.show_fighter ? "" : " (hidden)",
+                   v->scene.stage_camera ? "stage" : "orbit");
+        } else {
+            printf("[viewer] map=%d fighter=%s%s  camera=%s\n",
+                   v->scene.stage_map, v->scene.fighter_name,
+                   v->scene.show_fighter ? "" : " (hidden)",
+                   v->scene.stage_camera ? "stage" : "orbit");
+        }
+    }
 }
 
 static void draw_hud(const Viewer* v)
@@ -87,7 +101,9 @@ static void draw_hud(const Viewer* v)
     hud_set_color(0.95f, 0.87f, 0.55f, 1.0f);
     hud_printf(10.0f, 8.0f, 2.0f, "MELEE COMPILED VIEWER - HSD + GX HLE");
     hud_set_color(0.75f, 0.92f, 0.95f, 1.0f);
-    hud_printf(10.0f, 30.0f, 1.5f, "%s", v->scene.model);
+    hud_printf(10.0f, 30.0f, 1.5f, "%s %s",
+               v->scene.stage_mode ? "STAGE" : "MODEL",
+               v->scene.stage_mode ? v->scene.stage : v->scene.model);
     hud_set_color(0.92f, 0.92f, 0.95f, 1.0f);
     hud_printf(10.0f, 50.0f, 1.4f, "PART %d/%d %s", v->part + 1,
                v->draw_total, part_mode_name(v->part_mode));
@@ -102,10 +118,26 @@ static void draw_hud(const Viewer* v)
     hud_printf(10.0f, 104.0f, 1.4f, "ANGLE %.0f ELEV %.0f ZOOM %.2f",
                (double) v->scene.angle, (double) v->scene.elevation,
                (double) v->scene.zoom);
+    if (v->scene.stage_mode) {
+        char mapinfo[24];
+        if (v->scene.stage_map < 0) {
+            snprintf(mapinfo, sizeof(mapinfo), "ALL/CAM%d",
+                     v->scene.stage_camera_map);
+        } else {
+            snprintf(mapinfo, sizeof(mapinfo), "%d", v->scene.stage_map);
+        }
+        hud_set_color(0.95f, 0.8f, 0.7f, 1.0f);
+        hud_printf(10.0f, 122.0f, 1.4f, "MAP %s FIGHTER %s %s  CAMERA %s",
+                   mapinfo,
+                   v->scene.have_fighter ? v->scene.fighter_name : "(none)",
+                   v->scene.show_fighter ? "ON" : "OFF",
+                   v->scene.stage_camera ? "STAGE" : "ORBIT");
+    }
     hud_set_color(0.65f, 0.72f, 0.82f, 1.0f);
     hud_printf(10.0f, (float) v->scene.height - 22.0f, 1.2f,
-               "DRAG ORBIT WHEEL ZOOM N/P MODEL [ ] PART V MODE Y HIDDEN "
-               "L LIGHT T TEX W WIRE C CULL H HUD F12 SHOT R RESET ESC QUIT");
+               "DRAG ORBIT WHEEL ZOOM N/P NEXT , . MAP M MODE F FIGHTER "
+               "K CAMERA [ ] PART V MODE Y HIDDEN L LIGHT T TEX W WIRE "
+               "C CULL H HUD F12 SHOT R RESET ESC QUIT");
     hud_end();
 }
 
@@ -124,6 +156,33 @@ static int handle_key(Viewer* v, const SDL_KeyboardEvent* key,
         if (!render_scene_cycle(&v->scene, code == SDLK_N ? 1 : -1, error,
                                 sizeof(error))) {
             fprintf(stderr, "[viewer] no other model loads: %s\n", error);
+        }
+        v->part = 0;
+        update_part_filter(v);
+        break;
+    }
+    case SDLK_M: {
+        char error[256];
+        if (!render_scene_toggle_mode(&v->scene, error, sizeof(error))) {
+            fprintf(stderr, "[viewer] mode switch failed: %s\n", error);
+        }
+        v->part = 0;
+        update_part_filter(v);
+        break;
+    }
+    case SDLK_F:
+        render_scene_toggle_fighter(&v->scene);
+        break;
+    case SDLK_K:
+        v->scene.stage_camera = !v->scene.stage_camera;
+        v->scene.need_view_update = 1;
+        break;
+    case SDLK_COMMA:
+    case SDLK_PERIOD: {
+        char error[256];
+        if (!render_scene_cycle_map(&v->scene, code == SDLK_PERIOD ? 1 : -1,
+                                    error, sizeof(error))) {
+            fprintf(stderr, "[viewer] no other map loads: %s\n", error);
         }
         v->part = 0;
         update_part_filter(v);
@@ -191,7 +250,9 @@ static int handle_key(Viewer* v, const SDL_KeyboardEvent* key,
 static void usage(const char* argv0)
 {
     fprintf(stderr,
-            "usage: %s [--disc PATH] [--model NAME] [--width N] [--height N]\n"
+            "usage: %s [--disc PATH] [--model NAME] [--stage NAME]\n"
+            "          [--fighter NAME] [--stage-map N] [--stage-cam]\n"
+            "          [--no-fighter] [--width N] [--height N]\n"
             "          [--angle DEG] [--elevation DEG] [--zoom F]\n"
             "          [--frames N] [--shot FILE] [--hidden] [--no-lights]\n"
             "          [--unlit] [--wire] [--no-hud] [--cycle N] [--spin DEG]\n"
@@ -229,6 +290,7 @@ int main(int argc, char** argv)
     opt.elevation = -12.0f;
     opt.zoom = 1.0f;
     opt.scale_override = -1.0f;
+    opt.stage_map = -1; /* all maps (the game's stage layout) */
     v->gl.textures = 1;
     v->gl.lighting = 1;
     v->gl.only_draw = -1;
@@ -240,6 +302,17 @@ int main(int argc, char** argv)
             opt.disc = argv[++i];
         } else if (strcmp(argv[i], "--model") == 0 && (int) i + 1 < argc) {
             opt.model = argv[++i];
+        } else if (strcmp(argv[i], "--stage") == 0 && (int) i + 1 < argc) {
+            opt.stage = argv[++i];
+        } else if (strcmp(argv[i], "--fighter") == 0 && (int) i + 1 < argc) {
+            opt.fighter = argv[++i];
+        } else if (strcmp(argv[i], "--stage-map") == 0 &&
+                   (int) i + 1 < argc) {
+            opt.stage_map = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--stage-cam") == 0) {
+            opt.stage_camera = 1;
+        } else if (strcmp(argv[i], "--no-fighter") == 0) {
+            opt.no_fighter = 1;
         } else if (strcmp(argv[i], "--width") == 0 && (int) i + 1 < argc) {
             width = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--height") == 0 && (int) i + 1 < argc) {
@@ -377,9 +450,9 @@ int main(int argc, char** argv)
             break;
         }
     }
-    printf("viewer: drag=orbit wheel=zoom N/P=model [ ]=part V=mode "
-           "shift+V=variant B=slot Y=hidden L=lights T=textures W=wire "
-           "H=hud F12=shot R=reset ESC=quit\n");
+    printf("viewer: drag=orbit wheel=zoom N/P=next M=mode F=fighter "
+           "K=camera [ ]=part V=mode shift+V=variant B=slot Y=hidden "
+           "L=lights T=textures W=wire H=hud F12=shot R=reset ESC=quit\n");
     update_part_filter(v);
 
     while (!quit) {

@@ -8,6 +8,39 @@ pointers/offsets are handled.
 
 ## S3 implementation notes (2026-09-12, P-609)
 
+### Stage `map_head` (P-619, converter version 4)
+
+`Gr*.dat` has no `_joint` root; its geometry and scene objects live under the
+`map_head` public symbol, which is *not* a nested archive — it is the
+`UnkStageDat` struct from `src/melee/gr/types.h`:
+
+```
++0x00 unk0   +0x04 unk4
++0x08 maps   +0x0C map_count      -> HsdStageMap[map_count] (0x34 each)
++0x10 ...    (spline/gobj lists, not converted; stage logic only)
+UnkStageDat_x8_t (0x34):
++0x00 HSD_Joint*            +0x04 HSD_AnimJoint**
++0x08 HSD_MatAnimJoint**    +0x0C HSD_ShapeAnimJoint**
++0x10 HSD_CameraDescPerspective*   +0x14
++0x18 LightList** (desc+anims, NUL-terminated)  +0x1C HSD_FogDesc*
++0x20 GrJoint* +0x24 count  +0x28 +0x2C +0x30
+```
+
+The converter walk (`conv_stage_maphead`) converts the numeric fields,
+`conv_joint` for every map's joint tree, the anim-joint chain, the camera
+(`conv_cobjdesc`), the light desc chain and the fog.  Light-list animations
+(`LightList.anims[0]` -> `HSD_LightAnim` -> `WObjAnim.aobjdesc`) and
+`POBJ_SHAPEANIM` shape sets (`PObjDesc.u.shape_set`) have their own walks
+(`conv_aobjdesc_ref`, `conv_shapesetdesc`); see G-074.  AObjDesc.obj_id is a
+JObj offset for light/WObj tracks, so `conv_aobjdesc_ref` converts the
+referenced joint tree.
+
+Map ids are the stage's Ground GObjs: `Ground_GetStageGObj(map_id)` runs once
+per id and each is drawn (foreground platform, background/sky layers).  The
+viewer loads them all (`hsd_scene_load_stage_all`) and uses the smallest-bounds
+map as the camera/lights/fog source; `--stage-map N` isolates one layer.
+Placeholder entries use `0xffffffff` sentinels.
+
 The shipped converter is `native/decomp/assets/hsd_convert.c`; this file stays
 the per-structure reference.  Key differences from the §7 recommendation:
 
