@@ -1105,6 +1105,9 @@ consequence, not the cause.
 redefines `__frsqrte(x)` as `1.0 / sqrt((double) x)`.  Keep this in the native
 shim; do not modify the decomp source merely to supply host intrinsic
 semantics.  `decomp_gx_direct` checks `__frsqrte(4) == 0.5`.
+**Correction (P-627):** this fixed the slowdown but not the pose.  The IK still
+received NaN angles because `ftData->x58` was never byte-swapped (G-096); the
+legs only became coherent once that was converted.
 
 ## G-095: 32-bit GCC x87 excess precision can poison quaternion slerp
 
@@ -1122,3 +1125,30 @@ branch.
 preserves the C float/double widths without `-ffloat-store`'s pervasive memory
 traffic and is faster on the supported PC baseline.  `decomp_gx_direct`
 regresses the exact near-identical quaternion pair that exposed the issue.
+
+## G-096: `ftData->x58` leg-IK lengths were never byte-swapped
+
+**Symptom:** Link's legs stayed missing/deformed in the live match even after
+G-094/G-095 removed the sustained NaN slowdown.  At frame 720 the leg draws
+(117–121, 135–139) had entirely non-finite transformed coordinates and the
+`--dump-draws` NDC bounds stayed at the inverted `[1000000000,-1000000000]`
+sentinel.  GDB showed Link parts 6–10 and 12–16 with finite
+rotate/scale/translate but NaN `HSD_JObj.mtx` rotational components, so the
+NaN had been written into the matrices and the finite rotations restored
+without re-dirtying them; the legs simply weren't re-set-up in Wait.
+**Cause:** `ft_80089B08` reads the two-bone leg lengths from
+`((ftData_x58_t*) fp->ft_data->x58)->x4/xC/x18`.  The converter handled the
+`x0/x1/x8/x9/x10/x11` part indices (bytes, no swap needed) but never converted
+the three f32 fields.  The raw big-endian words read little-endian as
+`x4=-490.4`, `xC=-1.01e27`, `x18=7.72e35`; the target position `pos3/pos4`
+exploded to ~1e35, `lbBgFlash_80021410` computed `len_ac` from an overflowing
+square and `acos` of NaN, and `fn_8002113C` wrote NaN rotations for parts
+6–16.  NaN angles were present from frame 190 in every run; only some states
+(e.g. Wait, LandingAirF) left the poisoned matrices dirty-less until render.
+**Fix:** `native/decomp/assets/hsd_convert.c` v58 converts `x58+0x04`,
+`x58+0x0C`, `x58+0x18`; the values now read `2.89 / 3.88 / 1.36` and the IK
+stays finite.  Verified with `--dump-draws 720` (zero non-finite NDC bounds),
+GDB matrix probes over frames 650–720 (all finite) and `--match --frames 1200`
+(no leg draws above 10 ms game time).  Lesson: when adding a loader walk, list
+*every* pointer field's pointee numeric payload — `x58` was the one ftData
+sub-table with no walker.  `ftData->x1C` has the same omission (P-630).

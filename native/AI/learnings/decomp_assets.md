@@ -64,6 +64,13 @@ the per-structure reference.  Key differences from the §7 recommendation:
 - **Sweep evidence.**  `ctest decomp_assets` loads 33 `Pl*Nr.dat` + `GrNBa` +
   `MnSlChr` + `IfAll` + `NtMsgWin` with full reloc coverage; the boot loads
   `NtMsgWin.dat`/`SdMsgBox.usd` and stops at the memory-card/pad wait.
+- **Pointee walks need their own walker.**  A converted pointer field is not a
+  converted payload.  Every `ftData` sub-table was walked except `x58`
+  (`ftData_x58_t`: two `u8` leg-part indices plus three f32 IK lengths), so
+  the raw BE floats reached `ft_80089B08` and made Link's leg IK NaN (P-627,
+  G-096).  When adding or auditing a walk, enumerate every pointer field's
+  numeric pointee; converter v58 adds `x58+4/0xC/0x18`.  `ftData->x1C` is the
+  next known omission (P-630).
 
 ### `.ssm` sound banks (S3 scope: make the compiled loader run)
 

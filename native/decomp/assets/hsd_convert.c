@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 57u
+#define HSD_CONVERTER_VERSION 58u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -2121,6 +2121,19 @@ static void conv_ft_data(Conv* c, uint32_t off)
             for (i = 0; i < 6; i++) {
                 conv_u32(c, x3C + (uint32_t) i * 4);
             }
+        }
+    }
+    /* ftData_x58_t (types.h): the two-bone leg IK chain lengths ft_80089B08
+     * feeds to lbBgFlash_80021410 — { u8 x0, x1; f32 x4; u8 x8, x9; f32 xC;
+     * u8 x10, x11; pad; f32 x18 }.  The bone indices are bytes, but the
+     * three f32 lengths are big-endian on disc; leaving them raw makes Link's
+     * IK target explode and its leg matrices go NaN (P-627). */
+    {
+        uint32_t x58 = rd32(c, off + 0x58);
+        if (x58 != 0 && in_data(c, x58, 0x1C)) {
+            conv_u32(c, x58 + 0x04);
+            conv_u32(c, x58 + 0x0C);
+            conv_u32(c, x58 + 0x18);
         }
     }
     /* ftData->x24 is the WaitStruct array used by ftCo_Wait_Anim /

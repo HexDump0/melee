@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-12 (P-629/P-627: Link pose + NaN transform slowdown fixed; 32-bit FP uses SSE2)
+Last updated: 2026-09-12 (P-629 host-FP slowdown fixed; P-627 Link leg IK fixed by converting `ftData->x58`; converter v58)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -200,7 +200,8 @@ lightmap phases, alpha test, XLU blend) and every fighter is scaled by its
 | Fighter animations loop (P-626) | Walk/run cycles wrap instead of freezing at the clip end: `conv_waitanim_flags` now bit-reverses the top byte of `x10_animCurrFlags` into the low byte, so `x594_b1_loop` reads the console bit and `ftAnim_8006EBE8` sets `AOBJ_LOOP` (converter v57, G-093) |
 | GPU channel evaluation (P-628) | The GX channel/specular lighting now runs in the GL vertex shader (uniforms for 4 channels + 8 lights) instead of per-vertex C: `ctest decomp_render`/`decomp_gx_direct` pass, match-frame RMSE <= 3.4/255 vs the CPU path, spikes 8.5/s -> 3.4/s and worst frame 68 ms -> 26 ms |
 | Match pacing (P-626) | Interactive `--match` no longer fights vsync (it skips the manual 60 Hz delay when the swap already blocked) and re-anchors instead of burst-catching-up after a slow frame; `[match] frame N draws=... render=Xms` reports the per-frame render cost |
-| Host FP fidelity (P-629/P-627) | `native/decomp/shim/placeholder.h` corrects the upstream host fallback from `sqrt(x)` to reciprocal square root for `__frsqrte`; every 32-bit decomp target uses SSE2 scalar FP so `float`/`double` expressions do not retain x87 80-bit intermediates. Link's KO/respawn skeleton stays finite, frame 720 is visually coherent, and sampled game work from frames 600–1200 is 1.4–5.8 ms instead of the old sustained ~29 ms plateau |
+| Host FP fidelity (P-629) | `native/decomp/shim/placeholder.h` corrects the upstream host fallback from `sqrt(x)` to reciprocal square root for `__frsqrte`; every 32-bit decomp target uses SSE2 scalar FP so `float`/`double` expressions do not retain x87 80-bit intermediates. Sampled game work from frames 600–1200 is 1.4–6 ms instead of the old sustained ~29 ms plateau on poisoned NaN matrices. This did **not** by itself fix Link's legs (see P-627) |
+| Link leg IK conversion (P-627) | `native/decomp/assets/hsd_convert.c` v58 now byte-swaps `ftData_x58_t`'s three f32 leg lengths (`x4`, `xC`, `x18`). On disc they are big-endian; the raw words read as `-490 / -1e27 / 7.7e35`, so `ft_80089B08` fed degenerate targets to `lbBgFlash_80021410`, whose `acos` outputs went NaN and poisoned Link's leg JObj matrices (parts 6–10, 12–16). Frame 720 now renders both legs, `--dump-draws 720` has zero non-finite NDC bounds, and frames 600–1200 stay under 10 ms game time |
 
 ## Known issues / gaps
 
