@@ -77,6 +77,10 @@ static GLint u_fog_end;
 static GLint u_fog_color;
 static GLint u_tex_enable;
 static GLint u_ras_flat;
+static GLuint ztex_program;
+static GLint u_ztex_sampler;
+static GLint u_ztex_op_loc;
+static GLint u_ztex_bias_loc;
 static GLint u_tex_lod_bias;
 static GLint u_dst_alpha_enable;
 static GLint u_dst_alpha;
@@ -117,6 +121,21 @@ static const char* VERTEX_SRC =
     "    v_ras0 = a_ras0;\n"
     "    v_ras1 = a_ras1;\n"
     "    v_dist = -a_view.z;\n"
+    "}\n";
+
+static const char* ZTEX_FRAGMENT_SRC =
+    "#version 300 es\n"
+    "precision highp float;\n"
+    "uniform sampler2D u_ztex;\n"
+    "uniform int u_ztex_op;\n"
+    "uniform float u_ztex_bias;\n"
+    "in vec2 v_uv0;\n"
+    "out vec4 frag;\n"
+    "void main() {\n"
+    "    float z = texture(u_ztex, v_uv0).r;\n"
+    "    if (u_ztex_op == 2) gl_FragDepth = clamp(z + u_ztex_bias, 0.0, 1.0);\n"
+    "    else gl_FragDepth = clamp(gl_FragCoord.z + z + u_ztex_bias, 0.0, 1.0);\n"
+    "    frag = vec4(0.0);\n"
     "}\n";
 
 static const char* FRAGMENT_SRC =
@@ -261,6 +280,7 @@ static const char* FRAGMENT_SRC =
     "            vec2 uv = (ord.x == 1) ? v_uv1 : v_uv0;\n"
     "            if (ord.y == 0) tex = texture(u_tex0, uv, u_tex_lod_bias.x);\n"
     "            else if (ord.y == 1) tex = texture(u_tex1, uv, u_tex_lod_bias.y);\n"
+
     "        }\n"
     "        ivec4 sel = u_tev_sel[i];\n"
     "        vec4 ras = (ord.z == 1 || ord.z == 5) ? v_ras1 : v_ras0;\n"
@@ -407,9 +427,36 @@ static int build_program(char* error, size_t error_size)
     u_fog_color = glGetUniformLocation(program, "u_fog_color");
     u_tex_enable = glGetUniformLocation(program, "u_tex_enable");
     u_ras_flat = glGetUniformLocation(program, "u_ras_flat");
+
+
     u_tex_lod_bias = glGetUniformLocation(program, "u_tex_lod_bias");
     u_dst_alpha_enable = glGetUniformLocation(program, "u_dst_alpha_enable");
     u_dst_alpha = glGetUniformLocation(program, "u_dst_alpha");
+
+    /* P-615: the Z-texture pass is a small dedicated program; writing
+     * gl_FragDepth from the big TEV shader is ignored on Mesa/radeonsi. */
+    {
+        GLuint zvs = compile_shader(GL_VERTEX_SHADER, VERTEX_SRC);
+        GLuint zfs = compile_shader(GL_FRAGMENT_SHADER, ZTEX_FRAGMENT_SRC);
+        if (zvs != 0 && zfs != 0) {
+            ztex_program = glCreateProgram();
+            glAttachShader(ztex_program, zvs);
+            glAttachShader(ztex_program, zfs);
+            glLinkProgram(ztex_program);
+            glGetProgramiv(ztex_program, GL_LINK_STATUS, &ok);
+            if (!ok) {
+                char log[2048];
+                glGetProgramInfoLog(ztex_program, sizeof(log), NULL, log);
+                fprintf(stderr, "gx_gl: ztex link failed: %.200s\n", log);
+                ztex_program = 0;
+            }
+            glDeleteShader(zvs);
+            glDeleteShader(zfs);
+            u_ztex_sampler = glGetUniformLocation(ztex_program, "u_ztex");
+            u_ztex_op_loc = glGetUniformLocation(ztex_program, "u_ztex_op");
+            u_ztex_bias_loc = glGetUniformLocation(ztex_program, "u_ztex_bias");
+        }
+    }
     glUseProgram(program);
     glUniform1i(u_tex[0], 0);
     glUniform1i(u_tex[1], 1);
@@ -933,6 +980,117 @@ static void upload_draw_uniforms(const GxHleDrawState* s)
     glUniform1f(u_dst_alpha, (GLfloat) s->dst_alpha / 255.0f);
 }
 
+/* P-615: GXCopyTex.  Reads the EFB colour (scaled to the GL surface) and
+ * re-encodes it into GX tiled texture memory so the existing CPU texture
+ * decoder sees a normal texture. */
+static void efb_copy_tex(const GxHleDraw* d)
+{
+    int src_x;
+    int src_y;
+    int src_w;
+    int src_h;
+    int dst_w;
+    int dst_h;
+    int gl_y;
+    unsigned char* rgba;
+    unsigned char* dest = (unsigned char*) d->copy_dest;
+    int x;
+    int y;
+
+    if (dest == NULL || d->copy_dst_w == 0 || d->copy_dst_h == 0) {
+        return;
+    }
+    src_x = (int) d->copy_left * gl_width / 640;
+    src_y = (int) d->copy_top * gl_height / 480;
+    src_w = (int) d->copy_w * gl_width / 640;
+    src_h = (int) d->copy_h * gl_height / 480;
+    if (src_w < 1) src_w = 1;
+    if (src_h < 1) src_h = 1;
+    if (src_x + src_w > gl_width) src_w = gl_width - src_x;
+    if (src_x < 0) { src_w += src_x; src_x = 0; }
+    if (src_y + src_h > gl_height) src_h = gl_height - src_y;
+    if (src_y < 0) { src_h += src_y; src_y = 0; }
+    if (src_w < 1 || src_h < 1) {
+        return;
+    }
+    dst_w = d->copy_dst_w;
+    dst_h = d->copy_dst_h;
+
+    rgba = (unsigned char*) malloc((size_t) src_w * src_h * 4);
+    if (rgba == NULL) {
+        return;
+    }
+    gl_y = gl_height - src_y - src_h; /* GL origin is bottom-left */
+    glReadPixels(src_x, gl_y, src_w, src_h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+
+    if (d->copy_fmt == GX_TF_RGB565) {
+        memset(dest, d->copy_clear ? 0 : 0, (size_t) dst_w * dst_h * 2);
+        for (y = 0; y < dst_h; ++y) {
+            int sy = y * src_h / dst_h;
+            for (x = 0; x < dst_w; ++x) {
+                int sx = x * src_w / dst_w;
+                /* GL row 0 is the bottom of src_h; flip into GX top-down. */
+                const unsigned char* p =
+                    rgba + (((size_t) (src_h - 1 - sy)) * src_w + sx) * 4;
+                unsigned short v = (unsigned short)
+                    (((p[0] >> 3) << 11) | ((p[1] >> 2) << 5) | (p[2] >> 3));
+                size_t off = ((size_t) (y / 4) * (dst_w / 4) + (x / 4)) * 32 +
+                             (size_t) (y % 4) * 8 + (size_t) (x % 4) * 2;
+                dest[off] = (unsigned char) (v >> 8);
+                dest[off + 1] = (unsigned char) (v & 0xFF);
+            }
+        }
+    } else if (d->copy_fmt == GX_TF_RGBA8) {
+        size_t tiles = (size_t) ((dst_w + 3) / 4) * ((dst_h + 3) / 4);
+        memset(dest, 0, tiles * 64);
+        for (y = 0; y < dst_h; ++y) {
+            int sy = y * src_h / dst_h;
+            for (x = 0; x < dst_w; ++x) {
+                int sx = x * src_w / dst_w;
+                const unsigned char* p =
+                    rgba + (((size_t) (src_h - 1 - sy)) * src_w + sx) * 4;
+                size_t tile = ((size_t) (y / 4) * ((dst_w + 3) / 4) + x / 4);
+                size_t ar = tile * 64 + (size_t) (y % 4) * 4 + (x % 4);
+                size_t gb = tile * 64 + 32 + (size_t) (y % 4) * 8 +
+                            (size_t) (x % 4) * 2;
+                dest[ar * 2 + 0] = p[3];
+                dest[ar * 2 + 1] = p[0];
+                dest[gb] = p[1];
+                dest[gb + 1] = p[2];
+            }
+        }
+    }
+    free(rgba);
+}
+
+/* P-615: depth-only Z-texture pass (GX_ZT_REPLACE/ADD). */
+static void draw_ztex(const GxHleDraw* d, const GxHleDrawState* s,
+                      const GxHleTexture* textures, size_t texture_count)
+{
+    GLuint tex = 0;
+    int i;
+
+    for (i = 0; i < s->num_stages && i < GX_HLE_MAX_STAGES; i++) {
+        int map = s->stages[i].order_map;
+        if (map >= 0 && map < 8) {
+            if (s->texmap[map] >= 0 &&
+                (size_t) s->texmap[map] < texture_count) {
+                tex = texture_for(&textures[s->texmap[map]]);
+            }
+            break;
+        }
+    }
+    glUseProgram(ztex_program);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glUniform1i(u_ztex_sampler, 0);
+    glUniform1i(u_ztex_op_loc, (int) s->ztex_op);
+    glUniform1f(u_ztex_bias_loc, s->ztex_bias);
+    apply_draw_state(s);
+    glDrawArrays(GL_TRIANGLES, (GLint) d->first_vertex,
+                 (GLsizei) d->vertex_count);
+}
+
 int gx_gl_render_frame(void)
 {
     const GxHleVertex* vertices = NULL;
@@ -987,6 +1145,15 @@ int gx_gl_render_frame(void)
         }
         if (gl_options.hide_draw >= 0 &&
             (size_t) gl_options.hide_draw == i) {
+            continue;
+        }
+        if (d->kind == GX_HLE_DRAW_COPY_TEX) {
+            efb_copy_tex(d);
+            continue;
+        }
+        if (d->vertex_count != 0 && s->ztex_op != 0 && ztex_program != 0) {
+            draw_ztex(d, s, textures, texture_count);
+            glUseProgram(program);
             continue;
         }
         GLuint tex1 = 0;

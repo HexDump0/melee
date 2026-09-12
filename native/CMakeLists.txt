@@ -312,6 +312,10 @@ set_tests_properties(decomp_render PROPERTIES
 add_test(NAME decomp_gx_direct COMMAND test_decomp_render --direct)
 set_tests_properties(decomp_gx_direct PROPERTIES
     PASS_REGULAR_EXPRESSION "direct: PASS")
+# P-615: GXCopyTex RGB565 capture + GXSetZTexture depth erase, headless EGL.
+add_test(NAME decomp_efb COMMAND test_decomp_render --efb)
+set_tests_properties(decomp_efb PROPERTIES
+    PASS_REGULAR_EXPRESSION "efb: PASS")
 if(MELEE_SANITIZE)
   target_compile_options(test_decomp_render PRIVATE
       -fsanitize=address,undefined -fno-omit-frame-pointer)

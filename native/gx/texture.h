@@ -21,6 +21,8 @@ enum GxTextureFormat {
     TEX_FMT_CI4 = 8,
     TEX_FMT_CI8 = 9,
     TEX_FMT_CMPR = 14,
+    TEX_FMT_Z8 = 0x11,
+    TEX_FMT_Z24X8 = 0x16,
 };
 
 /* GXTlutFmt values. */

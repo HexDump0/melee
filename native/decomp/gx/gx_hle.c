@@ -67,7 +67,13 @@ static GxHleState gx;
 static GxHleVertex* frame_verts;
 static size_t frame_vcount;
 static size_t frame_vcap;
+static void flush_direct(void);
+
 static GxHleDraw frame_draws[GX_HLE_MAX_DRAWS];
+static unsigned short copy_src_left, copy_src_top, copy_src_w = 640,
+                      copy_src_h = 480;
+static unsigned short copy_dst_w = 640, copy_dst_h = 480;
+static unsigned int copy_dst_fmt = GX_TF_RGBA8;
 static size_t frame_dcount;
 static GxHleTexture frame_textures[GX_HLE_MAX_TEXTURES];
 static size_t frame_tcount;
@@ -907,12 +913,14 @@ void GXGetViewportv(f32* vp)
 
 void GXSetProjection(f32 mtx[4][4], GXProjectionType type)
 {
+    flush_direct();
     memcpy(gx.projection, mtx, sizeof(gx.projection));
     gx.projection_type = (int) type;
 }
 
 void GXSetViewport(f32 left, f32 top, f32 wd, f32 ht, f32 nearz, f32 farz)
 {
+    flush_direct();
     gx.viewport[0] = left;
     gx.viewport[1] = top;
     gx.viewport[2] = wd;
@@ -938,6 +946,7 @@ void GXSetScissor(u32 left, u32 top, u32 wd, u32 ht)
 
 void GXSetCullMode(GXCullMode mode)
 {
+    flush_direct();
     gx.cur.cull_mode = (u8) mode;
 }
 
@@ -945,22 +954,26 @@ void GXSetCoPlanar(GXBool enable) { (void) enable; }
 
 void GXSetColorUpdate(GXBool enable)
 {
+    flush_direct();
     gx.cur.color_update = (u8) enable;
 }
 
 void GXSetAlphaUpdate(GXBool enable)
 {
+    flush_direct();
     gx.cur.alpha_update = (u8) enable;
 }
 
 void GXSetDstAlpha(GXBool enable, u8 alpha)
 {
+    flush_direct();
     gx.cur.dst_alpha_enable = (u8) enable;
     gx.cur.dst_alpha = alpha;
 }
 
 void GXSetZMode(GXBool compare_enable, GXCompare func, GXBool update_enable)
 {
+    flush_direct();
     gx.cur.z_enable = (u8) compare_enable;
     gx.cur.z_func = (u8) func;
     gx.cur.z_update = (u8) update_enable;
@@ -968,12 +981,14 @@ void GXSetZMode(GXBool compare_enable, GXCompare func, GXBool update_enable)
 
 void GXSetZCompLoc(GXBool before_tex)
 {
+    flush_direct();
     gx.cur.z_comp_loc = (u8) before_tex;
 }
 
 void GXSetBlendMode(GXBlendMode type, GXBlendFactor src_factor,
                     GXBlendFactor dst_factor, GXLogicOp op)
 {
+    flush_direct();
     gx.cur.blend_type = (u8) type;
     gx.cur.blend_src = (u8) src_factor;
     gx.cur.blend_dst = (u8) dst_factor;
@@ -983,6 +998,7 @@ void GXSetBlendMode(GXBlendMode type, GXBlendFactor src_factor,
 void GXSetAlphaCompare(GXCompare comp0, u8 ref0, GXAlphaOp op,
                        GXCompare comp1, u8 ref1)
 {
+    flush_direct();
     gx.cur.alpha_comp0 = (u8) comp0;
     gx.cur.alpha_ref0 = ref0;
     gx.cur.alpha_op = (u8) op;
@@ -998,6 +1014,7 @@ void GXSetDither(GXBool dither)
 void GXSetFog(GXFogType type, f32 startz, f32 endz, f32 nearz, f32 farz,
               GXColor color)
 {
+    flush_direct();
     (void) nearz;
     (void) farz;
     gx.cur.fog_enable = type != GX_FOG_NONE;
@@ -1025,6 +1042,7 @@ void GXInitFogAdjTable(GXFogAdjTable* table, u16 width, f32 projmtx[4][4])
 
 void GXSetNumChans(u8 nChans)
 {
+    flush_direct();
     gx.cur.num_chans = nChans;
 }
 
@@ -1032,6 +1050,7 @@ void GXSetChanCtrl(GXChannelID chan, GXBool enable, GXColorSrc amb_src,
                    GXColorSrc mat_src, u32 light_mask, GXDiffuseFn diff_fn,
                    GXAttnFn attn_fn)
 {
+    flush_direct();
     int ch = (chan == GX_COLOR1 || chan == GX_COLOR1A1) ? 1 : 0;
     gx.cur.ch_enable[ch] = (u8) enable;
     gx.cur.ch_amb_src[ch] = (u8) amb_src;
@@ -1043,6 +1062,7 @@ void GXSetChanCtrl(GXChannelID chan, GXBool enable, GXColorSrc amb_src,
 
 void GXSetChanAmbColor(GXChannelID chan, GXColor amb_color)
 {
+    flush_direct();
     int ch = (chan == GX_COLOR1 || chan == GX_COLOR1A1) ? 1 : 0;
     gx.cur.ch_amb[ch][0] = amb_color.r / 255.0f;
     gx.cur.ch_amb[ch][1] = amb_color.g / 255.0f;
@@ -1052,6 +1072,7 @@ void GXSetChanAmbColor(GXChannelID chan, GXColor amb_color)
 
 void GXSetChanMatColor(GXChannelID chan, GXColor mat_color)
 {
+    flush_direct();
     int ch = (chan == GX_COLOR1 || chan == GX_COLOR1A1) ? 1 : 0;
     gx.cur.ch_mat[ch][0] = mat_color.r / 255.0f;
     gx.cur.ch_mat[ch][1] = mat_color.g / 255.0f;
@@ -1061,12 +1082,14 @@ void GXSetChanMatColor(GXChannelID chan, GXColor mat_color)
 
 void GXSetNumTevStages(u8 nStages)
 {
+    flush_direct();
     gx.cur.num_stages = nStages;
 }
 
 void GXSetTevOrder(GXTevStageID stage, GXTexCoordID coord, GXTexMapID map,
                    GXChannelID color)
 {
+    flush_direct();
     GxHleTevStage* s;
     if ((int) stage >= GX_HLE_MAX_STAGES) {
         return;
@@ -1080,6 +1103,7 @@ void GXSetTevOrder(GXTevStageID stage, GXTexCoordID coord, GXTexMapID map,
 void GXSetTevColorIn(GXTevStageID stage, GXTevColorArg a, GXTevColorArg b,
                      GXTevColorArg c, GXTevColorArg d)
 {
+    flush_direct();
     GxHleTevStage* s;
     if ((int) stage >= GX_HLE_MAX_STAGES) {
         return;
@@ -1094,6 +1118,7 @@ void GXSetTevColorIn(GXTevStageID stage, GXTevColorArg a, GXTevColorArg b,
 void GXSetTevAlphaIn(GXTevStageID stage, GXTevAlphaArg a, GXTevAlphaArg b,
                      GXTevAlphaArg c, GXTevAlphaArg d)
 {
+    flush_direct();
     GxHleTevStage* s;
     if ((int) stage >= GX_HLE_MAX_STAGES) {
         return;
@@ -1108,6 +1133,7 @@ void GXSetTevAlphaIn(GXTevStageID stage, GXTevAlphaArg a, GXTevAlphaArg b,
 void GXSetTevColorOp(GXTevStageID stage, GXTevOp op, GXTevBias bias,
                      GXTevScale scale, GXBool clamp, GXTevRegID out_reg)
 {
+    flush_direct();
     GxHleTevStage* s;
     if ((int) stage >= GX_HLE_MAX_STAGES) {
         return;
@@ -1123,6 +1149,7 @@ void GXSetTevColorOp(GXTevStageID stage, GXTevOp op, GXTevBias bias,
 void GXSetTevAlphaOp(GXTevStageID stage, GXTevOp op, GXTevBias bias,
                      GXTevScale scale, GXBool clamp, GXTevRegID out_reg)
 {
+    flush_direct();
     GxHleTevStage* s;
     if ((int) stage >= GX_HLE_MAX_STAGES) {
         return;
@@ -1161,6 +1188,7 @@ void GXSetTevColorS10(GXTevRegID id, GXColorS10 color)
 
 void GXSetTevKColor(GXTevKColorID id, GXColor color)
 {
+    flush_direct();
     int idx = (int) id;
     if (idx < 0 || idx >= 4) {
         return;
@@ -1173,6 +1201,7 @@ void GXSetTevKColor(GXTevKColorID id, GXColor color)
 
 void GXSetTevKColorSel(GXTevStageID stage, GXTevKColorSel sel)
 {
+    flush_direct();
     if ((int) stage >= GX_HLE_MAX_STAGES) {
         return;
     }
@@ -1181,6 +1210,7 @@ void GXSetTevKColorSel(GXTevStageID stage, GXTevKColorSel sel)
 
 void GXSetTevKAlphaSel(GXTevStageID stage, GXTevKAlphaSel sel)
 {
+    flush_direct();
     if ((int) stage >= GX_HLE_MAX_STAGES) {
         return;
     }
@@ -1190,6 +1220,7 @@ void GXSetTevKAlphaSel(GXTevStageID stage, GXTevKAlphaSel sel)
 void GXSetTevSwapMode(GXTevStageID stage, GXTevSwapSel ras_sel,
                       GXTevSwapSel tex_sel)
 {
+    flush_direct();
     if ((int) stage >= GX_HLE_MAX_STAGES) {
         return;
     }
@@ -1201,6 +1232,7 @@ void GXSetTevSwapModeTable(GXTevSwapSel table, GXTevColorChan red,
                            GXTevColorChan green, GXTevColorChan blue,
                            GXTevColorChan alpha)
 {
+    flush_direct();
     if ((int) table < 0 || (int) table >= 4) {
         return;
     }
@@ -1212,6 +1244,7 @@ void GXSetTevSwapModeTable(GXTevSwapSel table, GXTevColorChan red,
 
 void GXSetTevOp(GXTevStageID id, GXTevMode mode)
 {
+    flush_direct();
     GXTevColorArg carg = id == GX_TEVSTAGE0 ? GX_CC_RASC : GX_CC_CPREV;
     GXTevAlphaArg aarg = id == GX_TEVSTAGE0 ? GX_CA_RASA : GX_CA_APREV;
 
@@ -1254,6 +1287,7 @@ void GXSetTevDirect(GXTevStageID tev_stage) { (void) tev_stage; }
 
 void GXSetNumTexGens(u8 nTexGens)
 {
+    flush_direct();
     gx.cur.num_texgens = nTexGens;
 }
 
@@ -1261,6 +1295,7 @@ void GXSetTexCoordGen2(GXTexCoordID dst_coord, GXTexGenType func,
                        GXTexGenSrc src_param, u32 mtx, GXBool normalize,
                        u32 pt_texmtx)
 {
+    flush_direct();
     GxHleTexGen* tg;
     if ((int) dst_coord < 0 || (int) dst_coord > 7) {
         return;
@@ -1275,6 +1310,7 @@ void GXSetTexCoordGen2(GXTexCoordID dst_coord, GXTexGenType func,
 
 void GXLoadPosMtxImm(f32 mtx[3][4], u32 id)
 {
+    flush_direct();
     int idx = (int) id;
     if (idx < 0 || idx + 2 >= 30) {
         idx = 0;
@@ -1290,6 +1326,7 @@ void GXLoadPosMtxIndx(u16 index, u32 id)
 
 void GXLoadNrmMtxImm(f32 mtx[3][4], u32 id)
 {
+    flush_direct();
     int idx = (int) id;
     if (idx < 0 || idx + 2 >= 30) {
         idx = 0;
@@ -1314,6 +1351,7 @@ void GXLoadNrmMtxImm3x3(f32 mtx[3][3], u32 id)
 
 void GXLoadTexMtxImm(f32 mtx[][4], u32 id, GXTexMtxType type)
 {
+    flush_direct();
     int idx = tex_mtx_slot(id);
     (void) type;
     if (idx < 0) {
@@ -1331,11 +1369,13 @@ void GXLoadTexMtxIndx(u16 index, u32 id, GXTexMtxType type)
 
 void GXSetCurrentMtx(u32 id)
 {
+    flush_direct();
     gx.current_mtx = id;
 }
 
 void GXClearVtxDesc(void)
 {
+    flush_direct();
     int i;
     gx.desc_count = 0;
     for (i = 0; i < 32; ++i) {
@@ -1345,6 +1385,7 @@ void GXClearVtxDesc(void)
 
 void GXSetVtxDesc(GXAttr attr, GXAttrType type)
 {
+    flush_direct();
     if ((int) attr >= 32) {
         return;
     }
@@ -1367,6 +1408,7 @@ void GXSetVtxDescv(const GXVtxDescList* list)
 void GXSetVtxAttrFmt(GXVtxFmt vtxfmt, GXAttr attr, GXCompCnt cnt,
                      GXCompType type, u8 frac)
 {
+    flush_direct();
     if ((int) vtxfmt < 0 || (int) vtxfmt >= 8 || (int) attr < 0 ||
         (int) attr >= 32) {
         return;
@@ -1387,6 +1429,7 @@ void GXSetVtxAttrFmtv(GXVtxFmt vtxfmt, const GXVtxAttrFmtList* list)
 
 void GXSetArray(GXAttr attr, const void* base_ptr, u8 stride)
 {
+    flush_direct();
     if ((int) attr < 0 || (int) attr >= 32) {
         return;
     }
@@ -1424,6 +1467,10 @@ static void begin_draw_snapshot(void)
     if (!draw_active && frame_dcount < GX_HLE_MAX_DRAWS) {
         draw_active = 1;
         draw_vertex_start = frame_vcount;
+        /* A recycled slot must not keep the previous frame's copy command
+         * (kind/copy_*), or a primitive lands in the EFB-copy path. */
+        memset(&frame_draws[frame_dcount], 0,
+               sizeof(frame_draws[frame_dcount]));
         frame_draws[frame_dcount].first_vertex = frame_vcount;
         frame_draws[frame_dcount].vertex_count = 0;
         frame_draws[frame_dcount].state = gx.cur;
@@ -1905,13 +1952,15 @@ void GXSetLightObjMtx(GXLightObj* lt_obj, f32 mtx[3][4])
     (void) mtx;
 }
 
-/* ------------------------------------------------------------- no-ops */
+/* ------------------------------------------------- P-615 EFB / Z texture */
 
 void GXSetZTexture(GXZTexOp op, GXTexFmt fmt, u32 bias)
 {
-    (void) op;
-    (void) fmt;
-    (void) bias;
+    flush_direct();
+    gx.cur.ztex_op = (unsigned char) op;
+    gx.cur.ztex_fmt = (unsigned char) fmt;
+    /* bias is a 24-bit fraction of the Z range. */
+    gx.cur.ztex_bias = (float) (bias & 0xFFFFFFu) / 16777215.0f;
 }
 
 u32 GXSetDispCopyYScale(f32 vscale)
@@ -1940,6 +1989,7 @@ void GXSetCopyClamp(GXFBClamp clamp) { (void) clamp; }
 
 void GXSetCopyClear(GXColor clear_clr, u32 clear_z)
 {
+    flush_direct();
     (void) clear_clr;
     (void) clear_z;
 }
@@ -1961,24 +2011,42 @@ void GXCopyDisp(void* dest, GXBool clear)
 
 void GXCopyTex(void* dest, GXBool clear)
 {
-    (void) dest;
-    (void) clear;
+    GxHleDraw* d;
+
+    flush_direct();
+    if (frame_dcount >= GX_HLE_MAX_DRAWS || dest == NULL) {
+        return;
+    }
+    d = &frame_draws[frame_dcount];
+    memset(d, 0, sizeof(*d));
+    d->kind = GX_HLE_DRAW_COPY_TEX;
+    d->state = gx.cur;
+    d->copy_dest = dest;
+    d->copy_left = copy_src_left;
+    d->copy_top = copy_src_top;
+    d->copy_w = copy_src_w;
+    d->copy_h = copy_src_h;
+    d->copy_dst_w = copy_dst_w;
+    d->copy_dst_h = copy_dst_h;
+    d->copy_fmt = copy_dst_fmt;
+    d->copy_clear = (unsigned char) clear;
+    frame_dcount++;
 }
 
 void GXSetTexCopySrc(u16 left, u16 top, u16 wd, u16 ht)
 {
-    (void) left;
-    (void) top;
-    (void) wd;
-    (void) ht;
+    copy_src_left = left;
+    copy_src_top = top;
+    copy_src_w = wd;
+    copy_src_h = ht;
 }
 
 void GXSetTexCopyDst(u16 wd, u16 ht, GXTexFmt fmt, GXBool mipmap)
 {
-    (void) wd;
-    (void) ht;
-    (void) fmt;
     (void) mipmap;
+    copy_dst_w = wd;
+    copy_dst_h = ht;
+    copy_dst_fmt = (unsigned int) fmt;
 }
 
 void GXSetPixelFmt(GXPixelFmt pix_fmt, GXZFmt16 z_fmt)

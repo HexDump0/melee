@@ -165,7 +165,7 @@ int gx_texture_decode(const void* pixels, size_t pixel_length,
     }
     switch (format) {
     case TEX_FMT_I4: bytes_per_block = 32; blocks_x = (size_t)(width + 7) / 8; blocks_y = (size_t)(height + 7) / 8; break;
-    case TEX_FMT_I8: case TEX_FMT_IA4: bytes_per_block = 32; blocks_x = (size_t)(width + 7) / 8; blocks_y = (size_t)(height + 3) / 4; break;
+    case TEX_FMT_I8: case TEX_FMT_IA4: case TEX_FMT_Z8: bytes_per_block = 32; blocks_x = (size_t)(width + 7) / 8; blocks_y = (size_t)(height + 3) / 4; break;
     case TEX_FMT_IA8: case TEX_FMT_RGB565: case TEX_FMT_RGB5A3: bytes_per_block = 32; blocks_x = (size_t)(width + 3) / 4; blocks_y = (size_t)(height + 3) / 4; break;
     case TEX_FMT_RGBA8: bytes_per_block = 64; blocks_x = (size_t)(width + 3) / 4; blocks_y = (size_t)(height + 3) / 4; break;
     case TEX_FMT_CMPR: bytes_per_block = 32; blocks_x = (size_t)(width + 7) / 8; blocks_y = (size_t)(height + 7) / 8; break;
@@ -183,7 +183,7 @@ int gx_texture_decode(const void* pixels, size_t pixel_length,
     memset(*out_rgba, 0, output_size);
     switch (format) {
     case TEX_FMT_I4: decode_i4(pixels, *out_rgba, width, height); break;
-    case TEX_FMT_I8: decode_i8(pixels, *out_rgba, width, height); break;
+    case TEX_FMT_I8: case TEX_FMT_Z8: decode_i8(pixels, *out_rgba, width, height); break;
     case TEX_FMT_IA4: decode_ia4(pixels, *out_rgba, width, height); break;
     case TEX_FMT_IA8: decode_ia8(pixels, *out_rgba, width, height); break;
     case TEX_FMT_RGB565: case TEX_FMT_RGB5A3: decode_16(pixels, *out_rgba, width, height, format); break;

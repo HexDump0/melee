@@ -8,6 +8,7 @@
  *
  * Exit code 0 = rendered (SKIP without a disc image); non-zero = failure.
  */
+#include <GLES3/gl3.h>
 #include <math.h>
 #include <sysdolphin/baselib/state.h>
 #include <dolphin/gx/GXVert.h>
@@ -17,6 +18,7 @@
 
 #include "decomp/gx/gx_gl.h"
 #include "decomp/gx/gx_hle.h"
+#include "gx/texture.h"
 #include "decomp/render/render_scene.h"
 #include "platform/disc.h"
 
@@ -26,7 +28,7 @@ static void usage(const char* argv0)
             "usage: %s [--disc PATH] [--model NAME] [--shot FILE]\n"
             "          [--width N] [--height N] [--scale F]\n"
             "          [--angle DEG] [--elevation DEG] [--no-lights]\n"
-            "          [--dump] [--no-scale] [--no-gl] [--direct]\n",
+            "          [--dump] [--no-scale] [--no-gl] [--direct] [--efb]\n",
             argv0);
 }
 
@@ -158,6 +160,171 @@ static int direct_test(void)
     return !fail;
 }
 
+/*
+ * P-615: synthetic EFB test.  Pass 1 captures a known colour through
+ * GXCopyTex into RGB565 tiled memory; pass 2 writes a far depth through
+ * GXSetZTexture(GX_ZT_REPLACE) and checks that a nearer quad then passes the
+ * depth test (the erase-rect path HSD uses for shadows/XLU sorting).
+ */
+static int efb_test(void)
+{
+    static const float identity[4][4] = { { 1, 0, 0, 0 },
+                                          { 0, 1, 0, 0 },
+                                          { 0, 0, 1, 0 },
+                                          { 0, 0, 0, 1 } };
+    static unsigned char z8_image[32]; /* 4x4 GX_TF_Z8, all far (0xFF) */
+    unsigned char copy[8 * 8 * 2];
+    unsigned char pixel[4] = { 0, 0, 0, 0 };
+    GXTexObj ztex;
+    GXColor red = { 0xFF, 0x00, 0x00, 0xFF };
+    GXColor blue = { 0x00, 0x00, 0xFF, 0xFF };
+    int fail = 0;
+    int texel;
+
+    memset(z8_image, 0xFF, sizeof(z8_image));
+
+    /* ---- pass 1: colour EFB capture through GXCopyTex ---- */
+    gx_hle_begin_frame();
+    GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
+    GXSetNumChans(1);
+    GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX,
+                  GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
+    GXSetNumTexGens(0);
+    GXSetNumTevStages(1);
+    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL,
+                  GX_COLOR0A0);
+    GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+    GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
+    GXSetCullMode(GX_CULL_NONE);
+    GXClearVtxDesc();
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+    GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+    GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+    GXPosition3f32(-1.0f, -1.0f, 0.0f);
+    GXColor4u8(64, 128, 192, 255);
+    GXPosition3f32(1.0f, -1.0f, 0.0f);
+    GXColor4u8(64, 128, 192, 255);
+    GXPosition3f32(1.0f, 1.0f, 0.0f);
+    GXColor4u8(64, 128, 192, 255);
+    GXPosition3f32(-1.0f, 1.0f, 0.0f);
+    GXColor4u8(64, 128, 192, 255);
+    GXSetTexCopySrc(0, 0, 640, 480);
+    GXSetTexCopyDst(8, 8, GX_TF_RGB565, GX_FALSE);
+    memset(copy, 0, sizeof(copy));
+    GXCopyTex(copy, GX_FALSE);
+    if (gx_gl_render_frame() < 0) {
+        printf("efb: FAIL render_frame\n");
+        return 0;
+    }
+    for (texel = 0; texel < 8 * 8; ++texel) {
+        int x = texel % 8;
+        int y = texel / 8;
+        size_t off = ((size_t) (y / 4) * 2 + (size_t) (x / 4)) * 32 +
+                     (size_t) (y % 4) * 8 + (size_t) (x % 4) * 2;
+        unsigned v = ((unsigned) copy[off] << 8) | copy[off + 1];
+        int r = (v >> 11) & 31;
+        int g = (v >> 5) & 63;
+        int b = v & 31;
+        if (abs((r << 3) - 64) > 8 || abs((g << 2) - 128) > 8 ||
+            abs((b << 3) - 192) > 8) {
+            fail = 1;
+            break;
+        }
+    }
+
+    /* ---- pass 2: GXSetZTexture(GX_ZT_REPLACE) erases depth to far ---- */
+    gx_hle_begin_frame();
+    GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
+    GXSetNumChans(1);
+    GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX,
+                  GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
+    GXSetNumTexGens(0);
+    GXSetNumTevStages(1);
+    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL,
+                  GX_COLOR0A0);
+    GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+    GXSetZMode(GX_TRUE, GX_ALWAYS, GX_TRUE);
+    GXSetColorUpdate(GX_TRUE);
+    GXSetCullMode(GX_CULL_NONE);
+    GXClearVtxDesc();
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+    GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+    GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+    GXPosition3f32(-1.0f, -1.0f, 0.2f);
+    GXColor4u8(red.r, red.g, red.b, red.a);
+    GXPosition3f32(1.0f, -1.0f, 0.2f);
+    GXColor4u8(red.r, red.g, red.b, red.a);
+    GXPosition3f32(1.0f, 1.0f, 0.2f);
+    GXColor4u8(red.r, red.g, red.b, red.a);
+    GXPosition3f32(-1.0f, 1.0f, 0.2f);
+    GXColor4u8(red.r, red.g, red.b, red.a);
+
+    /* Erase pass: depth replaced by the Z8 dummy (1.0 = far), colour off. */
+    GXSetNumTexGens(1);
+    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY,
+                      GX_NONE, GX_PTIDENTITY);
+    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
+    GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+    GXInitTexObj(&ztex, z8_image, 4, 4, GX_TF_Z8, GX_REPEAT, GX_REPEAT,
+                 GX_FALSE);
+    GXLoadTexObj(&ztex, GX_TEXMAP0);
+    GXSetZTexture(GX_ZT_REPLACE, GX_TF_Z8, 0);
+    GXSetColorUpdate(GX_FALSE);
+    GXSetZMode(GX_TRUE, GX_ALWAYS, GX_TRUE);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
+    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+    GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+    GXPosition3f32(-1.0f, -1.0f, 0.1f);
+    GXColor4u8(0, 0, 0, 0);
+    GXTexCoord2f32(0.0f, 0.0f);
+    GXPosition3f32(1.0f, -1.0f, 0.1f);
+    GXColor4u8(0, 0, 0, 0);
+    GXTexCoord2f32(1.0f, 0.0f);
+    GXPosition3f32(1.0f, 1.0f, 0.1f);
+    GXColor4u8(0, 0, 0, 0);
+    GXTexCoord2f32(1.0f, 1.0f);
+    GXPosition3f32(-1.0f, 1.0f, 0.1f);
+    GXColor4u8(0, 0, 0, 0);
+    GXTexCoord2f32(0.0f, 1.0f);
+    GXSetZTexture(GX_ZT_DISABLE, GX_TF_Z8, 0);
+    GXSetColorUpdate(GX_TRUE);
+
+    /* Nearby quad at z=0.5 with LESS: passes only if the erase set far. */
+    GXSetNumTexGens(0);
+    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL,
+                  GX_COLOR0A0);
+    GXClearVtxDesc();
+    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+    GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+    GXSetZMode(GX_TRUE, GX_LESS, GX_TRUE);
+    GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+    GXPosition3f32(-1.0f, -1.0f, 0.5f);
+    GXColor4u8(blue.r, blue.g, blue.b, blue.a);
+    GXPosition3f32(1.0f, -1.0f, 0.5f);
+    GXColor4u8(blue.r, blue.g, blue.b, blue.a);
+    GXPosition3f32(1.0f, 1.0f, 0.5f);
+    GXColor4u8(blue.r, blue.g, blue.b, blue.a);
+    GXPosition3f32(-1.0f, 1.0f, 0.5f);
+    GXColor4u8(blue.r, blue.g, blue.b, blue.a);
+    if (gx_gl_render_frame() < 0) {
+        printf("efb: FAIL render_frame (ZT)\n");
+        return 0;
+    }
+    glReadPixels(320, 240, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+    if (!(pixel[2] > 200 && pixel[0] < 60)) {
+        printf("efb: FAIL center=%u,%u,%u (want blue)\n", pixel[0], pixel[1],
+               pixel[2]);
+        fail = 1;
+    }
+
+    printf("efb: %s\n", fail ? "FAIL" : "PASS");
+    return !fail;
+}
+
 int main(int argc, char** argv)
 {
     RenderSceneOptions opt;
@@ -168,6 +335,7 @@ int main(int argc, char** argv)
     int no_gl = 0;
     const char* dump_world = NULL;
     int direct = 0;
+    int efb = 0;
     int rendered;
     int loaded;
     size_t i;
@@ -219,6 +387,8 @@ int main(int argc, char** argv)
             no_gl = 1;
         } else if (strcmp(argv[i], "--direct") == 0) {
             direct = 1;
+        } else if (strcmp(argv[i], "--efb") == 0) {
+            efb = 1;
         } else if (strcmp(argv[i], "--help") == 0) {
             usage(argv[0]);
             return 0;
@@ -231,6 +401,17 @@ int main(int argc, char** argv)
 
     if (direct) {
         return direct_test() ? 0 : 1;
+    }
+    if (efb) {
+        if (!gx_gl_init(640, 480, error, sizeof(error))) {
+            printf("efb: SKIP (no GL: %s)\n", error);
+            return 0;
+        }
+        {
+            int ok = efb_test();
+            gx_gl_shutdown();
+            return ok ? 0 : 1;
+        }
     }
 
     if (!render_scene_boot()) {
