@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-12 (S3 complete; DVD/ARAM/DevCom + host-endian converter; P-616 eye follow-up)
+Last updated: 2026-09-12 (S3 complete; P-615/P-612 renderer work landed; P-616 open)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -153,6 +153,8 @@ lightmap phases, alpha test, XLU blend) and every fighter is scaled by its
 | Asset sweep (S3) | `test_decomp_assets` (ctest `decomp_assets`): 33/33 `Pl*Nr.dat` + `GrNBa.dat` + `MnSlChr.dat` + `IfAll.dat` + `NtMsgWin.dat` parse, pose and convert with 0 desyncs |
 | Common scene assets (S3) | `NtMsgWin.dat` `SceneDesc` camera/light/fog + CObj descriptors convert; the boot loads the scene camera and only then waits for pad input |
 | Sanitizers (S3) | 32-bit ASan/UBSan: `test_decomp_assets` PASS and `melee_decomp_boot` clean with 0 sanitizer errors; fixed a DVD-cancel write into a dead stack frame (G-063) and the `.ssm` overlapping copy (PORT_PC memmove, G-064) |
+| EFB capture + Z-texture (P-615) | `GXCopyTex` reads the EFB back at its point in the command stream and re-encodes RGB565/RGBA8 tiled memory; `GXSetZTexture(REPLACE/ADD)` runs a dedicated depth-only program (`gl_FragDepth` is ignored inside the big TEV shader on Mesa, G-068).  Direct-mode quads now flush at every draw-affecting setter (G-069).  ctest `decomp_efb` |
+| Bump texgen (P-612) | `GX_VA_NBT` keeps binormal/tangent; `GX_TG_BUMP0..7` implements the hardware emboss formula; Giga Koopa renders correctly (green/orange, previously magenta).  Indirect state is captured (P-617 evaluates it in S4).  `--direct` covers both |
 | Owner visual checks | 180 Hz viewer animation speed confirmed correct; face texture artifact gone (2026-09-11) |
 
 ## Known issues / gaps
@@ -176,21 +178,16 @@ Ordered by impact.
    recognisable, but a few thin edge-on pieces remain (x=0, y 13.6..21.9) that
    in-game are hidden through animation/joint state the port does not evaluate
    yet. P-201/P-412.
-4. **TEV partially ported.** The common `MObjMakeTExp`/`TObjMakeTExp` path is
-   in (material/RAS initial stage, colormap/alphamap, `RENDER_DIFFUSE`,
-   specular phase with specular-lightmap textures, alpha-test/blend/Z,
-   TEX0+TEX1), but the actual **light values** are still the viewer's
-   stand-in set: in-game they come from `HSD_LObj` objects created by stage
-   code (`src/melee/gr/*`), so `lobj.c` + stage light lists are the next step.
-   `HSD_TObjTev` active overrides and toon textures are unhandled (inactive /
-   stage-only in the tested fighter archives). See
-   `learnings/hsd_tev_materials.md`. Still P-204. **S2 update:** the compiled
-   path now evaluates the captured GX TEV state generically (up to 8 stages,
-   swap tables, full KONST selects, alpha test, scissor/dst-alpha and per-TObj
-   LOD) and the channel-1 specular uses the hardware attenuation function in
-   `native/decomp/gx/gx_hle.c`; the remaining TEV gaps are indirect/bump/toon
-   texturing (P-612) and the Z-texture/EFB effects (P-615).  Fog from
-   `HSD_FogDesc`/`GXSetFog` is evaluated.
+4. **TEV mostly ported.** The compiled path evaluates the captured GX TEV
+   state generically (up to 8 stages, swap tables, full KONST selects,
+   alpha test, scissor/dst-alpha and per-TObj LOD), the channel-1 specular
+   uses the hardware attenuation function, `GX_TG_BUMPn` emboss is faithful
+   (Giga Koopa fixed) and the Z-texture/EFB effects are in (P-615).  The
+   remaining gaps are the **indirect-texture shader evaluation** (state is
+   captured; only stage refraction uses it) and **toon ramps** — both filed
+   as P-617 and only verifiable once S4 renders stages.  Stage light lists
+   (`src/melee/gr/*`) still supersede the viewer's stand-in lights at S4.
+   See `learnings/hsd_tev_materials.md` and `decomp_s2_gx_hle.md`.
 5. **No audio, menus, items, stages, results, netplay, WASM.** Audio is S5;
    the S3 data path (DVD/DevCom/ARQ, `.ssm` header/record conversion) is in
    place but `AXDriver_*`/AX are still stubs.

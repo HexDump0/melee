@@ -676,3 +676,44 @@ previous converter, so the new walkers never ran.
 **Fix:** bump `HSD_CONVERTER_VERSION` in `hsd_convert.c` with every conversion
 change (or set `MELEE_NO_ASSET_CACHE=1` while debugging).  A stale cache is
 otherwise invisible: same hash, older semantics.
+
+## G-068: `gl_FragDepth` is ignored inside the big TEV program (Mesa/radeonsi)
+
+**Symptom:** `GXSetZTexture(GX_ZT_REPLACE)` wrote the right uniforms and the
+fragment shader executed (verified with a debug color), but the depth buffer
+never changed: a nearer quad with `GX_LESS` kept failing.
+**Cause:** on Mesa 26.1.6 / radeonsi (GLES 3.2), writing `gl_FragDepth` from
+the large multi-stage TEV fragment shader has no effect (a minimal shader
+writing `gl_FragDepth` in the same EGL context works).  Not a spec violation
+we could pin down; likely a driver shader-compiler interaction with the big
+program.
+**Fix:** run the Z-texture pass with a small dedicated depth-only program
+(`ZTEX_FRAGMENT_SRC` in `gx_gl.c`): sample the bound texture, write
+`gl_FragDepth`, discard color.  `gx_gl` switches programs for
+`state.ztex_op != 0`.
+
+## G-069: direct-mode vertices must be flushed before any draw-state change
+
+**Symptom:** HSD's `HSD_EraseRect` (`GXBegin`/`GXEnd` with no following vertex
+command) would have been decoded with whatever descriptors/state happened to
+be current at the next flush; the P-615 test's erase quad was decoded with the
+next quad's descriptors and lost its TEX0 bytes.
+**Cause:** the GXVert shim cannot flush on `GXEnd` (it is an empty inline in
+the SDK's `GXGeometry.h`), so the HLE flushed lazily at the next `GXBegin`/
+`GXCallDisplayList`.  By then `gx.cur` may already hold the next draw's state.
+**Fix:** every draw-affecting GX setter (`GXSetVtxDesc`, `GXSetVtxAttrFmt`,
+`GXClearVtxDesc`, `GXSetArray`, `GXSetTev*`, `GXSetChan*`, `GXSetZ*`,
+`GXSetBlendMode`, `GXSetAlpha*`, `GXSetCullMode`, `GXSetProjection`,
+`GXLoad*MtxImm`, `GXSetCurrentMtx`, `GXSetFog`, `GXSetCopyClear`) calls
+`flush_direct()` *before* mutating state, so the pending primitive decodes and
+snapshots with the state it was written under.
+
+## G-070: recycled `frame_draws[]` slots keep the previous frame's command kind
+
+**Symptom:** after `GXCopyTex` ran in one frame, a primitive in the next frame
+was swallowed by the EFB-copy path (`kind == GX_HLE_DRAW_COPY_TEX`), so it
+never rendered or appeared in the uploads.
+**Cause:** `gx_hle_begin_frame` resets `frame_dcount`, and
+`begin_draw_snapshot` overwrote only `first_vertex`/`vertex_count`/`state`,
+leaving `kind`/`copy_*` from the recycled slot.
+**Fix:** `memset` the whole `GxHleDraw` at snapshot time before filling it.

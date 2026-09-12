@@ -28,9 +28,8 @@ Status values: `open`, `claimed`, `blocked`, `review`, `done`, `parked`
 
 | ID | Task | Status | Agent | Files | Notes / acceptance |
 |---|---|---|---|---|---|
-| P-615 | Z-texture and EFB copy/read (`GXSetZTexture`, `GXCopyTex`, `GXCopyDisp`) | open | — | `native/decomp/gx/gx_hle.c`, `gx_gl.c` | Stubbed today; HSD's shadow, pause-erase (`displayfunc.c:_HSD_EraseRect`) and refraction (`lb/lbrefract.c`) passes need them. S4 dependency, not a character-render blocker. |
-| P-616 | Captain Falcon (`PlCaNr.dat`) eyes do not render | open | — | `native/decomp/gx/`, `native/decomp/assets/hsd_convert.c` | Confirmed against the prototype 2026-09-12: the prototype shows white eyes under the visor, the compiled path shows a dark band. Not visibility (`MELEE_NO_VIS` diagnostic) and not alpha test (`--no-alpha-test`). The P-609 converter fixed the helmet material (red + emblem now matches); the eye mesh is either drawn black or not emitted. Evidence: `/tmp/opencode/ca-new.png` vs the prototype viewer screenshot in the S3 handoff. |
-| P-612 | GX HLE polish: indirect/bump/toon texturing | open | — | `native/decomp/gx/gx_hle.c`, `gx_gl.c` | **Partial:** >4 TEV stages (limit 8, G-059), texture LOD bias/anisotropy/min-max LOD, scissor (EFB-scaled), dst-alpha and the NBT 9-component stream (G-062) landed, plus the missing `HSD_VIData` render-mode init the scissor exposed (G-061). Remaining: indirect texturing (only `lb/lbrefract.c`) and faithful `GX_TG_BUMPn` emboss (characters use it: Giga Koopa coord 2; the current pass-through is what makes its TEV add/sub cancel and needs NBT tangents for a real bump). Not blocking the viewer/S4. |
+| P-616 | Captain Falcon (`PlCaNr.dat`) eyes do not render | open | — | `native/decomp/gx/`, `native/decomp/assets/hsd_convert.c` | Confirmed against the prototype 2026-09-12: the prototype shows white eyes under the visor, the compiled path shows a dark band. Ruled out: visibility (`MELEE_NO_VIS`), culling (`--no-cull`), alpha test (`--no-alpha-test`), and the TEV KONST tables (P-614 was correct; a reg/comp "fix" was a no-op and reverted). Narrowed to **batch 96 / dobj 77** (`PlCaNr.dat`, the only 2-TObj material: TEX0=tex49 face, TEX1=tex51 eye overlay), which renders via the standard 4-stage template (stage2 map=1 coord=1, `cin=C2,TEXC,KONST,ZERO`, `kc_sel=0x1D`=K1_A=1.0) that bodies use successfully for specular maps. The overlay geometry is drawn (visible in wireframe) but its result is black. Next: trace the stage-2 texture sample for that draw (bind the same texture via a TEXMAP_NULL variant, or dump `C2`/`CPREV`); compare with a Dolphin capture. Evidence: handoff 2026-09-12-P-615-P-612 and `logs/`. |
+| P-617 | Indirect-texture shader evaluation + toon ramp evaluation (GX HLE) | open | — | `native/decomp/gx/gx_gl.c` | **S4-only.** `GXSetTevIndirect`/`GXSetIndTex*` state is captured per draw (P-612); the GLES fragment path does not yet apply the indirect offsets. Only `lb/lbrefract.c` (stage refraction) uses it, so it cannot be validated until S4 runs a stage. Toon (`GX_TG_SRTG`) currently passes the source value through; stage-only content. |
 | P-601 | Full-tree GCC compile census + shim hardening (S0) | done | opencode (deepseek-flash), 2026-09-11 | `native/decomp/shim/`, `native/AI/learnings/decomp_port.md` | Done: 1021/1034 `src/*.c` compile; shims for `ssize_t`/`intptr_t`, GameCube `STATIC_ASSERT`, and `bool`=`int` callbacks. See Completed. |
 | P-602 | Probe: decomp `HSD_ArchiveParse` on a real `PlMrNr.dat` (S0a) | done | opencode (deepseek-flash), 2026-09-11 | `native/decomp/`, `native/CMakeLists.txt`, `native/tests/` | Done: 2/2 public symbols and offsets match the hand parser. See Completed. |
 | P-603 | Probe: decomp `HSD_JObjLoadJoint` bind-pose parity (S0b) | done | opencode (deepseek-flash), 2026-09-11 | `native/decomp/`, `native/tests/`, `native/AI/learnings/decomp_port.md` | Done: 61/61 joints loaded and world matrices bitwise-equal to the hand pose math. **S0 gate passed.** See Completed. |
@@ -68,9 +67,10 @@ waits for its first sound-bank load. Ordered by what unblocks the boot:
 1. **S2 — GX + VI HLE** (DONE 2026-09-12, P-606). The GX command surface is
    real in `native/decomp/gx/gx_hle.c`; the boot log now shows 94 stub calls /
    33 unique (GX no longer triaged). S2 follow-ups P-607/P-608/P-610 are done;
-   P-613 (faithful specular) and P-614 (TEV KONST) landed; P-612 is down to
-   indirect/bump/toon texturing and P-615 (Z-texture/EFB copy-read for S4
-   shadow/erase/refraction) is filed as non-blocking polish.
+   P-613 (faithful specular), P-614 (TEV KONST), P-612 (bump emboss +
+   indirect state capture) and P-615 (Z-texture/EFB copy-read) landed;
+   P-617 carries the S4-only indirect/toon shader evaluation, and P-616
+   (Captain Falcon eyes) is an open render bug.
 2. **S3 — DVD + HSD DevCom/ARQ**. `DVDConvertPathToEntrynum`/open/read and
    synchronous `ARQPostRequest` callbacks so `HSD_DevComRequest` can finish
    asset loads. Seed: `native/platform/disc.c`.
@@ -101,6 +101,8 @@ compiled render in S2/S4 instead.
 | ID | Task | Agent | Commit | Date |
 |---|---|---|---|---|
 | P-609 | S3: host-endian asset pipeline + DVD/ARQ completion | opencode (deepseek-flash) | d4fc2f9b3, ec408b535, 297921685, 37b718104 | 2026-09-12 |
+| P-615 | Z-texture and EFB copy/read (`GXSetZTexture`, `GXCopyTex`, `GXCopyDisp`) | opencode (deepseek-flash) | 2b2fd837a | 2026-09-12 |
+| P-612 | GX HLE polish: faithful `GX_TG_BUMPn` emboss + indirect state capture | opencode (deepseek-flash) | 8f5396cac | 2026-09-12 |
 | P-614 | TEV KONST parity: full KCSEL/KASEL select tables (scalar fractions, K0..K3, per-channel K?_R/G/B/A) in the fragment shader | opencode (deepseek-flash) | 7139e2762 | 2026-09-12 |
 | P-613 | Faithful GX specular: hardware attenuation function `dot(a,(1,t,t^2))/dot(k,(1,t,t^2))` with H from the spec light object, replacing Blinn-Phong | opencode (deepseek-flash) | 7139e2762 | 2026-09-12 |
 | P-608 | Direct-mode GX capture: `native/decomp/shim/dolphin/gx/GXVert.h` shadows the SDK header and routes the inline `GXPosition*`/`GXColor*`/`GXTexCoord*` writers to `GXPortWGFifo*`; `GXBegin` starts a draw snapshot and the big-endian capture is decoded by the display-list path at the next command/frame boundary. Regression `ctest decomp_gx_direct` (`test_decomp_render --direct`) | opencode (deepseek-flash) | ed606344f | 2026-09-12 |
