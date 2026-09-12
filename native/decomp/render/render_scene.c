@@ -875,8 +875,9 @@ void render_scene_freecam_move(RenderScene* scene, float forward,
     float fx = cp * sinf(yaw);
     float fy = sinf(pitch);
     float fz = cp * cosf(yaw);
-    float rx = cosf(yaw);
-    float rz = -sinf(yaw);
+    /* right = forward x up */
+    float rx = -cosf(yaw);
+    float rz = sinf(yaw);
 
     scene->free_pos[0] += (fx * forward + rx * strafe) * speed;
     scene->free_pos[1] += (fy * forward + vertical) * speed;
