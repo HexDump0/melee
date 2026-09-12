@@ -100,8 +100,8 @@ compiled render in S2/S4 instead.
 
 | ID | Task | Agent | Commit | Date |
 |---|---|---|---|---|
-| P-614 | TEV KONST parity: full KCSEL/KASEL select tables (scalar fractions, K0..K3, per-channel K?_R/G/B/A) in the fragment shader | opencode (deepseek-flash) | pending | 2026-09-12 |
-| P-613 | Faithful GX specular: hardware attenuation function `dot(a,(1,t,t^2))/dot(k,(1,t,t^2))` with H from the spec light object, replacing Blinn-Phong | opencode (deepseek-flash) | pending | 2026-09-12 |
+| P-614 | TEV KONST parity: full KCSEL/KASEL select tables (scalar fractions, K0..K3, per-channel K?_R/G/B/A) in the fragment shader | opencode (deepseek-flash) | 7139e2762 | 2026-09-12 |
+| P-613 | Faithful GX specular: hardware attenuation function `dot(a,(1,t,t^2))/dot(k,(1,t,t^2))` with H from the spec light object, replacing Blinn-Phong | opencode (deepseek-flash) | 7139e2762 | 2026-09-12 |
 | P-608 | Direct-mode GX capture: `native/decomp/shim/dolphin/gx/GXVert.h` shadows the SDK header and routes the inline `GXPosition*`/`GXColor*`/`GXTexCoord*` writers to `GXPortWGFifo*`; `GXBegin` starts a draw snapshot and the big-endian capture is decoded by the display-list path at the next command/frame boundary. Regression `ctest decomp_gx_direct` (`test_decomp_render --direct`) | opencode (deepseek-flash) | ed606344f | 2026-09-12 |
 | P-610 | POBJ_SKIN shared-vertex gaps: Falcon silver fixed by the P-607 `out_reg` fix; Giga Koopa limb noise fixed by folding `GX_TG_TEXCOORDn` texgen chains onto the 0/1 UV varyings (G-058); Bowser's magenta prototype look confirmed parity (2-texture archive) | opencode (deepseek-flash) | 347bf81f6 | 2026-09-12 |
 | P-607 | GX specular/material parity: boots brown, Luigi/Link correct — fixed by emulating TEV `out_reg` (register writes keep the previous-stage chain) and invalidating HSD's GX caches when the backend resets; overall prototype RMSE 10.57/255. The hardware specular polynomial is still approximated by the prototype's Blinn-Phong (documented) | opencode (deepseek-flash) | e773eff93 | 2026-09-12 |
