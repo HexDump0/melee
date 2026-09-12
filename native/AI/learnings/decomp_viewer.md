@@ -44,7 +44,8 @@ toggles.
 
 ## Controls
 
-drag = orbit, wheel = zoom, `N`/`P` = next/prev `Pl*Nr.dat`, `[`/`]` = part,
+drag = orbit (or freecam look), wheel = zoom, `G` = freecam (WASD + Q/E fly,
+shift = fast), `N`/`P` = next/prev `Pl*Nr.dat`, `[`/`]` = part,
 `V` = part mode (ALL/ONLY/HIDE), `shift+V` = variant, `B` = visibility slot,
 `Y` = show game-hidden DObjs, `L` = lights, `T` = textures, `W` = wireframe,
 `C` = cull (default on; wireframe forces it off), `H` = HUD, `F12` =

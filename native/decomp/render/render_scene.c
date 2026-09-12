@@ -508,7 +508,21 @@ void render_scene_update_view(RenderScene* scene)
     if (scene->cobj == NULL || scene->width <= 0 || scene->height <= 0) {
         return;
     }
-    frame_camera(scene, eye, target, &znear, &zfar);
+    if (scene->free_cam) {
+        float yaw = scene->free_yaw * (float) M_PI / 180.0f;
+        float pitch = scene->free_pitch * (float) M_PI / 180.0f;
+        float cp = cosf(pitch);
+        eye[0] = scene->free_pos[0];
+        eye[1] = scene->free_pos[1];
+        eye[2] = scene->free_pos[2];
+        target[0] = eye[0] + cp * sinf(yaw);
+        target[1] = eye[1] + sinf(pitch);
+        target[2] = eye[2] + cp * cosf(yaw);
+        znear = 0.5f;
+        zfar = 30000.0f;
+    } else {
+        frame_camera(scene, eye, target, &znear, &zfar);
+    }
     HSD_CObjSetEyePosition(scene->cobj, (Vec3*) eye);
     HSD_CObjSetInterest(scene->cobj, (Vec3*) target);
     {
@@ -819,6 +833,55 @@ int render_scene_toggle_mode(RenderScene* scene, char* error,
     }
     scene->need_view_update = 1;
     return 1;
+}
+
+void render_scene_set_free_cam(RenderScene* scene, int on)
+{
+    if (on && !scene->free_cam) {
+        float eye[3];
+        float target[3];
+        float znear;
+        float zfar;
+        frame_camera(scene, eye, target, &znear, &zfar);
+        scene->free_pos[0] = eye[0];
+        scene->free_pos[1] = eye[1];
+        scene->free_pos[2] = eye[2];
+        scene->free_yaw = scene->angle;
+        scene->free_pitch = -scene->elevation;
+    }
+    scene->free_cam = on;
+    scene->need_view_update = 1;
+}
+
+void render_scene_freecam_look(RenderScene* scene, float dyaw, float dpitch)
+{
+    scene->free_yaw -= dyaw;
+    scene->free_pitch += dpitch;
+    if (scene->free_pitch > 89.0f) {
+        scene->free_pitch = 89.0f;
+    }
+    if (scene->free_pitch < -89.0f) {
+        scene->free_pitch = -89.0f;
+    }
+    scene->need_view_update = 1;
+}
+
+void render_scene_freecam_move(RenderScene* scene, float forward,
+                               float strafe, float vertical, float speed)
+{
+    float yaw = scene->free_yaw * (float) M_PI / 180.0f;
+    float pitch = scene->free_pitch * (float) M_PI / 180.0f;
+    float cp = cosf(pitch);
+    float fx = cp * sinf(yaw);
+    float fy = sinf(pitch);
+    float fz = cp * cosf(yaw);
+    float rx = cosf(yaw);
+    float rz = -sinf(yaw);
+
+    scene->free_pos[0] += (fx * forward + rx * strafe) * speed;
+    scene->free_pos[1] += (fy * forward + vertical) * speed;
+    scene->free_pos[2] += (fz * forward + rz * strafe) * speed;
+    scene->need_view_update = 1;
 }
 
 void render_scene_toggle_fighter(RenderScene* scene)

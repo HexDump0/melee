@@ -70,6 +70,10 @@ typedef struct RenderScene {
     int stage_map;           /* <0 = all maps, else isolated map id */
     int stage_camera_map;    /* map supplying camera/lights/fog (all mode) */
     int stage_camera;        /* render through HsdScene.stage_cobj */
+    int free_cam;            /* WASD fly camera (viewer G key) */
+    float free_pos[3];
+    float free_yaw;
+    float free_pitch;
     int no_fighter;          /* --no-fighter: never auto-load one */
     float stage_main_min[3]; /* bounds of the main (camera/lights) map */
     float stage_main_max[3];
@@ -110,6 +114,13 @@ void render_scene_toggle_fighter(RenderScene* scene);
 /* Advances `map_head` by dir in stage mode (empty maps are skipped). */
 int render_scene_cycle_map(RenderScene* scene, int dir, char* error,
                            size_t error_size);
+
+/* Free-fly camera (viewer: G toggles, WASD/QE + mouse look).  Enabling it
+ * seeds the position/orientation from the current orbit camera. */
+void render_scene_set_free_cam(RenderScene* scene, int on);
+void render_scene_freecam_look(RenderScene* scene, float dyaw, float dpitch);
+void render_scene_freecam_move(RenderScene* scene, float forward,
+                               float strafe, float vertical, float speed);
 
 void render_scene_close(RenderScene* scene);
 

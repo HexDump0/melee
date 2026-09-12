@@ -115,9 +115,16 @@ static void draw_hud(const Viewer* v)
                v->gl.lighting ? "ON" : "OFF",
                v->gl.wireframe ? "ON" : "OFF",
                v->gl.no_cull ? "OFF" : "ON");
-    hud_printf(10.0f, 104.0f, 1.4f, "ANGLE %.0f ELEV %.0f ZOOM %.2f",
-               (double) v->scene.angle, (double) v->scene.elevation,
-               (double) v->scene.zoom);
+    if (v->scene.free_cam) {
+        hud_printf(10.0f, 104.0f, 1.4f, "FREECAM %.1f %.1f %.1f",
+                   (double) v->scene.free_pos[0],
+                   (double) v->scene.free_pos[1],
+                   (double) v->scene.free_pos[2]);
+    } else {
+        hud_printf(10.0f, 104.0f, 1.4f, "ANGLE %.0f ELEV %.0f ZOOM %.2f",
+                   (double) v->scene.angle, (double) v->scene.elevation,
+                   (double) v->scene.zoom);
+    }
     if (v->scene.stage_mode) {
         char mapinfo[24];
         if (v->scene.stage_map < 0) {
@@ -135,9 +142,9 @@ static void draw_hud(const Viewer* v)
     }
     hud_set_color(0.65f, 0.72f, 0.82f, 1.0f);
     hud_printf(10.0f, (float) v->scene.height - 22.0f, 1.2f,
-               "DRAG ORBIT WHEEL ZOOM N/P NEXT , . MAP M MODE F FIGHTER "
-               "K CAMERA [ ] PART V MODE Y HIDDEN L LIGHT T TEX W WIRE "
-               "C CULL H HUD F12 SHOT R RESET ESC QUIT");
+               "DRAG LOOK WHEEL ZOOM N/P NEXT , . MAP M MODE F FIGHTER "
+               "K CAMERA G FREECAM WASD/QE FLY [ ] PART V MODE Y HIDDEN "
+               "L LIGHT T TEX W WIRE C CULL H HUD F12 SHOT R RESET ESC");
     hud_end();
 }
 
@@ -222,8 +229,13 @@ static int handle_key(Viewer* v, const SDL_KeyboardEvent* key,
         gx_gl_set_options(&v->gl);
         break;
     case SDLK_W:
-        v->gl.wireframe = !v->gl.wireframe;
-        gx_gl_set_options(&v->gl);
+        if (!v->scene.free_cam) {
+            v->gl.wireframe = !v->gl.wireframe;
+            gx_gl_set_options(&v->gl);
+        }
+        break;
+    case SDLK_G:
+        render_scene_set_free_cam(&v->scene, !v->scene.free_cam);
         break;
     case SDLK_C:
         v->gl.no_cull = !v->gl.no_cull;
@@ -256,7 +268,7 @@ static void usage(const char* argv0)
             "          [--angle DEG] [--elevation DEG] [--zoom F]\n"
             "          [--frames N] [--shot FILE] [--hidden] [--no-lights]\n"
             "          [--unlit] [--wire] [--no-hud] [--cycle N] [--spin DEG]\n"
-            "          [--cycle-maps N]\n"
+            "          [--cycle-maps N] [--freecam]\n"
             "          [--no-cull] [--no-alpha-test] [--part N] [--part-mode "
             "all|only|hide]\n",
             argv0);
@@ -274,6 +286,7 @@ int main(int argc, char** argv)
     int cycle = 0;
     int map_cycle = 0;
     int toggle_mode = 0;
+    int freecam = 0;
     float spin = 0.0f;
     int hidden = 0;
     int want_shot = 0;
@@ -314,6 +327,8 @@ int main(int argc, char** argv)
             opt.stage_map = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--stage-cam") == 0) {
             opt.stage_camera = 1;
+        } else if (strcmp(argv[i], "--freecam") == 0) {
+            freecam = 1;
         } else if (strcmp(argv[i], "--no-fighter") == 0) {
             opt.no_fighter = 1;
         } else if (strcmp(argv[i], "--width") == 0 && (int) i + 1 < argc) {
@@ -476,6 +491,9 @@ int main(int argc, char** argv)
             break;
         }
     }
+    if (freecam) {
+        render_scene_set_free_cam(&v->scene, 1);
+    }
     printf("viewer: drag=orbit wheel=zoom N/P=next M=mode F=fighter "
            "K=camera [ ]=part V=mode shift+V=variant B=slot Y=hidden "
            "L=lights T=textures W=wire H=hud F12=shot R=reset ESC=quit\n");
@@ -499,6 +517,12 @@ int main(int argc, char** argv)
                      * stage camera was active. */
                     if (v->scene.stage_camera) {
                         v->scene.stage_camera = 0;
+                    }
+                    if (v->scene.free_cam) {
+                        render_scene_freecam_look(&v->scene,
+                                                  e.motion.xrel * 0.3f,
+                                                  -e.motion.yrel * 0.3f);
+                        break;
                     }
                     v->scene.angle -= e.motion.xrel * 0.5f;
                     v->scene.elevation -= e.motion.yrel * 0.5f;
@@ -542,6 +566,23 @@ int main(int argc, char** argv)
         if (spin != 0.0f) {
             v->scene.angle += spin;
             v->scene.need_view_update = 1;
+        }
+        if (v->scene.free_cam) {
+            const bool* keys = SDL_GetKeyboardState(NULL);
+            float forward = (keys[SDL_SCANCODE_W] ? 1.0f : 0.0f) -
+                            (keys[SDL_SCANCODE_S] ? 1.0f : 0.0f);
+            float strafe = (keys[SDL_SCANCODE_D] ? 1.0f : 0.0f) -
+                           (keys[SDL_SCANCODE_A] ? 1.0f : 0.0f);
+            float vertical = (keys[SDL_SCANCODE_E] ? 1.0f : 0.0f) -
+                             (keys[SDL_SCANCODE_Q] ? 1.0f : 0.0f);
+            float speed = 1.2f * (keys[SDL_SCANCODE_LSHIFT] ||
+                                          keys[SDL_SCANCODE_RSHIFT]
+                                      ? 5.0f
+                                      : 1.0f);
+            if (forward != 0.0f || strafe != 0.0f || vertical != 0.0f) {
+                render_scene_freecam_move(&v->scene, forward, strafe, vertical,
+                                          speed);
+            }
         }
         render_scene_draw(&v->scene);
         draws = gx_gl_render_frame();
