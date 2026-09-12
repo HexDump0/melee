@@ -306,6 +306,10 @@ typedef struct MatchView {
     unsigned record_every;
     unsigned dump_frame;
     Uint64 last_render_ns;
+    Uint64 last_present_ns;
+    Uint64 max_interval_ns;
+    Uint64 game_start_ns;
+    Uint64 game_ns;
     Uint64 swap_start;
     Uint64 swap_ns;
     int shot_written;
@@ -406,13 +410,34 @@ static void match_present(void)
     match_view.frames++;
     {
         Uint64 frame_start = SDL_GetTicksNS();
-        int draws = gx_gl_render_frame();
+        Uint64 interval = 0;
+        int draws;
+        if (match_view.last_present_ns != 0) {
+            interval = frame_start - match_view.last_present_ns;
+            if (interval > match_view.max_interval_ns) {
+                match_view.max_interval_ns = interval;
+            }
+        }
+        match_view.game_ns = frame_start - match_view.game_start_ns;
+        match_view.last_present_ns = frame_start;
+        draws = gx_gl_render_frame();
         match_view.last_render_ns = SDL_GetTicksNS() - frame_start;
+        if (interval > 25000000ull) {
+            fprintf(stderr, "[match] spike frame=%u interval=%.1fms "
+                    "game=%.2fms render=%.2fms draws=%d\n",
+                    match_view.frames, (double) interval / 1e6,
+                    (double) match_view.game_ns / 1e6,
+                    (double) match_view.last_render_ns / 1e6, draws);
+        }
         if ((match_view.frames % 30) == 0) {
             fprintf(stderr,
-                    "[match] frame %u draws=%d render=%.2fms\n",
+                    "[match] frame %u draws=%d render=%.2fms frame=%.2fms "
+                    "max=%.2fms\n",
                     match_view.frames, draws,
-                    (double) match_view.last_render_ns / 1e6);
+                    (double) match_view.last_render_ns / 1e6,
+                    (double) interval / 1e6,
+                    (double) match_view.max_interval_ns / 1e6);
+            match_view.max_interval_ns = 0;
         }
     }
     if (match_view.dump_frame != 0 &&
@@ -435,6 +460,7 @@ static void match_present(void)
     SDL_GL_SwapWindow(match_view.window);
     match_view.swap_ns = SDL_GetTicksNS() - match_view.swap_start;
     gx_hle_begin_frame();
+    match_view.game_start_ns = SDL_GetTicksNS();
 
     /* Interactive sessions run at the GameCube's 60 Hz regardless of the
      * display refresh; capture/record runs stay unthrottled.  When the swap
