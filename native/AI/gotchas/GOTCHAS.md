@@ -1345,3 +1345,33 @@ the HLE scaled it a second time (2x at 1280x800) and cropped the scene.
 rect; `HSD_CObjSetPerspective` already carries the window aspect.  The viewer
 also polls `SDL_GetWindowSizeInPixels` every frame (not just on resize events)
 so a tiling WM mapping the window late or a live drag stays in step.
+
+## G-112: the DOL is not an FST entry; the FST stores basenames
+
+**Symptom:** `platform_disc_load_file("sys/main.dol")` (used by the font
+bootstrap, `native/decomp/fonts.c`) fails with `file not found` and the SisLib
+atlases stay zero, so atlas-backed text is invisible.
+**Cause:** on a GameCube disc the DOL is a raw region addressed by the disc
+header at `0x420`, not a file in the FST; and the port's FST scan in
+`native/platform/disc.c` compares the raw name strings, which are basenames
+(`main.dol`, `Tyandold.dat`), not paths. Logging every `files[i].name` in
+`dvd.c` shows 1209 entries and no `main.dol`.
+**Fix:** read the DOL via `disc_image_read()` at the header's DOL offset
+(compute the size from the DOL section headers) instead of an FST lookup.
+**Do not:** try `"sys/main.dol"` or `"/sys/main.dol"` in `disc_load`.
+
+## G-113: SIS text buffers are console big-endian and dispatch on the first byte
+
+**Symptom:** compiling the real SisLib engine (`hsd_3A76.c`) segfaults in
+`gx_texture_decode` on the first dialog glyph (`GXInitTexObj` image like
+`atlas + 0x1FA4000`), or text is missing.
+**Cause:** the renderer's parser reads `u8 opcode = *cursor;` and treats
+`>= 0x20` as a glyph, then reads a `u16` glyph code; message tables
+(`SdMsgBox`'s `SIS_MessageData`) store that code **big-endian**. Reordering
+the buffers to host order (swapping pairs, normalizing at
+`HSD_SisLib_803A6368`/`803A6478`) breaks the first-byte dispatch and/or
+corrupts the font's kerning tables (indices 0/1 of the SIS array are the
+kerning/texture tables, not messages).
+**Fix:** keep buffers byte-identical and patch the reads in `hsd_3A76.c`
+through `SIS_U16/SIS_S16/SIS_S32` (PORT_PC accessors in `sislib.h`). Watch for
+the spaced cast `*(u16 *)` which is easy to miss in a mechanical replace.

@@ -149,7 +149,10 @@ start and asserts the scene transition.  Eight `PORT_PC` patches now cover the
 decomp's static-data adjacency assumptions (camera tables, `ftMapping_list`,
 the results `CameraKindData` block) and a main-menu stack overflow.  Converter
 v65 converts the CSS/stage-select/results scene tables, `GmRst`
-`pnlsce`/`flmsce`, and the food item special attributes.  Open S6 follow-ups:
+`pnlsce`/`flmsce`, and the food item special attributes.  The real SisLib text engine now
+compiles (`hsd_3A76.c`/`hsd_3915.c`) with big-endian SIS buffer accessors;
+the font atlases still need the raw-DOL read (the DOL is not in the FST,
+G-112) before text becomes visible (P-647).  Open S6 follow-ups:
 item models crash PObj resolution for some items (P-643), results names/models
 are wrong (P-645), match HUD stock icons show the wrong character (P-644), and
 save data is blocked by the game's hsd card filesystem pump (P-646; the host
