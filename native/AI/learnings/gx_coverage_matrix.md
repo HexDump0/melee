@@ -26,9 +26,8 @@ Learnings: `gx_indirect_toon.md`, `gx_lighting_specular.md`,
 Also closed: **P-680** lines/points via per-draw topology runs.
 Also closed: **P-679** fog coefficients, screen-depth evaluation and range
 adjustment (the converter follow-up on `fogadjdesc` remains).
-Also closed: **P-681** spot-light cones.
-Still red, each with a task: **P-676** perf, **P-677** harness, **P-682**
-Z24X8 depth snapshots.
+Also closed: **P-681** spot-light cones and **P-682** Z24X8 depth snapshots.
+Still red, each with a task: **P-676** perf, **P-677** harness.
 Session handoff: `handoffs/2026-09-13-renderer-parity.md`.
 
 ## Method
@@ -128,7 +127,7 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 | 3/4/5/6-bit color expansion | EXACT (closed by P-675): bit replication in both image and TLUT paths | `native/gx/texture.c:expand*`, `gx_gl.c:pal_expand*` | `ExpandTo8<3/4/5/6>` `texture_convert.cpp:113` | `ctest decomp_gx_direct` expansion case; learning `gx_texture_parity.md` |
 | TLUT palette formats (RGB565/RGB5A3/IA8), authored entry counts | EXACT | `gx_gl.c:expand_palette`, `model.c` tlut path | `tex_palette_conv.cpp` | entry counts are not PoT and must not be rounded |
 | Z8 image decode (z-texture erase, `displayfunc.c:541`) | EXACT (as I8) | `texture.c:228` | `tex_copy_conv.cpp:FragZ8` | — |
-| Z24X8 image decode (`sobjlib.c:299`, `gm_1832.c:804`) | documented deviation (P-682) | absent in `texture.c` | depth snapshot path (`snapshot_depth`) | learning `gx_efb_copy.md`; P-682 |
+| Z24X8 image decode (`sobjlib.c:299`, `gm_1832.c:804`) | EXACT (closed by P-682): EFB depth snapshot tiling + top-byte sampler | `gx_gl.c:copy_tex_encode_z24x8`, `texture.c:decode_z24x8` | depth snapshot path (`snapshot_depth`) | `ctest decomp_efb` pass 11; learning `gx_efb_copy.md` |
 | Wrap modes CLAMP/REPEAT/MIRROR | EXACT | `gx_gl.c:wrap_to_gl` | `GXTexture.cpp` / `regs.cpp` | — |
 | Min/mag filters + CI mip downgrade | EXACT | `gx_gl.c:min_filter_to_gl` | `GXTexture.cpp:GXInitTexObjLOD` | — |
 | LOD bias (shader `texture(...,bias)`), min/max LOD, edge LOD, bias clamp | APPROX (documented) | `gx_gl.c` min/max LOD params + FS bias | `GXTexture.cpp` mode0/mode1 decode | `do_edge_lod`/`bias_clamp` not distinguished; no observed archive sets min/max LOD ≠ 0 → documented in P-675 learning |
@@ -147,10 +146,10 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 | `GXCopyTex` RGBA8 | EXACT | `gx_gl.c:1553` | `FragPassthrough`/blit | — |
 | `GXCopyTex` I4/I8/IA4/IA8 | EXACT (closed by P-674): BT.601 `intensity()` + `quantize4()`, tiling matching the decoders | `gx_gl.c:copy_tex_encode` | `tex_copy_conv.cpp:FragI4/I8/IA4/IA8` | `ctest decomp_efb` pass 7 |
 | `GXCopyTex` RGB5A3 (`gm_1832.c:802`, `gm_1798.c` portraits) | EXACT (closed by P-674) | `gx_gl.c:copy_tex_encode` | GPU format conversion / `GX_TF_RGB5A3` decoder inverse | `ctest decomp_efb` pass 7 |
-| `GXCopyTex` Z24X8 (`gm_1832.c:804`) | documented deviation (P-682) | not encoded; `texture.c` has no Z24X8 decode | depth snapshot (`snapshot_depth`) | learning `gx_efb_copy.md`; P-682 |
+| `GXCopyTex` Z24X8 (`gm_1832.c:804`) | EXACT (closed by P-682) | `gx_gl.c` depth blit + `copy_tex_encode_z24x8` | depth snapshot (`snapshot_depth`) | `ctest decomp_efb` pass 11 |
 | Copy clear (`GXCopyTex(..., clear=GX_TRUE)`) | N/A | every destination texel is written from the scaled source, so the clear cannot show through | `Lib/Clear` + `GXSetCopyClear` | documented (P-674) |
 | `GXSetCopyClear` (`video.c` XFB clear) | N/A today (only feeds `GXCopyDisp`) | `gx_hle.c:2024` | `GXFrameBuffer.cpp` | becomes live with P-674 |
-| `GXSetZTexture` REPLACE/ADD, Z8/Z16/Z24X8 (4 sites) | APPROX (REPLACE/Z8 verified, pass 2) | dedicated depth program `gx_gl.c:305`, `draw_ztex:1578` | `GXTev.cpp:GXSetZTexture` is a TODO in Aurora; decomp `GXTev.c:333` + `GXPixel` semantics | bias/format/ADD edges need the Z24X8 source → P-682 |
+| `GXSetZTexture` REPLACE/ADD/bias, Z8/Z24X8 (4 sites) | EXACT (closed by P-682): REPLACE ignores incoming, ADD adds it, bias/0xFFFFFF added in both | dedicated depth program `gx_gl.c:draw_ztex` | decomp `GXTev.c:333` + Dolphin `zbias` (Aurora has a TODO here) | `ctest decomp_efb` passes 2 and 11 |
 | `GXSetPixelFmt` | N/A | `gx_hle.c:2086` | `regs.cpp:decode_pixel_fmt` | EFB format is virtualized (always RGBA8); `GXNtsc480IntDf.aa==0` so RGB565_Z16 never applies |
 | `GXSetCopyFilter`/`GXSetDispCopyGamma`/`GXSetDispCopy*`/`GXCopyDisp` | N/A | stubs | `GXFrameBuffer.cpp`; Aurora `GXSetCopyFilter` is a no-op too | XFB presentation is the host present hook (`boot_platform_set_present_hook`); filter would only affect `GXCopyDisp` |
 | `GXPixModeSync` | N/A | empty | `GXPixel` | host ordering automatic |
@@ -186,7 +185,7 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 |---|---|---|
 | ~~**P-672** indirect + toon + projective texgen~~ **DONE** | §1/§3 | `ctest decomp_gx_direct` (texgen/capture) + `ctest decomp_efb` pass 5 (GPU indirect); learning `gx_indirect_toon.md` |
 | ~~**P-673** lighting/specular~~ **DONE** | §4 | `ctest decomp_gx_direct` light-object cases + `ctest decomp_efb` pass 6 (tinted spec); learning `gx_lighting_specular.md`. Follow-up: P-681 spot cones |
-| ~~**P-674** EFB copy formats~~ **DONE** (Z24X8 → P-682) | §6 | `ctest decomp_efb` pass 7; learning `gx_efb_copy.md` |
+| ~~**P-674** EFB copy formats~~ **DONE** (Z24X8 closed by P-682) | §6 | `ctest decomp_efb` pass 7; learning `gx_efb_copy.md` |
 | ~~**P-675** textures/samplers~~ **DONE** (edge-lod/bias-clamp documented) | §5 | `ctest decomp_gx_direct` expansion + texobj cases; learning `gx_texture_parity.md` |
 | **P-676** perf | state-change batching, redundant binds, uniform upload diffing, VBO stream | `[match] frame N ... render=Xms` before/after, frame-718 pixel parity |
 | **P-677** harness | cross-character/stage/effect parity artifacts | one command per slice producing a pass/fail artifact |

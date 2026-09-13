@@ -61,3 +61,29 @@ decoded as I8.  ADD has no caller in Melee and stays untested until P-682.
 ctest --test-dir build/native -R decomp_efb
 ./build/native/test_decomp_render --efb
 ```
+
+## P-682: Z24X8 depth snapshots and `GX_ZT_ADD`/bias
+
+`GXCopyTex` to `GX_TF_Z24X8` (`gm_1832.c`) now captures the EFB depth:
+
+- The EGL pbuffer's depth is not readable through `glReadPixels` (Mesa
+  returns `GL_INVALID_OPERATION` for `GL_DEPTH_COMPONENT` there); the port
+  blits the depth into a private `DEPTH_COMPONENT24` renderbuffer with
+  `glBlitFramebuffer` and reads it as `GL_UNSIGNED_INT` (the only portable
+  ES3 depth pair), normalizing by 2^32-1.  The result is written with the
+  same 64-byte 4x4 tile shape as RGBA8: `[high, mid]` block then
+  `[low, 0]`; `decode_z24x8` (P-682) mirrors it and exposes the top byte as
+  red for the `GXSetZTexture` sampler.
+- `GX_ZT_ADD` (`gl_FragDepth = incoming + texel + bias`) and the 24-bit
+  bias (`bias/0xFFFFFF` added to the normalized depth) are covered by
+  passes 11 frame B/C.  `REPLACE` ignores the incoming depth and applies the
+  same bias, matching Dolphin's `zCoord = zbias + (Add ? zCoord : 0)`.
+
+`ctest decomp_efb` pass 11 checks the snapshot bytes (0.65/0.85 -> top bytes
+166/217), the decoder, an ADD erase (0.5 + 0.5) that lets a 0.9-depth quad
+through, and a REPLACE erase (0.2) plus 0.1 bias that lets a 0.25-depth quad
+through.  Flips: forcing the readback depth to 1.0 fails the snapshot bytes;
+treating ADD as REPLACE fails the ADD pixel; dropping the bias fails the
+REPLACE+bias pixel.  Note the renderer caches decoded textures by source
+pointer, so tests that rewrite a texture buffer in place must use distinct
+buffers (or call `gx_gl_clear_textures`).

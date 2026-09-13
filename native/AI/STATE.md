@@ -243,7 +243,24 @@ through one tiling table: I4/I8/IA4/IA8 with Aurora's ITU-R BT.601
 (result-screen portraits and menu snapshots, previously left untouched).
 RGB565/R4/RGBA8 bytes are unchanged.  `ctest decomp_efb` pass 7 covers the
 new formats with sensitivity flipped; Z24X8 depth snapshots and `GX_ZT_ADD`
-are documented in `learnings/gx_efb_copy.md` and filed as P-682.
+are documented in `learnings/gx_efb_copy.md` (closed by P-682).
+
+**P-682 (2026-09-13):** `GXCopyTex(GX_TF_Z24X8)` depth snapshots work: the
+EFB depth is blitted into a DEPTH_COMPONENT24 renderbuffer and read as
+`GL_UNSIGNED_INT` (the EGL pbuffer itself cannot read depth), encoded into
+the 64-byte 4x4 Z24X8 tile, and decoded back for the `GXSetZTexture`
+sampler (`decode_z24x8`).  `GX_ZT_ADD` adds the incoming depth, `REPLACE`
+ignores it, and the 24-bit bias applies to both.  `decomp_efb` pass 11
+covers the snapshot bytes, ADD and bias; three sensitivity flips.  Learning
+`gx_efb_copy.md`.
+
+**P-681 (2026-09-13):** channel attenuation functions are evaluated per
+channel: `GX_AF_SPOT` uses the hardware cosine polynomial
+(`a.x+a.y·c+a.z·c²` over `k·(1,d,d²)` with `c = cos` against the negated
+light travel axis), `GX_AF_NONE` = 1, and HSD's point lights (a=(1,0,0))
+reduce to the existing distance falloff, so only `GrZebesRoute` cones
+change.  The character-select screenshot is byte-identical; `decomp_efb`
+pass 10 proves on/off-axis points.  Learning `gx_lighting_specular.md`.
 
 **P-679 (2026-09-13):** fog now follows the hardware again: `GXSetFog`
 stores the SDK's `A = f·n/((f−n)(e−s))`, `B = f/(f−n)`, `C = s/(e−s)` and

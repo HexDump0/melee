@@ -136,6 +136,13 @@ static int gpu_efb_copies;
 static GLuint vertex_vao;
 static GLuint vertex_vbo;
 static size_t vertex_vbo_capacity;
+/* P-682: the EGL pbuffer's depth buffer is not readable through
+ * glReadPixels; depth snapshots blit it into this DEPTH_COMPONENT24
+ * renderbuffer first. */
+static GLuint zcopy_fbo;
+static GLuint zcopy_rb;
+static int zcopy_w;
+static int zcopy_h;
 
 static GxGlOptions gl_options = { 1, 1, -1, -1, 0, 0, 0 };
 
@@ -1731,9 +1738,41 @@ static size_t copy_tex_dest_size(unsigned int fmt, int w, int h)
     case GX_TF_RGB5A3:
         return (size_t) ((w + 3) / 4) * ((h + 3) / 4) * 32;
     case GX_TF_RGBA8:
+    case GX_TF_Z24X8:
         return (size_t) ((w + 3) / 4) * ((h + 3) / 4) * 64;
     default:
         return 0;
+    }
+}
+
+/* P-682: the EFB depth snapshot.  Same 64-byte 4x4 tile shape as RGBA8 with
+ * the 24-bit Z in [high, mid] then [low, 0]; native/gx/texture.c's
+ * decode_z24x8 mirrors this.  The depth values are GL [0,1] floats. */
+static void copy_tex_encode_z24x8(unsigned char* dest, int dst_w, int dst_h,
+                                  const float* depth, int src_w, int src_h)
+{
+    int x, y;
+    for (y = 0; y < dst_h; ++y) {
+        int sy = y * src_h / dst_h;
+        for (x = 0; x < dst_w; ++x) {
+            int sx = x * src_w / dst_w;
+            float d = depth[((size_t) (src_h - 1 - sy)) * src_w + sx];
+            unsigned z;
+            size_t tile;
+            size_t hi;
+            size_t lo;
+            if (d < 0.0f) d = 0.0f;
+            if (d > 1.0f) d = 1.0f;
+            z = (unsigned) (d * 16777215.0f + 0.5f);
+            if (z > 0xFFFFFFu) z = 0xFFFFFFu;
+            tile = (size_t) (y / 4) * ((dst_w + 3) / 4) + (size_t) (x / 4);
+            hi = tile * 64 + (size_t) (y % 4) * 4 + (size_t) (x % 4);
+            lo = tile * 64 + 32 + (size_t) (y % 4) * 8 + (size_t) (x % 4) * 2;
+            dest[hi * 2 + 0] = (unsigned char) (z >> 16);
+            dest[hi * 2 + 1] = (unsigned char) ((z >> 8) & 0xFF);
+            dest[lo] = (unsigned char) (z & 0xFF);
+            dest[lo + 1] = 0;
+        }
     }
 }
 
@@ -1895,6 +1934,64 @@ static void efb_copy_tex(const GxHleDraw* d)
     if (gpu_efb_copies && d->copy_fmt == GX_CTF_R4 &&
         efb_copy_r4_gpu(d, src_x, gl_y, src_w, src_h))
     {
+        gl_texture_cache_invalidate(dest);
+        return;
+    }
+
+    if (d->copy_fmt == GX_TF_Z24X8) {
+        float* depth = (float*) malloc((size_t) src_w * src_h * sizeof(float));
+        GLboolean scissor_enabled;
+        if (depth == NULL) {
+            return;
+        }
+        if (zcopy_fbo == 0) {
+            glGenFramebuffers(1, &zcopy_fbo);
+            glGenRenderbuffers(1, &zcopy_rb);
+        }
+        if (zcopy_w != src_w || zcopy_h != src_h) {
+            zcopy_w = src_w;
+            zcopy_h = src_h;
+            glBindRenderbuffer(GL_RENDERBUFFER, zcopy_rb);
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24,
+                                  src_w, src_h);
+            glBindFramebuffer(GL_FRAMEBUFFER, zcopy_fbo);
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                                      GL_RENDERBUFFER, zcopy_rb);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        }
+        scissor_enabled = glIsEnabled(GL_SCISSOR_TEST);
+        glDisable(GL_SCISSOR_TEST);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, zcopy_fbo);
+        glBlitFramebuffer(src_x, gl_y, src_x + src_w, gl_y + src_h, 0, 0,
+                          src_w, src_h, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, zcopy_fbo);
+        if (scissor_enabled) {
+            glEnable(GL_SCISSOR_TEST);
+        }
+        /* GLES3 cannot read GL_DEPTH_COMPONENT/GL_FLOAT; UNSIGNED_INT is
+         * the portable pair (values are left-aligned in the word). */
+        {
+            GLuint* d32 =
+                (GLuint*) malloc((size_t) src_w * src_h * sizeof(GLuint));
+            if (d32 == NULL) {
+                free(depth);
+                return;
+            }
+            glReadPixels(0, 0, src_w, src_h, GL_DEPTH_COMPONENT,
+                         GL_UNSIGNED_INT, d32);
+            {
+                size_t i;
+                for (i = 0; i < (size_t) src_w * src_h; ++i) {
+                    depth[i] = (float) ((double) d32[i] / 4294967295.0);
+                }
+            }
+            free(d32);
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        memset(dest, 0, copy_tex_dest_size(d->copy_fmt, dst_w, dst_h));
+        copy_tex_encode_z24x8(dest, dst_w, dst_h, depth, src_w, src_h);
+        free(depth);
         gl_texture_cache_invalidate(dest);
         return;
     }

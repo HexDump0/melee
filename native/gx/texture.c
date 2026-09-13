@@ -138,6 +138,25 @@ static void decode_rgba8(const uint8_t* src, uint8_t* dst, int w, int h)
     }
 }
 
+/* P-682: the EFB depth snapshot.  We write the same 64-byte 4x4 tile shape
+ * as RGBA8 with the three Z bytes in [high, mid] then [low, unused]
+ * (gx_gl.c:copy_tex_encode_z24x8).  Sampling only needs the top byte, which
+ * becomes the red channel (the Z-texture shader reads .r as depth). */
+static void decode_z24x8(const uint8_t* src, uint8_t* dst, int w, int h)
+{
+    int by, bx, i;
+    for (by = 0; by < (h + 3) / 4; ++by) for (bx = 0; bx < (w + 3) / 4; ++bx) {
+        uint8_t hi[16];
+        for (i = 0; i < 16; ++i) { hi[i] = *src; src += 2; }
+        src += 32; /* the low/unused block */
+        for (i = 0; i < 16; ++i) {
+            uint8_t p[4]; int x = i & 3, y = i >> 2;
+            p[0] = p[1] = p[2] = hi[i]; p[3] = 255;
+            put(dst, w, h, bx * 4 + x, by * 4 + y, p);
+        }
+    }
+}
+
 static void decode_cmpr(const uint8_t* src, uint8_t* dst, int w, int h)
 {
     int by, bx, sub, y, x, c;
@@ -192,6 +211,7 @@ size_t gx_texture_min_size(int format, int width, int height)
         blocks_y = (size_t)(height + 3) / 4;
         break;
     case TEX_FMT_RGBA8:
+    case TEX_FMT_Z24X8:
         bytes_per_block = 64;
         blocks_x = (size_t)(width + 3) / 4;
         blocks_y = (size_t)(height + 3) / 4;
@@ -214,7 +234,7 @@ int gx_texture_decode(const void* pixels, size_t pixel_length,
     case TEX_FMT_I4: bytes_per_block = 32; blocks_x = (size_t)(width + 7) / 8; blocks_y = (size_t)(height + 7) / 8; break;
     case TEX_FMT_I8: case TEX_FMT_IA4: case TEX_FMT_Z8: bytes_per_block = 32; blocks_x = (size_t)(width + 7) / 8; blocks_y = (size_t)(height + 3) / 4; break;
     case TEX_FMT_IA8: case TEX_FMT_RGB565: case TEX_FMT_RGB5A3: bytes_per_block = 32; blocks_x = (size_t)(width + 3) / 4; blocks_y = (size_t)(height + 3) / 4; break;
-    case TEX_FMT_RGBA8: bytes_per_block = 64; blocks_x = (size_t)(width + 3) / 4; blocks_y = (size_t)(height + 3) / 4; break;
+    case TEX_FMT_RGBA8: case TEX_FMT_Z24X8: bytes_per_block = 64; blocks_x = (size_t)(width + 3) / 4; blocks_y = (size_t)(height + 3) / 4; break;
     case TEX_FMT_CMPR: bytes_per_block = 32; blocks_x = (size_t)(width + 7) / 8; blocks_y = (size_t)(height + 7) / 8; break;
     default: fail(error, error_length, "unsupported GX texture format (CI requires a palette)"); return -1;
     }
@@ -236,6 +256,7 @@ int gx_texture_decode(const void* pixels, size_t pixel_length,
     case TEX_FMT_RGB565: case TEX_FMT_RGB5A3: decode_16(pixels, *out_rgba, width, height, format); break;
     case TEX_FMT_RGBA8: decode_rgba8(pixels, *out_rgba, width, height); break;
     case TEX_FMT_CMPR: decode_cmpr(pixels, *out_rgba, width, height); break;
+    case TEX_FMT_Z24X8: decode_z24x8(pixels, *out_rgba, width, height); break;
     }
     return 0;
 }

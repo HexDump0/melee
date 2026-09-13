@@ -1651,6 +1651,283 @@ static int efb_test(void)
         }
     }
 
+    /* ---- pass 11: P-682 Z24X8 depth snapshots and Z-texture ADD/bias ----
+     * Frame A encodes a two-depth scene through GXCopyTex(Z24X8) and decodes
+     * it back; frame B proves ZT_ADD (erase depth 0.5 + texel 0.5); frame C
+     * proves the 24-bit bias is added under ZT_REPLACE. */
+    {
+        static unsigned char z24[64];
+        static unsigned char z24_b[64];
+        static unsigned char z24_c[64];
+        int x, y;
+
+        /* ---- frame A: snapshot encode + decode ---- */
+        gx_hle_begin_frame();
+        gx_hle_reset_state();
+        GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
+        GXSetNumChans(1);
+        GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX,
+                      GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
+        GXSetNumTexGens(0);
+        GXSetNumTevStages(1);
+        GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL,
+                      GX_COLOR0A0);
+        GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+        GXSetZMode(GX_TRUE, GX_ALWAYS, GX_TRUE);
+        GXSetCullMode(GX_CULL_NONE);
+        GXClearVtxDesc();
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+        GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+        GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+        GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+        GXPosition3f32(-1.0f, -1.0f, 0.3f);
+        GXColor4u8(0xFF, 0, 0, 0xFF);
+        GXPosition3f32(0.0f, -1.0f, 0.3f);
+        GXColor4u8(0xFF, 0, 0, 0xFF);
+        GXPosition3f32(0.0f, 1.0f, 0.3f);
+        GXColor4u8(0xFF, 0, 0, 0xFF);
+        GXPosition3f32(-1.0f, 1.0f, 0.3f);
+        GXColor4u8(0xFF, 0, 0, 0xFF);
+        GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+        GXPosition3f32(0.0f, -1.0f, 0.7f);
+        GXColor4u8(0, 0xFF, 0, 0xFF);
+        GXPosition3f32(1.0f, -1.0f, 0.7f);
+        GXColor4u8(0, 0xFF, 0, 0xFF);
+        GXPosition3f32(1.0f, 1.0f, 0.7f);
+        GXColor4u8(0, 0xFF, 0, 0xFF);
+        GXPosition3f32(0.0f, 1.0f, 0.7f);
+        GXColor4u8(0, 0xFF, 0, 0xFF);
+        GXSetTexCopySrc(0, 0, 640, 480);
+        GXSetTexCopyDst(4, 4, GX_TF_Z24X8, GX_FALSE);
+        memset(z24, 0x55, sizeof(z24));
+        GXCopyTex(z24, GX_FALSE);
+        if (gx_gl_render_frame() < 0) {
+            printf("efb: FAIL render_frame (z24 snapshot)\n");
+            return 0;
+        }
+        /* gl depth (z+1)/2: 0.65 left, 0.85 right -> top bytes 166/217. */
+        for (x = 0; x < 4; ++x) {
+            int expected = x < 2 ? 166 : 217;
+            int got = z24[(size_t) x * 2];
+            if (abs(got - expected) > 2) {
+                printf("efb: FAIL z24 snapshot x=%d high=%d want ~%d\n", x,
+                       got, expected);
+                fail = 1;
+            }
+        }
+        {
+            uint8_t* dec = NULL;
+            char err[64];
+            if (gx_texture_decode(z24, sizeof(z24), 4, 4, TEX_FMT_Z24X8,
+                                  &dec, err, sizeof(err)) != 0) {
+                printf("efb: FAIL z24 decode: %s\n", err);
+                fail = 1;
+            } else {
+                if (abs((int) dec[0] - 166) > 2 ||
+                    abs((int) dec[8] - 217) > 2) {
+                    printf("efb: FAIL z24 decoded %u/%u want 166/217\n",
+                           dec[0], dec[8]);
+                    fail = 1;
+                }
+                free(dec);
+            }
+        }
+
+        /* ---- frame B: ZT_ADD ---- */
+        for (x = 0; x < 64; ++x) {
+            z24_b[x] = 0;
+        }
+        for (y = 0; y < 4; ++y) {
+            for (x = 0; x < 4; ++x) {
+                size_t hi = (size_t) y * 4 + (size_t) x;
+                z24_b[hi * 2] = 0x80; /* top byte 128 = depth 0.5 */
+            }
+        }
+        gx_hle_begin_frame();
+        gx_hle_reset_state();
+        GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
+        GXSetNumChans(1);
+        GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX,
+                      GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
+        GXSetNumTexGens(0);
+        GXSetNumTevStages(1);
+        GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL,
+                      GX_COLOR0A0);
+        GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+        GXSetZMode(GX_TRUE, GX_ALWAYS, GX_TRUE);
+        GXSetCullMode(GX_CULL_NONE);
+        GXClearVtxDesc();
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+        GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+        GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+        GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+        GXPosition3f32(-1.0f, -1.0f, 0.2f);
+        GXColor4u8(0xFF, 0, 0, 0xFF);
+        GXPosition3f32(1.0f, -1.0f, 0.2f);
+        GXColor4u8(0xFF, 0, 0, 0xFF);
+        GXPosition3f32(1.0f, 1.0f, 0.2f);
+        GXColor4u8(0xFF, 0, 0, 0xFF);
+        GXPosition3f32(-1.0f, 1.0f, 0.2f);
+        GXColor4u8(0xFF, 0, 0, 0xFF);
+        {
+            GXTexObj ztex;
+            GXSetNumTexGens(1);
+            GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0,
+                              GX_IDENTITY, GX_FALSE, GX_PTIDENTITY);
+            GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0,
+                          GX_COLOR0A0);
+            GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+            GXInitTexObj(&ztex, z24_b, 4, 4, GX_TF_Z24X8, GX_CLAMP,
+                         GX_CLAMP, GX_FALSE);
+            GXLoadTexObj(&ztex, GX_TEXMAP0);
+            GXSetZTexture(GX_ZT_ADD, GX_TF_Z24X8, 0);
+            GXSetColorUpdate(GX_FALSE);
+            GXSetZMode(GX_TRUE, GX_ALWAYS, GX_TRUE);
+            GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
+            GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+            GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+            GXPosition3f32(-1.0f, -1.0f, 0.0f);
+            GXColor4u8(0, 0, 0, 0);
+            GXTexCoord2f32(0.0f, 0.0f);
+            GXPosition3f32(1.0f, -1.0f, 0.0f);
+            GXColor4u8(0, 0, 0, 0);
+            GXTexCoord2f32(1.0f, 0.0f);
+            GXPosition3f32(1.0f, 1.0f, 0.0f);
+            GXColor4u8(0, 0, 0, 0);
+            GXTexCoord2f32(1.0f, 1.0f);
+            GXPosition3f32(-1.0f, 1.0f, 0.0f);
+            GXColor4u8(0, 0, 0, 0);
+            GXTexCoord2f32(0.0f, 1.0f);
+            GXSetZTexture(GX_ZT_DISABLE, GX_TF_Z24X8, 0);
+            GXSetColorUpdate(GX_TRUE);
+        }
+        GXSetNumTexGens(0);
+        GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL,
+                      GX_COLOR0A0);
+        GXClearVtxDesc();
+        GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+        GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+        GXSetZMode(GX_TRUE, GX_LESS, GX_TRUE);
+        GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+        GXPosition3f32(-1.0f, -1.0f, 0.8f);
+        GXColor4u8(0, 0, 0xFF, 0xFF);
+        GXPosition3f32(1.0f, -1.0f, 0.8f);
+        GXColor4u8(0, 0, 0xFF, 0xFF);
+        GXPosition3f32(1.0f, 1.0f, 0.8f);
+        GXColor4u8(0, 0, 0xFF, 0xFF);
+        GXPosition3f32(-1.0f, 1.0f, 0.8f);
+        GXColor4u8(0, 0, 0xFF, 0xFF);
+        if (gx_gl_render_frame() < 0) {
+            printf("efb: FAIL render_frame (ZT_ADD)\n");
+            return 0;
+        }
+        glReadPixels(320, 240, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+        if (!(pixel[2] > 200 && pixel[0] < 60)) {
+            printf("efb: FAIL ZT_ADD pixel=%u,%u,%u (want blue)\n", pixel[0],
+                   pixel[1], pixel[2]);
+            fail = 1;
+        }
+
+        /* ---- frame C: ZT_REPLACE + 24-bit bias ---- */
+        for (x = 0; x < 64; ++x) {
+            z24_c[x] = 0;
+        }
+        for (y = 0; y < 4; ++y) {
+            for (x = 0; x < 4; ++x) {
+                size_t hi = (size_t) y * 4 + (size_t) x;
+                z24_c[hi * 2] = 0x33; /* top byte 51 = depth 0.2 */
+            }
+        }
+        gx_hle_begin_frame();
+        gx_hle_reset_state();
+        GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
+        GXSetNumChans(1);
+        GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX,
+                      GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
+        GXSetNumTexGens(0);
+        GXSetNumTevStages(1);
+        GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL,
+                      GX_COLOR0A0);
+        GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+        GXSetZMode(GX_TRUE, GX_ALWAYS, GX_TRUE);
+        GXSetCullMode(GX_CULL_NONE);
+        GXClearVtxDesc();
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+        GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+        GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+        GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+        GXPosition3f32(-1.0f, -1.0f, 0.2f);
+        GXColor4u8(0xFF, 0, 0, 0xFF);
+        GXPosition3f32(1.0f, -1.0f, 0.2f);
+        GXColor4u8(0xFF, 0, 0, 0xFF);
+        GXPosition3f32(1.0f, 1.0f, 0.2f);
+        GXColor4u8(0xFF, 0, 0, 0xFF);
+        GXPosition3f32(-1.0f, 1.0f, 0.2f);
+        GXColor4u8(0xFF, 0, 0, 0xFF);
+        {
+            GXTexObj ztex;
+            GXSetNumTexGens(1);
+            GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0,
+                              GX_IDENTITY, GX_FALSE, GX_PTIDENTITY);
+            GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0,
+                          GX_COLOR0A0);
+            GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+            GXInitTexObj(&ztex, z24_c, 4, 4, GX_TF_Z24X8, GX_CLAMP,
+                         GX_CLAMP, GX_FALSE);
+            GXLoadTexObj(&ztex, GX_TEXMAP0);
+            /* bias 0x199999 = 0.1: REPLACE stores 0.2 + 0.1 = 0.3. */
+            GXSetZTexture(GX_ZT_REPLACE, GX_TF_Z24X8, 0x199999);
+            GXSetColorUpdate(GX_FALSE);
+            GXSetZMode(GX_TRUE, GX_ALWAYS, GX_TRUE);
+            GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
+            GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+            GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+            GXPosition3f32(-1.0f, -1.0f, 0.0f);
+            GXColor4u8(0, 0, 0, 0);
+            GXTexCoord2f32(0.0f, 0.0f);
+            GXPosition3f32(1.0f, -1.0f, 0.0f);
+            GXColor4u8(0, 0, 0, 0);
+            GXTexCoord2f32(1.0f, 0.0f);
+            GXPosition3f32(1.0f, 1.0f, 0.0f);
+            GXColor4u8(0, 0, 0, 0);
+            GXTexCoord2f32(1.0f, 1.0f);
+            GXPosition3f32(-1.0f, 1.0f, 0.0f);
+            GXColor4u8(0, 0, 0, 0);
+            GXTexCoord2f32(0.0f, 1.0f);
+            GXSetZTexture(GX_ZT_DISABLE, GX_TF_Z24X8, 0);
+            GXSetColorUpdate(GX_TRUE);
+        }
+        GXSetNumTexGens(0);
+        GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL,
+                      GX_COLOR0A0);
+        GXClearVtxDesc();
+        GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+        GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+        GXSetZMode(GX_TRUE, GX_LESS, GX_TRUE);
+        GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+        GXPosition3f32(-1.0f, -1.0f, -0.5f);
+        GXColor4u8(0, 0, 0xFF, 0xFF);
+        GXPosition3f32(1.0f, -1.0f, -0.5f);
+        GXColor4u8(0, 0, 0xFF, 0xFF);
+        GXPosition3f32(1.0f, 1.0f, -0.5f);
+        GXColor4u8(0, 0, 0xFF, 0xFF);
+        GXPosition3f32(-1.0f, 1.0f, -0.5f);
+        GXColor4u8(0, 0, 0xFF, 0xFF);
+        if (gx_gl_render_frame() < 0) {
+            printf("efb: FAIL render_frame (ZT_REPLACE bias)\n");
+            return 0;
+        }
+        glReadPixels(320, 240, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+        if (!(pixel[2] > 200 && pixel[0] < 60)) {
+            printf("efb: FAIL ZT_REPLACE bias pixel=%u,%u,%u (want blue)\n",
+                   pixel[0], pixel[1], pixel[2]);
+            fail = 1;
+        }
+    }
+
     printf("efb: %s\n", fail ? "FAIL" : "PASS");
     return !fail;
 }
