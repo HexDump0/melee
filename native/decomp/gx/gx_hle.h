@@ -103,6 +103,8 @@ typedef struct GxHleDrawState {
     float viewport[4];  /* x, y, width, height */
     float depth_range[2]; /* near, far */
     unsigned char alpha_comp0, alpha_ref0, alpha_op, alpha_comp1, alpha_ref1;
+    /* P-680 line/point raster sizes (GXSetLineWidth/GXSetPointSize). */
+    unsigned char line_width, point_size;
     unsigned char num_stages, num_texgens, num_chans;
     GxHleTevStage stages[GX_HLE_MAX_STAGES];
     GxHleTexGen texgen[8];
@@ -136,11 +138,28 @@ typedef struct GxHleDrawState {
 #define GX_HLE_DRAW_PRIM 0
 #define GX_HLE_DRAW_COPY_TEX 1
 
+/* P-680: primitives in one draw snapshot can mix triangle strips, lines and
+ * points (GXCallDisplayList groups, direct-mode sequences).  Each run is a
+ * contiguous vertex range with one GL-compatible topology; a draw with
+ * run_count == 0 renders as triangles (pre-P-680 captures/tests). */
+#define GX_HLE_MAX_RUNS 16
+#define GX_HLE_MODE_TRIANGLES 0
+#define GX_HLE_MODE_LINES 1
+#define GX_HLE_MODE_POINTS 2
+
+typedef struct GxHleRun {
+    size_t first_vertex;
+    size_t vertex_count;
+    unsigned char mode;
+} GxHleRun;
+
 typedef struct GxHleDraw {
     size_t first_vertex;
     size_t vertex_count;
     GxHleDrawState state;
     int kind;
+    GxHleRun runs[GX_HLE_MAX_RUNS];
+    int run_count;
     void* copy_dest;
     unsigned short copy_left, copy_top, copy_w, copy_h; /* EFB source rect */
     unsigned short copy_dst_w, copy_dst_h;              /* texture size */

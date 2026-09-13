@@ -785,6 +785,60 @@ static void submit_triangle(const GxHleVertex* a, const GxHleVertex* b,
     frame_draws[frame_dcount].vertex_count += 3;
 }
 
+/* P-680: lines/points append raw vertices to the same buffer. */
+static void emit_vertex(const GxHleVertex* v)
+{
+    if (!draw_active || frame_vcount >= frame_vcap ||
+        frame_dcount >= GX_HLE_MAX_DRAWS) {
+        stat_skipped++;
+        return;
+    }
+    frame_verts[frame_vcount++] = *v;
+    frame_draws[frame_dcount].vertex_count += 1;
+}
+
+/* Open a topology run within the current draw snapshot.  Runs partition the
+ * draw's contiguous vertex range; consecutive groups of the same topology
+ * share one run, so a draw with no topology changes keeps a single run (and
+ * the legacy whole-draw path stays a special case of the run path). */
+static GxHleRun* open_run(unsigned mode)
+{
+    GxHleDraw* d;
+    if (!draw_active || frame_dcount >= GX_HLE_MAX_DRAWS) {
+        return NULL;
+    }
+    d = &frame_draws[frame_dcount];
+    if (d->run_count > 0) {
+        GxHleRun* last = &d->runs[d->run_count - 1];
+        if (last->mode == (unsigned char) mode &&
+            last->first_vertex + last->vertex_count == frame_vcount) {
+            return last;
+        }
+    }
+    if (d->run_count >= GX_HLE_MAX_RUNS) {
+        return NULL;
+    }
+    d->runs[d->run_count].first_vertex = frame_vcount;
+    d->runs[d->run_count].vertex_count = 0;
+    d->runs[d->run_count].mode = (unsigned char) mode;
+    d->run_count++;
+    return &d->runs[d->run_count - 1];
+}
+
+static void close_run(GxHleRun* run)
+{
+    if (run == NULL) {
+        return;
+    }
+    run->vertex_count = frame_vcount - run->first_vertex;
+    if (run->vertex_count == 0 && frame_dcount < GX_HLE_MAX_DRAWS) {
+        GxHleDraw* d = &frame_draws[frame_dcount];
+        if (d->run_count > 0 && &d->runs[d->run_count - 1] == run) {
+            d->run_count--;
+        }
+    }
+}
+
 static void exec_primitive(u8 op, const u8* list, size_t length,
                            size_t* cursor, u16 nverts)
 {
@@ -793,7 +847,18 @@ static void exec_primitive(u8 op, const u8* list, size_t length,
     u8 prim = op & 0xF8;
     GxHleVertex win[4];
     GxHleVertex fan_first;
+    GxHleRun* run;
     unsigned i;
+
+    /* GX_LINES (0xA8), GX_LINESTRIP (0xB0) and GX_POINTS (0xB8) were
+     * silently dropped before P-680; PSDisplay/HUD effects use them. */
+    if (prim == 0xA8 || prim == 0xB0) {
+        run = open_run(GX_HLE_MODE_LINES);
+    } else if (prim == 0xB8) {
+        run = open_run(GX_HLE_MODE_POINTS);
+    } else {
+        run = open_run(GX_HLE_MODE_TRIANGLES);
+    }
 
     init_vertex_decoder(vtxfmt, &decoder);
     for (i = 0; i < nverts; ++i) {
@@ -801,6 +866,7 @@ static void exec_primitive(u8 op, const u8* list, size_t length,
         GxHleVertex* v;
         if (!read_vertex(list, length, cursor, &decoder, &raw)) {
             stat_skipped++;
+            close_run(run);
             return;
         }
         v = &win[i & 3];
@@ -845,10 +911,26 @@ static void exec_primitive(u8 op, const u8* list, size_t length,
                 submit_triangle(&a, &b, &c);
             }
             break;
+        case 0xA8: /* GX_LINES: disjoint pairs */
+            if ((i & 1) != 0) {
+                emit_vertex(&win[(i - 1) & 3]);
+                emit_vertex(&win[i & 3]);
+            }
+            break;
+        case 0xB0: /* GX_LINESTRIP: (i-1, i) */
+            if (i >= 1) {
+                emit_vertex(&win[(i - 1) & 3]);
+                emit_vertex(&win[i & 3]);
+            }
+            break;
+        case 0xB8: /* GX_POINTS */
+            emit_vertex(&win[i & 3]);
+            break;
         default:
             break;
         }
     }
+    close_run(run);
 }
 
 /* --------------------------------------------------------------- GX API */
@@ -2321,13 +2403,15 @@ void GXSetMisc(GXMiscToken token, u32 val)
 
 void GXSetLineWidth(u8 width, GXTexOffset texOffsets)
 {
-    (void) width;
+    flush_direct();
+    gx.cur.line_width = width > 0 ? width : 1;
     (void) texOffsets;
 }
 
 void GXSetPointSize(u8 pointSize, GXTexOffset texOffsets)
 {
-    (void) pointSize;
+    flush_direct();
+    gx.cur.point_size = pointSize > 0 ? pointSize : 1;
     (void) texOffsets;
 }
 
@@ -2389,6 +2473,8 @@ static void reset_state(void)
     gx.cur.z_update = 1;
     gx.cur.color_update = 1;
     gx.cur.blend_type = GX_BM_NONE;
+    gx.cur.line_width = 1;
+    gx.cur.point_size = 1;
     gx.cur.cull_mode = GX_CULL_NONE;
     gx.cur.alpha_comp0 = GX_ALWAYS;
     gx.cur.alpha_comp1 = GX_ALWAYS;

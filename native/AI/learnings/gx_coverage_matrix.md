@@ -23,9 +23,9 @@ RGB5A3), texture expansion + per-object `GXTexObj`, `GXGetProjectionv`.
 Learnings: `gx_indirect_toon.md`, `gx_lighting_specular.md`,
 `gx_efb_copy.md`, `gx_texture_parity.md`, G-131.
 
+Also closed: **P-680** lines/points via per-draw topology runs.
 Still red, each with a task: **P-676** perf, **P-677** harness, **P-679** fog
-math + range adj, **P-680** lines/points primitives (the largest remaining
-geometry gap), **P-681** spot cones, **P-682** Z24X8 depth snapshots.
+math + range adj, **P-681** spot cones, **P-682** Z24X8 depth snapshots.
 Session handoff: `handoffs/2026-09-13-renderer-parity.md`.
 
 ## Method
@@ -60,8 +60,9 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 | Attribute byte order | EXACT for HSD streams (differential 17,724 verts, 0 mismatch) | `desc_order` capture | fixed CP order in `attr_fmt.cpp` | note: order is taken from `GXSetVtxDesc` call order; HSD authors the same order. Revisit only if a desync appears (G-062 class) |
 | `GX_VA_NBT` binormal/tangent | EXACT | `read_vertex` `:355` (9 comps) | `attr_load_nbt_slice` | Melee never uses `GX_NRM_NBT3` |
 | Primitives QUADS/TRIANGLES/STRIP/FAN | EXACT | `exec_primitive` `gx_hle.c:732` | `lib/gx/pipeline.cpp` | — |
-| `GX_LINES`/`GX_LINESTRIP`/`GX_POINTS` (12/10/6 sites in `lb_*`, `psdisp`) | **STUB** (silently dropped) | `exec_primitive` default branch `:792` | `lib/gx/pipeline.cpp` primitive map; `GXGeometry.cpp` | **P-680** |
-| `GXSetLineWidth`/`GXSetPointSize`/`GXEnableTexOffsets` | **STUB** | `gx_hle.c:2106/2112/2118` | `GXGeometry.cpp`; `shader.cpp` line/point tex offset | **P-680** |
+| `GX_LINES`/`GX_LINESTRIP`/`GX_POINTS` (12/10/6 sites in `lb_*`, `psdisp`) | EXACT (closed by P-680): per-draw topology runs | `exec_primitive` runs + `gx_gl.c` run loop | `lib/gx/pipeline.cpp` primitive map; `GXGeometry.cpp` | `ctest decomp_gx_direct` run modes + `decomp_efb` pass 8; learning `gx_primitive_runs.md` |
+| `GXSetLineWidth`/`GXSetPointSize` | EXACT capture (width applied; GLES may clamp) | `gx_hle.c` capture; `glLineWidth`/`gl_PointSize` | `GXGeometry.cpp` | `ctest decomp_efb` pass 8 point-size pixel |
+| `GXEnableTexOffsets` | documented no-op (`psdisp.c:1981` only; sub-texel point-sprite detail) | `gx_hle.c` | `shader.cpp` line/point tex offset | learning `gx_primitive_runs.md` |
 | Cull mode (PObj flags) | EXACT | `gx_hle.c:891`, `gx_gl.c:1182` | `lib/dolphin/gx/GXCull.cpp` | — |
 
 ## 2. Transforms, viewport, projection
@@ -188,7 +189,7 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 | **P-677** harness | cross-character/stage/effect parity artifacts | one command per slice producing a pass/fail artifact |
 | ~~**P-678** `GXGetProjectionv` packed layout~~ **DONE** | §2 | `ctest decomp_gx_direct` asserts both layouts + `GXSetProjectionv` round trip; G-131 |
 | **P-679** fog math + range adj | §7 | shader vs `shader.cpp` formula comparison on a synthetic depth ramp; range table read |
-| **P-680** lines/points primitives | §1 | `test_decomp_render --direct` line/point fixture asserting emitted geometry; `psdisp` HUD capture |
+| ~~**P-680** lines/points primitives~~ **DONE** | §1 | `test_decomp_render --direct` line/point fixture asserting emitted geometry; `psdisp` HUD capture |
 | converter follow-up (P-658/P-662 family) | `HSD_FogDesc.fogadjdesc` nulled | converter field table for `Gr*` fog-adj descriptors; renders P-679 reachable |
 
 ## 10. Explicit deviations (documented, not scheduled)

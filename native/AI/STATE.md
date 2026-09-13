@@ -245,6 +245,14 @@ RGB565/R4/RGBA8 bytes are unchanged.  `ctest decomp_efb` pass 7 covers the
 new formats with sensitivity flipped; Z24X8 depth snapshots and `GX_ZT_ADD`
 are documented in `learnings/gx_efb_copy.md` and filed as P-682.
 
+**P-680 (2026-09-13):** `GX_LINES`/`GX_LINESTRIP`/`GX_POINTS` now render.
+`GxHleDraw` carries topology runs (consecutive same-mode groups merge, so
+triangle-only draws keep one run and are byte-identical: `decomp_render`
+RMSE 0 vs P-675), `GXSetLineWidth`/`GXSetPointSize` drive `glLineWidth`/
+`gl_PointSize`, and `GXEnableTexOffsets` stays a documented no-op.
+`ctest decomp_gx_direct` asserts the run modes and `decomp_efb` pass 8
+checks a line and a 5 px point pixel; learning `gx_primitive_runs.md`.
+
 **P-675 (2026-09-13):** texture channels now expand by bit replication
 (5/6-bit, and the 3-bit RGB5A3 alpha) in both the image and TLUT paths, and
 `GXTexObj` keeps per-object state keyed by the caller's pointer, so

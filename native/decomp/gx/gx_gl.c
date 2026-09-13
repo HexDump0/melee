@@ -107,6 +107,7 @@ static GLint u_light_color;
 static GLint u_light_a;
 static GLint u_light_k;
 static GLint u_light_dir;
+static GLint u_point_size;
 /* P-672 indirect texturing (GXSetTevIndirect/GXSetIndTex*) */
 static GLint u_ind_order;   /* ivec2[4]: coord, map */
 static GLint u_ind_scale;   /* vec2[4]: 1/2^n for GX_ITS_1..256 */
@@ -194,6 +195,7 @@ static const char* VERTEX_SRC =
     "uniform vec4 u_light_a[8];\n"
     "uniform vec4 u_light_k[8];\n"
     "uniform vec4 u_light_dir[8];\n"
+    "uniform float u_point_size;\n"
     "out vec4 v_color;\n"
     "out vec2 v_uv0;\n"
     "out vec2 v_uv1;\n"
@@ -306,6 +308,7 @@ static const char* VERTEX_SRC =
     "void main() {\n"
     "    bool has_color = a_has_color > 0.5;\n"
     "    gl_Position = a_clip;\n"
+    "    gl_PointSize = u_point_size;\n"
     "    v_color = a_color;\n"
     "    v_uv0 = a_uv0;\n"
     "    v_uv1 = a_uv1;\n"
@@ -720,6 +723,7 @@ static int build_program(char* error, size_t error_size)
     u_light_a = glGetUniformLocation(program, "u_light_a");
     u_light_k = glGetUniformLocation(program, "u_light_k");
     u_light_dir = glGetUniformLocation(program, "u_light_dir");
+    u_point_size = glGetUniformLocation(program, "u_point_size");
     u_ind_order = glGetUniformLocation(program, "u_ind_order");
     u_ind_scale = glGetUniformLocation(program, "u_ind_scale");
     u_ind_mtx0 = glGetUniformLocation(program, "u_ind_mtx0");
@@ -1316,6 +1320,8 @@ static void apply_draw_state(const GxHleDrawState* s)
         glBlendEquation(GL_FUNC_ADD);
     }
 
+    /* P-680: GX line width; GLES may clamp wide lines to 1. */
+    glLineWidth((GLfloat) (s->line_width ? s->line_width : 1));
     if (s->z_enable) {
         glEnable(GL_DEPTH_TEST);
     } else {
@@ -1479,6 +1485,8 @@ static void upload_draw_uniforms(const GxHleDrawState* s)
     glUniform1f(u_fog_end, s->fog_end);
     glUniform3f(u_fog_color, s->fog_color[0], s->fog_color[1],
                 s->fog_color[2]);
+    /* P-680: GXSetPointSize drives gl_PointSize in the shared VS. */
+    glUniform1f(u_point_size, (GLfloat) (s->point_size ? s->point_size : 1));
     glUniform1i(u_tex_enable, gl_options.textures);
     glUniform1i(u_ras_flat, !gl_options.lighting);
     glUniform1i(u_dst_alpha_enable, s->dst_alpha_enable);
@@ -2016,7 +2024,38 @@ int gx_gl_render_frame(void)
             glScissor(sc_x, gl_height - sc_y - sc_h, sc_w, sc_h);
         }
 
-        if (gl_options.wireframe) {
+        /* P-680: a draw snapshot may mix triangle strips, lines and points;
+         * each run carries one topology.  Draws without runs are all
+         * triangles (pre-P-680 captures). */
+        if (d->run_count > 0) {
+            int r;
+            for (r = 0; r < d->run_count; ++r) {
+                const GxHleRun* run = &d->runs[r];
+                if (run->vertex_count == 0) {
+                    continue;
+                }
+                if (run->mode == GX_HLE_MODE_LINES) {
+                    if (!gl_options.wireframe) {
+                        glDrawArrays(GL_LINES, (GLint) run->first_vertex,
+                                     (GLsizei) run->vertex_count);
+                    }
+                } else if (run->mode == GX_HLE_MODE_POINTS) {
+                    if (!gl_options.wireframe) {
+                        glDrawArrays(GL_POINTS, (GLint) run->first_vertex,
+                                     (GLsizei) run->vertex_count);
+                    }
+                } else if (gl_options.wireframe) {
+                    size_t k;
+                    for (k = 0; k + 3 <= run->vertex_count; k += 3) {
+                        glDrawArrays(GL_LINE_LOOP,
+                                     (GLint) (run->first_vertex + k), 3);
+                    }
+                } else {
+                    glDrawArrays(GL_TRIANGLES, (GLint) run->first_vertex,
+                                 (GLsizei) run->vertex_count);
+                }
+            }
+        } else if (gl_options.wireframe) {
             size_t k;
             for (k = 0; k + 3 <= d->vertex_count; k += 3) {
                 glDrawArrays(GL_LINE_LOOP, (GLint) (d->first_vertex + k), 3);

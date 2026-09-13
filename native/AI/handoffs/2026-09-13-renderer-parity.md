@@ -19,6 +19,7 @@ sensitivity-flipped regressions:
 | `2d4d714de` | P-673 | SDK `GXInitLightDistAttn`/`GXInitLightSpot` math; `GX_AF_SPEC` channel tinted with the hardware polynomial |
 | `447826c1d` | P-674 | BT.601 I4/I8/IA4/IA8 copies, RGB5A3 copies, shared tiling encoder |
 | `3bdf7945a` | P-675 | Bit-replication channel expansion (image+TLUT), per-object `GXTexObj` state |
+| (P-680, this commit) | P-680 | Topology runs so `GX_LINES`/`GX_LINESTRIP`/`GX_POINTS` render; line width/point size |
 
 ## Coverage matrix delta
 
@@ -36,10 +37,6 @@ Still red (each has a task):
 - **P-677** parity harness breadth.
 - **P-679** fog a/b/c formulas + `GXSetFogRangeAdj`/`GXInitFogAdjTable`
   (converter currently nulls `HSD_FogDesc.fogadjdesc`, `hsd_convert.c:161`).
-- **P-680** `GX_LINES`/`GX_LINESTRIP`/`GX_POINTS` are dropped;
-  `GXSetLineWidth`/`GXSetPointSize`/`GXEnableTexOffsets` are stubs.  Melee
-  uses them in `lb_*` HUD/effects and `psdisp` particles — the biggest
-  remaining rendering gap.
 - **P-681** spot-light cones (`LOBJ_SPOT`, only `GrZebesRoute`).
 - **P-682** Z24X8 EFB depth snapshots + `GX_ZT_ADD`/bias edges.
 
@@ -71,17 +68,14 @@ outputs are in each learning under `native/AI/learnings/`
 
 ## Suggested next slice
 
-1. **P-680 lines/points** first: it is the only STUB that drops geometry
-   Melee actually draws.  Add per-draw primitive runs to `GxHleDraw`
-   (triangles stay the default), map `GX_LINES`/`GX_LINESTRIP`/`GX_POINTS`
-   in `exec_primitive`, draw each run with its GL mode, add `gl_PointSize`
-   for `GXSetPointSize`.  Fixtures: a direct-mode run assertion plus an EFB
-   pixel read of a line and a point.
-2. **P-679 fog**: port the `GXSetFog` a/b/c packing and the five
+1. **P-679 fog**: port the `GXSetFog` a/b/c packing and the five
    `1-exp2(-8f)`/`exp2(-8(1-f))` families from Aurora `shader.cpp:1537`;
    `GXInitFogAdjTable` needs the converter follow-up noted in the task.
-3. **P-676 perf** after that (profile under a quiet system first; the P-642
-   notes warn that a decoded-display-list cache was slower).
+2. **P-676 perf** (profile under a quiet system first; the P-642 notes warn
+   that a decoded-display-list cache was slower).  The run path added by
+   P-680 is a natural place to start: same-topology runs merge already.
+3. **P-677 harness** breadth, then **P-681/P-682** (spot cones and Z24X8
+   depth snapshots).
 
 ## Notes for the next agent
 

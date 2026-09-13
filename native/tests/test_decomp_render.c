@@ -631,6 +631,64 @@ static int direct_test(void)
         light_prims = gx_hle_primitive_count();
     }
 
+    /* P-680: GX_LINES/GX_LINESTRIP/GX_POINTS were dropped before; each
+     * primitive group must land as a run with its own topology. */
+    {
+        gx_hle_begin_frame();
+        gx_hle_reset_state();
+        GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
+        GXClearVtxDesc();
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+        GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+        GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+        GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+        GXPosition3f32(-1.0f, -1.0f, 0.0f);
+        GXColor4u8(255, 255, 255, 255);
+        GXPosition3f32(1.0f, -1.0f, 0.0f);
+        GXColor4u8(255, 255, 255, 255);
+        GXPosition3f32(1.0f, 1.0f, 0.0f);
+        GXColor4u8(255, 255, 255, 255);
+        GXPosition3f32(-1.0f, 1.0f, 0.0f);
+        GXColor4u8(255, 255, 255, 255);
+        GXBegin(GX_LINES, GX_VTXFMT0, 4);
+        GXPosition3f32(-1.0f, 0.0f, 0.0f);
+        GXColor4u8(255, 0, 0, 255);
+        GXPosition3f32(1.0f, 0.0f, 0.0f);
+        GXColor4u8(255, 0, 0, 255);
+        GXPosition3f32(-1.0f, 0.5f, 0.0f);
+        GXColor4u8(255, 0, 0, 255);
+        GXPosition3f32(1.0f, 0.5f, 0.0f);
+        GXColor4u8(255, 0, 0, 255);
+        GXBegin(GX_POINTS, GX_VTXFMT0, 3);
+        GXPosition3f32(0.0f, 0.0f, 0.0f);
+        GXColor4u8(0, 255, 0, 255);
+        GXPosition3f32(0.5f, 0.5f, 0.0f);
+        GXColor4u8(0, 255, 0, 255);
+        GXPosition3f32(-0.5f, 0.5f, 0.0f);
+        GXColor4u8(0, 255, 0, 255);
+        gx_hle_get_frame(&verts, &vc, &draws, &dc, NULL, NULL);
+        if (dc != 3) {
+            printf("direct: FAIL line/point draws=%zu (want 3)\n", dc);
+            return 0;
+        }
+        if (draws[0].run_count != 1 ||
+            draws[0].runs[0].mode != GX_HLE_MODE_TRIANGLES ||
+            draws[0].runs[0].vertex_count != 6 ||
+            draws[1].run_count != 1 ||
+            draws[1].runs[0].mode != GX_HLE_MODE_LINES ||
+            draws[1].runs[0].vertex_count != 4 ||
+            draws[2].run_count != 1 ||
+            draws[2].runs[0].mode != GX_HLE_MODE_POINTS ||
+            draws[2].runs[0].vertex_count != 3) {
+            printf("direct: FAIL runs tri=%d/%u lines=%d/%u points=%d/%u\n",
+                   draws[0].run_count, draws[0].runs[0].vertex_count,
+                   draws[1].run_count, draws[1].runs[0].vertex_count,
+                   draws[2].run_count, draws[2].runs[0].vertex_count);
+            fail = 1;
+        }
+    }
+
     /* P-675: the GXGetTexObj accessors and GXLoadTexObj must read the
      * caller's object, not the most recently initialized one (sobjlib and
      * lbspdisplay read stored texobjs long after other textures were
@@ -1275,6 +1333,68 @@ static int efb_test(void)
         if (dst_5a3[0] != 0x83 || dst_5a3[1] != 0xE0) {
             printf("efb: FAIL RGB5A3 copy %02x%02x (want 83e0)\n", dst_5a3[0],
                    dst_5a3[1]);
+            fail = 1;
+        }
+    }
+
+    /* ---- pass 8: P-680 lines and points rasterize ----
+     * A horizontal red line at window row 240 and a 5px green point at
+     * window (480,360) must produce those pixels (before P-680 the
+     * primitives were dropped entirely). */
+    {
+        GXColor red = { 0xFF, 0x00, 0x00, 0xFF };
+        GXColor green = { 0x00, 0xFF, 0x00, 0xFF };
+        const float y_center = 1.0f / 480.0f; /* NDC -> window y 240.5 */
+
+        gx_hle_begin_frame();
+        gx_hle_reset_state();
+        GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
+        GXSetNumChans(1);
+        GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX,
+                      GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
+        GXSetNumTexGens(0);
+        GXSetNumTevStages(1);
+        GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL,
+                      GX_COLOR0A0);
+        GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+        GXSetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_COPY);
+        GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
+        GXSetCullMode(GX_CULL_NONE);
+        GXSetPointSize(5, GX_TO_ONE);
+        GXClearVtxDesc();
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+        GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+        GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+        GXBegin(GX_LINES, GX_VTXFMT0, 2);
+        GXPosition3f32(-1.0f, y_center, 0.0f);
+        GXColor4u8(red.r, red.g, red.b, red.a);
+        GXPosition3f32(1.0f, y_center, 0.0f);
+        GXColor4u8(red.r, red.g, red.b, red.a);
+        GXBegin(GX_POINTS, GX_VTXFMT0, 1);
+        GXPosition3f32(0.5f, 0.5f, 0.0f);
+        GXColor4u8(green.r, green.g, green.b, green.a);
+        if (gx_gl_render_frame() < 0) {
+            printf("efb: FAIL render_frame (lines/points)\n");
+            return 0;
+        }
+        glReadPixels(320, 240, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+        if (!(pixel[0] > 200 && pixel[1] < 60 && pixel[2] < 60)) {
+            printf("efb: FAIL line pixel=%u,%u,%u (want red row 240)\n",
+                   pixel[0], pixel[1], pixel[2]);
+            fail = 1;
+        }
+        glReadPixels(480, 360, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+        if (!(pixel[1] > 200 && pixel[0] < 60 && pixel[2] < 60)) {
+            printf("efb: FAIL point pixel=%u,%u,%u (want green 5px point)\n",
+                   pixel[0], pixel[1], pixel[2]);
+            fail = 1;
+        }
+        /* One pixel off center: only a point larger than 1px covers it. */
+        glReadPixels(481, 360, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+        if (!(pixel[1] > 200 && pixel[0] < 60 && pixel[2] < 60)) {
+            printf("efb: FAIL point size pixel=%u,%u,%u (want 5px coverage)\n",
+                   pixel[0], pixel[1], pixel[2]);
             fail = 1;
         }
     }
