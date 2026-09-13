@@ -1,0 +1,45 @@
+diff --git a/src/sysdolphin/baselib/sislib.h b/src/sysdolphin/baselib/sislib.h
+index 153b907c1..4695497d8 100644
+--- a/src/sysdolphin/baselib/sislib.h
++++ b/src/sysdolphin/baselib/sislib.h
+@@ -27,6 +27,40 @@ typedef struct SIS {
+     /*0x04*/ TextGlyphTexture* textures;
+ } SIS;
+ 
++#ifdef PORT_PC
++/*
++ * SIS text buffers (message tables and the layout HSD_SisLib_803A684 keeps)
++ * are console data: the parser dispatches on the first byte and reads the
++ * operands as big-endian.  Host reads must not reorder the buffers (that
++ * breaks the >= 0x20 glyph test), so read them byte-wise instead.
++ */
++static inline u16 HSD_SisLib_ReadU16(const void* p)
++{
++    const u8* b = (const u8*) p;
++    return (u16) (((u16) b[0] << 8) | b[1]);
++}
++
++static inline s16 HSD_SisLib_ReadS16(const void* p)
++{
++    return (s16) HSD_SisLib_ReadU16(p);
++}
++
++static inline s32 HSD_SisLib_ReadS32(const void* p)
++{
++    const u8* b = (const u8*) p;
++    return (s32) (((u32) b[0] << 24) | ((u32) b[1] << 16) |
++                  ((u32) b[2] << 8) | b[3]);
++}
++
++#define SIS_U16(p) HSD_SisLib_ReadU16(p)
++#define SIS_S16(p) HSD_SisLib_ReadS16(p)
++#define SIS_S32(p) HSD_SisLib_ReadS32(p)
++#else
++#define SIS_U16(p) (*(u16*) (p))
++#define SIS_S16(p) (*(s16*) (p))
++#define SIS_S32(p) (*(s32*) (p))
++#endif
++
+ struct SisBlock {
+     SisBlock* next;
+     HSD_Text* data;

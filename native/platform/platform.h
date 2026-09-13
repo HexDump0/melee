@@ -1,6 +1,8 @@
 #ifndef MELEE_PLATFORM_PLATFORM_H
 #define MELEE_PLATFORM_PLATFORM_H
 
+#include <stddef.h>
+
 /*
  * Shared declarations for the native platform layer (S1+).  Real backends and
  * clearly-labelled log-only stubs both live here; native/AI/learnings/
@@ -59,5 +61,8 @@ void pad_set_input_loop(int enable);
 
 /* Number of PADRead calls since the script was installed. */
 unsigned pad_input_frame(void);
+
+/* Reads a file from the mounted host disc image (port bootstrap helpers). */
+int platform_disc_load_file(const char* disc_path, void** data, size_t* size);
 
 #endif /* MELEE_PLATFORM_PLATFORM_H */

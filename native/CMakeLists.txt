@@ -260,9 +260,7 @@ list(FILTER MELEE_DECOMP_SOURCES EXCLUDE REGEX
 list(REMOVE_ITEM MELEE_DECOMP_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/Runtime/__mem.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/debug.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/sislib_font.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/hsd_3915.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/hsd_3A76.c)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/sislib_font.c)
 list(APPEND MELEE_DECOMP_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/src/dolphin/os/OSArena.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/src/dolphin/os/OSAlloc.c
@@ -317,7 +315,7 @@ add_executable(melee_decomp_boot
     audio/ax_mixer.c
     audio/wav.c
     platform/audio.c
-    platform/font_stub.c
+    decomp/fonts.c
     platform/misc.c
     $<TARGET_OBJECTS:melee_decomp_game>)
 target_include_directories(melee_decomp_boot PRIVATE
@@ -400,7 +398,7 @@ add_executable(test_decomp_render
     audio/ax_hle.c
     audio/ax_mixer.c
     platform/audio.c
-    platform/font_stub.c
+    decomp/fonts.c
     platform/misc.c
     $<TARGET_OBJECTS:melee_decomp_game>)
 target_include_directories(test_decomp_render BEFORE PRIVATE
@@ -494,7 +492,7 @@ if(MELEE_SDL3_LIB32)
       audio/ax_hle.c
       audio/ax_mixer.c
       platform/audio.c
-      platform/font_stub.c
+      decomp/fonts.c
       platform/misc.c
       $<TARGET_OBJECTS:melee_decomp_game>)
   target_include_directories(melee BEFORE PRIVATE

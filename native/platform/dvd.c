@@ -63,6 +63,9 @@ typedef struct DvdFile {
 } DvdFile;
 
 static DiscImage* disc_image;
+static char disc_image_path[512];
+
+int melee_port_fonts_load(void);
 static unsigned char* fst;
 static uint32_t fst_size;
 static uint32_t fst_entries;
@@ -169,6 +172,22 @@ static DvdFile* find_file(uint32_t offset)
     return NULL;
 }
 
+int platform_disc_load_file(const char* disc_path, void** data, size_t* size)
+{
+    DiscFile file;
+    char error[256];
+    if (disc_image == NULL || disc_path == NULL || data == NULL || size == NULL) {
+        return -1;
+    }
+    if (disc_load(disc_image_path, disc_path, &file, error, sizeof(error)) != DISC_OK) {
+        boot_triage_note("[boot] cannot read '%s' from disc: %s\n", disc_path, error);
+        return -1;
+    }
+    *data = file.data;
+    *size = file.size;
+    return 0;
+}
+
 static int mount_disc(void)
 {
     const char* path = getenv("MELEE_DISC");
@@ -181,6 +200,7 @@ static int mount_disc(void)
     if (path == NULL || path[0] == '\0') {
         path = DEFAULT_DISC;
     }
+    snprintf(disc_image_path, sizeof(disc_image_path), "%s", path);
     if (disc_mount(path, &disc_image, error, sizeof(error)) != DISC_OK) {
         boot_triage_note(
             "[boot] DVDInit: cannot mount '%s' (%s); running without a disc\n",
@@ -228,6 +248,7 @@ static int mount_disc(void)
     }
     swap_fst_entries(fst, fst_entries);
     fst_strings = fst_entries * 12;
+    melee_port_fonts_load();
 
     /* Publish the boot info the SDK reads through OSPhysicalToCached(0). */
     memcpy((void*) GC_BOOT_INFO, header, 0x20);
