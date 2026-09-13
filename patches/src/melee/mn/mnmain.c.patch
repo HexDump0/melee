@@ -1,0 +1,21 @@
+diff --git a/src/melee/mn/mnmain.c b/src/melee/mn/mnmain.c
+index dc6746eee..1e16ef876 100644
+--- a/src/melee/mn/mnmain.c
++++ b/src/melee/mn/mnmain.c
+@@ -1204,7 +1204,16 @@ void fn_8022AFEC(HSD_GObj* gp)
+     u8 state;
+     u8 option_count;
+     u8 pad[0x20];
++#ifdef PORT_PC
++    /* `sp20` is filled with one entry per selection below (up to
++     * `mn_803EB6B0[kind].selection_count`, max 10 in the table) and later
++     * indexed by the hovered selection; the decomp's `sp20[4]` overflows the
++     * stack.  MWCC's frame layout absorbed the extra writes; GCC places the
++     * stack protector canary there and aborts in the main menu. */
++    HSD_JObj* sp20[12];
++#else
+     HSD_JObj* sp20[4];
++#endif
+     PAD_STACK(18);
+ 
+     var_r26 = 0;
