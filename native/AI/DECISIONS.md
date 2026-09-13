@@ -891,3 +891,53 @@ result.  Mobile becomes a scheduled follow-up rather than an afterthought, and
 `archive.c:Locate`'s 32-bit assumption only constrains the web/in-place path.
 
 **Status:** accepted (2026-09-13); amends ADR-0015.
+
+---
+
+## ADR-0017: Keep the GLES renderer; reach Aurora parity by porting its algorithms (supersedes ADR-0015/0016)
+
+**Context.** ADR-0015/0016 chose Aurora as the native GX backend (64-bit
+desktop, Android, iOS; browser spike).  The owner does not want to discard the
+current renderer nor take the 64-bit/schema-materialization migration: the
+32-bit + in-place converter architecture is what keeps the web build, the
+GC-layout tests and the single asset path simple.  The accuracy gap that
+motivated Aurora is still the goal.
+
+Aurora is MIT-licensed and its GX implementation (`lib/gx/*.cpp`, `lib/gfx/*`,
+`lib/dolphin/gx/*.cpp`) is readable source, and the `jonrosner/melee-native`
+port demonstrates the exact GX behavior Melee needs.  Porting its algorithms
+into our C/GLES3 HLE is a bounded, incremental program rather than a dependency
+swap, and it does not foreclose a later Aurora adoption (the shim stays the
+seam).
+
+**Decision.**
+
+1. **No Aurora dependency; no 64-bit migration.**  Keep the 32-bit compiled
+   product, `native/decomp/gx/` (GX HLE + GLES3 shaders), the in-place
+   converter and the current platform/audio stack.
+2. **Renderer parity program.**  Systematically compare our GX state/command
+   handling and shader evaluation with Aurora and port every missing or
+   approximated behavior that Melee uses: indirect texturing, toon ramps,
+   channel/specular evaluation, EFB copies and Z-texture, texture/sampler
+   edge cases, and the state/pipeline performance techniques that matter on
+   the match path.
+3. **Reference discipline.**  Aurora is a reference, not a vendor.  The pinned
+   commit and the checkout location are recorded in the agent brief; ported
+   math, constants and tables cite `aurora/<file>:<symbol>` in comments and
+   carry Aurora's MIT notice in `native/licenses/`.  A wholesale C++ transplant
+   is not allowed (no C++ dependency in product targets).
+4. **Feature-by-feature gates.**  Every parity change needs a regression that
+   fails before and passes after (screenshot diff, `--dump-draws` assertion or
+   ctest) per `TESTING.md`; parser/memory-adjacent changes run ASan; changes
+   that alter pixels update the affected baselines and say so.
+5. **Park S8** (P-663..P-670).  Mobile/macOS stay out of scope until the owner
+   revisits the 64-bit question; the web build stays on the current renderer.
+
+**Consequences.** We keep owning ~4.5k lines of renderer, but raise its
+fidelity toward Aurora with a documented gap matrix and regressions instead of
+losing the 32-bit/web architecture.  The last few percent may need judgement:
+some Aurora behavior falls out of its pipeline cache or Dawn-specific design
+rather than a portable formula, and those cases get documented as deviations
+in `learnings/`.
+
+**Status:** accepted (2026-09-13); supersedes ADR-0015 and ADR-0016.
