@@ -62,6 +62,17 @@ typedef struct {
     GxHleTexture pending_tex;
     int pending_tlut_name;
 
+    /* P-675: per-object texture state.  The SDK's GXTexObj is opaque
+     * (GXStruct.h: `u32 dummy[8]`); the engine reads fields back through
+     * GXGetTexObj* long after initialization (sobjlib.c:220/287,
+     * lbspdisplay.c:401/432), so a single "pending" object returned stale
+     * values whenever another texture was initialized in between. */
+    GXTexObj* texobj_owner[GX_HLE_MAX_TEXOBJS];
+    GxHleTexture texobj_tex[GX_HLE_MAX_TEXOBJS];
+    int texobj_tlut[GX_HLE_MAX_TEXOBJS];
+    unsigned int texobj_used[GX_HLE_MAX_TEXOBJS];
+    unsigned int texobj_clock;
+
     int begun;
 } GxHleState;
 
@@ -1821,29 +1832,95 @@ static void init_tex_defaults(GxHleTexture* t)
     t->gl_texture = 0;
 }
 
+/* P-675 per-object texture state.  Lookup is by the caller's object pointer;
+ * a miss allocates the next slot or evicts the least recently used one.  The
+ * "pending" texture stays as a fallback for callers that never initialized
+ * the object (probes/tests). */
+static int texobj_find(GXTexObj* obj)
+{
+    int i;
+    for (i = 0; i < GX_HLE_MAX_TEXOBJS; ++i) {
+        if (gx.texobj_owner[i] == obj) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static GxHleTexture* texobj_slot(GXTexObj* obj, int create)
+{
+    int i;
+    if (obj == NULL) {
+        return NULL;
+    }
+    i = texobj_find(obj);
+    if (i < 0 && create) {
+        unsigned int oldest = (unsigned int) -1;
+        int victim = -1;
+        int free_slot = -1;
+        for (i = 0; i < GX_HLE_MAX_TEXOBJS; ++i) {
+            if (gx.texobj_owner[i] == NULL) {
+                free_slot = i;
+                break;
+            }
+            if (gx.texobj_used[i] < oldest) {
+                oldest = gx.texobj_used[i];
+                victim = i;
+            }
+        }
+        i = free_slot >= 0 ? free_slot : victim;
+        if (i < 0) {
+            return NULL;
+        }
+        gx.texobj_owner[i] = obj;
+        memset(&gx.texobj_tex[i], 0, sizeof(gx.texobj_tex[i]));
+        gx.texobj_tlut[i] = -1;
+    }
+    if (i < 0) {
+        return NULL;
+    }
+    gx.texobj_used[i] = ++gx.texobj_clock;
+    return &gx.texobj_tex[i];
+}
+
 void GXInitTexObj(GXTexObj* obj, void* image_ptr, u16 width, u16 height,
                   GXTexFmt format, GXTexWrapMode wrap_s,
                   GXTexWrapMode wrap_t, u8 mipmap)
 {
-    (void) obj;
-    init_tex_defaults(&gx.pending_tex);
-    gx.pending_tex.image = image_ptr;
-    gx.pending_tex.width = width;
-    gx.pending_tex.height = height;
-    gx.pending_tex.format = (u32) format;
-    gx.pending_tex.wrap_s = (u8) wrap_s;
-    gx.pending_tex.wrap_t = (u8) wrap_t;
-    gx.pending_tex.mipmap = mipmap;
+    GxHleTexture* t = texobj_slot(obj, 1);
+    if (t == NULL) {
+        t = &gx.pending_tex;
+    }
+    init_tex_defaults(t);
+    t->image = image_ptr;
+    t->width = width;
+    t->height = height;
+    t->format = (u32) format;
+    t->wrap_s = (u8) wrap_s;
+    t->wrap_t = (u8) wrap_t;
+    t->mipmap = mipmap;
+    gx.pending_tex = *t;
     gx.pending_tlut_name = -1;
+    if (t != &gx.pending_tex) {
+        int i = texobj_find(obj);
+        if (i >= 0) {
+            gx.texobj_tlut[i] = -1;
+        }
+    }
 }
 
 void GXInitTexObjCI(GXTexObj* obj, void* image_ptr, u16 width, u16 height,
                     GXTexFmt format, GXTexWrapMode wrap_s,
                     GXTexWrapMode wrap_t, u8 mipmap, u32 tlut_name)
 {
+    int i;
     GXInitTexObj(obj, image_ptr, width, height, format, wrap_s, wrap_t,
                  mipmap);
     gx.pending_tlut_name = (int) tlut_name;
+    i = texobj_find(obj);
+    if (i >= 0) {
+        gx.texobj_tlut[i] = (int) tlut_name;
+    }
 }
 
 void GXInitTexObjLOD(GXTexObj* obj, GXTexFilter min_filt,
@@ -1851,15 +1928,19 @@ void GXInitTexObjLOD(GXTexObj* obj, GXTexFilter min_filt,
                      f32 lod_bias, GXBool bias_clamp, GXBool do_edge_lod,
                      GXAnisotropy max_aniso)
 {
-    (void) obj;
-    gx.pending_tex.min_filt = (u8) min_filt;
-    gx.pending_tex.mag_filt = (u8) mag_filt;
-    gx.pending_tex.min_lod = min_lod;
-    gx.pending_tex.max_lod = max_lod;
-    gx.pending_tex.lod_bias = lod_bias;
-    gx.pending_tex.bias_clamp = (u8) bias_clamp;
-    gx.pending_tex.edge_lod = (u8) do_edge_lod;
-    gx.pending_tex.anisotropy = (u8) max_aniso;
+    GxHleTexture* t = texobj_slot(obj, 1);
+    if (t == NULL) {
+        t = &gx.pending_tex;
+    }
+    t->min_filt = (u8) min_filt;
+    t->mag_filt = (u8) mag_filt;
+    t->min_lod = min_lod;
+    t->max_lod = max_lod;
+    t->lod_bias = lod_bias;
+    t->bias_clamp = (u8) bias_clamp;
+    t->edge_lod = (u8) do_edge_lod;
+    t->anisotropy = (u8) max_aniso;
+    gx.pending_tex = *t;
 }
 
 void GXInitTlutObj(GXTlutObj* tlut_obj, void* lut, GXTlutFmt fmt,
@@ -1881,10 +1962,12 @@ void GXLoadTlut(GXTlutObj* tlut_obj, u32 tlut_name)
 
 void GXLoadTexObj(GXTexObj* obj, GXTexMapID id)
 {
-    GxHleTexture t = gx.pending_tex;
-    (void) obj;
-    if (gx.pending_tlut_name >= 0 && gx.pending_tlut_name < GX_HLE_MAX_TLUTS) {
-        GxHleTlut* tl = &gx.tluts[gx.pending_tlut_name];
+    int i = texobj_find(obj);
+    GxHleTexture t = i >= 0 ? gx.texobj_tex[i] : gx.pending_tex;
+    int tlut_name =
+        i >= 0 ? gx.texobj_tlut[i] : gx.pending_tlut_name;
+    if (tlut_name >= 0 && tlut_name < GX_HLE_MAX_TLUTS) {
+        GxHleTlut* tl = &gx.tluts[tlut_name];
         t.palette = tl->lut;
         t.palette_format = tl->fmt;
         t.palette_entries = tl->n_entries;
@@ -1907,38 +1990,41 @@ void GXLoadTexObjPreLoaded(GXTexObj* obj, GXTexRegion* region,
 
 GXTexFmt GXGetTexObjFmt(const GXTexObj* to)
 {
-    (void) to;
-    return (GXTexFmt) gx.pending_tex.format;
+    int i = texobj_find((GXTexObj*) to);
+    return (GXTexFmt) (i >= 0 ? gx.texobj_tex[i].format
+                              : gx.pending_tex.format);
 }
 
 u16 GXGetTexObjWidth(const GXTexObj* to)
 {
-    (void) to;
-    return gx.pending_tex.width;
+    int i = texobj_find((GXTexObj*) to);
+    return i >= 0 ? gx.texobj_tex[i].width : gx.pending_tex.width;
 }
 
 u16 GXGetTexObjHeight(const GXTexObj* to)
 {
-    (void) to;
-    return gx.pending_tex.height;
+    int i = texobj_find((GXTexObj*) to);
+    return i >= 0 ? gx.texobj_tex[i].height : gx.pending_tex.height;
 }
 
 GXTexWrapMode GXGetTexObjWrapS(const GXTexObj* to)
 {
-    (void) to;
-    return (GXTexWrapMode) gx.pending_tex.wrap_s;
+    int i = texobj_find((GXTexObj*) to);
+    return (GXTexWrapMode) (i >= 0 ? gx.texobj_tex[i].wrap_s
+                                   : gx.pending_tex.wrap_s);
 }
 
 GXTexWrapMode GXGetTexObjWrapT(const GXTexObj* to)
 {
-    (void) to;
-    return (GXTexWrapMode) gx.pending_tex.wrap_t;
+    int i = texobj_find((GXTexObj*) to);
+    return (GXTexWrapMode) (i >= 0 ? gx.texobj_tex[i].wrap_t
+                                   : gx.pending_tex.wrap_t);
 }
 
 u8 GXGetTexObjMipMap(const GXTexObj* to)
 {
-    (void) to;
-    return gx.pending_tex.mipmap;
+    int i = texobj_find((GXTexObj*) to);
+    return i >= 0 ? gx.texobj_tex[i].mipmap : gx.pending_tex.mipmap;
 }
 
 void GXInvalidateTexAll(void) {}

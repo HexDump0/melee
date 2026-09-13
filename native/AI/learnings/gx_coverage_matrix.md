@@ -104,16 +104,16 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 
 | GX item | Status | Our location | Aurora reference | Action |
 |---|---|---|---|---|
-| `GXInitTexObj`/`CI`/`LOD`/`GXLoadTexObj` | APPROX (pending-object model) | `gx_hle.c:1707-1789` | `GXTexture.cpp` (per-object fields) | **P-675**: `GXGetTexObj*`/`GXLoadTexObj` must read the passed object; `sobjlib.c:220/287` and `lbspdisplay.c:401/432` read stored texobjs later (pending fields can be stale) |
+| `GXInitTexObj`/`CI`/`LOD`/`GXLoadTexObj`/`GXGetTexObj*` | EXACT (closed by P-675): per-object slot table keyed by the caller's pointer | `gx_hle.c:texobj_slot`/`GXLoadTexObj`/`GXGetTexObj*` | `GXTexture.cpp` (per-object fields) | `ctest decomp_gx_direct` texobj readback; learning `gx_texture_parity.md` |
 | `GXInitTlutObj`/`GXLoadTlut` | EXACT (name → slot; names `% GX_HLE_MAX_TLUTS`) | `gx_hle.c:1748/1758` | `GXTexture.cpp` | — |
 | Texture decode: CMPR, CI4/CI8, I4/I8, IA4/IA8, RGB565, RGB5A3, RGBA8 (tiled) | EXACT (verified across 967 textures) | `native/gx/texture.c` | `lib/gfx/texture_convert.cpp` | — |
-| 5/6-bit color expansion | **APPROX (1 LSB)** | `expand5/expand6` `native/gx/texture.c:20-21`, `expand_palette` `gx_gl.c:824` use `v*255/31`, `v*255/63`; hardware/Aurora bit-replicate `(v<<3)|(v>>2)` | `ExpandTo8<5/6>` `texture_convert.cpp:113` | **P-675** (changes screenshot baselines by ≤1/255 per channel) |
+| 3/4/5/6-bit color expansion | EXACT (closed by P-675): bit replication in both image and TLUT paths | `native/gx/texture.c:expand*`, `gx_gl.c:pal_expand*` | `ExpandTo8<3/4/5/6>` `texture_convert.cpp:113` | `ctest decomp_gx_direct` expansion case; learning `gx_texture_parity.md` |
 | TLUT palette formats (RGB565/RGB5A3/IA8), authored entry counts | EXACT | `gx_gl.c:expand_palette`, `model.c` tlut path | `tex_palette_conv.cpp` | entry counts are not PoT and must not be rounded |
 | Z8 image decode (z-texture erase, `displayfunc.c:541`) | EXACT (as I8) | `texture.c:228` | `tex_copy_conv.cpp:FragZ8` | — |
 | Z24X8 image decode (`sobjlib.c:299`, `gm_1832.c:804`) | documented deviation (P-682) | absent in `texture.c` | depth snapshot path (`snapshot_depth`) | learning `gx_efb_copy.md`; P-682 |
 | Wrap modes CLAMP/REPEAT/MIRROR | EXACT | `gx_gl.c:wrap_to_gl` | `GXTexture.cpp` / `regs.cpp` | — |
 | Min/mag filters + CI mip downgrade | EXACT | `gx_gl.c:min_filter_to_gl` | `GXTexture.cpp:GXInitTexObjLOD` | — |
-| LOD bias (shader `texture(...,bias)`), min/max LOD, edge LOD, bias clamp | APPROX | `gx_gl.c:1077`, FS bias `:465` | `GXTexture.cpp` mode0/mode1 decode | **P-675**: `do_edge_lod` and `bias_clamp` are not distinguished |
+| LOD bias (shader `texture(...,bias)`), min/max LOD, edge LOD, bias clamp | APPROX (documented) | `gx_gl.c` min/max LOD params + FS bias | `GXTexture.cpp` mode0/mode1 decode | `do_edge_lod`/`bias_clamp` not distinguished; no observed archive sets min/max LOD ≠ 0 → documented in P-675 learning |
 | Anisotropy `GX_ANISO_1/2/4` | EXACT | `gx_gl.c:1079` (`1<<v`) | `GXTexture.cpp` | — |
 | Mip generation | N/A (asset mipmap==0 for all 967 Nr textures; generated mips are a port choice) | `glGenerateMipmap` when flag set | Aurora generates mips from the GX mip chain | documented deviation |
 | `GXInvalidateTexAll`/`GXInvalidateVtxCache`/`GXInvalidateTexRegion` | N/A | no-ops | `resource_cache.cpp` | our cache key is the source pointer; EFB copies invalidate explicitly (`gx_gl.c:899`) |
@@ -169,7 +169,7 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 | ~~**P-672** indirect + toon + projective texgen~~ **DONE** | §1/§3 | `ctest decomp_gx_direct` (texgen/capture) + `ctest decomp_efb` pass 5 (GPU indirect); learning `gx_indirect_toon.md` |
 | ~~**P-673** lighting/specular~~ **DONE** | §4 | `ctest decomp_gx_direct` light-object cases + `ctest decomp_efb` pass 6 (tinted spec); learning `gx_lighting_specular.md`. Follow-up: P-681 spot cones |
 | ~~**P-674** EFB copy formats~~ **DONE** (Z24X8 → P-682) | §6 | `ctest decomp_efb` pass 7; learning `gx_efb_copy.md` |
-| **P-675** textures/samplers | expand5/expand6 bit replication, per-object texobj state (`GXGetTexObj*`), edge-lod/bias-clamp, TLUT bounds | `ctest decomp_stage`/`decomp_render` baselines + new unit assertions on decode of a synthetic 5/6-bit pattern; `sobjlib`/`lbspdisplay` object read-back |
+| ~~**P-675** textures/samplers~~ **DONE** (edge-lod/bias-clamp documented) | §5 | `ctest decomp_gx_direct` expansion + texobj cases; learning `gx_texture_parity.md` |
 | **P-676** perf | state-change batching, redundant binds, uniform upload diffing, VBO stream | `[match] frame N ... render=Xms` before/after, frame-718 pixel parity |
 | **P-677** harness | cross-character/stage/effect parity artifacts | one command per slice producing a pass/fail artifact |
 | ~~**P-678** `GXGetProjectionv` packed layout~~ **DONE** | §2 | `ctest decomp_gx_direct` asserts both layouts + `GXSetProjectionv` round trip; G-131 |

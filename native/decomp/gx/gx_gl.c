@@ -913,6 +913,13 @@ void gx_gl_set_clear(float r, float g, float b, float a)
 
 /* ----------------------------------------------------------- textures */
 
+/* Bit-replication channel expansion, matching the GX texture unit and the
+ * image decoders in native/gx/texture.c (P-675). */
+static unsigned char pal_expand5(unsigned v) { return (unsigned char) ((v << 3) | (v >> 2)); }
+static unsigned char pal_expand6(unsigned v) { return (unsigned char) ((v << 2) | (v >> 4)); }
+static unsigned char pal_expand4(unsigned v) { return (unsigned char) ((v << 4) | v); }
+static unsigned char pal_expand3(unsigned v) { return (unsigned char) ((v << 5) | (v << 2) | (v >> 1)); }
+
 static unsigned char* expand_palette(const unsigned char* raw, unsigned int fmt,
                                      unsigned int count)
 {
@@ -928,21 +935,21 @@ static unsigned char* expand_palette(const unsigned char* raw, unsigned int fmt,
             p[0] = p[1] = p[2] = (unsigned char) (v >> 8);
             p[3] = (unsigned char) (v & 0xFF);
         } else if (fmt == 1) { /* RGB565 */
-            p[0] = (unsigned char) ((((v >> 11) & 31) * 255u) / 31u);
-            p[1] = (unsigned char) ((((v >> 5) & 63) * 255u) / 63u);
-            p[2] = (unsigned char) (((v & 31) * 255u) / 31u);
+            p[0] = pal_expand5((v >> 11) & 31);
+            p[1] = pal_expand6((v >> 5) & 63);
+            p[2] = pal_expand5(v & 31);
             p[3] = 255;
         } else { /* RGB5A3 */
             if (v & 0x8000) {
-                p[0] = (unsigned char) ((((v >> 10) & 31) * 255u) / 31u);
-                p[1] = (unsigned char) ((((v >> 5) & 31) * 255u) / 31u);
-                p[2] = (unsigned char) (((v & 31) * 255u) / 31u);
+                p[0] = pal_expand5((v >> 10) & 31);
+                p[1] = pal_expand5((v >> 5) & 31);
+                p[2] = pal_expand5(v & 31);
                 p[3] = 255;
             } else {
-                p[0] = (unsigned char) ((((v >> 8) & 15) * 17u));
-                p[1] = (unsigned char) ((((v >> 4) & 15) * 17u));
-                p[2] = (unsigned char) (((v & 15) * 17u));
-                p[3] = (unsigned char) ((((v >> 12) & 7) * 255u) / 7u);
+                p[0] = pal_expand4((v >> 8) & 15);
+                p[1] = pal_expand4((v >> 4) & 15);
+                p[2] = pal_expand4(v & 15);
+                p[3] = pal_expand3((v >> 12) & 7);
             }
         }
     }

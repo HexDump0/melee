@@ -19,6 +19,7 @@
 #define GX_HLE_MAX_VERTS (1 << 18)
 #define GX_HLE_MAX_TEXTURES 512
 #define GX_HLE_MAX_TLUTS 32
+#define GX_HLE_MAX_TEXOBJS 128
 #define GX_HLE_MAX_STAGES 8
 
 typedef struct GxHleVertex {

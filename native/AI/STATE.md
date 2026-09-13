@@ -245,6 +245,14 @@ RGB565/R4/RGBA8 bytes are unchanged.  `ctest decomp_efb` pass 7 covers the
 new formats with sensitivity flipped; Z24X8 depth snapshots and `GX_ZT_ADD`
 are documented in `learnings/gx_efb_copy.md` and filed as P-682.
 
+**P-675 (2026-09-13):** texture channels now expand by bit replication
+(5/6-bit, and the 3-bit RGB5A3 alpha) in both the image and TLUT paths, and
+`GXTexObj` keeps per-object state keyed by the caller's pointer, so
+`GXGetTexObj*`/`GXLoadTexObj` read the object the game passed (sobjlib and
+lbspdisplay read stored texobjs long after initialization).  Model-region
+screenshot delta from the rounding fix is RMSE 0.00056.  `ctest` 17/17;
+learning `gx_texture_parity.md`.
+
 ## TL;DR
 
 A playable two-player sandbox runs natively on Linux, rendering real disc

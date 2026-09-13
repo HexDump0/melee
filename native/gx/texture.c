@@ -16,16 +16,21 @@ static uint16_t be16(const uint8_t* p)
     return (uint16_t) (((uint16_t) p[0] << 8) | p[1]);
 }
 
+/* GX expands integer channels by bit replication (Aurora
+ * texture_convert.cpp: `ExpandTo8<v>`): 5-bit (n<<3)|(n>>2), 6-bit
+ * (n<<2)|(n>>4), 4-bit (n<<4)|n, 3-bit (n<<5)|(n<<2)|(n>>1).  The old
+ * round-by-scaling formulas differ by one LSB for some values (e.g. 5-bit
+ * 13 -> 106 instead of 107). */
 static uint8_t expand4(unsigned v) { return (uint8_t) ((v << 4) | v); }
-static uint8_t expand5(unsigned v) { return (uint8_t) ((v * 255u) / 31u); }
-static uint8_t expand6(unsigned v) { return (uint8_t) ((v * 255u) / 63u); }
+static uint8_t expand5(unsigned v) { return (uint8_t) ((v << 3) | (v >> 2)); }
+static uint8_t expand6(unsigned v) { return (uint8_t) ((v << 2) | (v >> 4)); }
+static uint8_t expand3(unsigned v) { return (uint8_t) ((v << 5) | (v << 2) | (v >> 1)); }
 
 static void rgb565(uint16_t v, uint8_t* out)
 {
     out[0] = expand5((v >> 11) & 31);
     out[1] = expand6((v >> 5) & 63);
     out[2] = expand5(v & 31);
-    out[3] = 255;
 }
 
 static void rgb5a3(uint16_t v, uint8_t* out)
@@ -39,7 +44,7 @@ static void rgb5a3(uint16_t v, uint8_t* out)
         out[0] = expand4((v >> 8) & 15);
         out[1] = expand4((v >> 4) & 15);
         out[2] = expand4(v & 15);
-        out[3] = (uint8_t) ((((v >> 12) & 7) * 255u) / 7u);
+        out[3] = expand3((v >> 12) & 7);
     }
 }
 

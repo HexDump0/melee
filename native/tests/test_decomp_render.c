@@ -51,6 +51,9 @@ static int direct_test(void)
     const GxHleDraw* draws = NULL;
     size_t vc = 0;
     size_t dc = 0;
+    size_t light_vc = 0;
+    size_t light_dc = 0;
+    size_t light_prims = 0;
     int fail = 0;
 
     /* The compiled game refines __frsqrte as a reciprocal-square-root
@@ -623,11 +626,80 @@ static int direct_test(void)
                    (double) d->state.lights[0].dir[2]);
             fail = 1;
         }
+        light_dc = dc;
+        light_vc = vc;
+        light_prims = gx_hle_primitive_count();
+    }
+
+    /* P-675: the GXGetTexObj accessors and GXLoadTexObj must read the
+     * caller's object, not the most recently initialized one (sobjlib and
+     * lbspdisplay read stored texobjs long after other textures were
+     * initialized). */
+    {
+        GXTexObj a, b;
+        static unsigned char img_a[32];
+        static unsigned char img_b[64];
+        GxHleTexture* textures = NULL;
+        size_t tcount = 0;
+
+        gx_hle_begin_frame();
+        gx_hle_reset_state();
+        GXInitTexObj(&a, img_a, 4, 4, GX_TF_I8, GX_CLAMP, GX_CLAMP,
+                     GX_FALSE);
+        GXInitTexObjLOD(&a, GX_NEAR, GX_NEAR, 0.0f, 0.0f, 0.0f, GX_FALSE,
+                        GX_FALSE, GX_ANISO_1);
+        GXInitTexObj(&b, img_b, 8, 8, GX_TF_RGB565, GX_REPEAT, GX_MIRROR,
+                     GX_FALSE);
+        if (GXGetTexObjFmt(&a) != GX_TF_I8 || GXGetTexObjWidth(&a) != 4 ||
+            GXGetTexObjHeight(&a) != 4 || GXGetTexObjWrapS(&a) != GX_CLAMP ||
+            GXGetTexObjFmt(&b) != GX_TF_RGB565 ||
+            GXGetTexObjWrapT(&b) != GX_MIRROR) {
+            printf("direct: FAIL texobj readback a=(%d,%u,%u,%u) "
+                   "b=(%d,%u)\n", (int) GXGetTexObjFmt(&a),
+                   GXGetTexObjWidth(&a), GXGetTexObjHeight(&a),
+                   (unsigned) GXGetTexObjWrapS(&a), (int) GXGetTexObjFmt(&b),
+                   (unsigned) GXGetTexObjWrapT(&b));
+            fail = 1;
+        }
+        GXLoadTexObj(&a, GX_TEXMAP0);
+        gx_hle_get_frame(&verts, &vc, &draws, &dc, &textures, &tcount);
+        if (tcount != 1 || textures[0].format != GX_TF_I8 ||
+            textures[0].width != 4 || textures[0].height != 4) {
+            printf("direct: FAIL texobj load n=%zu fmt=%u %ux%u (want 1/I8/"
+                   "4x4)\n", tcount, tcount ? textures[0].format : 0,
+                   tcount ? textures[0].width : 0,
+                   tcount ? textures[0].height : 0);
+            fail = 1;
+        }
+    }
+
+    /* P-675: 5/6-bit channels expand by bit replication
+     * (Aurora ExpandTo8): 5-bit 13 -> (13<<3)|(13>>2) = 107 (the old
+     * v*255/31 formula gave 106); 6-bit 17 -> (17<<2)|(17>>4) = 69. */
+    {
+        static unsigned char tex565[32];
+        uint8_t* rgba = NULL;
+        char err[64];
+        unsigned v = (13u << 11) | (17u << 5) | 7u;
+        tex565[0] = (unsigned char) (v >> 8);
+        tex565[1] = (unsigned char) (v & 0xFF);
+        if (gx_texture_decode(tex565, sizeof(tex565), 4, 4, TEX_FMT_RGB565,
+                              &rgba, err, sizeof(err)) != 0) {
+            printf("direct: FAIL RGB565 decode: %s\n", err);
+            fail = 1;
+        } else {
+            if (rgba[0] != 107 || rgba[1] != 69) {
+                printf("direct: FAIL expand r=%u g=%u (want 107/69)\n",
+                       rgba[0], rgba[1]);
+                fail = 1;
+            }
+            free(rgba);
+        }
     }
 
     printf("direct: %s draws=%zu verts=%zu primitives=%u\n",
-           fail ? "FAIL" : "PASS", dc, vc,
-           (unsigned) gx_hle_primitive_count());
+           fail ? "FAIL" : "PASS", light_dc, light_vc,
+           (unsigned) light_prims);
     return !fail;
 }
 
