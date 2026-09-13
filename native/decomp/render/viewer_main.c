@@ -44,6 +44,9 @@
 #include "decomp/render/sdl_audio.h"
 #include "platform/platform.h"
 
+#include <dolphin/pad.h>
+#include <melee/gm/gm_1A3F.h>
+
 extern int gm_main(void);
 
 typedef struct Viewer {
@@ -286,7 +289,8 @@ static void usage(const char* argv0)
             "          [--no-fighter] [--width N] [--height N]\n"
             "          [--angle DEG] [--elevation DEG] [--zoom F]\n"
             "          [--frames N] [--shot FILE] [--hidden] [--no-lights]\n"
-            "          [--match [FRAME]] [--record FILE|-] [--record-every N]\n"
+            "          [--match [FRAME]] [--frontend] [--input FILE]\n"
+            "          [--record FILE|-] [--record-every N]\n"
             "          [--dump-draws FRAME]\n"
             "          [--unlit] [--wire] [--no-hud] [--cycle N] [--spin DEG]\n"
             "          [--cycle-maps N] [--freecam]\n"
@@ -324,13 +328,283 @@ typedef struct MatchView {
     unsigned frames;
     unsigned limit;
     int quit;
+    /* S6 frontend mode: run the retail flow with live or scripted input. */
+    int frontend;
+    int live_input;
+    PadInputFrame live[4];
+    unsigned last_mode;
+    unsigned last_scene;
 } MatchView;
 
 static MatchView match_view;
 
-/* Debug aid: list the captured frame's draws with their texture bindings,
- * blend state and normalised-device bounding box (find runaway quads/fighters
- * without re-running the viewer per draw). */
+/*
+ * Frontend input
+ * ---------------
+ * Live mode maps the keyboard to PAD channel 0 (Enter/Start, Z/A, X/B, C/X,
+ * V/Y, A/L, S/R, Q/Z, arrows stick) and IJKL/F/G to channel 1.  Capture mode
+ * reads a small text script instead:
+ *
+ *   channels <1-4>              # connected controller count (default 1)
+ *   <frame> <chan|*> <buttons> [stick_x stick_y [cstick_x cstick_y
+ *                                              [trigger_l trigger_r]]]
+ *
+ * `buttons` is a comma list of a,b,x,y,z,l,r,start,up,down,left,right or `-`
+ * for none.  An event holds until the next event for that channel; frames
+ * before the first event are neutral.  Example (press Start on P1 at 300,
+ * then A at 340):
+ *
+ *   channels 1
+ *   300 * start
+ *   305 * -
+ *   340 * a
+ *   345 * -
+ */
+#define FRONTEND_MAX_EVENTS 1024
+
+typedef struct FrontendEvent {
+    unsigned frame;
+    unsigned channel; /* 4 = every connected channel */
+    PadInputFrame pad;
+} FrontendEvent;
+
+static int parse_pad_buttons(const char* names, unsigned short* out)
+{
+    char buf[64];
+    char* tok;
+    char* save = NULL;
+    unsigned short bits = 0;
+
+    if (names == NULL || strcmp(names, "-") == 0 || strcmp(names, "none") == 0)
+    {
+        *out = 0;
+        return 1;
+    }
+    snprintf(buf, sizeof(buf), "%s", names);
+    for (tok = strtok_r(buf, ",", &save); tok != NULL;
+         tok = strtok_r(NULL, ",", &save))
+    {
+        if (strcmp(tok, "left") == 0) {
+            bits |= PAD_BUTTON_LEFT;
+        } else if (strcmp(tok, "right") == 0) {
+            bits |= PAD_BUTTON_RIGHT;
+        } else if (strcmp(tok, "down") == 0) {
+            bits |= PAD_BUTTON_DOWN;
+        } else if (strcmp(tok, "up") == 0) {
+            bits |= PAD_BUTTON_UP;
+        } else if (strcmp(tok, "z") == 0) {
+            bits |= PAD_TRIGGER_Z;
+        } else if (strcmp(tok, "r") == 0) {
+            bits |= PAD_TRIGGER_R;
+        } else if (strcmp(tok, "l") == 0) {
+            bits |= PAD_TRIGGER_L;
+        } else if (strcmp(tok, "a") == 0) {
+            bits |= PAD_BUTTON_A;
+        } else if (strcmp(tok, "b") == 0) {
+            bits |= PAD_BUTTON_B;
+        } else if (strcmp(tok, "x") == 0) {
+            bits |= PAD_BUTTON_X;
+        } else if (strcmp(tok, "y") == 0) {
+            bits |= PAD_BUTTON_Y;
+        } else if (strcmp(tok, "start") == 0) {
+            bits |= PAD_BUTTON_START;
+        } else {
+            return 0;
+        }
+    }
+    *out = bits;
+    return 1;
+}
+
+static PadInputFrame* frontend_load_script(const char* path, unsigned total,
+                                           unsigned* channels_out)
+{
+    FILE* f = fopen(path, "r");
+    static FrontendEvent events[FRONTEND_MAX_EVENTS];
+    int event_count = 0;
+    unsigned channels = 1;
+    char line[256];
+    unsigned i;
+    PadInputFrame* frames;
+
+    if (f == NULL) {
+        fprintf(stderr, "viewer: cannot open input script %s\n", path);
+        return NULL;
+    }
+    while (fgets(line, sizeof(line), f) != NULL) {
+        char chan_tok[8];
+        char buttons[64];
+        unsigned fr;
+        unsigned channel;
+        int sx = 0;
+        int sy = 0;
+        int cx = 0;
+        int cy = 0;
+        int tl = 0;
+        int tr = 0;
+        int n;
+        char* hash = strchr(line, '#');
+        PadInputFrame* pad;
+
+        if (hash != NULL) {
+            *hash = '\0';
+        }
+        if (line[0] == '\0' || line[0] == '\n') {
+            continue;
+        }
+        if (strncmp(line, "channels", 8) == 0) {
+            unsigned value;
+            if (sscanf(line + 8, "%u", &value) == 1 && value >= 1 &&
+                value <= 4)
+            {
+                channels = value;
+            }
+            continue;
+        }
+        chan_tok[0] = '\0';
+        buttons[0] = '\0';
+        n = sscanf(line, "%u %7s %63s %d %d %d %d %d %d", &fr, chan_tok,
+                   buttons, &sx, &sy, &cx, &cy, &tl, &tr);
+        if (n < 3) {
+            fprintf(stderr, "viewer: input: bad line: %s\n", line);
+            fclose(f);
+            return NULL;
+        }
+        if (strcmp(chan_tok, "*") == 0) {
+            channel = 4;
+        } else {
+            channel = (unsigned) atoi(chan_tok);
+            if (channel > 3) {
+                fprintf(stderr, "viewer: input: bad channel: %s\n", chan_tok);
+                fclose(f);
+                return NULL;
+            }
+        }
+        if (event_count >= FRONTEND_MAX_EVENTS) {
+            break;
+        }
+        pad = &events[event_count].pad;
+        memset(pad, 0, sizeof(*pad));
+        if (!parse_pad_buttons(buttons, &pad->buttons)) {
+            fprintf(stderr, "viewer: input: unknown buttons: %s\n", buttons);
+            fclose(f);
+            return NULL;
+        }
+        pad->stick_x = (signed char) sx;
+        pad->stick_y = (signed char) sy;
+        pad->cstick_x = (signed char) cx;
+        pad->cstick_y = (signed char) cy;
+        pad->trigger_l = (unsigned char) (tl < 0 ? 0 : tl > 255 ? 255 : tl);
+        pad->trigger_r = (unsigned char) (tr < 0 ? 0 : tr > 255 ? 255 : tr);
+        events[event_count].frame = fr;
+        events[event_count].channel = channel;
+        event_count++;
+    }
+    fclose(f);
+    if (event_count == 0) {
+        return NULL;
+    }
+    frames = calloc((size_t) total * channels, sizeof(PadInputFrame));
+    if (frames == NULL) {
+        return NULL;
+    }
+    for (i = 0; i < (unsigned) event_count; i++) {
+        unsigned start = events[i].frame;
+        unsigned end =
+            (i + 1 < (unsigned) event_count) ? events[i + 1].frame : total;
+        unsigned frame;
+        unsigned c;
+        if (start >= total) {
+            break;
+        }
+        if (end > total) {
+            end = total;
+        }
+        for (frame = start; frame < end; frame++) {
+            if (events[i].channel == 4) {
+                for (c = 0; c < channels; c++) {
+                    frames[frame * channels + c] = events[i].pad;
+                }
+            } else if (events[i].channel < channels) {
+                frames[frame * channels + events[i].channel] = events[i].pad;
+            }
+        }
+    }
+    *channels_out = channels;
+    return frames;
+}
+
+static void frontend_poll_live(void)
+{
+    const bool* keys = SDL_GetKeyboardState(NULL);
+    PadInputFrame* p0 = &match_view.live[0];
+    PadInputFrame* p1 = &match_view.live[1];
+    int sx = 0;
+    int sy = 0;
+
+    memset(match_view.live, 0, sizeof(match_view.live));
+    if (keys[SDL_SCANCODE_LEFT]) {
+        sx -= 80;
+    }
+    if (keys[SDL_SCANCODE_RIGHT]) {
+        sx += 80;
+    }
+    if (keys[SDL_SCANCODE_UP]) {
+        sy += 80;
+    }
+    if (keys[SDL_SCANCODE_DOWN]) {
+        sy -= 80;
+    }
+    p0->stick_x = (signed char) sx;
+    p0->stick_y = (signed char) sy;
+    if (keys[SDL_SCANCODE_RETURN] || keys[SDL_SCANCODE_KP_ENTER]) {
+        p0->buttons |= PAD_BUTTON_START;
+    }
+    if (keys[SDL_SCANCODE_Z]) {
+        p0->buttons |= PAD_BUTTON_A;
+    }
+    if (keys[SDL_SCANCODE_X]) {
+        p0->buttons |= PAD_BUTTON_B;
+    }
+    if (keys[SDL_SCANCODE_C]) {
+        p0->buttons |= PAD_BUTTON_X;
+    }
+    if (keys[SDL_SCANCODE_V]) {
+        p0->buttons |= PAD_BUTTON_Y;
+    }
+    if (keys[SDL_SCANCODE_A]) {
+        p0->buttons |= PAD_TRIGGER_L;
+    }
+    if (keys[SDL_SCANCODE_S]) {
+        p0->buttons |= PAD_TRIGGER_R;
+    }
+    if (keys[SDL_SCANCODE_Q]) {
+        p0->buttons |= PAD_TRIGGER_Z;
+    }
+    if (keys[SDL_SCANCODE_J]) {
+        p1->stick_x -= 80;
+    }
+    if (keys[SDL_SCANCODE_L]) {
+        p1->stick_x += 80;
+    }
+    if (keys[SDL_SCANCODE_I]) {
+        p1->stick_y += 80;
+    }
+    if (keys[SDL_SCANCODE_K]) {
+        p1->stick_y -= 80;
+    }
+    if (keys[SDL_SCANCODE_F]) {
+        p1->buttons |= PAD_BUTTON_A;
+    }
+    if (keys[SDL_SCANCODE_G]) {
+        p1->buttons |= PAD_BUTTON_B;
+    }
+    if (keys[SDL_SCANCODE_T]) {
+        p1->buttons |= PAD_BUTTON_START;
+    }
+    pad_set_live_input(match_view.live, 4);
+}
+
 static void dump_draws(unsigned frame)
 {
     const GxHleVertex* vertices = NULL;
@@ -483,6 +757,22 @@ static void match_present(void)
         return;
     }
 
+    if (match_view.frontend) {
+        unsigned mode;
+        unsigned scene;
+        if (match_view.live_input) {
+            frontend_poll_live();
+        }
+        mode = gm_GetCurrentGameMode();
+        scene = gm_GetCurrentSceneIndex();
+        if (mode != match_view.last_mode || scene != match_view.last_scene) {
+            fprintf(stderr, "[frontend] frame %u mode=%u scene=%u\n",
+                    match_view.frames, mode, scene);
+            match_view.last_mode = mode;
+            match_view.last_scene = scene;
+        }
+    }
+
     /* The game owns the camera, so a resize only has to resize the GL target.
      * Poll instead of trusting events: a tiling WM may map/resize the window
      * before the first present, and fractional-scale changes can arrive
@@ -618,7 +908,7 @@ static void match_present(void)
 static int run_match(SDL_Window* window, SDL_GLContext context,
                      const char* shot, FILE* record, unsigned record_every,
                      unsigned dump_frame, unsigned match_frame, unsigned limit,
-                     GxGlOptions* gl)
+                     GxGlOptions* gl, const char* input_path, int frontend)
 {
     FILE* devnull = fopen("/dev/null", "w");
 
@@ -633,22 +923,60 @@ static int run_match(SDL_Window* window, SDL_GLContext context,
     match_view.frames = 0;
     match_view.limit = limit;
     match_view.quit = 0;
+    match_view.frontend = frontend;
+    match_view.live_input = frontend && input_path == NULL;
+    match_view.last_mode = 0xFFFFFFFFu;
+    match_view.last_scene = 0xFFFFFFFFu;
 
-    boot_triage_init(devnull != NULL ? devnull : stderr, 0, 0);
+    boot_triage_init(
+        getenv("MELEE_VIEWER_TRIAGE") != NULL
+            ? stderr
+            : (devnull != NULL ? devnull : stderr),
+        0, 0);
     boot_triage_set_frame_budget(limit != 0 ? limit + 240 : 0);
     hsd_asset_set_register_hook(gx_hle_register_asset);
     gx_gl_set_options(gl);
     boot_platform_set_present_hook(match_present);
-    match_boot_init(match_frame);
-    /* The S4 script is deterministic but finite; loop it so a full match
-     * keeps playing until the window is closed. */
-    pad_set_input_loop(1);
-    fprintf(stderr,
-            "viewer: match mode: compiled game, real camera, scripted PAD "
-            "input%s%s\n",
-            limit != 0 ? "" : " (looping, 60 Hz, ESC quits)",
-            record != NULL ? " (recording)" : "");
+    if (frontend) {
+        if (input_path != NULL) {
+            unsigned channels = 0;
+            unsigned total = limit != 0 ? limit + 2 : 18000;
+            PadInputFrame* script =
+                frontend_load_script(input_path, total, &channels);
+            if (script == NULL) {
+                fprintf(stderr, "viewer: frontend input failed: %s\n",
+                        input_path);
+                return 1;
+            }
+            pad_set_input_script(script, channels, total);
+            pad_set_input_loop(0);
+            fprintf(stderr,
+                    "viewer: frontend mode: retail flow, %u-frame input script "
+                    "%s (%u channels)\n",
+                    total, input_path, channels);
+        } else {
+            fprintf(stderr,
+                    "viewer: frontend mode: retail flow, live input "
+                    "(Enter=START Z=A X=B C=X V=Y A=L S=R Q=Z, arrows=stick)\n");
+        }
+    } else {
+        match_boot_init(match_frame);
+        /* The S4 script is deterministic but finite; loop it so a full match
+         * keeps playing until the window is closed. */
+        pad_set_input_loop(1);
+        fprintf(stderr,
+                "viewer: match mode: compiled game, real camera, scripted PAD "
+                "input%s%s\n",
+                limit != 0 ? "" : " (looping, 60 Hz, ESC quits)",
+                record != NULL ? " (recording)" : "");
+    }
     gm_main();
+    if (shot != NULL && !match_view.shot_written) {
+        match_view.shot_written = gx_gl_save_bmp(shot);
+        if (match_view.shot_written) {
+            fprintf(stderr, "viewer: wrote %s (game stopped)\n", shot);
+        }
+    }
     return 0;
 }
 
@@ -673,6 +1001,8 @@ int main(int argc, char** argv)
     int hidden = 0;
     int want_shot = 0;
     int match_mode = 0;
+    int frontend_mode = 0;
+    const char* input_path = NULL;
     unsigned match_frame = 20;
     int quit = 0;
     int frame_count = 0;
@@ -707,6 +1037,10 @@ int main(int argc, char** argv)
             if ((int) i + 1 < argc && argv[i + 1][0] != '-') {
                 match_frame = (unsigned) strtoul(argv[++i], NULL, 0);
             }
+        } else if (strcmp(argv[i], "--frontend") == 0) {
+            frontend_mode = 1;
+        } else if (strcmp(argv[i], "--input") == 0 && (int) i + 1 < argc) {
+            input_path = argv[++i];
         } else if (strcmp(argv[i], "--record") == 0 &&
                    (int) i + 1 < argc) {
             record_path = argv[++i];
@@ -885,7 +1219,7 @@ int main(int argc, char** argv)
     }
     gx_gl_set_clear(0.05f, 0.06f, 0.09f, 1.0f);
     gx_gl_set_options(&v->gl);
-    if (match_mode) {
+    if (match_mode || frontend_mode) {
         int status;
         /* The HUD's part-isolation toggles are capture-side GL options, so
          * they work in match mode too (find a draw in a live scene). */
@@ -896,7 +1230,7 @@ int main(int argc, char** argv)
         }
         status = run_match(window, context, shot, record, record_every,
                            dump_frame, match_frame, (unsigned) frames,
-                           &v->gl);
+                           &v->gl, input_path, frontend_mode);
         if (record != NULL) {
             fclose(record);
         }
