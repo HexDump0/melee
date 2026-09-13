@@ -64,6 +64,12 @@ the per-structure reference.  Key differences from the §7 recommendation:
 - **Sweep evidence.**  `ctest decomp_assets` loads 33 `Pl*Nr.dat` + `GrNBa` +
   `MnSlChr` + `IfAll` + `NtMsgWin` with full reloc coverage; the boot loads
   `NtMsgWin.dat`/`SdMsgBox.usd` and stops at the memory-card/pad wait.
+- **Name dispatches are exact.**  `convert_roots` keys special walks on the
+  public symbol name; a wrong length or literal silently leaves the table
+  big-endian (the `tyModelFileTbl`/`tyModelFileUsTbl` branches tested lengths
+  15/17 for 14/16-character names, so the results screen resolved every
+  character to entry 0; converter v73, G-126).  A table walk that does not
+  `mark` the table can also be reached by two symbols — check overlap.
 - **Pointee walks need their own walker.**  A converted pointer field is not a
   converted payload.  Every `ftData` sub-table was walked except `x58`
   (`ftData_x58_t`: two `u8` leg-part indices plus three f32 IK lengths), so

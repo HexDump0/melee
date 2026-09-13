@@ -1586,3 +1586,16 @@ Ness kinds point at the same one) must skip the sanity probe once converted or
 its host-order floats fail the BE check.  `test_decomp_assets` diffs all 31
 `ItemAttr` words of every accepted entry against a raw copy for eleven
 fighters; before the walk the first entry already fails.
+
+## G-126: converter symbol dispatch must match the real symbol name length
+
+**Symptom:** results-screen character names were wrong for every player; both
+panels read the same (first) table entry.
+**Cause:** the converter dispatched `TyDataf.dat`'s trophy tables with
+`length == 15 && memcmp(name, "tyModelFileTbl", 15)` and `length == 17` for
+`tyModelFileUsTbl`, but the symbols are 14 and 16 characters.  Neither branch
+ever matched, both tables stayed big-endian, and `Toy_8030813C`'s
+`*(s32*)ptr == id` scan only matched entry 0 (id 0) for every character.
+**Fix:** correct the counts to 14/16 (converter v73); `test_decomp_assets`
+loads `TyDataf.dat`, walks all 293+5 entries and requires every id to equal its
+raw big-endian value.  Before the fix the first non-zero entry fails.

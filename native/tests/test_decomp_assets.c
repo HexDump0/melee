@@ -799,6 +799,100 @@ static int check_item_attr_bits(unsigned char** articles, unsigned count)
     return failed != 0;
 }
 
+/* P-645: TyDataf's trophy tables are 0x54-byte entries { s32 id; char
+ * name[0x20]; char model[0x2c] }.  `Toy_8030813C` matches the id against the
+ * table and `Toy_80308250` then hands out `entry + 4` (name) and `entry +
+ * 0x24` (model symbol), so an unconverted big-endian id makes every lookup
+ * miss and the results screen reads whatever the first entry says.  The
+ * converter's symbol dispatch tested name lengths 15/17 for the 14/16-char
+ * "tyModelFileTbl"/"tyModelFileUsTbl", so neither table was ever walked. */
+static int check_ty_data_tables(const char* image)
+{
+    static const struct {
+        const char* symbol;
+        unsigned count;
+    } tables[] = {
+        { "tyModelFileTbl", 293 },
+        { "tyModelFileUsTbl", 5 },
+    };
+    char error[256];
+    size_t size = 0;
+    unsigned char* buffer = load_archive(image, "TyDataf.dat", NULL, &size,
+                                         error, sizeof(error));
+    unsigned char* raw = NULL;
+    HSD_Archive archive;
+    HsdConvertStats stats;
+    unsigned checked = 0;
+    int failed = 0;
+    size_t t;
+
+    if (buffer == NULL) {
+        fprintf(stderr, "decomp_assets: TyDataf.dat: %s\n", error);
+        return 1;
+    }
+    raw = malloc(size);
+    if (raw == NULL) {
+        free(buffer);
+        return 1;
+    }
+    memcpy(raw, buffer, size);
+    if (!hsd_asset_convert(buffer, size, &stats) ||
+        HSD_ArchiveParse(&archive, buffer, size) != 0)
+    {
+        fprintf(stderr, "decomp_assets: TyDataf.dat conversion failed\n");
+        free(raw);
+        free(buffer);
+        return 1;
+    }
+    for (t = 0; t < sizeof(tables) / sizeof(tables[0]); t++) {
+        unsigned char* table =
+            HSD_ArchiveGetPublicAddress(&archive, tables[t].symbol);
+        uint32_t off;
+        unsigned i;
+        if (table == NULL || !ptr_in_buffer(table, buffer, size)) {
+            fprintf(stderr, "decomp_assets: TyDataf.dat missing %s\n",
+                    tables[t].symbol);
+            failed++;
+            continue;
+        }
+        off = (uint32_t) (table - (buffer + 0x20));
+        for (i = 0; i < tables[t].count; i++) {
+            uint32_t e = off + i * 0x54;
+            uint32_t host;
+            uint32_t want;
+            if ((size_t) e + 0x54 > size - 0x20) {
+                break;
+            }
+            host = read_host_u32(buffer + 0x20 + e);
+            want = read_be_u32(raw + 0x20 + e);
+            if (host != want) {
+                if (failed == 0) {
+                    fprintf(stderr,
+                            "decomp_assets: TyDataf.dat %s[%u] id=%d "
+                            "want=%d (not converted?)\n",
+                            tables[t].symbol, i, (int) host, (int) want);
+                }
+                failed++;
+            } else if (host > 0x125) {
+                if (failed == 0) {
+                    fprintf(stderr,
+                            "decomp_assets: TyDataf.dat %s[%u] id=%d "
+                            "out of range\n",
+                            tables[t].symbol, i, (int) host);
+                }
+                failed++;
+            }
+            checked++;
+        }
+    }
+    if (failed == 0) {
+        printf("decomp_assets: TyDataf.dat trophy ids=%u ok\n", checked);
+    }
+    free(raw);
+    free(buffer);
+    return failed != 0 ? 1 : 0;
+}
+
 /* HSD_JObjLoadJoint resolves every PObj joint ID against the descriptors in
  * the root it just loaded.  Exercise all common-item model roots so an item
  * whose PObj points outside that root is caught before a random match spawn. */
@@ -1243,6 +1337,7 @@ int main(int argc, char** argv)
     failures += check_ft_data_tables(image, "PlCl.dat", "ftDataClink");
     failures += check_ft_data_tables(image, "PlYs.dat", "ftDataYoshi");
     failures += check_item_models(image);
+    failures += check_ty_data_tables(image);
     failures += check_stage_matanims(image, "GrNBa.dat");
     failures += check_stage_matanims(image, "GrNLa.dat");
 

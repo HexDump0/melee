@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 72u
+#define HSD_CONVERTER_VERSION 73u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -2974,12 +2974,12 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
         } else if (name_ends_with(name, length, "_figatree")) {
             c->st.roots_figatree++;
             conv_figatree(c, data_off);
-        } else if (length == 15 && memcmp(name, "tyModelFileTbl", 15) == 0) {
+        } else if (length == 14 && memcmp(name, "tyModelFileTbl", 14) == 0) {
             /* TyDataf: trophy name/model table (293 entries). */
             c->st.roots_unknown++;
             conv_toy_model_file_table(c, data_off, 293);
-        } else if (length == 17 &&
-                   memcmp(name, "tyModelFileUsTbl", 17) == 0) {
+        } else if (length == 16 &&
+                   memcmp(name, "tyModelFileUsTbl", 16) == 0) {
             /* TyDataf: US trophy name/model overrides (5 entries). */
             c->st.roots_unknown++;
             conv_toy_model_file_table(c, data_off, 5);
