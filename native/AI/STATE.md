@@ -132,7 +132,8 @@ real bugs: DSP-ADPCM is 8-byte/14-sample frames with the scale in the low
 nibble (the 9-byte/16-sample assumption was loud noise, G-097), the engine's
 u16-pair address/ratio aliasing needs host helpers (G-098), `.sem`/`.hps`
 needed endian conversion (G-099), and synchronous `.sem` loading needed the
-idle tick to pump completions (G-100).
+idle tick to pump completions (G-100).  Owner listening check passed
+2026-09-13 ("audio sound pretty fine").
 
 ## TL;DR
 

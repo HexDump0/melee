@@ -10,8 +10,8 @@ references, acceptance commands and risks is
 prototype to a decompilation-based full-game port (ADR-0010). S0–S5 are done
 as of 2026-09-12: the compiled decomp boots, renders, loads every asset
 family, runs a deterministic match and now plays its own audio through a
-software AX mixer (see `STATE.md`). The next milestone is S6 (frontend and
-saves), with S5's owner listening check (P-637) outstanding.**
+software AX mixer (see `STATE.md`), and the owner confirmed the sound
+(2026-09-13). The next milestone is S6 (frontend and saves).**
 
 ---
 
@@ -161,8 +161,8 @@ pure-C AX voice layer and a new host software mixer (`native/audio/`) run the
 game's own SFX/HPS code; `.ssm`/`.sem`/`.hps` convert in the DVD backend.
 Boot/title music and match SFX play deterministically (two runs
 byte-identical); `reverb_std` is ported from asm; quality is verified
-headlessly (`ctest audio`, `ctest decomp_audio`, `--audio-dump`). Only the
-owner listening check (P-637) is open. Evidence:
+headlessly (`ctest audio`, `ctest decomp_audio`, `--audio-dump`) and the
+owner confirmed it sounds right (2026-09-13). Evidence:
 `learnings/decomp_audio.md`, `STATE.md`.
 
 ## S6 — Frontend and saves

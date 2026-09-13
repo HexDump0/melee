@@ -122,8 +122,9 @@ Full detail in `learnings/decomp_port.md`; summary:
   `native/audio/{ax_hle,ax_mixer}.c` (DSP-ADPCM, SRC, `AXPBMIX`, VE, ITD,
   loop/end/state write-back), `platform/{ssm,sem,hps}.c` converters,
   `reverb_std` ported from asm, deterministic `--audio-dump`, SDL3 viewer
-  sink.  Four real bugs fixed on the way (G-097..G-100).  Open: owner
-  listening check P-637; `reverb_hi`/`chorus` are unused by Melee (P-638).
+  sink.  Four real bugs fixed on the way (G-097..G-100).  Owner
+  listening check passed 2026-09-13; `reverb_hi`/`chorus` are unused by Melee
+  and stay stubbed (P-638, optional).
 
 #### S6 — Frontend + saves
 

@@ -40,7 +40,7 @@ the viewer at 180 Hz is confirmed correct (H-4).
 | B-13 | Sandbox movement, attacks and CPU are fake demo code | BLOCKED | `ftCommon_*` + fighter state machine | P-301/P-302, M3 |
 | B-14 | Non-Mario characters use Mario physics values | BROKEN | per-character attribute tables | P-411 |
 | B-15 | No stages, no match loop, no camera bounds | BLOCKED | stage decode `Gr*.dat` | M4 |
-| B-16 | ~~No audio~~ | RESOLVED 2026-09-12 (S5): boot/title HPS music and match SFX play; owner listening check is P-637 | — | — |
+| B-16 | ~~No audio~~ | RESOLVED 2026-09-12 (S5), owner confirmed 2026-09-13: boot/title HPS music and match SFX play | — | — |
 | B-17 | No menus / character select / results | BLOCKED | M3/M4 + frontend work | M7 |
 | B-18 | No WASM, no Windows/macOS builds, no netplay | BLOCKED | post-M4 | P-502, M8 |
 | B-19 | High-refresh displays still show 60 Hz motion (no interpolation) | Deferred by owner | must wait for the faithful 60 Hz port | P-212 |
