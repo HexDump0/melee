@@ -190,7 +190,9 @@ SFX are host order (P-655/G-124).  Converter v72 also walks the per-fighter
 specials read host-order attributes (P-656/G-125).  Converter v73 fixes the
 `tyModelFileTbl`/`tyModelFileUsTbl` dispatch (name lengths 15/17 for 14/16-char
 symbols), so the results screen resolves the right trophy name/model per
-character (P-645/G-126).  Open S6 follow-ups: match HUD stock icons show the
+character (P-645/G-126).  Converter v74 adds the credits `_modelset` and
+Stadium `gmKumiteSystemTable*` walks found by an unknown-root scan over every
+disc archive (P-657/G-127).  Open S6 follow-ups: match HUD stock icons show the
 wrong character (P-644), and
 save data is blocked by the game's hsd card filesystem pump (P-646; the host
 card backend is opt-in behind `MELEE_CARD_DIR` until then).

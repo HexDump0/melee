@@ -70,6 +70,14 @@ the per-structure reference.  Key differences from the §7 recommendation:
   15/17 for 14/16-character names, so the results screen resolved every
   character to entry 0; converter v73, G-126).  A table walk that does not
   `mark` the table can also be reached by two symbols — check overlap.
+- **Scan the unknown roots.**  Every public that no branch matches increments
+  `stats.roots_unknown`.  A scratch pass over all 1,209 disc archives with a
+  temporary `[unknown]` print is the cheapest way to find unwalked tables;
+  converter v74 added `_modelset` (credits name models) and
+  `gmKumiteSystemTable*` (Stadium spawn rows) that way (G-127).  Remaining
+  known unknowns: `sqEventInitDataLevelTbl` (event levels + `StartMeleeRules`
+  bitfields), `gmIntroEasyTable`, `standScene`/`cut*Scene`, `dbLoadCommonData`,
+  and the per-fighter `ftDemo*MotionFile*` strings (no walk needed).
 - **Pointee walks need their own walker.**  A converted pointer field is not a
   converted payload.  Every `ftData` sub-table was walked except `x58`
   (`ftData_x58_t`: two `u8` leg-part indices plus three f32 IK lengths), so

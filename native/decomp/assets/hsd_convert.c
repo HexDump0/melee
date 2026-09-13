@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 73u
+#define HSD_CONVERTER_VERSION 74u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -209,6 +209,7 @@ static void conv_static_model_full(Conv* c, uint32_t off);
 static void conv_stage_maphead(Conv* c, uint32_t off);
 static void conv_shapeanim_joint(Conv* c, uint32_t off);
 static void conv_dynamic_models(Conv* c, uint32_t off);
+static void conv_regclear_spawn_table(Conv* c, uint32_t off);
 
 static void conv_imagedesc(Conv* c, uint32_t off)
 {
@@ -1506,6 +1507,30 @@ static void conv_itemdata(Conv* c, uint32_t off)
             break;
         }
         conv_u32(c, p + 0x00);
+    }
+}
+
+/* GmKumite.dat `gmKumiteSystemTable*`: `RegClearSpawnEntry[]` (0x10 bytes:
+ * { s32 kind; u8 x4..x7; f32 x8; f32 xC }, gm_181A.c:28).  gm_80182174
+ * copies rows into the runtime table until the 999 sentinel, so the table
+ * length is not stored; walk until x0 == 0x3E7 with a hard bound. */
+static void conv_regclear_spawn_table(Conv* c, uint32_t off)
+{
+    int i;
+
+    for (i = 0; i < 4096; i++) {
+        uint32_t e = off + (uint32_t) i * 0x10;
+        uint32_t kind;
+        if (!in_data(c, e, 0x10)) {
+            break;
+        }
+        conv_u32(c, e + 0x00);
+        conv_u32(c, e + 0x08);
+        conv_u32(c, e + 0x0C);
+        kind = rd32(c, e + 0x00);
+        if (kind == 0x3E7) {
+            break;
+        }
     }
 }
 
@@ -3001,6 +3026,11 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
             /* IfAll/If* `Stc_scemdls`-style sections: DynamicModelDesc* array */
             c->st.roots_unknown++;
             conv_dynamic_models(c, data_off);
+        } else if (name_ends_with(name, length, "_modelset")) {
+            /* GmStRoll: ScGamRegStaffrollNames_scene_modelset — the credits
+             * name models are a DynamicModelDesc** (staffroll.c:84). */
+            c->st.roots_unknown++;
+            conv_dynamic_models(c, data_off);
         } else if (name_ends_with(name, length, "_camera")) {
             /* GmTtAll/Mn*: Sc*_cam_int1_camera */
             conv_cobjdesc(c, data_off);
@@ -3046,6 +3076,11 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
             conv_yakumono_param(c, data_off);
         } else if (length == 8 && memcmp(name, "itemdata", 8) == 0) {
             conv_itemdata(c, data_off);
+        } else if (length > 19 &&
+                   memcmp(name, "gmKumiteSystemTable", 19) == 0) {
+            /* GmKumite.dat Stadium spawn tables (gm_181A.c). */
+            c->st.roots_unknown++;
+            conv_regclear_spawn_table(c, data_off);
         } else {
             c->st.roots_unknown++;
         }

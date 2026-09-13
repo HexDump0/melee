@@ -799,6 +799,181 @@ static int check_item_attr_bits(unsigned char** articles, unsigned count)
     return failed != 0;
 }
 
+/* GmStRoll.dat `ScGamRegStaffrollNames_scene_modelset` is a
+ * `DynamicModelDesc**` of ten credits name models (gmstaffroll.c:84);
+ * without the converter's `_modelset` walk the joint flags and each anim
+ * joint's flags stay big-endian. */
+static int check_staffroll_modelset(const char* image)
+{
+    char error[256];
+    size_t size = 0;
+    unsigned char* buffer = load_archive(image, "GmStRoll.dat", NULL, &size,
+                                         error, sizeof(error));
+    unsigned char* raw = NULL;
+    HSD_Archive archive;
+    HsdConvertStats stats;
+    unsigned char* descs;
+    unsigned checked = 0;
+    int failed = 0;
+    int i;
+
+    if (buffer == NULL) {
+        fprintf(stderr, "decomp_assets: GmStRoll.dat: %s\n", error);
+        return 1;
+    }
+    raw = malloc(size);
+    if (raw == NULL) {
+        free(buffer);
+        return 1;
+    }
+    memcpy(raw, buffer, size);
+    if (!hsd_asset_convert(buffer, size, &stats) ||
+        HSD_ArchiveParse(&archive, buffer, size) != 0)
+    {
+        fprintf(stderr, "decomp_assets: GmStRoll.dat conversion failed\n");
+        free(raw);
+        free(buffer);
+        return 1;
+    }
+    descs = HSD_ArchiveGetPublicAddress(
+        &archive, "ScGamRegStaffrollNames_scene_modelset");
+    if (descs == NULL || !ptr_in_buffer(descs, buffer, size)) {
+        fprintf(stderr, "decomp_assets: GmStRoll.dat modelset missing\n");
+        free(raw);
+        free(buffer);
+        return 1;
+    }
+    for (i = 0; i < 10; i++) {
+        unsigned char* slot = descs + i * sizeof(void*);
+        unsigned char* desc;
+        unsigned char* joint;
+        uint32_t off;
+        uint32_t host;
+        uint32_t want;
+        if (!ptr_in_buffer(slot, buffer, size)) {
+            break;
+        }
+        desc = read_host_ptr(slot);
+        if (desc == NULL || !ptr_in_buffer(desc + 0x10, buffer, size)) {
+            continue;
+        }
+        joint = read_host_ptr(desc);
+        if (joint == NULL) {
+            continue;
+        }
+        if (!ptr_in_buffer(joint + 0x40, buffer, size)) {
+            failed++;
+            continue;
+        }
+        off = (uint32_t) (joint - (buffer + 0x20));
+        host = read_host_u32(buffer + 0x20 + off + 0x04);
+        want = read_be_u32(raw + 0x20 + off + 0x04);
+        if (host != want) {
+            if (failed == 0) {
+                fprintf(stderr,
+                        "decomp_assets: GmStRoll modelset[%d] joint flags=%08x "
+                        "want=%08x (not converted?)\n",
+                        i, host, want);
+            }
+            failed++;
+        }
+        checked++;
+    }
+    if (failed == 0) {
+        printf("decomp_assets: GmStRoll.dat modelset=%u ok\n", checked);
+    }
+    free(raw);
+    free(buffer);
+    return failed != 0 ? 1 : 0;
+}
+
+/* GmKumite.dat Stadium spawn tables (`RegClearSpawnEntry[]`, 0x10-byte rows
+ * terminated by kind 0x3E7).  gm_80182174 copies x0/x8/xC straight into the
+ * runtime table, so an unconverted table makes every spawn entry absurd. */
+static int check_kumite_tables(const char* image)
+{
+    static const char* const names[] = {
+        "gmKumiteSystemTable10man",   "gmKumiteSystemTable100man",
+        "gmKumiteSystemTable10min",   "gmKumiteSystemTable60min",
+        "gmKumiteSystemTableEndless", "gmKumiteSystemTableMercilessly",
+    };
+    char error[256];
+    size_t size = 0;
+    unsigned char* buffer = load_archive(image, "GmKumite.dat", NULL, &size,
+                                         error, sizeof(error));
+    unsigned char* raw = NULL;
+    HSD_Archive archive;
+    HsdConvertStats stats;
+    unsigned checked = 0;
+    int failed = 0;
+    size_t n;
+
+    if (buffer == NULL) {
+        fprintf(stderr, "decomp_assets: GmKumite.dat: %s\n", error);
+        return 1;
+    }
+    raw = malloc(size);
+    if (raw == NULL) {
+        free(buffer);
+        return 1;
+    }
+    memcpy(raw, buffer, size);
+    if (!hsd_asset_convert(buffer, size, &stats) ||
+        HSD_ArchiveParse(&archive, buffer, size) != 0)
+    {
+        fprintf(stderr, "decomp_assets: GmKumite.dat conversion failed\n");
+        free(raw);
+        free(buffer);
+        return 1;
+    }
+    for (n = 0; n < sizeof(names) / sizeof(names[0]); n++) {
+        unsigned char* table =
+            HSD_ArchiveGetPublicAddress(&archive, names[n]);
+        uint32_t off;
+        uint32_t i;
+        if (table == NULL || !ptr_in_buffer(table, buffer, size)) {
+            fprintf(stderr, "decomp_assets: GmKumite.dat missing %s\n",
+                    names[n]);
+            failed++;
+            continue;
+        }
+        off = (uint32_t) (table - (buffer + 0x20));
+        for (i = 0; i < 512; i++) {
+            uint32_t e = off + i * 0x10;
+            uint32_t kind;
+            if ((size_t) e + 0x10 > size - 0x20) {
+                break;
+            }
+            kind = read_host_u32(buffer + 0x20 + e);
+            if (read_host_u32(buffer + 0x20 + e) !=
+                    read_be_u32(raw + 0x20 + e) ||
+                read_host_u32(buffer + 0x20 + e + 0x08) !=
+                    read_be_u32(raw + 0x20 + e + 0x08) ||
+                read_host_u32(buffer + 0x20 + e + 0x0C) !=
+                    read_be_u32(raw + 0x20 + e + 0x0C))
+            {
+                if (failed == 0) {
+                    fprintf(stderr,
+                            "decomp_assets: GmKumite %s[%u] not converted\n",
+                            names[n], i);
+                }
+                failed++;
+                break;
+            }
+            checked++;
+            if (kind == 0x3E7) {
+                break;
+            }
+        }
+    }
+    if (failed == 0) {
+        printf("decomp_assets: GmKumite.dat spawn rows=%u ok\n", checked);
+    }
+    free(raw);
+    free(buffer);
+    return failed != 0 ? 1 : 0;
+}
+
 /* P-645: TyDataf's trophy tables are 0x54-byte entries { s32 id; char
  * name[0x20]; char model[0x2c] }.  `Toy_8030813C` matches the id against the
  * table and `Toy_80308250` then hands out `entry + 4` (name) and `entry +
@@ -1338,6 +1513,8 @@ int main(int argc, char** argv)
     failures += check_ft_data_tables(image, "PlYs.dat", "ftDataYoshi");
     failures += check_item_models(image);
     failures += check_ty_data_tables(image);
+    failures += check_staffroll_modelset(image);
+    failures += check_kumite_tables(image);
     failures += check_stage_matanims(image, "GrNBa.dat");
     failures += check_stage_matanims(image, "GrNLa.dat");
 

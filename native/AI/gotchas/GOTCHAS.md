@@ -1599,3 +1599,22 @@ ever matched, both tables stayed big-endian, and `Toy_8030813C`'s
 **Fix:** correct the counts to 14/16 (converter v73); `test_decomp_assets`
 loads `TyDataf.dat`, walks all 293+5 entries and requires every id to equal its
 raw big-endian value.  Before the fix the first non-zero entry fails.
+
+## G-127: converter root dispatch misses whole tables by symbol name
+
+**Symptom:** credits ("staffroll") name models and Stadium spawn tables read
+big-endian numbers; with the affected modes reached, models split/scale wrong
+and spawn rows get absurd kinds/positions.
+**Cause:** `convert_roots` dispatches every special walk by a literal public
+symbol suffix.  `ScGamRegStaffrollNames_scene_modelset` ends in `_modelset`
+(not `_scene_models`/`scemdls`) and the six `gmKumiteSystemTable*` symbols
+matched nothing, so those archives' dynamic model descriptors and
+`RegClearSpawnEntry` rows were never walked.
+**Fix:** converter v74 adds a `_modelset` -> `conv_dynamic_models` branch and a
+sentinel-bounded `conv_regclear_spawn_table` for `gmKumiteSystemTable*`.
+`test_decomp_assets` checks the ten modelset joints' flags and every Stadium
+spawn row (x0/x8/xC) against a raw copy; both fail without the branches.
+Audit method: a one-off scan of `roots_unknown` over all 1,209 disc archives
+lists the remaining unwalked publics (event level table, intro-easy table,
+`standScene`/`cut*Scene`, debug tables); the per-fighter
+`ftDemo*MotionFile*` symbols are strings and need no walk.
