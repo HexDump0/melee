@@ -78,6 +78,7 @@ static int direct_test(void)
     }
 
     gx_hle_begin_frame();
+    gx_hle_reset_state();
     GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
     GXClearVtxDesc();
     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
@@ -337,6 +338,7 @@ static int efb_test(void)
 
     /* ---- pass 1: colour EFB capture through GXCopyTex ---- */
     gx_hle_begin_frame();
+    gx_hle_reset_state();
     GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
     GXSetNumChans(1);
     GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX,
@@ -388,6 +390,7 @@ static int efb_test(void)
 
     /* ---- pass 2: GXSetZTexture(GX_ZT_REPLACE) erases depth to far ---- */
     gx_hle_begin_frame();
+    gx_hle_reset_state();
     GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
     GXSetNumChans(1);
     GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX,
@@ -479,6 +482,7 @@ static int efb_test(void)
         GXColor shade = { 0xA0, 0x50, 0x10, 0xFF };
 
         gx_hle_begin_frame();
+        gx_hle_reset_state();
         GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
         GXSetNumChans(1);
         GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX,
@@ -691,6 +695,7 @@ int main(int argc, char** argv)
                                               { 0, 0, 0, 1 } };
         FILE* f;
         gx_hle_begin_frame();
+        gx_hle_reset_state();
         HSD_StateInvalidate(-1);
         GXSetProjection((f32 (*)[4]) identity, GX_PERSPECTIVE);
         HSD_JObjDispAll(scene.hsd.root, (f32 (*)[4]) identity, HSD_TRSP_ALL,

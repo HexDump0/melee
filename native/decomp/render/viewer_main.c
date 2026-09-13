@@ -38,6 +38,8 @@
 #include "decomp/gx/gx_gl.h"
 #include "decomp/gx/gx_hle.h"
 #include "decomp/render/hud.h"
+#include <sysdolphin/baselib/state.h>
+
 #include "decomp/render/render_scene.h"
 #include "decomp/render/sdl_audio.h"
 #include "platform/platform.h"
@@ -498,6 +500,11 @@ static void match_present(void)
     SDL_GL_SwapWindow(match_view.window);
     match_view.swap_ns = SDL_GetTicksNS() - match_view.swap_start;
     gx_hle_begin_frame();
+    /* The backend state reset must invalidate the compiled engine's GX
+     * caches, or the shadow pass's first material setter is skipped as
+     * "unchanged" and its white background renders with the reset's default
+     * (black) channel colour (G-054). */
+    HSD_StateInvalidate(-1);
 
     /* Interactive sessions run at the GameCube's 60 Hz regardless of the
      * display refresh; capture/record runs stay unthrottled.  When the swap

@@ -1222,3 +1222,43 @@ its initial contents and the multiply went black.
 the EFB red channel, keep the high nibble, and write the 4-bit tiled layout
 (8x8 px / 32-byte tile, first pixel in the high nibble) that
 `native/gx/texture.c:decode_i4` expects.  `ctest decomp_efb` pass 3 covers it.
+
+## G-102: `GXSetViewport` must be applied per draw
+
+**Symptom:** character shadows appear far from the fighters, wrong size, or
+not at all; the shadow map (a 256x256 R4 EFB copy) contains silhouettes that
+don't line up with the world.
+**Cause:** `GXSetViewport` was captured but never used when replaying draws.
+The shadow pass renders through a 256x256 camera viewport; mapping its NDC to
+the whole surface put the silhouettes in the wrong place (and the copy read a
+different region).
+**Fix:** `GxHleDrawState` carries `viewport[4]`/`depth_range[2]` (set by
+`GXSetViewport`), and `gx_gl.c:apply_viewport` sets `glViewport`/`glDepthRangef`
+per draw, converting GX's top-left origin to GL's bottom-left.  The Z-texture
+pass applies it too.
+
+## G-103: a backend state reset needs `HSD_StateInvalidate(-1)`
+
+**Symptom:** the shadow map background is intermittently black (a black band
+across shadow-receiving surfaces for a few frames), and other material state
+can go stale after a reset.
+**Cause:** `gx_hle_begin_frame` resets the captured GX state; HSD caches the
+state it has *requested* (`prev_ch`, TEV stages, vtx descs) and skips setters
+it thinks are unchanged (e.g. the shadow pass's white material colour after a
+frame compiled with white).  Our reset then leaves the state at the default
+(black) while HSD never re-emits it.
+**Fix:** every target that resets the backend while the compiled engine is
+running must call `HSD_StateInvalidate(-1)` right after (the live match viewer
+and `bounds_pass` do).  Tests use `gx_hle_reset_state()` explicitly.  This is
+the G-054 contract, now at the frame boundary.
+
+## G-104: a material can reference three TEV texture maps (base + two shadows)
+
+**Symptom:** with two fighters on the ground only one character shadow shows;
+which one depends on the material.
+**Cause:** the platform's material compiles as `K0`, base texture (map 0),
+fighter A shadow (map 1) and fighter B shadow (map 2).  The GL fragment path
+had only `u_tex0`/`u_tex1` and silently dropped the map-2 stage.
+**Fix:** added a third texture unit (`u_tex2`, `u_tex_lod_bias.z`, texmap[2]);
+the vertex already carries a third texcoord (`v_uv2`).  A 1200-frame match
+uses at most map/coord 2, so three is enough for the shipped content.

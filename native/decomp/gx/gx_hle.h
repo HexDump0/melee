@@ -96,6 +96,11 @@ typedef struct GxHleDrawState {
     unsigned char dither;
     unsigned char dst_alpha_enable, dst_alpha;
     unsigned short scissor_x, scissor_y, scissor_w, scissor_h; /* EFB pixels */
+    /* GXSetViewport is in EFB pixels with a top-left origin; the depth range
+     * is the GX nearz/farz pair.  The shadow pass renders into a 256x256
+     * sub-viewport, so this has to be applied per draw, not once per frame. */
+    float viewport[4];  /* x, y, width, height */
+    float depth_range[2]; /* near, far */
     unsigned char alpha_comp0, alpha_ref0, alpha_op, alpha_comp1, alpha_ref1;
     unsigned char num_stages, num_texgens, num_chans;
     GxHleTevStage stages[GX_HLE_MAX_STAGES];
@@ -148,6 +153,11 @@ void gx_hle_begin_frame(void);
 /* Drops the captured geometry while keeping the GX state, so HSD's internal
  * state caches stay coherent across a multi-pass capture. */
 void gx_hle_discard_geometry(void);
+
+/* Wipes the captured GX register state (not just the frame capture).  Do not
+ * call at a normal frame boundary; pair with HSD_StateInvalidate(-1) when the
+ * compiled engine is running. */
+void gx_hle_reset_state(void);
 
 /* Copies the captured frame out.  Returns 1 when a frame is available. */
 int gx_hle_get_frame(const GxHleVertex** vertices, size_t* vertex_count,

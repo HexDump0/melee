@@ -191,9 +191,10 @@ static int bounds_pass(HSD_JObj* root, float* mn, float* mx)
     mn[0] = mn[1] = mn[2] = 1e30f;
     mx[0] = mx[1] = mx[2] = -1e30f;
     gx_hle_begin_frame();
-    /* The backend state was just reset; the compiled engine caches GX state
-     * (channel registers, TEV stages, vtx descs) and would otherwise skip
-     * re-emitting it for the next model, leaving the raster black. */
+    /* This target reinitializes the backend; the compiled engine caches GX
+     * state (channel registers, TEV stages, vtx descs) and would otherwise
+     * skip re-emitting it for the next model, leaving the raster black. */
+    gx_hle_reset_state();
     HSD_StateInvalidate(-1);
     GXSetProjection((f32 (*)[4]) identity, GX_PERSPECTIVE);
     HSD_JObjDispAll(root, (f32 (*)[4]) identity, HSD_TRSP_ALL, 0);

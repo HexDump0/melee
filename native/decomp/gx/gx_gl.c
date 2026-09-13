@@ -55,7 +55,7 @@ static int gl_height = 480;
 static float clear_color[4] = { 0.05f, 0.06f, 0.09f, 1.0f };
 
 static GLuint program;
-static GLint u_tex[2];
+static GLint u_tex[3];
 static GLint u_tev_color;
 static GLint u_tev_kcolor;
 static GLint u_tev_order;
@@ -279,6 +279,7 @@ static const char* FRAGMENT_SRC =
     "precision highp int;\n"
     "uniform sampler2D u_tex0;\n"
     "uniform sampler2D u_tex1;\n"
+    "uniform sampler2D u_tex2;\n"
     "uniform vec4 u_tev_color[4];\n"
     "uniform vec4 u_tev_kcolor[4];\n"
     "/* order: x=coord 0..7/255, y=map 0..7/255, z=channel, w=unused */\n"
@@ -305,7 +306,7 @@ static const char* FRAGMENT_SRC =
     "uniform float u_fog_end;\n"
     "uniform vec3 u_fog_color;\n"
     "uniform int u_tex_enable;\n"
-    "uniform vec2 u_tex_lod_bias;\n"
+    "uniform vec3 u_tex_lod_bias;\n"
     "uniform int u_dst_alpha_enable;\n"
     "uniform float u_dst_alpha;\n"
     "uniform int u_ras_flat;\n"
@@ -417,6 +418,7 @@ static const char* FRAGMENT_SRC =
     "                      (ord.x == 1) ? v_uv1 : v_uv0;\n"
     "            if (ord.y == 0) tex = texture(u_tex0, uv, u_tex_lod_bias.x);\n"
     "            else if (ord.y == 1) tex = texture(u_tex1, uv, u_tex_lod_bias.y);\n"
+    "            else if (ord.y == 2) tex = texture(u_tex2, uv, u_tex_lod_bias.z);\n"
 
     "        }\n"
     "        ivec4 sel = u_tev_sel[i];\n"
@@ -542,6 +544,7 @@ static int build_program(char* error, size_t error_size)
 
     u_tex[0] = glGetUniformLocation(program, "u_tex0");
     u_tex[1] = glGetUniformLocation(program, "u_tex1");
+    u_tex[2] = glGetUniformLocation(program, "u_tex2");
     u_tev_color = glGetUniformLocation(program, "u_tev_color");
     u_tev_kcolor = glGetUniformLocation(program, "u_tev_kcolor");
     u_tev_order = glGetUniformLocation(program, "u_tev_order");
@@ -609,6 +612,7 @@ static int build_program(char* error, size_t error_size)
     glUseProgram(program);
     glUniform1i(u_tex[0], 0);
     glUniform1i(u_tex[1], 1);
+    glUniform1i(u_tex[2], 2);
     return 1;
 }
 
@@ -819,6 +823,27 @@ static GLenum min_filter_to_gl(unsigned char f, unsigned char mipmap,
     }
 }
 
+/* EFB-copied textures are updated in place at a fixed address; the cache key
+ * is the source pointer, so a copy must drop any entry decoded from that
+ * buffer or the map stays at the first frame's content (stale/black shadow). */
+static void gl_texture_cache_invalidate(const void* image)
+{
+    size_t i = 0;
+
+    while (i < tex_cache_count) {
+        GlTextureCache* e = &tex_cache[i];
+        if (e->image == image) {
+            if (e->name != 0) {
+                glDeleteTextures(1, &e->name);
+            }
+            tex_cache[i] = tex_cache[tex_cache_count - 1];
+            tex_cache_count--;
+            continue;
+        }
+        i++;
+    }
+}
+
 static GLuint texture_for(const GxHleTexture* t)
 {
     size_t i;
@@ -1003,6 +1028,28 @@ static GLenum depth_func(unsigned char f)
     default:
         return GL_ALWAYS;
     }
+}
+
+/* GXSetViewport is EFB pixels with a top-left origin; GL's is bottom-up.
+ * Applying it per draw is what puts the shadow pass into its 256x256 corner
+ * (its camera viewport) instead of over the whole surface. */
+static void apply_viewport(const GxHleDrawState* s)
+{
+    GLfloat sx = (GLfloat) gl_width / 640.0f;
+    GLfloat sy = (GLfloat) gl_height / 480.0f;
+    GLint vx = (GLint) (s->viewport[0] * sx + 0.5f);
+    GLint vy = (GLint) (s->viewport[1] * sy + 0.5f);
+    GLint vw = (GLint) (s->viewport[2] * sx + 0.5f);
+    GLint vh = (GLint) (s->viewport[3] * sy + 0.5f);
+
+    if (vw < 1) {
+        vw = 1;
+    }
+    if (vh < 1) {
+        vh = 1;
+    }
+    glViewport(vx, gl_height - vy - vh, vw, vh);
+    glDepthRangef(s->depth_range[0], s->depth_range[1]);
 }
 
 static void apply_draw_state(const GxHleDrawState* s)
@@ -1323,6 +1370,7 @@ static void efb_copy_tex(const GxHleDraw* d)
         }
     }
     free(rgba);
+    gl_texture_cache_invalidate(dest);
 }
 
 /* P-615: depth-only Z-texture pass (GX_ZT_REPLACE/ADD). */
@@ -1348,6 +1396,7 @@ static void draw_ztex(const GxHleDraw* d, const GxHleDrawState* s,
     glUniform1i(u_ztex_sampler, 0);
     glUniform1i(u_ztex_op_loc, (int) s->ztex_op);
     glUniform1f(u_ztex_bias_loc, s->ztex_bias);
+    apply_viewport(s);
     apply_draw_state(s);
     glDrawArrays(GL_TRIANGLES, (GLint) d->first_vertex,
                  (GLsizei) d->vertex_count);
@@ -1369,6 +1418,7 @@ int gx_gl_render_frame(void)
     gx_hle_get_frame(&vertices, &vertex_count, &draws, &draw_count,
                      &textures, &texture_count);
     glViewport(0, 0, gl_width, gl_height);
+    glDepthRangef(0.0, 1.0);
     /* The previous frame's GX state may have masked alpha writes or depth
      * writes (RENDER_NO_ZUPDATE); without restoring both masks first, glClear
      * leaves stale alpha/depth behind and rotating cameras lose geometry. */
@@ -1400,6 +1450,7 @@ int gx_gl_render_frame(void)
         const GxHleDrawState* s = &d->state;
         const GxHleTexture* t0 = NULL;
         const GxHleTexture* t1 = NULL;
+        const GxHleTexture* t2 = NULL;
         GLuint tex0 = 0;
         if (gl_options.only_draw >= 0 &&
             (size_t) gl_options.only_draw != i) {
@@ -1419,6 +1470,7 @@ int gx_gl_render_frame(void)
             continue;
         }
         GLuint tex1 = 0;
+        GLuint tex2 = 0;
 
         if (d->vertex_count == 0) {
             continue;
@@ -1436,17 +1488,25 @@ int gx_gl_render_frame(void)
             t1 = &textures[s->texmap[1]];
             tex1 = texture_for(t1);
         }
+        if (s->texmap[2] >= 0 && (size_t) s->texmap[2] < texture_count) {
+            t2 = &textures[s->texmap[2]];
+            tex2 = texture_for(t2);
+        }
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, tex0);
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, tex1);
+        glActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_2D, tex2);
         glActiveTexture(GL_TEXTURE0);
         {
-            GLfloat bias[2] = { t0 != NULL ? t0->lod_bias : 0.0f,
-                                t1 != NULL ? t1->lod_bias : 0.0f };
-            glUniform2fv(u_tex_lod_bias, 1, bias);
+            GLfloat bias[3] = { t0 != NULL ? t0->lod_bias : 0.0f,
+                                t1 != NULL ? t1->lod_bias : 0.0f,
+                                t2 != NULL ? t2->lod_bias : 0.0f };
+            glUniform3fv(u_tex_lod_bias, 1, bias);
         }
 
+        apply_viewport(s);
         apply_draw_state(s);
         /* GX scissor is in 640x480 EFB pixels; scale it onto the surface the
          * same way the projection/viewport stretch is applied. */

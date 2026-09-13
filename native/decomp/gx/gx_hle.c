@@ -792,6 +792,12 @@ void GXSetViewport(f32 left, f32 top, f32 wd, f32 ht, f32 nearz, f32 farz)
     gx.viewport[3] = ht;
     gx.viewport[4] = nearz;
     gx.viewport[5] = farz;
+    gx.cur.viewport[0] = left;
+    gx.cur.viewport[1] = top;
+    gx.cur.viewport[2] = wd;
+    gx.cur.viewport[3] = ht;
+    gx.cur.depth_range[0] = nearz;
+    gx.cur.depth_range[1] = farz;
 }
 
 void GXSetViewportJitter(f32 left, f32 top, f32 wd, f32 ht, f32 nearz,
@@ -2089,6 +2095,9 @@ static void reset_state(void)
      * HSD_CObjSetup, but leave a sane value for draws before that. */
     gx.cur.scissor_w = 640;
     gx.cur.scissor_h = 480;
+    gx.cur.viewport[2] = 640.0f;
+    gx.cur.viewport[3] = 480.0f;
+    gx.cur.depth_range[1] = 1.0f;
     gx.cur.ch_mat[0][3] = 1.0f;
     gx.cur.ch_mat[1][3] = 1.0f;
     gx.cur.ch_mat[2][3] = 1.0f;
@@ -2133,6 +2142,17 @@ void gx_hle_begin_frame(void)
     stat_skipped = 0;
     stat_degenerate = 0;
     memset(gx.tluts, 0, sizeof(gx.tluts));
+    reset_state();
+}
+
+/* Wipe the captured GX register state.  Frame boundaries must NOT do this:
+ * hardware GX state persists across frames and the compiled engine caches it
+ * (HSD_StateInvalidate is the game-side equivalent).  Use this only when a
+ * target knowingly reinitializes the state (S2 scene boot, tests) and pair it
+ * with HSD_StateInvalidate(-1) when the compiled engine is running, or the
+ * engine will skip re-emitting state it thinks is still valid (G-054). */
+void gx_hle_reset_state(void)
+{
     reset_state();
 }
 
