@@ -1,4 +1,12 @@
-# Handoff: P-649 main-menu 1-P preview submenu (PARKED 2026-09-13)
+# Handoff: P-649 main-menu 1-P preview submenu (RESOLVED 2026-09-13)
+
+**Resolution:** fixed by the P-650 `HSD_TexAnim.id` conversion (converter
+v67, G-114). The panel text bands now render (verified in
+`/tmp/menu_post.bmp`: 4 text bands under the emblem where rows 310+ were
+empty before) and the owner confirmed. The BRANCH-track/fterm analysis
+below was a red herring for the visible symptom — the lines were
+two-texture quads whose nonzero-map TexAnim never bound, same as the title
+fire. Kept for the debugging record.
 
 **Agent:** Muse Spark. **State:** investigation parked, no code changed.
 **Task row:** P-649 in `native/AI/TASKS.md` (status `blocked`, this note linked).

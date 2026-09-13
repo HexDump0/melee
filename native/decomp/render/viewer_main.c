@@ -662,8 +662,10 @@ static void dump_draws(unsigned frame)
         {
             int g;
             for (g = 0; g < (int) d->state.num_texgens && g < 8; ++g) {
-                fprintf(stderr, " %d:%d", (int) d->state.texgen[g].type,
-                        (int) d->state.texgen[g].src);
+                fprintf(stderr, " %d:%d/m%u/p%u", (int) d->state.texgen[g].type,
+                        (int) d->state.texgen[g].src,
+                        (unsigned) d->state.texgen[g].mtx_id,
+                        (unsigned) d->state.texgen[g].postmtx);
             }
         }
         fprintf(stderr, "\n");
@@ -672,6 +674,13 @@ static void dump_draws(unsigned frame)
         {
             const GxHleTexture* t = &textures[d->state.texmap[0]];
             fprintf(stderr, "    tex0: %p %ux%u fmt=%u pal=%p\n", t->image,
+                    t->width, t->height, t->format, t->palette);
+        }
+        if (d->state.texmap[1] >= 0 &&
+            (size_t) d->state.texmap[1] < texture_count)
+        {
+            const GxHleTexture* t = &textures[d->state.texmap[1]];
+            fprintf(stderr, "    tex1: %p %ux%u fmt=%u pal=%p\n", t->image,
                     t->width, t->height, t->format, t->palette);
         }
         if (d->state.blend_type != 0) {
@@ -699,11 +708,23 @@ static void dump_draws(unsigned frame)
                 const GxHleVertex* v0 = &vertices[d->first_vertex];
                 fprintf(stderr,
                         "    v0: color=%u,%u,%u,%u has_color=%.0f "
-                        "uv0=%.3f,%.3f nrm=%.2f,%.2f,%.2f\n",
+                        "uv0=%.3f,%.3f uv1=%.3f,%.3f nrm=%.2f,%.2f,%.2f\n",
                         v0->color[0], v0->color[1], v0->color[2], v0->color[3],
                         (double) v0->has_color, (double) v0->uv[0][0],
-                        (double) v0->uv[0][1], (double) v0->nrm[0],
+                        (double) v0->uv[0][1], (double) v0->uv[1][0],
+                        (double) v0->uv[1][1], (double) v0->nrm[0],
                         (double) v0->nrm[1], (double) v0->nrm[2]);
+                if (d->vertex_count == 6) {
+                    size_t k;
+                    fprintf(stderr, "    quads:");
+                    for (k = 0; k < 6; ++k) {
+                        const GxHleVertex* vk = &vertices[d->first_vertex + k];
+                        fprintf(stderr, " (%.3f,%.3f|%.3f,%.3f)",
+                                (double) vk->uv[0][0], (double) vk->uv[0][1],
+                                (double) vk->uv[1][0], (double) vk->uv[1][1]);
+                    }
+                    fprintf(stderr, "\n");
+                }
             }
             for (stage = 0; stage < d->state.num_stages &&
                             stage < GX_HLE_MAX_STAGES;

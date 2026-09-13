@@ -1375,3 +1375,22 @@ kerning/texture tables, not messages).
 **Fix:** keep buffers byte-identical and patch the reads in `hsd_3A76.c`
 through `SIS_U16/SIS_S16/SIS_S32` (PORT_PC accessors in `sislib.h`). Watch for
 the spaced cast `*(u16 *)` which is easy to miss in a mechanical replace.
+
+## G-114: `HSD_TexAnim.id` is a GXTexMapID enum that must be byte-swapped
+
+**Symptom:** title logo letters render as hollow outlines (no fire fill),
+background effects look flat, and the main-menu 1-P preview panel stays
+empty — although the textures, TEV stages, UVs and joint anims are all
+correct and the fire image table (~30 CMPR frames) is in memory.
+**Cause:** `conv_texanim` never converted `HSD_TexAnim.id` (+4, a 4-byte
+enum, not a reloc target). An id of 1 stays `00 00 00 01` and reads back as
+16777216, so `lookupTextureAnim` (`ta->id == tobj->id`) never binds any
+nonzero-map TexAnim and TIMG image-sequence animation never runs. id 0
+works by accident (0 swaps to 0), which is why TEXMAP0 TexAnims (and most
+of the game) looked fine.
+**Fix:** `conv_u32(c, off + 0x04)` in `conv_texanim` + bump
+`HSD_CONVERTER_VERSION` (G-067). Verified in the v67 cache bytes
+(ids read 1/0/1), in gdb (the letter's `tex1img` changes 450→550 in one
+run), and visually (panel text bands appear). Debug technique: extend
+`--dump-draws` (tex1 details, all-quad UVs, texgen matrix ids) rather than
+guessing from thumbnails.

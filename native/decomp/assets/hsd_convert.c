@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 66u
+#define HSD_CONVERTER_VERSION 67u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -626,6 +626,10 @@ static void conv_texanim(Conv* c, uint32_t off)
     aobj = rd32(c, off + 0x08);
     imagetbl = rd32(c, off + 0x0C);
     tluttbl = rd32(c, off + 0x10);
+    /* id is a GXTexMapID enum, not a reloc target: without the swap an
+     * id of 1 reads back as 0x01000000 and lookupTextureAnim never binds
+     * TEXMAP1 TexAnims (title logo fire, P-650). id 0 is unaffected. */
+    conv_u32(c, off + 0x04);
     conv_u16(c, off + 0x14);
     conv_u16(c, off + 0x16);
     n_images = rd16(c, off + 0x14);

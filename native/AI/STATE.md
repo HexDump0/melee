@@ -152,7 +152,11 @@ v65 converts the CSS/stage-select/results scene tables, `GmRst`
 `pnlsce`/`flmsce`, and the food item special attributes.  The real SisLib text engine now
 compiles (`hsd_3A76.c`/`hsd_3915.c`) with big-endian SIS buffer accessors;
 the font atlases load from the raw DOL region at disc header `0x420`
-(G-112, P-647) and dialog text renders.  Open S6 follow-ups:
+(G-112, P-647) and dialog text renders.  Image-sequence textures
+(`HSD_TexAnim` on nonzero texture maps) bind correctly since the
+`TexAnim.id` conversion (converter v67, G-114, P-650): the title logo fire
+cycles and the main-menu 1-P preview shows its submenu lines (P-649).
+Open S6 follow-ups:
 item models crash PObj resolution for some items (P-643), results names/models
 are wrong (P-645), match HUD stock icons show the wrong character (P-644), and
 save data is blocked by the game's hsd card filesystem pump (P-646; the host
