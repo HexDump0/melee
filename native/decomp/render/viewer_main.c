@@ -45,6 +45,7 @@
 #include "platform/platform.h"
 
 #include <dolphin/pad.h>
+#include <melee/db/db.h>
 #include <melee/gm/gm_1A3F.h>
 
 extern int gm_main(void);
@@ -290,7 +291,7 @@ static void usage(const char* argv0)
             "          [--angle DEG] [--elevation DEG] [--zoom F]\n"
             "          [--frames N] [--shot FILE] [--hidden] [--no-lights]\n"
             "          [--match [FRAME]] [--frontend] [--input FILE]\n"
-            "          [--record FILE|-] [--record-every N]\n"
+            "          [--no-items] [--record FILE|-] [--record-every N]\n"
             "          [--dump-draws FRAME]\n"
             "          [--unlit] [--wire] [--no-hud] [--cycle N] [--spin DEG]\n"
             "          [--cycle-maps N] [--freecam]\n"
@@ -331,6 +332,7 @@ typedef struct MatchView {
     /* S6 frontend mode: run the retail flow with live or scripted input. */
     int frontend;
     int live_input;
+    int no_items;
     PadInputFrame live[4];
     unsigned last_mode;
     unsigned last_scene;
@@ -760,6 +762,11 @@ static void match_present(void)
     if (match_view.frontend) {
         unsigned mode;
         unsigned scene;
+        if (match_view.no_items) {
+            /* main() re-enables item spawns after our startup call; keep the
+             * game's debug switch off from the first presented frame. */
+            db_DisableItemSpawns();
+        }
         if (match_view.live_input) {
             frontend_poll_live();
         }
@@ -908,7 +915,8 @@ static void match_present(void)
 static int run_match(SDL_Window* window, SDL_GLContext context,
                      const char* shot, FILE* record, unsigned record_every,
                      unsigned dump_frame, unsigned match_frame, unsigned limit,
-                     GxGlOptions* gl, const char* input_path, int frontend)
+                     GxGlOptions* gl, const char* input_path, int frontend,
+                     int no_items)
 {
     FILE* devnull = fopen("/dev/null", "w");
 
@@ -925,6 +933,7 @@ static int run_match(SDL_Window* window, SDL_GLContext context,
     match_view.quit = 0;
     match_view.frontend = frontend;
     match_view.live_input = frontend && input_path == NULL;
+    match_view.no_items = no_items;
     match_view.last_mode = 0xFFFFFFFFu;
     match_view.last_scene = 0xFFFFFFFFu;
 
@@ -937,6 +946,11 @@ static int run_match(SDL_Window* window, SDL_GLContext context,
     hsd_asset_set_register_hook(gx_hle_register_asset);
     gx_gl_set_options(gl);
     boot_platform_set_present_hook(match_present);
+    if (no_items) {
+        /* The game's own debug item switch; lets the retail flow regress
+         * without the item-model asset work (see TASKS.md P-643). */
+        db_DisableItemSpawns();
+    }
     if (frontend) {
         if (input_path != NULL) {
             unsigned channels = 0;
@@ -1002,6 +1016,7 @@ int main(int argc, char** argv)
     int want_shot = 0;
     int match_mode = 0;
     int frontend_mode = 0;
+    int no_items = 0;
     const char* input_path = NULL;
     unsigned match_frame = 20;
     int quit = 0;
@@ -1039,6 +1054,8 @@ int main(int argc, char** argv)
             }
         } else if (strcmp(argv[i], "--frontend") == 0) {
             frontend_mode = 1;
+        } else if (strcmp(argv[i], "--no-items") == 0) {
+            no_items = 1;
         } else if (strcmp(argv[i], "--input") == 0 && (int) i + 1 < argc) {
             input_path = argv[++i];
         } else if (strcmp(argv[i], "--record") == 0 &&
@@ -1230,7 +1247,7 @@ int main(int argc, char** argv)
         }
         status = run_match(window, context, shot, record, record_every,
                            dump_frame, match_frame, (unsigned) frames,
-                           &v->gl, input_path, frontend_mode);
+                           &v->gl, input_path, frontend_mode, no_items);
         if (record != NULL) {
             fclose(record);
         }
