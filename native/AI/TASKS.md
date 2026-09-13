@@ -117,6 +117,7 @@ compiled render in S2/S4 instead.
 
 | ID | Task | Agent | Commit | Date |
 |---|---|---|---|---|
+| P-639 | Stage shadow maps: implement `GX_CTF_R4` EFB copies so HSD's dynamic shadow texture is real (Final Destination's black platform band fixed); `ctest decomp_efb` pass 3 | opencode (deepseek-v4.1-flash) | this commit | 2026-09-13 |
 | P-637 | Owner listening check: boot/title music and match SFX confirmed "pretty fine" (2026-09-13) | project owner | — | 2026-09-13 |
 | P-632 | S5.1/S5.2: compile the SDK AX bookkeeping, add `native/audio/{ax_hle,ax_mixer}.c` (DSP-ADPCM, SRC, mix/VE/ITD, loop/end/state write-back, aux returns), VI-derived 200 Hz pump, `.ssm` record conversion, disc-free `ctest audio` | opencode (deepseek-v4.1-flash) | `a658deb92` | 2026-09-12 |
 | P-633 | S5.3: compile `axdriver.c` + AXFX, port `reverb_std` to C, convert `smash2.sem`/`.hps`, fix the u16-pair endianness and the synchronous-loader completion pump | opencode (deepseek-v4.1-flash) | `41a427348` | 2026-09-12 |

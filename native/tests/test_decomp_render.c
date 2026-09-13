@@ -473,6 +473,57 @@ static int efb_test(void)
         fail = 1;
     }
 
+    /* ---- pass 3: GX_CTF_R4 EFB copy (HSD's shadow map) ---- */
+    {
+        static unsigned char copy4[32]; /* 8x8 px, 4-bit tiled */
+        GXColor shade = { 0xA0, 0x50, 0x10, 0xFF };
+
+        gx_hle_begin_frame();
+        GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
+        GXSetNumChans(1);
+        GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX,
+                      GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
+        GXSetNumTexGens(0);
+        GXSetNumTevStages(1);
+        GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL,
+                      GX_COLOR0A0);
+        GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+        GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
+        GXSetCullMode(GX_CULL_NONE);
+        GXClearVtxDesc();
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+        GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+        GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+        GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+        GXPosition3f32(-1.0f, -1.0f, 0.0f);
+        GXColor4u8(shade.r, shade.g, shade.b, shade.a);
+        GXPosition3f32(1.0f, -1.0f, 0.0f);
+        GXColor4u8(shade.r, shade.g, shade.b, shade.a);
+        GXPosition3f32(1.0f, 1.0f, 0.0f);
+        GXColor4u8(shade.r, shade.g, shade.b, shade.a);
+        GXPosition3f32(-1.0f, 1.0f, 0.0f);
+        GXColor4u8(shade.r, shade.g, shade.b, shade.a);
+        GXSetTexCopySrc(0, 0, 640, 480);
+        GXSetTexCopyDst(8, 8, GX_CTF_R4, GX_FALSE);
+        memset(copy4, 0x5A, sizeof(copy4)); /* prove the copy overwrites */
+        GXCopyTex(copy4, GX_FALSE);
+        if (gx_gl_render_frame() < 0) {
+            printf("efb: FAIL render_frame (R4)\n");
+            return 0;
+        }
+        for (texel = 0; texel < 32; ++texel) {
+            int hi = copy4[texel] >> 4;
+            int lo = copy4[texel] & 0xF;
+            if (abs(hi - 0xA) > 1 || abs(lo - 0xA) > 1) {
+                printf("efb: FAIL R4 texel %d = %02x (want aa)\n", texel,
+                       copy4[texel]);
+                fail = 1;
+                break;
+            }
+        }
+    }
+
     printf("efb: %s\n", fail ? "FAIL" : "PASS");
     return !fail;
 }

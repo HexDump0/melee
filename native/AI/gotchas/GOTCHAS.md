@@ -1206,3 +1206,19 @@ point; the host delivers deferred completions only at those points.
 **Fix:** `boot_platform_idle_tick` (which `DVDGetDriveStatus` calls, the only
 hardware poll in that loop) pumps the completion queue when interrupts are
 enabled. Do not pump while interrupts are disabled (G-063's rule).
+
+## G-101: `GXCopyTex` has more formats than RGB565/RGBA8
+
+**Symptom:** Final Destination's platform top (and other shadow-receiving
+surfaces) renders as a hard black band; the correct texture flashes for a few
+frames when the camera zooms.  Isolating the draw (`--part N --part-mode
+only`) shows a black quad.
+**Cause:** the material's last TEV stage multiplies by a texture produced by
+`GXCopyTex`; HSD's dynamic shadow map uses `GXSetTexCopyDst(w, h, 0x20)` =
+`GX_CTF_R4` (`src/sysdolphin/baselib/shadow.c:108`).  `efb_copy_tex` only
+implemented `GX_TF_RGB565` and `GX_TF_RGBA8`, so the destination buffer kept
+its initial contents and the multiply went black.
+**Fix:** implement the R4 copy in `native/decomp/gx/gx_gl.c:efb_copy_tex`: read
+the EFB red channel, keep the high nibble, and write the 4-bit tiled layout
+(8x8 px / 32-byte tile, first pixel in the high nibble) that
+`native/gx/texture.c:decode_i4` expects.  `ctest decomp_efb` pass 3 covers it.

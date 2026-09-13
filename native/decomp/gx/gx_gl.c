@@ -1278,6 +1278,30 @@ static void efb_copy_tex(const GxHleDraw* d)
                 dest[off + 1] = (unsigned char) (v & 0xFF);
             }
         }
+    } else if (d->copy_fmt == GX_CTF_R4) {
+        /* HSD's dynamic shadow map (`shadow.c`): the EFB red channel copied
+         * to a 4-bit tiled intensity texture.  8x8 px per 32-byte tile, two
+         * pixels per byte, first pixel in the high nibble (matches
+         * gx/texture.c:decode_i4). */
+        size_t tiles = (size_t) ((dst_w + 7) / 8) * ((dst_h + 7) / 8);
+        memset(dest, 0, tiles * 32);
+        for (y = 0; y < dst_h; ++y) {
+            int sy = y * src_h / dst_h;
+            for (x = 0; x < dst_w; ++x) {
+                int sx = x * src_w / dst_w;
+                const unsigned char* p =
+                    rgba + (((size_t) (src_h - 1 - sy)) * src_w + sx) * 4;
+                unsigned v = p[0] >> 4;
+                size_t off = ((size_t) (y / 8) * ((dst_w + 7) / 8) + x / 8) *
+                                 32 +
+                             (size_t) (y % 8) * 4 + (size_t) (x % 8) / 2;
+                if ((x & 1) == 0) {
+                    dest[off] = (unsigned char) ((dest[off] & 0x0F) | (v << 4));
+                } else {
+                    dest[off] = (unsigned char) ((dest[off] & 0xF0) | v);
+                }
+            }
+        }
     } else if (d->copy_fmt == GX_TF_RGBA8) {
         size_t tiles = (size_t) ((dst_w + 3) / 4) * ((dst_h + 3) / 4);
         memset(dest, 0, tiles * 64);
