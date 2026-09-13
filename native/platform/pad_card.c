@@ -27,6 +27,23 @@ static unsigned pad_script_frames;
 static unsigned pad_script_frame;
 static int pad_script_loop;
 
+/* Live states pushed by the interactive frontend each frame. */
+static PadInputFrame pad_live[4];
+static unsigned pad_live_channels;
+
+void pad_set_live_input(const PadInputFrame* frames, unsigned channels)
+{
+    unsigned i;
+
+    if (channels > 4) {
+        channels = 4;
+    }
+    pad_live_channels = channels;
+    for (i = 0; i < channels; i++) {
+        pad_live[i] = frames[i];
+    }
+}
+
 void pad_set_input_script(const PadInputFrame* frames, unsigned channels,
                           unsigned frame_count)
 {
@@ -82,6 +99,31 @@ static void pad_apply_script(PADStatus* status, int chan)
     status->analogB = 0;
 }
 
+static void pad_apply_live(PADStatus* status, int chan)
+{
+    const PadInputFrame* f;
+
+    if (pad_script != NULL) {
+        pad_apply_script(status, chan);
+        return;
+    }
+    if (chan >= (int) pad_live_channels) {
+        status->err = PAD_ERR_NO_CONTROLLER;
+        return;
+    }
+    f = &pad_live[chan];
+    status->err = PAD_ERR_NONE;
+    status->button = f->buttons;
+    status->stickX = f->stick_x;
+    status->stickY = f->stick_y;
+    status->substickX = f->cstick_x;
+    status->substickY = f->cstick_y;
+    status->triggerLeft = f->trigger_l;
+    status->triggerRight = f->trigger_r;
+    status->analogA = 0;
+    status->analogB = 0;
+}
+
 u32 PADRead(struct PADStatus* status)
 {
     int i;
@@ -90,7 +132,7 @@ u32 PADRead(struct PADStatus* status)
     if (status != NULL) {
         memset(status, 0, sizeof(PADStatus) * 4);
         for (i = 0; i < 4; i++) {
-            pad_apply_script(&status[i], i);
+            pad_apply_live(&status[i], i);
         }
     }
     pad_script_frame++;
@@ -146,14 +188,13 @@ void CARDInit(void)
 s32 CARDProbeEx(s32 chan, s32* memSize, s32* sectorSize)
 {
     (void) chan;
+    (void) memSize;
+    (void) sectorSize;
     boot_triage_stub("CARDProbeEx", BOOT_CAT_CARD);
-    if (memSize != NULL) {
-        *memSize = 0x80000;
-    }
-    if (sectorSize != NULL) {
-        *sectorSize = 0x2000;
-    }
-    return CARD_RESULT_READY;
+    /* No card in the slot until the host card backend (S6) mounts one; the
+     * result must stay consistent with CARDProbe/CARDMount, or the game's
+     * memcard state machine retries forever (see gm_1AED.c). */
+    return CARD_RESULT_NOCARD;
 }
 
 int CARDProbe(long chan)

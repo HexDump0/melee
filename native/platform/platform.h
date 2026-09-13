@@ -47,6 +47,12 @@ typedef struct PadInputFrame {
 void pad_set_input_script(const PadInputFrame* frames, unsigned channels,
                           unsigned frame_count);
 
+/* Live input from the host window (frontend mode).  The caller refreshes the
+ * four channel states before each game frame; channels beyond `channels` stay
+ * disconnected.  A script installed with pad_set_input_script takes
+ * precedence, so the deterministic capture paths are unaffected. */
+void pad_set_live_input(const PadInputFrame* frames, unsigned channels);
+
 /* When enabled the script restarts from frame 0 after its last frame instead
  * of holding the last frame (the viewer's looping full-match demo input). */
 void pad_set_input_loop(int enable);
