@@ -483,6 +483,19 @@ static void match_present(void)
         return;
     }
 
+    /* The game owns the camera, so a resize only has to resize the GL target.
+     * Poll instead of trusting events: a tiling WM may map/resize the window
+     * before the first present, and fractional-scale changes can arrive
+     * without a pixel-size event. */
+    {
+        int w = 0;
+        int h = 0;
+        SDL_GetWindowSizeInPixels(match_view.window, &w, &h);
+        if (w > 0 && h > 0) {
+            gx_gl_set_size(w, h);
+        }
+    }
+
     match_view.frames++;
     {
         Uint64 frame_start = SDL_GetTicksNS();
@@ -1002,6 +1015,24 @@ int main(int argc, char** argv)
             }
             default:
                 break;
+            }
+        }
+
+        /* Follow the real drawable size every frame.  A tiling WM can resize
+         * the window at map time before the event loop runs, and live drags
+         * can outpace the resize events; polling keeps the GL viewport and the
+         * camera aspect in step with the window. */
+        {
+            int w = 0;
+            int h = 0;
+            SDL_GetWindowSizeInPixels(window, &w, &h);
+            if (w > 0 && h > 0 &&
+                (w != v->scene.width || h != v->scene.height))
+            {
+                v->scene.width = w;
+                v->scene.height = h;
+                gx_gl_set_size(w, h);
+                v->scene.need_view_update = 1;
             }
         }
 
