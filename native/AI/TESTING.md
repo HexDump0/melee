@@ -119,9 +119,10 @@ Rules for this track:
 ./build/native/test_decomp_render --width 1280 --height 800 --shot /tmp/c.bmp
 ./build/native/test_decomp_render --direct   # GXVert shim capture, no disc
 SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy \
-    ./build/native/melee_decomp_viewer --frames 1 --hidden --shot /tmp/v.bmp
-# /tmp/v.bmp must match /tmp/c.bmp (RMSE < 0.01); the windowed run is for the
-# owner: ./build/native/melee_decomp_viewer
+    ./build/native/melee_decomp_viewer --frames 1 --hidden --no-hud --shot /tmp/v.bmp
+# /tmp/v.bmp must match /tmp/c.bmp (RMSE < 0.01); --no-hud keeps the viewer's
+# overlay out of the comparison.  The windowed run is for the owner:
+# ./build/native/melee_decomp_viewer
 ```
 
 ## Audio (S5)

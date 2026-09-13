@@ -117,6 +117,7 @@ compiled render in S2/S4 instead.
 
 | ID | Task | Agent | Commit | Date |
 |---|---|---|---|---|
+| P-641 (root cause) | Stage effects rendered opaque: (1) combined `GXSetChanCtrl(COLOR0A0/COLOR1A1)` now mirrors `mat_src` into the paired alpha slot so vertex-alpha gradients (Final Destination glow, Battlefield core) fade; (2) converter v61 walks the stage map `AnimJoint`/`MatAnimJoint`/`ShapeAnimJoint` arrays (G-109/G-110); (3) match viewer follows WM window-size changes and initial size fits the display; `ctest decomp_gx_direct`/`decomp_assets` regressions | Codex | this commit | 2026-09-13 |
 | P-641 | Fix Final Destination's opaque center effects: the shader now maps GX `REG0/1/2` from uniform slots 1/2/3 (slot 0 is PREV), restoring animated `GX_CA_A0` transparency; synthetic blended-pixel regression and richer draw dump | Codex | this commit | 2026-09-13 |
 | P-631 | Fix Link's rogue cap polygon: converter v59 byte-swaps the packed 0x3C-byte `BoneDynamicsDesc` solver records consumed by `lb_80011710`; `PlLk.dat` dynamics regression and frame-718 visual check | Codex | this commit | 2026-09-13 |
 | P-640 | Stage shadows: per-draw `GXSetViewport`, frame-boundary `HSD_StateInvalidate`, EFB-texture cache invalidation, and a third GL texture unit for base + two fighter shadows (G-102..G-104) | opencode (deepseek-v4.1-flash) | this commit | 2026-09-13 |

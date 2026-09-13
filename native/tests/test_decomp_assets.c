@@ -177,6 +177,120 @@ static int check_link_dynamics(const char* image)
     return failed;
 }
 
+static int ptr_in_buffer(const void* p, const unsigned char* base, size_t size)
+{
+    const unsigned char* q = (const unsigned char*) p;
+    return q >= base && q < base + size;
+}
+
+/* The compiled stage code (grAnime_801C7C1C -> grAnime_801C6C0C) reads the
+ * map's MatAnimJoint/ShapeAnimJoint pointer arrays and loads their AObjDescs
+ * at stage load.  Unconverted (big-endian) AObjDesc fields give the runtime
+ * bogus end_frame/flags, so material/TEV animation never fades.  Check that the
+ * converter walked the arrays and that the first reachable aobjdesc has a sane
+ * host-order end_frame. */
+static int check_stage_matanims(const char* image, const char* name)
+{
+    char error[256];
+    size_t size = 0;
+    unsigned char* buffer = load_archive(image, name, NULL, &size,
+                                         error, sizeof(error));
+    HsdConvertStats stats;
+    HSD_Archive archive;
+    unsigned char* stage;
+    unsigned char* maps;
+    unsigned char* arr;
+    uint32_t map_count;
+    float first_end = -1.0f;
+    int found = 0;
+    int failed = 0;
+    int i;
+
+    if (buffer == NULL) {
+        fprintf(stderr, "decomp_assets: %s: %s\n", name, error);
+        return 1;
+    }
+    if (!hsd_asset_convert(buffer, size, &stats) ||
+        HSD_ArchiveParse(&archive, buffer, size) != 0)
+    {
+        fprintf(stderr, "decomp_assets: %s conversion failed\n", name);
+        free(buffer);
+        return 1;
+    }
+    if (stats.stage_matanims == 0) {
+        fprintf(stderr,
+                "decomp_assets: %s stage matanims not converted (matanims=%u)\n",
+                name, stats.stage_matanims);
+        failed = 1;
+    }
+    stage = HSD_ArchiveGetPublicAddress(&archive, "map_head");
+    maps = stage != NULL ? read_host_ptr(stage + 0x08) : NULL;
+    map_count = stage != NULL ? read_host_u32(stage + 0x0C) : 0;
+    if (maps == NULL || map_count == 0 || map_count > 256 ||
+        !ptr_in_buffer(maps, buffer, size))
+    {
+        fprintf(stderr, "decomp_assets: %s has no map entry\n", name);
+        failed = 1;
+    } else {
+        uint32_t m;
+        int bad = 0;
+        int seen = 0;
+        for (m = 0; m < map_count; m++) {
+            arr = read_host_ptr(maps + m * 0x34 + 0x08);
+            for (i = 0;
+                 i < 32 && arr != NULL && ptr_in_buffer(arr, buffer, size); i++)
+            {
+                unsigned char* mj = ((unsigned char**) arr)[i];
+                unsigned char* ma;
+                unsigned char* aobj;
+                float end_frame;
+                if (mj == NULL) {
+                    continue;
+                }
+                if (!ptr_in_buffer(mj, buffer, size)) {
+                    break;
+                }
+                ma = read_host_ptr(mj + 0x08); /* MatAnimJoint.matanim */
+                if (ma == NULL || !ptr_in_buffer(ma, buffer, size)) {
+                    continue;
+                }
+                aobj = read_host_ptr(ma + 0x04); /* MatAnim.aobjdesc */
+                if (aobj == NULL || !ptr_in_buffer(aobj, buffer, size)) {
+                    continue;
+                }
+                end_frame = read_host_f32(aobj + 0x04);
+                seen++;
+                /* Big-endian data reads back as denormals/absurd values, so a
+                 * host-order duration is either exactly 0 or a normal float. */
+                if (!isfinite(end_frame) ||
+                    (end_frame != 0.0f &&
+                     (end_frame < 0.01f || end_frame > 100000.0f)))
+                {
+                    if (bad == 0) {
+                        first_end = end_frame;
+                    }
+                    bad++;
+                } else if (!found && end_frame >= 0.01f) {
+                    first_end = end_frame;
+                    found = 1;
+                }
+            }
+        }
+        if (bad != 0) {
+            fprintf(stderr,
+                    "decomp_assets: %s matanim end_frame=%g "
+                    "(not host order? %d bad of %d)\n",
+                    name, (double) first_end, bad, seen);
+            failed = 1;
+        }
+    }
+    printf("decomp_assets: %s maps=%u stage_matanims=%u "
+           "first_end_frame=%.1f\n",
+           name, map_count, stats.stage_matanims, (double) first_end);
+    free(buffer);
+    return failed;
+}
+
 /* Poses the joint tree and returns the number of HSD_JObj nodes. */
 static unsigned pose_tree(HSD_JObj* root, float* out_min, float* out_max)
 {
@@ -391,6 +505,8 @@ int main(int argc, char** argv)
         failures++;
     }
     failures += check_link_dynamics(image);
+    failures += check_stage_matanims(image, "GrNBa.dat");
+    failures += check_stage_matanims(image, "GrNLa.dat");
 
     /* One stage and the common archives. */
     {

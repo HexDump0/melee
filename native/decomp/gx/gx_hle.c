@@ -1028,6 +1028,19 @@ void GXSetChanCtrl(GXChannelID chan, GXBool enable, GXColorSrc amb_src,
     gx.cur.ch_light_mask[ch] = light_mask;
     gx.cur.ch_diff_fn[ch] = (u8) diff_fn;
     gx.cur.ch_attn_fn[ch] = (u8) attn_fn;
+    /* The combined COLOR0A0/COLOR1A1 control addresses the colour channel and
+     * its paired alpha channel at once (GXSetChanMatColor already mirrors the
+     * alpha component the same way).  A separate ALPHA0/ALPHA1 write, when the
+     * material uses one, overwrites the alpha slot afterwards. */
+    if (chan == GX_COLOR0A0 || chan == GX_COLOR1A1) {
+        int a = ch + 2;
+        gx.cur.ch_enable[a] = (u8) enable;
+        gx.cur.ch_amb_src[a] = (u8) amb_src;
+        gx.cur.ch_mat_src[a] = (u8) mat_src;
+        gx.cur.ch_light_mask[a] = light_mask;
+        gx.cur.ch_diff_fn[a] = (u8) diff_fn;
+        gx.cur.ch_attn_fn[a] = (u8) attn_fn;
+    }
 }
 
 void GXSetChanAmbColor(GXChannelID chan, GXColor amb_color)

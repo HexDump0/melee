@@ -406,6 +406,28 @@ static void dump_draws(unsigned frame)
                     d->state.tev_color[3][3], d->state.tev_kcolor[0][3],
                     d->state.ch_amb[2][3], d->state.ch_mat[2][3],
                     d->state.ch_enable[2], d->state.ch_mat_src[2]);
+            fprintf(stderr,
+                    "    ch0: en=%u amb_src=%u mat_src=%u mask=0x%x "
+                    "amb=%.3f,%.3f,%.3f,%.3f mat=%.3f,%.3f,%.3f,%.3f "
+                    "K0rgb=%.3f,%.3f,%.3f\n",
+                    d->state.ch_enable[0], d->state.ch_amb_src[0],
+                    d->state.ch_mat_src[0], d->state.ch_light_mask[0],
+                    d->state.ch_amb[0][0], d->state.ch_amb[0][1],
+                    d->state.ch_amb[0][2], d->state.ch_amb[0][3],
+                    d->state.ch_mat[0][0], d->state.ch_mat[0][1],
+                    d->state.ch_mat[0][2], d->state.ch_mat[0][3],
+                    d->state.tev_kcolor[0][0], d->state.tev_kcolor[0][1],
+                    d->state.tev_kcolor[0][2]);
+            if (d->vertex_count != 0) {
+                const GxHleVertex* v0 = &vertices[d->first_vertex];
+                fprintf(stderr,
+                        "    v0: color=%u,%u,%u,%u has_color=%.0f "
+                        "uv0=%.3f,%.3f nrm=%.2f,%.2f,%.2f\n",
+                        v0->color[0], v0->color[1], v0->color[2], v0->color[3],
+                        (double) v0->has_color, (double) v0->uv[0][0],
+                        (double) v0->uv[0][1], (double) v0->nrm[0],
+                        (double) v0->nrm[1], (double) v0->nrm[2]);
+            }
             for (stage = 0; stage < d->state.num_stages &&
                             stage < GX_HLE_MAX_STAGES;
                  ++stage)
@@ -413,12 +435,14 @@ static void dump_draws(unsigned frame)
                 const GxHleTevStage* s = &d->state.stages[stage];
                 fprintf(stderr,
                         "    tev%d order=%u/%u/%u cin=%u,%u,%u,%u "
-                        "ain=%u,%u,%u,%u aop=%u/%u/%u/%u reg=%u/%u\n",
+                        "ain=%u,%u,%u,%u aop=%u/%u/%u/%u reg=%u/%u "
+                        "kc=%u ka=%u\n",
                         stage, s->order_coord, s->order_map, s->order_chan,
                         s->color_a, s->color_b, s->color_c, s->color_d,
                         s->alpha_a, s->alpha_b, s->alpha_c, s->alpha_d,
                         s->alpha_op, s->alpha_bias, s->alpha_scale,
-                        s->alpha_clamp, s->color_reg, s->alpha_reg);
+                        s->alpha_clamp, s->color_reg, s->alpha_reg,
+                        s->kc_sel, s->ka_sel);
             }
         }
     }
@@ -441,6 +465,18 @@ static void match_present(void)
                    e.key.key == SDLK_ESCAPE)
         {
             match_view.quit = 1;
+        } else if (e.type == SDL_EVENT_WINDOW_RESIZED ||
+                   e.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)
+        {
+            /* A tiling WM may map the window at a different size than requested;
+             * without following the actual drawable the fixed-size GL viewport
+             * crops/zooms the frame. */
+            int w = 0;
+            int h = 0;
+            SDL_GetWindowSizeInPixels(match_view.window, &w, &h);
+            if (w > 0 && h > 0) {
+                gx_gl_set_size(w, h);
+            }
         }
     }
     if (match_view.quit) {
@@ -771,6 +807,21 @@ int main(int argc, char** argv)
         return 1;
     }
     viewer_audio_init();
+    /* A fixed 1280x800 window can exceed a small/HiDPI desktop's usable area,
+     * which the compositor then crops.  Fit the default to the display (hidden
+     * captures keep their requested resolution for deterministic screenshots). */
+    if (!hidden) {
+        SDL_Rect bounds;
+        SDL_DisplayID display = SDL_GetPrimaryDisplay();
+        if (display != 0 && SDL_GetDisplayUsableBounds(display, &bounds)) {
+            if (bounds.w > 0 && width > bounds.w) {
+                width = bounds.w;
+            }
+            if (bounds.h > 0 && height > bounds.h) {
+                height = bounds.h;
+            }
+        }
+    }
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
                         SDL_GL_CONTEXT_PROFILE_ES);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);

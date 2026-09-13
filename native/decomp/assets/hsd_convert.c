@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 59u
+#define HSD_CONVERTER_VERSION 61u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -2423,14 +2423,48 @@ static void conv_static_model_full(Conv* c, uint32_t off)
     }
 }
 
+#define STAGE_ANIM_ARRAY_MAX 256
+
+/* UnkStageDat_x8_t's anim/matanim/shapeanim arrays (+4/+8/+C) are pointer
+ * arrays indexed by joint; grAnime_801C7C1C / grAnime_801C6C0C pass the
+ * matching entries to HSD_AObjLoadDesc at stage load, so all three chains have
+ * to be host order before the game reads their AObjDesc end_frame/flags.  The
+ * runtime indexes the arrays directly, so a NULL slot is a legal "no animation
+ * for this joint" gap, not the end of the array; the first slot that is no
+ * longer a relocation target ends it. */
+static void conv_stage_anim_array(Conv* c, uint32_t arr, int kind)
+{
+    int i;
+
+    for (i = 0; i < STAGE_ANIM_ARRAY_MAX && arr != 0; i++) {
+        uint32_t slot = arr + (uint32_t) i * 4;
+        uint32_t a;
+        if (!in_data(c, slot, 4) || !c->reloc[slot]) {
+            break;
+        }
+        a = rd32(c, slot);
+        if (a == 0) {
+            continue;
+        }
+        if (kind == 0) {
+            conv_anim_joint(c, a);
+        } else if (kind == 1) {
+            conv_matanim_joint(c, a);
+            c->st.stage_matanims++;
+        } else {
+            conv_shapeanim_joint(c, a);
+            c->st.stage_shapeanims++;
+        }
+    }
+}
+
 /* Gr*.dat `map_head`: the stage's own descriptor table (src/melee/gr/types.h
- * UnkStageDat / UnkStageDat_x8_t).  The game loads item 0's`unk0` as the
+ * UnkStageDat / UnkStageDat_x8_t).  The game loads item 0's `unk0` as the
  * stage JObj (Ground_GetStageGObj, ground.c:873), item 0's x10 through
  * lb_80013B14 (camera) and x18 through lb_80011AC4 (lights), and x1C through
  * HSD_FogLoadDesc (Ground_801C1E94).  Only the numeric fields of each
  * descriptor are converted here; pointers are relocation targets already in
- * host order.  MatAnim/ShapeAnim chains are stage animation and stay
- * big-endian until a consumer needs them. */
+ * host order. */
 static void conv_stage_maphead(Conv* c, uint32_t off)
 {
     uint32_t maps;
@@ -2488,7 +2522,6 @@ static void conv_stage_maphead(Conv* c, uint32_t off)
     for (i = 0; i < count; i++) {
         uint32_t e = maps + i * 0x34;
         uint32_t joint;
-        uint32_t arr;
         uint32_t cam;
         uint32_t lights;
         uint32_t fog;
@@ -2515,14 +2548,9 @@ static void conv_stage_maphead(Conv* c, uint32_t off)
         if (joint != 0) {
             conv_joint(c, joint);
         }
-        arr = rd32(c, e + 0x04);
-        for (guard = 0; guard < 128 && arr != 0; guard++) {
-            uint32_t a = rd32(c, arr + (uint32_t) guard * 4);
-            if (a == 0 || !in_data(c, a, HSD_ANIMJOINT_SIZE)) {
-                break;
-            }
-            conv_anim_joint(c, a);
-        }
+        conv_stage_anim_array(c, rd32(c, e + 0x04), 0);
+        conv_stage_anim_array(c, rd32(c, e + 0x08), 1);
+        conv_stage_anim_array(c, rd32(c, e + 0x0C), 2);
         cam = rd32(c, e + 0x10);
         if (cam != 0) {
             conv_cobjdesc(c, cam);

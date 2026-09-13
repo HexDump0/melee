@@ -573,6 +573,15 @@ packed records for both fighter and item dynamics. Link's cap is the visible
 regression case: finite byte-reversed parameters stretch it into a rogue
 polygon without producing the NaNs that matrix diagnostics normally catch.
 
+### Stage map animation arrays
+
+`UnkStageDat_x8_t` (`map_head` entries) holds three parallel pointer arrays
+indexed by joint: `AnimJoint**` (+4), `MatAnimJoint**` (+8) and
+`ShapeAnimJoint**` (+C).  `grAnime_801C7C1C`/`grAnime_801C6C0C` index them
+directly, so a NULL slot is a legal gap; the relocation table is the array
+bound (the first non-relocated slot ends it).  All three must be walked, or
+stage material/TEV AObjDescs stay big-endian and their animations stop.
+
 ## 9. Open questions
 
 1. **HSD_RObj/HSD_RObjDesc conversion.** Required before S3 ships geometry:

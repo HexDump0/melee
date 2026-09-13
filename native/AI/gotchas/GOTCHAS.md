@@ -1304,3 +1304,31 @@ read PREV's default alpha 1 instead of the animated REG0 alpha (often 0).
 **Fix:** initialize C0/C1/C2 from uniform slots 1/2/3. The EFB regression
 renders a REG0 quarter-alpha red quad over the clear color and checks the
 blended pixel.
+
+## G-109: combined GX channel controls also set the paired alpha channel
+
+**Symptom:** stage effects that should fade out render fully opaque. Final
+Destination's center glow is a hard white donut instead of a soft halo, and
+Battlefield's under-stage panels stay flat and bright. **Cause:** those
+materials draw with vertex colours whose **alpha carries the gradient**
+(`v0.color = 255,255,255,0`) and select the source with
+`GXSetChanCtrl(GX_COLOR0A0, ..., mat_src=GX_SRC_VTX)`. The HLE stored that
+control only in colour slot 0; the fragment shader reads raster alpha from the
+paired alpha slot 2, which still held the default register alpha 1.0. On
+hardware a combined `COLOR0A0` control applies to both. **Fix:**
+`GXSetChanCtrl` mirrors `COLOR0A0`/`COLOR1A1` writes into the paired alpha
+slot; a later separate `ALPHA0`/`ALPHA1` write still overrides it.
+`ctest decomp_gx_direct` checks the mirrored `mat_src` and a zero vertex alpha.
+
+## G-110: stage maps carry three animation arrays, not one
+
+**Symptom:** stage material animation (colour/alpha fades) never runs, while
+joint animation (rotation) does. **Cause:** `UnkStageDat_x8_t` holds
+parallel `AnimJoint**`, `MatAnimJoint**` and `ShapeAnimJoint**` arrays
+(`+4/+8/+C`) indexed by joint; `grAnime_801C7C1C`/`grAnime_801C6C0C` load all
+three at stage load. The converter only walked the first, so material AObjDesc
+`end_frame`/`flags` reached `HSD_AObjLoadDesc` big-endian (denormal durations
+stop the AObj immediately). **Fix:** converter v61 walks all three arrays with
+the relocation table as the array bound (NULL slots are legal gaps, not the
+end) and `test_decomp_assets` verifies the converted AObjDesc durations for
+`GrNBa`/`GrNLa`.

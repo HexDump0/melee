@@ -45,6 +45,8 @@ typedef struct HsdConvertStats {
     unsigned robjdescs;
     unsigned scene_descs;
     unsigned stage_maps;
+    unsigned stage_matanims;
+    unsigned stage_shapeanims;
     unsigned ground_params;
     unsigned yakumono_params;
     unsigned itemdata;

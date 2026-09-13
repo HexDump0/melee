@@ -307,6 +307,46 @@ static int direct_test(void)
         }
     }
 
+    /* A combined COLOR0A0 control addresses colour *and* alpha at once: stage
+     * vertex-colour materials (Battlefield/Final Destination cores) put the
+     * gradient in the vertex alpha and rely on mat_src=VTX reaching the alpha
+     * slot.  Without the mirror the raster alpha stays the opaque register. */
+    GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_REG, GX_SRC_VTX, 0x0,
+                  GX_DF_NONE, GX_AF_NONE);
+    GXClearVtxDesc();
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+    GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+    GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+    {
+        int v;
+        for (v = 0; v < 3; ++v) {
+            GXPosition3f32((float) v + 10.0f, 0.0f, 0.0f);
+            GXColor4u8(255, 255, 255, 0);
+        }
+    }
+    gx_hle_get_frame(&verts, &vc, &draws, &dc, NULL, NULL);
+    if (dc != 6) {
+        printf("direct: FAIL combined channel draws=%zu (want 6)\n", dc);
+        return 0;
+    }
+    {
+        const GxHleDrawState* st = &draws[5].state;
+        if (st->ch_mat_src[0] != GX_SRC_VTX ||
+            st->ch_mat_src[2] != GX_SRC_VTX || st->ch_enable[2] != 0) {
+            printf("direct: FAIL combined channel mat_src=%u alphamat=%u "
+                   "en=%u (want VTX/VTX/0)\n",
+                   st->ch_mat_src[0], st->ch_mat_src[2], st->ch_enable[2]);
+            fail = 1;
+        }
+        if (verts[draws[5].first_vertex].color[3] != 0) {
+            printf("direct: FAIL combined channel vertex alpha=%u (want 0)\n",
+                   verts[draws[5].first_vertex].color[3]);
+            fail = 1;
+        }
+    }
+
     printf("direct: %s draws=%zu verts=%zu primitives=%u\n",
            fail ? "FAIL" : "PASS", dc, vc,
            (unsigned) gx_hle_primitive_count());
