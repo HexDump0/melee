@@ -56,8 +56,8 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 |---|---|---|---|---|
 | `GXLoadPosMtxImm`/`GXLoadNrmMtxImm`(+3x3)/`GXLoadTexMtxImm`, `GXSetCurrentMtx` | EXACT | `gx_hle.c:1320-1383` | `GXTransform.cpp` | — |
 | Position/normal transform | EXACT | `transform_vertex` `gx_hle.c:621` | `lib/gx/shader.cpp` vtx XFR | — |
-| Texcoord generator: MTX2x4, bump, SRTG, mtx/postmtx chain | APPROX | `texgen_coord` `gx_hle.c:496` | `shader.cpp:1210-1295` | **P-672**: missing `normalize`, missing `GX_TG_MTX3x4` w-divide, SRTG uses raw vertex colour instead of the lit raster (only stage toon: `grpura.c`) |
-| `GX_TG_MTX3x4` (refraction `lbrefract.c:620`) | **STUB** (z row dropped) | `texgen_coord` | `shader.cpp` `tex_uvw` + `/w` | **P-672** |
+| Texcoord generator: MTX2x4 (z=1 before post), MTX3x4, bump, SRTG, mtx/postmtx chain, normalize | EXACT (closed by P-672) | `texgen_coord` `gx_hle.c:496`; SRTG lit source in FS `gx_gl.c:gx_coord_uv` | `shader.cpp:1210-1295` (Aurora sets `z=1` for MTX2x4, normalizes between the matrices) | learning `gx_indirect_toon.md`; `ctest decomp_gx_direct` |
+| `GX_TG_MTX3x4` projective divide incl. q==0 quirk | EXACT (closed by P-672) | `texgen_coord` | `shader.cpp` `tex_uvw` + `/w`; Dolphin q==0 clamp | `ctest decomp_gx_direct` MTX3x4 fixture |
 | `GXSetProjection` (perspective + ortho) | EXACT | `gx_hle.c:852` | `GXTransform.cpp` | — |
 | `GXProject` | EXACT (SDK formula) | `gx_hle.c:817` | `GXTransform.cpp` | — |
 | `GXGetViewportv` | EXACT | `gx_hle.c:847` | `GXTransform.cpp` | — |
@@ -80,9 +80,9 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 | Swap tables/modes | EXACT | `gx_gl.c:swap4` | `regs.cpp:bp_tev_ksel` | — |
 | `GXSetTevOp` shorthands | EXACT | `gx_hle.c:1254` | `GXTev.cpp:GXSetTevOp` | — |
 | `GXSetTevClampMode` | N/A | `gx_hle.c:1289` | `GXTev.cpp` | mode is fixed on hardware; game passes 0 |
-| `GXSetTevDirect` (`lbrefract.c:453/464`) | **STUB** | `gx_hle.c:1295` | `GXBump.cpp` → `GXSetTevIndirect(..., GX_ITM_OFF...)` | **P-672**: must clear the indirect enable it disables |
-| Indirect state capture (`GXSetNumIndStages`/`SetIndTexOrder`/`SetIndTexCoordScale`/`SetIndTexMtx`/`SetTevIndirect`) | **STUB** (captured, not evaluated) | `gx_hle.c:1619-1692` | `lib/dolphin/gx/GXBump.cpp`, `shader.cpp:1297-1540` | **P-672** |
-| Toon texture (`GX_TG_SRTG`, `tobj.c:538`; `grpura.c` only) | **APPROX** | `texgen_coord` SRTG pass-through | `shader.cpp:1259` (SRTG = `vec3(src.xy,1)`) | **P-672**: lit-raster source + bind the toon TObj (may be map 1/2, not 7) |
+| `GXSetTevDirect` (`lbrefract.c:453/464`) | EXACT (closed by P-672) | `gx_hle.c:GXSetTevDirect` calls `GXSetTevIndirect` with the disabled set | `GXBump.cpp` | capture assertion in `ctest decomp_gx_direct` |
+| Indirect evaluation (`GXSetNumIndStages`/`SetIndTexOrder`/`SetIndTexCoordScale`/`SetIndTexMtx`/`SetTevIndirect`) | EXACT for Melee's use (closed by P-672): ITF_8/5/4/3, ITB_*, ITM_0..2, ITW_*, add_prev, ITS_1..256 | capture `gx_hle.c:1619-1740`; FS `gx_gl.c` indirect block | `GXBump.cpp`, `shader.cpp:1297-1540` | `ctest decomp_efb` pass 5; dynamic S/T matrices + alpha bump unused (deviation) |
+| Toon texture (`GX_TG_SRTG`, `tobj.c:538`; `grpura.c` only) | EXACT (closed by P-672): lit-raster UV substitution | `gx_gl.c:gx_coord_uv`/`u_coord_srtg` | `shader.cpp:1259` | not exercised by a current scene (GrPu-stage only); learning `gx_indirect_toon.md` |
 
 ## 4. Channels and lights
 
@@ -166,7 +166,7 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 
 | Task | Rows | Verification plan |
 |---|---|---|
-| **P-672** indirect + toon + projective texgen | indirect evaluation (`GXSetTevIndirect`/`IndTex*`), `GXSetTevDirect` clearing, `GX_TG_MTX3x4` w-divide, texgen `normalize`, SRTG lit-raster source, toon TObj binding on maps ≥2 | `ctest decomp_gx_direct` indirect fixture (assert fragment offset reads), refraction draw dump with `lbspdisplay`/`lbrefract` data; screenshot of `GrPu` toon |
+| ~~**P-672** indirect + toon + projective texgen~~ **DONE** | §1/§3 | `ctest decomp_gx_direct` (texgen/capture) + `ctest decomp_efb` pass 5 (GPU indirect); learning `gx_indirect_toon.md` |
 | **P-673** lighting/specular | `GXInitLightDir` sign, `GXInitLightDistAttn`, `GXInitLightSpot` guard, `GX_AF_SPEC` evaluation (tint + normalized dist attn + gates) | disc-free unit test in `test_decomp_render --direct` calling `GXInitLight*` and diffing against transcription of `GXLight.c`; match-frame screenshot delta |
 | **P-674** EFB copy / Z-texture | I4/I8/IA4/IA8 copy intensity, RGB5A3 copy, Z24X8 copy + decode, copy clear colour, `GXSetZTexture` bias/format/op | extend `ctest decomp_efb` with a synthetic 2x2 EFB pattern per copy format and `GXSetZTexture` read-back; keep existing pass 1-3 |
 | **P-675** textures/samplers | expand5/expand6 bit replication, per-object texobj state (`GXGetTexObj*`), edge-lod/bias-clamp, TLUT bounds | `ctest decomp_stage`/`decomp_render` baselines + new unit assertions on decode of a synthetic 5/6-bit pattern; `sobjlib`/`lbspdisplay` object read-back |

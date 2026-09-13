@@ -590,35 +590,77 @@ static void texgen_coord(int coord, const GxRawVertex* raw, const float pos[3],
     }
 
     if (tg->type == GX_TG_SRTG) {
+        /* Toon ramp: the S/T coordinate is the rasterized (lit) colour.
+         * The GL fragment shader substitutes v_ras0 for this coordinate;
+         * keep the per-vertex value here as the fallback. */
         out[0] = in[0];
         out[1] = in[1];
         return;
     }
     /* GX texcoord generation = postmtx * mtx * source.  HSD's default path
      * passes GX_IDENTITY for `mtx` and puts the TObj matrix in `pt_texmtx`
-     * (tobj.c:setupTextureCoordGen). */
-    id = tex_mtx_slot(tg->mtx_id);
-    if (id >= 0) {
-        m = &gx.tex_mtx[id][0][0];
-        {
-            float t0 = m[0] * in[0] + m[1] * in[1] + m[2] * in[2] + m[3];
-            float t1 = m[4] * in[0] + m[5] * in[1] + m[6] * in[2] + m[7];
-            in[0] = t0;
-            in[1] = t1;
+     * (tobj.c:setupTextureCoordGen).  GX_TG_MTX3x4 keeps the third row: the
+     * hardware produces STQ and divides by q per pixel (Aurora
+     * shader.cpp: tex_uvw, `uv = uvw.xy / uvw.z`), with the q==0 special
+     * case (Dolphin VertexShaderGen: clamp(xy/2, -1, 1)). */
+    {
+        float v[3];
+        v[0] = in[0];
+        v[1] = in[1];
+        v[2] = in[2];
+        id = tex_mtx_slot(tg->mtx_id);
+        if (id >= 0) {
+            m = &gx.tex_mtx[id][0][0];
+            {
+                float t0 = m[0] * v[0] + m[1] * v[1] + m[2] * v[2] + m[3];
+                float t1 = m[4] * v[0] + m[5] * v[1] + m[6] * v[2] + m[7];
+                float t2 = m[8] * v[0] + m[9] * v[1] + m[10] * v[2] + m[11];
+                v[0] = t0;
+                v[1] = t1;
+                v[2] = t2;
+            }
         }
-    }
-    id = tex_mtx_slot(tg->postmtx);
-    if (id >= 0) {
-        m = &gx.tex_mtx[id][0][0];
-        {
-            float t0 = m[0] * in[0] + m[1] * in[1] + m[2] * in[2] + m[3];
-            float t1 = m[4] * in[0] + m[5] * in[1] + m[6] * in[2] + m[7];
-            in[0] = t0;
-            in[1] = t1;
+        /* GX_TG_MTX2x4 forces z=1 before the post matrix (Aurora
+         * shader.cpp: `if (tcg.type == GX_TG_MTX2x4) tc_tmp.z = 1.0f;`). */
+        if (tg->type == GX_TG_MTX2x4) {
+            v[2] = 1.0f;
         }
+        if (tg->normalize) {
+            float len = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+            if (len > 1e-8f) {
+                v[0] /= len;
+                v[1] /= len;
+                v[2] /= len;
+            }
+        }
+        id = tex_mtx_slot(tg->postmtx);
+        if (id >= 0) {
+            m = &gx.tex_mtx[id][0][0];
+            {
+                float t0 = m[0] * v[0] + m[1] * v[1] + m[2] * v[2] + m[3];
+                float t1 = m[4] * v[0] + m[5] * v[1] + m[6] * v[2] + m[7];
+                float t2 = m[8] * v[0] + m[9] * v[1] + m[10] * v[2] + m[11];
+                v[0] = t0;
+                v[1] = t1;
+                v[2] = t2;
+            }
+        }
+        if (tg->type == GX_TG_MTX3x4) {
+            if (v[2] == 0.0f) {
+                v[0] = v[0] / 2.0f;
+                v[1] = v[1] / 2.0f;
+                if (v[0] < -1.0f) v[0] = -1.0f;
+                if (v[0] > 1.0f) v[0] = 1.0f;
+                if (v[1] < -1.0f) v[1] = -1.0f;
+                if (v[1] > 1.0f) v[1] = 1.0f;
+            } else {
+                v[0] /= v[2];
+                v[1] /= v[2];
+            }
+        }
+        out[0] = v[0];
+        out[1] = v[1];
     }
-    out[0] = in[0];
-    out[1] = in[1];
 }
 
 static void transform_vertex(const GxRawVertex* raw, GxHleVertex* v)
@@ -1338,7 +1380,16 @@ void GXSetTevClampMode(int stage, int mode)
     (void) mode;
 }
 
-void GXSetTevDirect(GXTevStageID tev_stage) { (void) tev_stage; }
+/* SDK GXBump.c: GXSetTevDirect is GXSetTevIndirect with every offset source
+ * disabled.  lbrefract.c calls it to tear down its refraction stage, so the
+ * fields must be reset, not ignored: a stale matrix/wrap/add_prev would keep
+ * offsetting later draws that reuse the stage. */
+void GXSetTevDirect(GXTevStageID tev_stage)
+{
+    GXSetTevIndirect(tev_stage, GX_INDTEXSTAGE0, GX_ITF_8, GX_ITB_NONE,
+                     GX_ITM_OFF, GX_ITW_OFF, GX_ITW_OFF, GX_FALSE, GX_FALSE,
+                     GX_ITBA_OFF);
+}
 
 void GXSetNumTexGens(u8 nTexGens)
 {
@@ -1694,12 +1745,26 @@ void GXSetIndTexCoordScale(GXIndTexStageID ind_stage, GXIndTexScale scale_s,
 void GXSetIndTexMtx(GXIndTexMtxID mtx_id, f32 offset[2][3], s8 scale_exp)
 {
     /* GX_ITM_0..2 map to the even indirect matrices, _S0..S2 to the odd
-     * ones; HSD only uses GX_ITM_0 (lbrefract.c:636). */
+     * ones; HSD only uses GX_ITM_0 (lbrefract.c:644). */
     int slot = (int) mtx_id - (int) GX_ITM_0;
+    int i, j;
     if (slot < 0 || slot >= 4) {
         return;
     }
-    memcpy(gx.cur.ind[slot].mtx, offset, sizeof(gx.cur.ind[slot].mtx));
+    /* The XF stores each coefficient as 11-bit signed fixed point with 10
+     * fractional bits (SDK GXBump.c: `(int)(1024.0f * offset) & 0x7FF`),
+     * so the hardware result is the API value quantized to 1/1024. */
+    for (i = 0; i < 2; ++i) {
+        for (j = 0; j < 3; ++j) {
+            s32 q = (s32) (1024.0f * offset[i][j]) & 0x7FF;
+            if (q & 0x400) {
+                q |= ~0x7FF;
+            }
+            gx.cur.ind[slot].mtx[i][j] = (float) q / 1024.0f;
+        }
+    }
+    /* Shader factor: hardware applies 2^(adjScale-17) = 2^scale_exp
+     * (Aurora regs.cpp:bp_ind_mtx, shader.cpp indirect matrix). */
     gx.cur.ind[slot].scale = ldexpf(1.0f, scale_exp);
 }
 
@@ -1714,7 +1779,13 @@ void GXSetTevIndirect(GXTevStageID tev_stage, GXIndTexStageID ind_stage,
         return;
     }
     st = &gx.cur.stages[tev_stage];
-    st->ind_enable = 1;
+    /* Only the fields that actually transform the coordinate matter; the
+     * fully-disabled set is what GXSetTevDirect installs. */
+    st->ind_enable =
+        (matrix_sel != GX_ITM_OFF || wrap_s != GX_ITW_OFF ||
+         wrap_t != GX_ITW_OFF || add_prev != GX_FALSE)
+            ? 1
+            : 0;
     st->ind_stage = (unsigned char) ind_stage;
     st->ind_format = (unsigned char) format;
     st->ind_bias = (unsigned char) bias_sel;

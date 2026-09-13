@@ -402,6 +402,129 @@ static int direct_test(void)
         }
     }
 
+    /* P-672: GX_TG_MTX3x4 texgen produces STQ and the hardware divides by q
+     * (lbrefract's reflection coordinate); normalize runs after the first
+     * matrix and before the post matrix. */
+    gx_hle_begin_frame();
+    gx_hle_reset_state();
+    GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
+    GXSetNumChans(0);
+    GXSetNumTevStages(1);
+    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP_NULL, GX_COLOR_NULL);
+    GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+    GXSetNumTexGens(1);
+    {
+        f32 post[3][4] = { { 1, 0, 0, 0 }, { 0, 1, 0, 0 }, { 2, 0, 0, 0 } };
+        GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX3x4, GX_TG_TEX0, GX_IDENTITY,
+                          GX_FALSE, GX_PTTEXMTX0);
+        GXLoadTexMtxImm(post, GX_PTTEXMTX0, GX_MTX3x4);
+    }
+    GXClearVtxDesc();
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
+    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+    GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+    {
+        int v;
+        for (v = 0; v < 3; ++v) {
+            GXPosition3f32((float) v, 0.0f, 0.0f);
+            GXTexCoord2f32(0.25f, 0.625f);
+        }
+    }
+    /* Second draw: MTX2x4 with normalize (length 5 -> unit vector). */
+    {
+        GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY,
+                          GX_TRUE, GX_PTIDENTITY);
+        GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+        {
+            int v;
+            for (v = 0; v < 3; ++v) {
+                GXPosition3f32((float) v, 0.0f, 0.0f);
+                GXTexCoord2f32(3.0f, 4.0f);
+            }
+        }
+    }
+    gx_hle_get_frame(&verts, &vc, &draws, &dc, NULL, NULL);
+    if (dc != 2) {
+        printf("direct: FAIL texgen draws=%zu (want 2)\n", dc);
+        return 0;
+    }
+    {
+        /* q-row {2,0,0,0}: x'=0.25, y'=0.625, q=0.5 -> (0.5, 1.25). */
+        const GxHleVertex* v = &verts[draws[0].first_vertex];
+        if (fabsf(v->uv[0][0] - 0.5f) > 1e-6f ||
+            fabsf(v->uv[0][1] - 1.25f) > 1e-6f) {
+            printf("direct: FAIL MTX3x4 uv=(%.4f,%.4f) want (0.5000,1.2500)\n",
+                   (double) v->uv[0][0], (double) v->uv[0][1]);
+            fail = 1;
+        }
+    }
+    {
+        /* MTX2x4 forces z=1, then normalize(3,4,1) = (0.58835, 0.78446). */
+        const GxHleVertex* v = &verts[draws[1].first_vertex];
+        if (fabsf(v->uv[0][0] - 0.58835f) > 1e-4f ||
+            fabsf(v->uv[0][1] - 0.78446f) > 1e-4f) {
+            printf("direct: FAIL normalize uv=(%.4f,%.4f) want "
+                   "(0.5884,0.7845)\n", (double) v->uv[0][0],
+                   (double) v->uv[0][1]);
+            fail = 1;
+        }
+    }
+
+    /* P-672: GXSetTevDirect must clear the indirect fields (SDK GXBump.c);
+     * a stale matrix would offset every later draw that reuses the stage. */
+    gx_hle_begin_frame();
+    {
+        f32 offs[2][3] = { { 0.5f, 0.0f, 0.0f }, { 0.0f, 0.5f, 0.0f } };
+        GXSetNumIndStages(1);
+        GXSetIndTexOrder(GX_INDTEXSTAGE0, GX_TEXCOORD0, GX_TEXMAP0);
+        GXSetIndTexMtx(GX_ITM_0, offs, 1);
+        GXSetTevIndirect(GX_TEVSTAGE0, GX_INDTEXSTAGE0, GX_ITF_8,
+                         GX_ITB_ST, GX_ITM_0, GX_ITW_OFF, GX_ITW_OFF,
+                         GX_FALSE, GX_FALSE, GX_ITBA_OFF);
+        GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+        {
+            int v;
+            for (v = 0; v < 3; ++v) {
+                GXPosition3f32((float) v, 0.0f, 0.0f);
+                GXTexCoord2f32(0.5f, 0.5f);
+            }
+        }
+        GXSetTevDirect(GX_TEVSTAGE0);
+        GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+        {
+            int v;
+            for (v = 0; v < 3; ++v) {
+                GXPosition3f32((float) v + 10.0f, 0.0f, 0.0f);
+                GXTexCoord2f32(0.5f, 0.5f);
+            }
+        }
+        gx_hle_get_frame(&verts, &vc, &draws, &dc, NULL, NULL);
+        if (dc != 2) {
+            printf("direct: FAIL indirect draws=%zu (want 2)\n", dc);
+            return 0;
+        }
+        if (draws[0].state.stages[0].ind_enable != 1 ||
+            draws[0].state.stages[0].ind_mtx != GX_ITM_0 ||
+            draws[0].state.ind[0].mtx[0][0] != 0.5f ||
+            draws[0].state.ind[0].scale != 2.0f) {
+            printf("direct: FAIL indirect capture mtx=%u en=%u\n",
+                   draws[0].state.stages[0].ind_mtx,
+                   draws[0].state.stages[0].ind_enable);
+            fail = 1;
+        }
+        if (draws[1].state.stages[0].ind_enable != 0 ||
+            draws[1].state.stages[0].ind_mtx != GX_ITM_OFF ||
+            draws[1].state.stages[0].ind_wrap_s != GX_ITW_OFF) {
+            printf("direct: FAIL GXSetTevDirect did not clear (en=%u mtx=%u "
+                   "wrap=%u)\n", draws[1].state.stages[0].ind_enable,
+                   draws[1].state.stages[0].ind_mtx,
+                   draws[1].state.stages[0].ind_wrap_s);
+            fail = 1;
+        }
+    }
+
     printf("direct: %s draws=%zu verts=%zu primitives=%u\n",
            fail ? "FAIL" : "PASS", dc, vc,
            (unsigned) gx_hle_primitive_count());
@@ -667,6 +790,166 @@ static int efb_test(void)
         if (pixel[0] < 65 || pixel[0] > 85 || pixel[1] > 20 ||
             pixel[2] > 25) {
             printf("efb: FAIL REG0 alpha pixel=%u,%u,%u (want ~73,11,17)\n",
+                   pixel[0], pixel[1], pixel[2]);
+            fail = 1;
+        }
+    }
+
+    /* ---- pass 5: P-672 indirect texturing ----
+     * A 4x4 RGBA8 texture with texel (1,1) green and (2,1) magenta is
+     * sampled at the centre of (1,1) while an IA8 indirect map (A=128)
+     * offsets by one texel in +S through a static GX_ITM_0 matrix.  The
+     * readback must be magenta with the matrix and green after
+     * GXSetTevDirect disabled the stage. */
+    {
+        static unsigned char dest_rgba8[64];
+        static unsigned char ind_ia8[32];
+        GXTexObj dest_obj, ind_obj;
+        f32 ind_mtx[2][3] = { { 1.0f / 128.0f, 0.0f, 0.0f },
+                              { 0.0f, 1.0f / 128.0f, 0.0f } };
+        int x, y;
+
+        memset(dest_rgba8, 0, sizeof(dest_rgba8));
+        for (y = 0; y < 4; ++y) {
+            for (x = 0; x < 4; ++x) {
+                unsigned char rgba[4] = { 0, 0, 0, 255 };
+                size_t ar = (size_t) y * 4 + (size_t) x;
+                size_t gb = 32 + (size_t) y * 8 + (size_t) x * 2;
+                if (x == 1 && y == 1) {
+                    rgba[0] = 0;
+                    rgba[1] = 255;
+                    rgba[2] = 0;
+                } else if (x == 2 && y == 1) {
+                    rgba[0] = 255;
+                    rgba[1] = 0;
+                    rgba[2] = 255;
+                }
+                dest_rgba8[ar * 2 + 0] = rgba[3];
+                dest_rgba8[ar * 2 + 1] = rgba[0];
+                dest_rgba8[gb] = rgba[1];
+                dest_rgba8[gb + 1] = rgba[2];
+            }
+        }
+        /* GX IA8 stores the alpha byte first, then intensity (texture.c:
+         * decode_ia8).  A=0x80 -> indirect S offset of +128/128 = 1 texel. */
+        for (x = 0; x < 16; ++x) {
+            ind_ia8[x * 2] = 0x80;
+            ind_ia8[x * 2 + 1] = 0x00;
+        }
+
+        gx_hle_begin_frame();
+        gx_hle_reset_state();
+        GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
+        GXSetNumChans(1);
+        GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX,
+                      GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
+        GXSetNumTexGens(2);
+        GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0,
+                          GX_IDENTITY, GX_FALSE, GX_PTIDENTITY);
+        GXSetTexCoordGen2(GX_TEXCOORD1, GX_TG_MTX2x4, GX_TG_TEX1,
+                          GX_IDENTITY, GX_FALSE, GX_PTIDENTITY);
+        GXSetNumTevStages(1);
+        GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0,
+                      GX_COLOR_NULL);
+        GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO,
+                        GX_CC_TEXC);
+        GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO,
+                        GX_CA_TEXA);
+        GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO,
+                        GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+        GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO,
+                        GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+        GXSetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_COPY);
+        GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
+        GXSetCullMode(GX_CULL_NONE);
+        GXInitTexObj(&dest_obj, dest_rgba8, 4, 4, GX_TF_RGBA8, GX_CLAMP,
+                     GX_CLAMP, GX_FALSE);
+        GXLoadTexObj(&dest_obj, GX_TEXMAP0);
+        GXInitTexObj(&ind_obj, ind_ia8, 4, 4, GX_TF_IA8, GX_REPEAT,
+                     GX_REPEAT, GX_FALSE);
+        GXLoadTexObj(&ind_obj, GX_TEXMAP1);
+        GXSetNumIndStages(1);
+        GXSetIndTexOrder(GX_INDTEXSTAGE0, GX_TEXCOORD1, GX_TEXMAP1);
+        GXSetIndTexCoordScale(GX_INDTEXSTAGE0, GX_ITS_1, GX_ITS_1);
+        GXSetIndTexMtx(GX_ITM_0, ind_mtx, 0);
+        GXSetTevIndirect(GX_TEVSTAGE0, GX_INDTEXSTAGE0, GX_ITF_8,
+                         GX_ITB_NONE, GX_ITM_0, GX_ITW_OFF, GX_ITW_OFF,
+                         GX_FALSE, GX_FALSE, GX_ITBA_OFF);
+        GXClearVtxDesc();
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX1, GX_TEX_ST, GX_F32, 0);
+        GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+        GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+        GXSetVtxDesc(GX_VA_TEX1, GX_DIRECT);
+        GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+        GXPosition3f32(-1.0f, -1.0f, 0.0f);
+        GXTexCoord2f32(0.375f, 0.375f);
+        GXTexCoord2f32(0.0f, 0.0f);
+        GXPosition3f32(1.0f, -1.0f, 0.0f);
+        GXTexCoord2f32(0.375f, 0.375f);
+        GXTexCoord2f32(0.0f, 0.0f);
+        GXPosition3f32(1.0f, 1.0f, 0.0f);
+        GXTexCoord2f32(0.375f, 0.375f);
+        GXTexCoord2f32(0.0f, 0.0f);
+        GXPosition3f32(-1.0f, 1.0f, 0.0f);
+        GXTexCoord2f32(0.375f, 0.375f);
+        GXTexCoord2f32(0.0f, 0.0f);
+        if (gx_gl_render_frame() < 0) {
+            printf("efb: FAIL render_frame (indirect)\n");
+            return 0;
+        }
+        glReadPixels(320, 240, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+        if (!(pixel[0] > 200 && pixel[1] < 60 && pixel[2] > 200)) {
+            printf("efb: FAIL indirect offset pixel=%u,%u,%u (want magenta "
+                   "texel 2,1)\n", pixel[0], pixel[1], pixel[2]);
+            fail = 1;
+        }
+
+        /* Disable the stage; the base coordinate must select texel (1,1). */
+        gx_hle_begin_frame();
+        gx_hle_reset_state();
+        GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
+        GXSetNumChans(1);
+        GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX,
+                      GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
+        GXSetNumTexGens(2);
+        GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0,
+                          GX_IDENTITY, GX_FALSE, GX_PTIDENTITY);
+        GXSetTexCoordGen2(GX_TEXCOORD1, GX_TG_MTX2x4, GX_TG_TEX1,
+                          GX_IDENTITY, GX_FALSE, GX_PTIDENTITY);
+        GXSetNumTevStages(1);
+        GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0,
+                      GX_COLOR_NULL);
+        GXSetTevOp(GX_TEVSTAGE0, GX_REPLACE);
+        GXSetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_COPY);
+        GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
+        GXSetCullMode(GX_CULL_NONE);
+        GXInitTexObj(&dest_obj, dest_rgba8, 4, 4, GX_TF_RGBA8, GX_CLAMP,
+                     GX_CLAMP, GX_FALSE);
+        GXLoadTexObj(&dest_obj, GX_TEXMAP0);
+        GXSetTevDirect(GX_TEVSTAGE0);
+        GXClearVtxDesc();
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
+        GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+        GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+        GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+        GXPosition3f32(-1.0f, -1.0f, 0.0f);
+        GXTexCoord2f32(0.375f, 0.375f);
+        GXPosition3f32(1.0f, -1.0f, 0.0f);
+        GXTexCoord2f32(0.375f, 0.375f);
+        GXPosition3f32(1.0f, 1.0f, 0.0f);
+        GXTexCoord2f32(0.375f, 0.375f);
+        GXPosition3f32(-1.0f, 1.0f, 0.0f);
+        GXTexCoord2f32(0.375f, 0.375f);
+        if (gx_gl_render_frame() < 0) {
+            printf("efb: FAIL render_frame (direct)\n");
+            return 0;
+        }
+        glReadPixels(320, 240, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+        if (!(pixel[1] > 200 && pixel[0] < 60 && pixel[2] < 60)) {
+            printf("efb: FAIL direct pixel=%u,%u,%u (want green texel 1,1)\n",
                    pixel[0], pixel[1], pixel[2]);
             fail = 1;
         }

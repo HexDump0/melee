@@ -214,6 +214,19 @@ the fighter in mid-air (P-661/G-130).  Open S6 follow-up: save data is
 blocked by the game's hsd card filesystem pump (P-646; the host card backend
 is opt-in behind `MELEE_CARD_DIR` until then).
 
+**P-671/P-678/P-672 (2026-09-13):** the renderer-parity program (ADR-0017)
+produced `learnings/gx_coverage_matrix.md` (the 100-function GX surface with
+Aurora references and P-672..P-680 gap list).  `GXGetProjectionv` now returns
+the SDK packed `{type,A..F}` form, fixing the particle-billboard axes
+`psdisp.c` builds (P-678/G-131).  Indirect texturing now evaluates in the
+fragment shader (Aurora `shader.cpp`/`GXBump.cpp`): Melee's refraction setup
+(`lbrefract.c`, `ITF_8`/`ITB_ST`/`ITM_0`/`ITW_OFF`) offsets the sampled screen
+copy, `GXSetTevDirect` clears the stage, `GX_TG_MTX3x4` keeps its q row and
+divides (with the hardware q==0 clamp), texgen `normalize` runs between the
+matrices, and `GX_TG_SRTG` toon coordinates sample the lit raster.  Mario's
+cap/face reflection-map UVs change (19 pixels, RMSE 0.0009).  `ctest` 17/17,
+ASan clean; see `learnings/gx_indirect_toon.md`.
+
 ## TL;DR
 
 A playable two-player sandbox runs natively on Linux, rendering real disc
@@ -336,10 +349,14 @@ Ordered by impact.
    state generically (up to 8 stages, swap tables, full KONST selects,
    alpha test, scissor/dst-alpha and per-TObj LOD), the channel-1 specular
    uses the hardware attenuation function, `GX_TG_BUMPn` emboss is faithful
-   (Giga Koopa fixed) and the Z-texture/EFB effects are in (P-615).  The
-   remaining gaps are the **indirect-texture shader evaluation** (state is
-   captured; only stage refraction uses it) and **toon ramps** — both filed
-   as P-617 and only verifiable once S4 renders stages.  Stage light lists
+   (Giga Koopa fixed) and the Z-texture/EFB effects are in (P-615).
+   **Indirect texturing and toon ramps landed in P-672** (indirect fragment
+   evaluation, `GXSetTevDirect`, projective MTX3x4 + normalize, SRTG lit
+   raster) — see `learnings/gx_indirect_toon.md`.  The remaining renderer
+   gaps are tracked in `learnings/gx_coverage_matrix.md`: lighting/specular
+   math (P-673), EFB copy formats and Z-texture edges (P-674), texture
+   expansion/texobj state (P-675), fog math+range adj (P-679), lines/points
+   (P-680), perf (P-676) and harness breadth (P-677).  Stage light lists
    (`src/melee/gr/*`) still supersede the viewer's stand-in lights at S4.
    See `learnings/hsd_tev_materials.md` and `decomp_s2_gx_hle.md`.
 5. **Audio landed in S5; menus/items/results/netplay/WASM are not there yet.**

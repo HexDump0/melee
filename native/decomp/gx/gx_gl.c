@@ -107,6 +107,16 @@ static GLint u_light_color;
 static GLint u_light_a;
 static GLint u_light_k;
 static GLint u_light_dir;
+/* P-672 indirect texturing (GXSetTevIndirect/GXSetIndTex*) */
+static GLint u_ind_order;   /* ivec2[4]: coord, map */
+static GLint u_ind_scale;   /* vec2[4]: 1/2^n for GX_ITS_1..256 */
+static GLint u_ind_mtx0;    /* vec4[4]: row0.xyz, 2^scale_exp */
+static GLint u_ind_mtx1;    /* vec4[4]: row1.xyz */
+static GLint u_tev_ind_a;   /* ivec4[8]: stage, format, bias, mtx */
+static GLint u_tev_ind_b;   /* ivec4[8]: wrap_s, wrap_t, add_prev, enable */
+static GLint u_num_ind_stages;
+static GLint u_tex_size;    /* vec3[3]: destination map sizes */
+static GLint u_coord_srtg;  /* ivec3: toon coord samples the lit raster */
 
 static GlTextureCache tex_cache[MAX_GL_TEXTURES];
 static size_t tex_cache_count;
@@ -355,7 +365,15 @@ static const char* FRAGMENT_SRC =
     "uniform int u_dst_alpha_enable;\n"
     "uniform float u_dst_alpha;\n"
     "uniform int u_ras_flat;\n"
-    
+    "uniform ivec2 u_ind_order[4];\n"
+    "uniform vec2 u_ind_scale[4];\n"
+    "uniform vec4 u_ind_mtx0[4];\n"
+    "uniform vec4 u_ind_mtx1[4];\n"
+    "uniform ivec4 u_tev_ind_a[8];\n"
+    "uniform ivec4 u_tev_ind_b[8];\n"
+    "uniform int u_num_ind_stages;\n"
+    "uniform vec3 u_tex_size[3];\n"
+    "uniform ivec3 u_coord_srtg;\n"
     "in vec4 v_color;\n"
     "in vec2 v_uv0;\n"
     "in vec2 v_uv1;\n"
@@ -449,22 +467,84 @@ static const char* FRAGMENT_SRC =
     "    if (func == 6) return a >= ref;\n"
     "    return true;\n"
     "}\n"
+    "/* P-672: the TEV texture coordinate, with the toon rule that a GX_TG_SRTG\n"
+    " * coordinate samples the rasterized (lit) colour.  Only coords 0..2 are\n"
+    " * carried as varyings; 3..7 fold onto 0 (resolve_stage_coords). */\n"
+    "vec2 gx_coord_uv(int c) {\n"
+    "    if (c >= 0 && c < 3 && u_coord_srtg[c] != 0) return v_ras0.xy;\n"
+    "    if (c == 1) return v_uv1;\n"
+    "    if (c == 2) return v_uv2;\n"
+    "    return v_uv0;\n"
+    "}\n"
+    "vec4 gx_sample_map(int map, vec2 uv) {\n"
+    "    if (map == 1) return texture(u_tex1, uv, u_tex_lod_bias.y);\n"
+    "    if (map == 2) return texture(u_tex2, uv, u_tex_lod_bias.z);\n"
+    "    return texture(u_tex0, uv, u_tex_lod_bias.x);\n"
+    "}\n"
+    "vec2 gx_tex_size(int map) {\n"
+    "    vec2 s = u_tex_size[0].xy;\n"
+    "    if (map == 1) s = u_tex_size[1].xy;\n"
+    "    else if (map == 2) s = u_tex_size[2].xy;\n"
+    "    return max(s, vec2(1.0));\n"
+    "}\n"
+    "/* GXIndTexWrap: OFF, 256, 128, 64, 32, 16, 0.  The hardware wraps the\n"
+    " * texel coordinate; the offset conversion keeps us in normalized UVs. */\n"
+    "float gx_ind_wrap(float v, int mode, float size) {\n"
+    "    if (mode == 0) return v;\n"
+    "    if (mode >= 6) return 0.0;\n"
+    "    float span = (mode == 1) ? 256.0 : (mode == 2) ? 128.0 :\n"
+    "                 (mode == 3) ? 64.0 : (mode == 4) ? 32.0 : 16.0;\n"
+    "    return mod(v * size, span) / size;\n"
+    "}\n"
     "void main() {\n"
     "    /* GXTevRegID is PREV=0, REG0=1, REG1=2, REG2=3. */\n"
     "    vec4 c0 = u_tev_color[1];\n"
     "    vec4 c1 = u_tev_color[2];\n"
     "    vec4 c2 = u_tev_color[3];\n"
     "    vec4 prev = v_ras0;\n"
+    "    vec2 t_ind = vec2(0.0);\n"
     "    for (int i = 0; i < 8; ++i) {\n"
     "        if (i >= u_stages) break;\n"
     "        ivec4 ord = u_tev_order[i];\n"
     "        vec4 tex = vec4(1.0);\n"
+    "        /* P-672: indirect texturing.  The reference stream (lbrefract.c)\n"
+    "         * uses a static GX_ITM_0 matrix with ITF_8/ITB_ST/ITW_OFF.  The\n"
+    "         * offset is evaluated in destination texels and converted to\n"
+    "         * this renderer's normalized UV domain (Aurora shader.cpp\n"
+    "         * `indirectOffsetTexel` / `size_bias`). */\n"
+    "        ivec4 ind_a = u_tev_ind_a[i];\n"
+    "        ivec4 ind_b = u_tev_ind_b[i];\n"
+    "        vec2 uv = gx_coord_uv(ord.x);\n"
+    "        if (ind_b.w != 0 && ind_a.x < u_num_ind_stages) {\n"
+    "            ivec2 io = u_ind_order[ind_a.x];\n"
+    "            vec2 iuv = gx_coord_uv(io.x) / u_ind_scale[ind_a.x];\n"
+    "            vec3 s = gx_sample_map(io.y, iuv).abg * 255.0;\n"
+    "            ivec3 coord = ivec3(floor(s + 0.5));\n"
+    "            if (ind_a.y == 1) coord >>= 3;\n"
+    "            else if (ind_a.y == 2) coord >>= 4;\n"
+    "            else if (ind_a.y == 3) coord >>= 5;\n"
+    "            int ind_bias = (ind_a.y == 0) ? -128 : 1;\n"
+    "            if ((ind_a.z & 1) != 0) coord.x += ind_bias;\n"
+    "            if ((ind_a.z & 2) != 0) coord.y += ind_bias;\n"
+    "            if ((ind_a.z & 4) != 0) coord.z += ind_bias;\n"
+    "            vec2 off = vec2(0.0);\n"
+    "            if (ind_a.w >= 1 && ind_a.w <= 3) {\n"
+    "                vec4 r0 = u_ind_mtx0[ind_a.w - 1];\n"
+    "                vec4 r1 = u_ind_mtx1[ind_a.w - 1];\n"
+    "                off = vec2(dot(r0.xyz, vec3(coord)),\n"
+    "                           dot(r1.xyz, vec3(coord))) *\n"
+    "                      r0.w / gx_tex_size(ord.y);\n"
+    "            }\n"
+    "            vec2 dsz = gx_tex_size(ord.y);\n"
+    "            uv.x = gx_ind_wrap(uv.x, ind_b.x, dsz.x);\n"
+    "            uv.y = gx_ind_wrap(uv.y, ind_b.y, dsz.y);\n"
+    "            uv = uv + off;\n"
+    "            if (ind_b.z != 0) t_ind += uv;\n"
+    "            else t_ind = uv;\n"
+    "            uv = t_ind;\n"
+    "        }\n"
     "        if (u_tex_enable != 0 && ord.y != 255) {\n"
-    "            vec2 uv = (ord.x == 2) ? v_uv2 :\n"
-    "                      (ord.x == 1) ? v_uv1 : v_uv0;\n"
-    "            if (ord.y == 0) tex = texture(u_tex0, uv, u_tex_lod_bias.x);\n"
-    "            else if (ord.y == 1) tex = texture(u_tex1, uv, u_tex_lod_bias.y);\n"
-    "            else if (ord.y == 2) tex = texture(u_tex2, uv, u_tex_lod_bias.z);\n"
+    "            tex = gx_sample_map(ord.y, uv);\n"
     "            int dynamic_i4 = (ord.y == 0) ? u_tex_dynamic_i4.x :\n"
     "                             (ord.y == 1) ? u_tex_dynamic_i4.y :\n"
     "                             (ord.y == 2) ? u_tex_dynamic_i4.z : 0;\n"
@@ -637,6 +717,15 @@ static int build_program(char* error, size_t error_size)
     u_light_a = glGetUniformLocation(program, "u_light_a");
     u_light_k = glGetUniformLocation(program, "u_light_k");
     u_light_dir = glGetUniformLocation(program, "u_light_dir");
+    u_ind_order = glGetUniformLocation(program, "u_ind_order");
+    u_ind_scale = glGetUniformLocation(program, "u_ind_scale");
+    u_ind_mtx0 = glGetUniformLocation(program, "u_ind_mtx0");
+    u_ind_mtx1 = glGetUniformLocation(program, "u_ind_mtx1");
+    u_tev_ind_a = glGetUniformLocation(program, "u_tev_ind_a");
+    u_tev_ind_b = glGetUniformLocation(program, "u_tev_ind_b");
+    u_num_ind_stages = glGetUniformLocation(program, "u_num_ind_stages");
+    u_tex_size = glGetUniformLocation(program, "u_tex_size");
+    u_coord_srtg = glGetUniformLocation(program, "u_coord_srtg");
 
     /* P-615: the Z-texture pass is a small dedicated program; writing
      * gl_FragDepth from the big TEV shader is ignored on Mesa/radeonsi. */
@@ -1384,6 +1473,61 @@ static void upload_draw_uniforms(const GxHleDrawState* s)
     glUniform1i(u_ras_flat, !gl_options.lighting);
     glUniform1i(u_dst_alpha_enable, s->dst_alpha_enable);
     glUniform1f(u_dst_alpha, (GLfloat) s->dst_alpha / 255.0f);
+
+    /* P-672 indirect state.  GX_ITS_1..256 divide the coordinate by 2^n. */
+    {
+        static const GLfloat its_scale[9] = {
+            1.0f,        0.5f,       0.25f,      0.125f,     0.0625f,
+            0.03125f,    0.015625f,  0.0078125f, 0.00390625f
+        };
+        GLint ind_order[4][2];
+        GLfloat ind_scale[4][2];
+        GLfloat ind_mtx0[4][4];
+        GLfloat ind_mtx1[4][4];
+        GLint tev_ind_a[MAX_TEV_STAGES][4];
+        GLint tev_ind_b[MAX_TEV_STAGES][4];
+        GLint coord_srtg[3];
+        for (i = 0; i < 4; ++i) {
+            int ss = s->ind[i].scale_s & 15;
+            int st = s->ind[i].scale_t & 15;
+            if (ss > 8) ss = 8;
+            if (st > 8) st = 8;
+            ind_order[i][0] = s->ind[i].tex_coord;
+            ind_order[i][1] = s->ind[i].tex_map;
+            ind_scale[i][0] = its_scale[ss];
+            ind_scale[i][1] = its_scale[st];
+            ind_mtx0[i][0] = s->ind[i].mtx[0][0];
+            ind_mtx0[i][1] = s->ind[i].mtx[0][1];
+            ind_mtx0[i][2] = s->ind[i].mtx[0][2];
+            ind_mtx0[i][3] = s->ind[i].scale;
+            ind_mtx1[i][0] = s->ind[i].mtx[1][0];
+            ind_mtx1[i][1] = s->ind[i].mtx[1][1];
+            ind_mtx1[i][2] = s->ind[i].mtx[1][2];
+            ind_mtx1[i][3] = 0.0f;
+        }
+        for (i = 0; i < MAX_TEV_STAGES; ++i) {
+            const GxHleTevStage* st = &s->stages[i];
+            tev_ind_a[i][0] = st->ind_stage;
+            tev_ind_a[i][1] = st->ind_format;
+            tev_ind_a[i][2] = st->ind_bias;
+            tev_ind_a[i][3] = st->ind_mtx;
+            tev_ind_b[i][0] = st->ind_wrap_s;
+            tev_ind_b[i][1] = st->ind_wrap_t;
+            tev_ind_b[i][2] = st->ind_add_prev;
+            tev_ind_b[i][3] = st->ind_enable;
+        }
+        for (i = 0; i < 3; ++i) {
+            coord_srtg[i] = s->texgen[i].type == GX_TG_SRTG ? 1 : 0;
+        }
+        glUniform2iv(u_ind_order, 4, &ind_order[0][0]);
+        glUniform2fv(u_ind_scale, 4, &ind_scale[0][0]);
+        glUniform4fv(u_ind_mtx0, 4, &ind_mtx0[0][0]);
+        glUniform4fv(u_ind_mtx1, 4, &ind_mtx1[0][0]);
+        glUniform4iv(u_tev_ind_a, MAX_TEV_STAGES, &tev_ind_a[0][0]);
+        glUniform4iv(u_tev_ind_b, MAX_TEV_STAGES, &tev_ind_b[0][0]);
+        glUniform1i(u_num_ind_stages, s->num_ind_stages);
+        glUniform3iv(u_coord_srtg, 1, coord_srtg);
+    }
 }
 
 /* The live viewer keeps R4 shadow copies on the GPU.  HSD only samples these
@@ -1707,8 +1851,26 @@ int gx_gl_render_frame(void)
             GLint dynamic_i4[3] = { texture_is_dynamic_i4(t0),
                                     texture_is_dynamic_i4(t1),
                                     texture_is_dynamic_i4(t2) };
+            /* P-672: destination sizes convert the indirect offset from GX
+             * texels to this renderer's normalized UVs. */
+            GLfloat sizes[3][3] = { { 1.0f, 1.0f, 0.0f },
+                                    { 1.0f, 1.0f, 0.0f },
+                                    { 1.0f, 1.0f, 0.0f } };
+            if (t0 != NULL) {
+                sizes[0][0] = (GLfloat) t0->width;
+                sizes[0][1] = (GLfloat) t0->height;
+            }
+            if (t1 != NULL) {
+                sizes[1][0] = (GLfloat) t1->width;
+                sizes[1][1] = (GLfloat) t1->height;
+            }
+            if (t2 != NULL) {
+                sizes[2][0] = (GLfloat) t2->width;
+                sizes[2][1] = (GLfloat) t2->height;
+            }
             glUniform3fv(u_tex_lod_bias, 1, bias);
             glUniform3iv(u_tex_dynamic_i4, 1, dynamic_i4);
+            glUniform3fv(u_tex_size, 3, &sizes[0][0]);
         }
 
         apply_viewport(s);
