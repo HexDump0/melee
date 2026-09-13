@@ -245,7 +245,7 @@ set_tests_properties(decomp_assets PROPERTIES
 #   sislib_font.c,
 #   hsd_3915.c,
 #   hsd_3A76.c          need generated font atlases (decomp build artifacts,
-#                       ADR-0005); replaced by platform/font_stub.c for S1
+#                       ADR-0005); decomp/fonts.c fills them at runtime (S6)
 #
 # S5: baselib/axdriver.c is compiled (it drives the AX voice layer, not the
 # DSP); the DSP/AI boundary is native/audio/ax_hle.c and the asm AXFX files
