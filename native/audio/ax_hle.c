@@ -21,6 +21,7 @@
 #include "decomp/boot/boot_triage.h"
 
 /* extern/dolphin/src/dolphin/ax/__ax.h (compiled into the same target). */
+AXVPB* __AXGetStackHead(u32 priority);
 void __AXSyncPBs(u32 lessDspCycles);
 void __AXPrintStudio(void);
 void __AXProcessAux(void);
@@ -92,6 +93,43 @@ void AXRegisterCallback(void (*callback)(void))
     ax_user_frame_callback = callback;
 }
 
+/*
+ * `__AXServiceVPB` (AXVPB.c, compiled verbatim) copies either the fields named
+ * by the sync bits or the whole AXPBADDR when only AX_SYNC_FLAG_COPYADDR is
+ * pending; the per-field branch wins when both are set.  On hardware the HPS
+ * stream bootstrap (HSD_SynthPStreamHeaderCallback -> page table -> page
+ * data) spans several 5 ms AX frames, so AXSetVoiceAddr's COPYADDR is
+ * serviced before HSD_Synth_8038B120 adds COPYCURADDR/COPYENDADDR/
+ * COPYLOOPADDR.  The host's synchronous DVD/DevCom chain finishes the whole
+ * bootstrap inside one frame, the per-field branch wins, and the shadow
+ * silently loses the header's loopFlag - the voice never wraps to the next
+ * stream page (P-648).
+ *
+ * The user PB already holds every field write from that window, so the
+ * whole-address copy applies the same final state the console reaches when a
+ * frame separates the two.  Collapse the sync word to COPYADDR before it is
+ * serviced.
+ */
+static void ax_collapse_addr_sync(void)
+{
+    u32 priority;
+
+    for (priority = 1; priority < AX_PRIORITY_STACKS; priority++) {
+        AXVPB* pvpb;
+
+        for (pvpb = __AXGetStackHead(priority); pvpb != NULL;
+             pvpb = pvpb->next)
+        {
+            if ((pvpb->sync & AX_SYNC_FLAG_COPYADDR) != 0) {
+                pvpb->sync &= ~(AX_SYNC_FLAG_COPYLOOP |
+                                AX_SYNC_FLAG_COPYLOOPADDR |
+                                AX_SYNC_FLAG_COPYENDADDR |
+                                AX_SYNC_FLAG_COPYCURADDR);
+            }
+        }
+    }
+}
+
 void __AXOutAiCallback(void)
 {
 }
@@ -100,6 +138,7 @@ void __AXOutNewFrame(u32 lessDspCycles)
 {
     unsigned i;
 
+    ax_collapse_addr_sync();
     __AXSyncPBs(lessDspCycles);
     __AXPrintStudio();
     (void) __AXGetCommandListAddress();

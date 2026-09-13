@@ -113,6 +113,34 @@ internal buffer, 0x23 for page data over ARQ) and converted in the DVD
 backend.  Voice `i` of page `p` plays `base + p*0x20000 + i*0x10000 + 2`; the
 game advances pages from the mixer's `currentAddress` write-back.
 
+#### The HPS page ring and its page machine
+
+`HSD_Synth_804D7780` is an `ARAlloc(0x30000)` = three 0x10000-byte ring slots.
+`lbl_804C4540[3]` holds the 0x20-byte page tables.  Per table: `x0` = slot
+stride in AX units (0x10000 for early `menu01` pages, 0xFE80/0xFE40 later),
+`x4` = voice end offset (`x0 - 1`), `x8` = next table's file offset (-1 ends
+the stream; `menu01` loops back to page 4).  The last 0x14 bytes carry a
+per-voice `AXPBADPCMLOOP` continuation at `0x0C + i*8` (see G-117).
+
+State globals: `7768` slot being loaded, `776C` slot whose data is ready,
+`7770` slot whose loop target is armed, `7774` last observed `pos`, `7778`
+"table/data load in flight".  Each `HSD_SynthCallback` (200 Hz) runs
+`HSD_Synth_8038ADD0`: `pos = (currentAddress - 7780*2) >> 17` is the ring slot
+the voice is playing; when it changes, `endAddress` is set to `slot + i*x0 +
+x4`; when `pos == 7770 && pos != 776C`, `loopAddress` (and the ADPCM loop
+context) is armed for slot `(7770+1)%3`, i.e. the *next* preloaded page.  The
+inline prefetch reads the next table + page data whenever the loaded-next slot
+(`(776C+1)%3`) is not already the playing slot.  A voice therefore never
+stops: it loops within its slot until the loop address points at the next
+page, and the game follows `currentAddress` around the ring.  The runtime
+never calls `AXSetVoiceLoop(..., 1)`: the header's `loopFlag == 1` is the only
+thing that lets the page handoff work (G-115 is what lost it on the host).
+
+Sizing: a page's voice region is `x0/2` bytes = `x0` AX units; DSP-ADPCM is
+16 AX units / 14 samples, so `menu01` pages are 4096 frames ≈ 1.79 s per page.
+A `[wrap]` trace (`frame_addr`, target, `yn`, `pred`) should show exactly one
+wrap per voice per page; a storm of wraps means G-116.
+
 ## Aux effects and the studio
 
 `__AXProcessAux` runs the registered aux A/B callbacks on the CPU-side buffer

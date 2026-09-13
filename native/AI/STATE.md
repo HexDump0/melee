@@ -156,7 +156,11 @@ the font atlases load from the raw DOL region at disc header `0x420`
 (`HSD_TexAnim` on nonzero texture maps) bind correctly since the
 `TexAnim.id` conversion (converter v67, G-114, P-650): the title logo fire
 cycles and the main-menu 1-P preview shows its submenu lines (P-649).
-Open S6 follow-ups:
+Menu BGM now sustains through the HPS page ring (P-648, G-115..G-117): the
+header `loopFlag` survives the single-frame DevCom burst, the mixer's end test
+is crossing-based so a page handoff does not re-wrap into a buzz, and the page
+table's `AXPBADPCMLOOP` predictor contexts byte-swap so the seams are
+sample-continuous.  Open S6 follow-ups:
 item models crash PObj resolution for some items (P-643), results names/models
 are wrong (P-645), match HUD stock icons show the wrong character (P-644), and
 save data is blocked by the game's hsd card filesystem pump (P-646; the host
@@ -249,6 +253,7 @@ lightmap phases, alpha test, XLU blend) and every fighter is scaled by its
 | Live match viewer (P-623) | `melee_decomp_viewer --match` runs the compiled game in-process (Link vs Mario, Final Destination): Ready countdown, both fighters walking/jumping, KO + `SCORE -1`, camera pan/zoom, respawn platforms; looping PAD script at 60 Hz until ESC; `--record -` piped to ffmpeg produces a 40 s H.264 of the same run |
 | AX stack (S5) | The decomp's `axdriver.c` + SDK AX layer drive `native/audio/ax_mixer.c`: DSP-ADPCM 8-byte/14-sample frames, SRC, `AXPBMIX`, VE, ITD, loop/end/current write-back; `ctest audio` (synthetic fixture) and `decomp_audio` (two 300-frame matches byte-identical) pass |
 | Audio assets (S5) | `.ssm` banks, `smash2.sem` command table and `.hps` streams convert in `platform/{ssm,sem,hps}.c`; boot/title HPS pages advance and loop; the scripted match plays character SFX throughout; ASan/UBSan clean |
+| HPS stream ring (P-648) | The menu BGM sustains across all three ARAM ring slots: `ax_collapse_addr_sync` preserves the header `loopFlag` when the synchronous DevCom burst coalesces `AXSetVoiceAddr` with the address-field sync bits, the mixer's end test is crossing-based (a page handoff whose loop target sits above the lagging `endAddress` no longer re-wraps into a ~2.3 kHz buzz), and the page table's `AXPBADPCMLOOP` predictor contexts byte-swap so seams are sample-continuous (G-115..G-117).  Before/after energy probe: silence from ~13 s vs music through 22 s, zero buzz windows; `ctest` 15/15 |
 | Audio output (S5) | `melee_decomp_boot --audio-dump out.wav` writes deterministic 32 kHz s16 stereo (peak -1.3 dBFS, no clipping) and logs `audio: frames=N hash=...`; `melee_decomp_viewer --match` plays through an SDL3 audio stream |
 | Reverb (S5) | `reverb_std`'s asm `HandleReverb` transcribed to C in `native/decomp/axfx/axfx_port.c`; registered by `lbAudioAx_8002838C` as aux A |
 | Match fighters visible (P-625) | The compiled fighters render fully textured in `--match`: `fighter.c`'s `x21FC_flag.u8 = 1` sets the MWCC `b7` bit only via the `FtStatusFlags` PORT_PC union (G-091), and the GL texture cache evicts LRU instead of returning black when full (G-092).  `--dump-draws FRAME` lists a captured frame's draws/textures/NDC bounds |
@@ -292,8 +297,9 @@ Ordered by impact.
 5. **Audio landed in S5; menus/items/results/netplay/WASM are not there yet.**
    In-match and boot/title audio play, but `AXFXReverbHi`/`AXFXChorus` are
    stubbed (Melee never registers them) and the mixer's ITD is a simple delay
-   line; validate pan/fade/pause/mute by ear during the owner check.  Menus,
-   stage BGM selection and results are S6; netplay/WASM are S7.
+   line; validate pan/fade/pause/mute by ear during the owner check.  The menu
+   BGM page ring is fixed (P-648); stage BGM selection and results are S6;
+   netplay/WASM are S7.
 6. **Captain Falcon's eyes do not render** in the compiled path (P-616); the
    rest of the head now matches the prototype.  See TASKS.md.
 7. **Non-Mario physics values** are demo defaults, not per-character data.

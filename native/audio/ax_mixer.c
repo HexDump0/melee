@@ -43,8 +43,9 @@ typedef struct AxVoiceMix {
     int active;      /* the PB was in state 1 last frame */
     int ended;       /* the sample reached its end this frame */
     s16 yn1, yn2;    /* ADPCM predictor history */
-    u32 frame_addr;  /* AX address of the next frame to decode */
-    u32 write_addr;  /* currentAddress we last wrote back */
+    u32 frame_addr;      /* AX address of the next frame to decode */
+    u32 prev_frame_addr; /* start of the frame decoded last (crossing test) */
+    u32 write_addr;      /* currentAddress we last wrote back */
     s16 pcm[16];     /* decoded frame */
     int index;       /* next sample to consume in pcm[] (16 = need frame) */
     u32 frac;        /* 16.16 fraction between pcm[index] and pcm[index+1] */
@@ -119,6 +120,7 @@ static void voice_reset(AxVoiceMix* v, AXPB* pb)
     memset(v, 0, sizeof(*v));
     v->active = 1;
     v->frame_addr = cur;
+    v->prev_frame_addr = cur;
     v->write_addr = cur;
     v->yn1 = (s16) pb->adpcm.yn1;
     v->yn2 = (s16) pb->adpcm.yn2;
@@ -143,10 +145,19 @@ static int voice_decode_frame(AxVoiceMix* v, AXPB* pb)
     }
 
     end_addr = pb_end_addr(pb);
-    if (end_addr != 0 && v->frame_addr >= end_addr) {
+    /* The DSP raises its end exception when the address *crosses* the end,
+     * not whenever it sits above it: HPS pages are chained by moving the loop
+     * address to the next ring slot (usually a higher address) before
+     * HSD_Synth_8038ADD0 has extended endAddress.  A plain `>= end` test
+     * would re-wrap on every frame in that window and replay the page's first
+     * frame as a ~2.3 kHz buzz (P-648). */
+    if (end_addr != 0 && v->prev_frame_addr < end_addr &&
+        v->frame_addr >= end_addr) {
         u32 loop_addr = pb_loop_addr(pb);
-        int can_loop = pb->addr.loopFlag != 0 && loop_addr != 0 &&
-                       loop_addr < end_addr;
+        /* No loop_addr < end_addr ordering check either: the DSP jumps to the
+         * loop address whenever loopFlag is set, and the streaming ring
+         * regularly points it past the current end. */
+        int can_loop = pb->addr.loopFlag != 0 && loop_addr != 0;
 
         if (can_loop) {
             v->frame_addr = loop_addr;
@@ -158,6 +169,7 @@ static int voice_decode_frame(AxVoiceMix* v, AXPB* pb)
         }
     }
 
+    v->prev_frame_addr = v->frame_addr;
     off = ax_aram_byte(v->frame_addr);
     if (aram == NULL || off < 0 || (unsigned) off + 9 > size) {
         v->ended = 1;

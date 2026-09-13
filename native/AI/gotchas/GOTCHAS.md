@@ -1394,3 +1394,58 @@ of the game) looked fine.
 run), and visually (panel text bands appear). Debug technique: extend
 `--dump-draws` (tex1 details, all-quad UVs, texgen matrix ids) rather than
 guessing from thumbnails.
+
+## G-115: coalesced AX sync bits drop `AXSetVoiceAddr`'s whole-struct copy
+
+**Symptom:** an HPS stream plays its first ARAM page and then goes silent
+(menu BGM after ~2 s); the page machine freezes with `pos` still in the start
+slot and the node is torn down when both voices reach their mixer end.
+**Cause:** `AXSetVoiceAddr` sets `AX_SYNC_FLAG_COPYADDR` (`__AXServiceVPB`
+copies the whole 16-byte `AXPBADDR`), then `HSD_Synth_8038B120` adds
+`COPYCURADDR`/`COPYENDADDR`/`COPYLOOPADDR`.  `__AXServiceVPB` gives the
+per-field branch priority and only copies the named fields when both are
+pending, so the shadow never receives the header's `loopFlag`.  On hardware
+the DevCom bootstrap (header → page table → 64 KB page data) spans several
+5 ms AX frames, so `COPYADDR` is serviced first; the host's synchronous DVD
+completion chain finishes the whole bootstrap inside one frame.  GDB proof:
+the first `__AXServiceVPB` for the stream voice sees `sync=0x0007d2b6`
+(COPYADDR + field bits, no `COPYLOOP`) and the shadow `loopFlag` stays 0 while
+the user PB reads 1.
+**Fix:** `native/audio/ax_hle.c:ax_collapse_addr_sync` clears the per-field
+address bits before `__AXSyncPBs` when `COPYADDR` is pending; the whole-struct
+copy then applies the user PB's latest values (the field setters wrote them to
+the same PB), which equals the console state after a frame boundary.
+
+## G-116: HPS page loops target above `endAddress`; the end test must be crossing-based
+
+**Symptom:** after the loopFlag fix, the music plays but a loud ~2.3 kHz
+"beep" bursts out of the speakers for 5–15 ms at page handoffs (every ~0.9 s,
+worst on slot0→slot1/slot1→slot2).
+**Cause:** two wrong assumptions in `voice_decode_frame`.  (1) The HPS ring
+moves `loopAddress` to the *next* page's ring slot before the game extends
+`endAddress`; the next slot is usually a higher address, so `frame_addr >=
+end_addr` fires on the first frame after the wrap and re-wraps on *every*
+frame until `HSD_Synth_8038ADD0` runs, replaying the page's first 14-sample
+frame as a 2.3 kHz tone.  (2) The DSP jumps to `loopAddress` whenever
+`loopFlag` is set; it does not require `loopAddress < endAddress`.
+**Fix:** trigger only when the address *crosses* the end
+(`prev_frame_addr < end_addr && frame_addr >= end_addr`, tracked per voice)
+and drop the `loop_addr < end_addr` test.  Verified with a `[wrap]` trace:
+one wrap per voice per page instead of a storm, and zero
+`peak>20000 && meanabs>6000` 5 ms windows.
+
+## G-117: the HPS page table's `AXPBADPCMLOOP` contexts need a u16 swap
+
+**Symptom:** audible click/step at every page seam even after G-115/G-116;
+the seam sounds like a short discontinuous burst.
+**Cause:** `hps_fix_read` only swapped the page table's three u32s
+(`x0`/`x4`/`x8`).  The per-voice decoder continuation
+(`AXPBADPCMLOOP.loop_pred_scale/loop_yn1/loop_yn2` at bytes `0xC+i*8`) stayed
+big-endian, so the mixer loaded byte-swapped predictor history (`yn` off by
+one byte) at each wrap.
+**Fix:** `swap16` every u16 from `0x0C` to `0x20` in the page-table branch
+(keep `swap32` for the three words — swapping the u16 halves of a u32 is not a
+byte swap).  Validated by decoding the concatenated per-voice page data in a
+throwaway Python probe: the stored context at every page boundary matches the
+running decoder state exactly (`yn1`/`yn2`/`pred` identical, pages 1–11, both
+voices), so applying it makes the seams bit-continuous.
