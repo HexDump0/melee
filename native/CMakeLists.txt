@@ -311,6 +311,7 @@ add_executable(melee_decomp_boot
     platform/sem.c
     platform/hps.c
     platform/complete.c
+    platform/card.c
     platform/pad_card.c
     audio/ax_hle.c
     audio/ax_mixer.c
@@ -394,6 +395,7 @@ add_executable(test_decomp_render
     platform/sem.c
     platform/hps.c
     platform/complete.c
+    platform/card.c
     platform/pad_card.c
     audio/ax_hle.c
     audio/ax_mixer.c
@@ -487,7 +489,8 @@ if(MELEE_SDL3_LIB32)
       platform/sem.c
       platform/hps.c
       platform/complete.c
-      platform/pad_card.c
+      platform/card.c
+    platform/pad_card.c
       audio/ax_hle.c
       audio/ax_mixer.c
       platform/audio.c

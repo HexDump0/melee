@@ -36,8 +36,10 @@
 #define OS_TICKS_PER_FRAME (OS_TICKS_PER_SEC / 60)
 #define OS_ARENA_SIZE (24u * 1024u * 1024u)
 
-/* Defined by the compiled extern/dolphin DVDFS; set by the SDK's OSInit. */
-extern unsigned long __DVDLongFileNameFlag;
+/* Defined by the compiled extern/dolphin DVDFS; set by the SDK's OSInit.  The
+ * symbol is weak so the audio unit test (which links this file without the
+ * DVDFS TU) still links. */
+extern unsigned long __DVDLongFileNameFlag __attribute__((weak));
 
 /*
  * GameCube main RAM lives at the cached address 0x80000000 and the first
@@ -187,7 +189,9 @@ void OSInit(void)
     /* The SDK's OSInit enables long DVD file names (the retail disc uses
      * names like `nr_select.ssm`); dvdfs.c panics on non-8.3 paths without
      * it.  The real OSInit sets this unconditionally after BootInfo. */
-    __DVDLongFileNameFlag = 1;
+    if (&__DVDLongFileNameFlag != NULL) {
+        __DVDLongFileNameFlag = 1;
+    }
     platform_complete_init();
 }
 
