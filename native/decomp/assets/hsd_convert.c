@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 70u
+#define HSD_CONVERTER_VERSION 71u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -2209,9 +2209,72 @@ static void conv_ft_data(Conv* c, uint32_t off)
             }
         }
     }
+    /* x34: { Fighter_Part x0; f32 scale } (0x08). */
     if (x34 != 0 && in_data(c, x34, 8)) {
         conv_u32(c, x34 + 0x00); /* Fighter_Part part index */
         conv_u32(c, x34 + 0x04); /* scale */
+    }
+    /* x40: itPickup, three Vec4 grab offsets (0x30) copied verbatim into
+     * Fighter.x294_itPickup by ftCo_800D0FA0/ftCo_800D105C.  The compiled
+     * pickup check (ftpickupitem_80094150) and the held-item draw offset
+     * (ftdrawcommon) read the floats, so leaving them big-endian puts the
+     * grab volume at the denormal `x0` the host reads (effectively the
+     * origin) and misplaces held items. */
+    {
+        uint32_t pickup = rd32(c, off + 0x40);
+        if (pickup != 0 && in_data(c, pickup, 0x30)) {
+            for (i = 0; i < 12; i++) {
+                conv_u32(c, pickup + (uint32_t) i * 4);
+            }
+        }
+    }
+    /* x4C_sfx: FtSFX, three FtSFXArr* plus eleven s32 sound ids that
+     * ft_PlaySFX/ft_800881D8 pass straight to the synth.  The decomp types
+     * +0x1C as `int`, but the archive stores a third FtSFXArr pointer there
+     * (it is a relocation target and ftCo_Damage assigns it to an UNK_T);
+     * only walk it as an array when the field really is relocated.  Each
+     * FtSFXArr { int num; s32* sfx_ids } randomises with HSD_Randi(num), so
+     * its count and id array are numeric too. */
+    {
+        uint32_t sfx = rd32(c, off + 0x4C);
+        if (sfx != 0 && in_data(c, sfx, 0x38)) {
+            static const uint32_t arr_fields[] = { 0x00, 0x1C, 0x20 };
+            int k;
+            for (k = 0x04; k <= 0x18; k += 4) {
+                conv_u32(c, sfx + (uint32_t) k);
+            }
+            for (k = 0x24; k <= 0x34; k += 4) {
+                conv_u32(c, sfx + (uint32_t) k);
+            }
+            for (k = 0; k < 3; k++) {
+                uint32_t at = arr_fields[k];
+                uint32_t arr;
+                int n;
+                int j;
+                if (at == 0x1C && !c->reloc[sfx + at]) {
+                    continue; /* an s32 sound id in this archive */
+                }
+                arr = rd32(c, sfx + at);
+                if (arr == 0 || !in_data(c, arr, 8)) {
+                    continue;
+                }
+                conv_u32(c, arr + 0x00);
+                n = (int) rd32(c, arr + 0x00);
+                if (n <= 0 || n > 64) {
+                    continue;
+                }
+                {
+                    uint32_t ids = rd32(c, arr + 0x04);
+                    for (j = 0; j < n; j++) {
+                        uint32_t u = ids + (uint32_t) j * 4;
+                        if (!in_data(c, u, 4)) {
+                            break;
+                        }
+                        conv_u32(c, u);
+                    }
+                }
+            }
+        }
     }
     /* ftData_x38: two { Fighter_Part x0; Vec3 x4; f32 x10 } entries (0x14);
      * ft_8007C630 indexes fp->x1614 and resolves each joint from x0. */

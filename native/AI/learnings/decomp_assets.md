@@ -73,7 +73,10 @@ the per-structure reference.  Key differences from the §7 recommendation:
   same class: its relocation-backed, bounded pointer table leads to descriptors
   whose `u16` first-part/count fields need conversion.  Converter v69 walks the
   leading relocation entries (at most the five `Fighter.x8B0` slots) and stops
-  at the first non-relocation field (P-630/G-119).
+  at the first non-relocation field (P-630/G-119).  Converter v71 adds the
+  `x40` `itPickup` floats and the `x4C_sfx` `FtSFX` ints/`FtSFXArr` tables
+  (G-124); the `x48_items` per-fighter special `Article` arrays are still
+  unconverted (P-656).
 
 ### `.ssm` sound banks (S3 scope: make the compiled loader run)
 

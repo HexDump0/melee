@@ -458,6 +458,194 @@ static int ptr_in_buffer(const void* p, const unsigned char* base, size_t size)
     return q >= base && q < base + size;
 }
 
+static float read_be_f32(const unsigned char* p)
+{
+    uint32_t v = read_be_u32(p);
+    float f;
+    memcpy(&f, &v, sizeof(f));
+    return f;
+}
+
+/* P-655: ftData->x40 (itPickup: twelve grab-offset floats) and x4C_sfx
+ * (FtSFX: twelve s32 sound ids plus two FtSFXArr {num, s32* ids}) are
+ * numeric pointees that the converter used to leave big-endian.  A
+ * byte-swapped pickup offset is a denormal near the origin (the grab volume
+ * sits at the world origin) and a byte-swapped SFX id is either silent or
+ * the wrong sound, so compare every field against the raw archive. */
+static int check_ft_data_tables(const char* image, const char* path,
+                                const char* symbol)
+{
+    char error[256];
+    size_t size = 0;
+    unsigned char* buffer = load_archive(image, path, NULL, &size, error,
+                                         sizeof(error));
+    unsigned char* raw = NULL;
+    HSD_Archive archive;
+    HsdConvertStats stats;
+    unsigned char* ft_data;
+    uint32_t ft_off;
+    const unsigned char* rdata;
+    unsigned char* cdata;
+    uint32_t raw_x40;
+    uint32_t raw_sfx;
+    unsigned checked = 0;
+    int failed = 0;
+    int i;
+
+    if (buffer == NULL) {
+        fprintf(stderr, "decomp_assets: %s: %s\n", path, error);
+        return 1;
+    }
+    raw = malloc(size);
+    if (raw == NULL) {
+        free(buffer);
+        return 1;
+    }
+    memcpy(raw, buffer, size);
+    if (!hsd_asset_convert(buffer, size, &stats) ||
+        HSD_ArchiveParse(&archive, buffer, size) != 0)
+    {
+        fprintf(stderr, "decomp_assets: %s conversion failed\n", path);
+        free(raw);
+        free(buffer);
+        return 1;
+    }
+    ft_data = HSD_ArchiveGetPublicAddress(&archive, symbol);
+    if (ft_data == NULL || !ptr_in_buffer(ft_data, buffer, size) ||
+        ft_data < buffer + 0x20 || ft_data + 0x60 > buffer + size)
+    {
+        fprintf(stderr, "decomp_assets: %s missing %s\n", path, symbol);
+        free(raw);
+        free(buffer);
+        return 1;
+    }
+    ft_off = (uint32_t) (ft_data - (buffer + 0x20));
+    rdata = raw + 0x20;
+    cdata = buffer + 0x20;
+
+    raw_x40 = read_be_u32(raw + 0x20 + ft_off + 0x40);
+    if (raw_x40 != 0) {
+        if (raw_x40 + 0x30 > size - 0x20) {
+            fprintf(stderr, "decomp_assets: %s x40 out of range\n", path);
+            failed = 1;
+        } else {
+            for (i = 0; i < 12; i++) {
+                const unsigned char* rp = rdata + raw_x40 + i * 4;
+                const unsigned char* cp = cdata + raw_x40 + i * 4;
+                uint32_t host = read_host_u32(cp);
+                uint32_t want = read_be_u32(rp);
+                if (host != want) {
+                    if (failed == 0) {
+                        fprintf(stderr,
+                                "decomp_assets: %s x40[%d]=%g want=%g "
+                                "(not converted?)\n",
+                                path, i, (double) read_host_f32(cp),
+                                (double) read_be_f32(rp));
+                    }
+                    failed++;
+                }
+            }
+            checked++;
+        }
+    }
+    raw_sfx = read_be_u32(raw + 0x20 + ft_off + 0x4C);
+    if (raw_sfx != 0) {
+        if (raw_sfx + 0x38 > size - 0x20) {
+            fprintf(stderr, "decomp_assets: %s x4C out of range\n", path);
+            failed = 1;
+        } else {
+            static const int sfx_fields[] = { 0x04, 0x08, 0x0C, 0x10, 0x14,
+                                              0x18, 0x24, 0x28, 0x2C, 0x30,
+                                              0x34 };
+            unsigned f;
+            for (f = 0;
+                 f < sizeof(sfx_fields) / sizeof(sfx_fields[0]); f++)
+            {
+                const unsigned char* rp = rdata + raw_sfx + sfx_fields[f];
+                const unsigned char* cp = cdata + raw_sfx + sfx_fields[f];
+                if (read_host_u32(cp) != read_be_u32(rp)) {
+                    if (failed == 0) {
+                        fprintf(stderr,
+                                "decomp_assets: %s x4C+%x=%u want=%u "
+                                "(not converted?)\n",
+                                path, sfx_fields[f], read_host_u32(cp),
+                                read_be_u32(rp));
+                    }
+                    failed++;
+                }
+            }
+            for (i = 0; i < 3; i++) {
+                static const uint32_t arr_fields[] = { 0x00, 0x1C, 0x20 };
+                uint32_t at = arr_fields[i];
+                uint32_t raw_arr;
+                uint32_t num;
+                int j;
+                if (at == 0x1C &&
+                    !archive_has_reloc(&archive,
+                                       (unsigned char*) cdata + raw_sfx + at))
+                {
+                    continue; /* an s32 sound id, not an array pointer */
+                }
+                raw_arr = read_be_u32(rdata + raw_sfx + at);
+                if (raw_arr == 0 || raw_arr + 8 > size - 0x20) {
+                    continue;
+                }
+                num = read_be_u32(rdata + raw_arr);
+                if (read_host_u32(cdata + raw_arr) != num) {
+                    if (failed == 0) {
+                        fprintf(stderr,
+                                "decomp_assets: %s x4C+%x array num=%u "
+                                "want=%u\n",
+                                path, at, read_host_u32(cdata + raw_arr), num);
+                    }
+                    failed++;
+                }
+                if (num > 64) {
+                    continue;
+                }
+                {
+                    uint32_t raw_ids = read_be_u32(rdata + raw_arr + 4);
+                    for (j = 0; j < (int) num; j++) {
+                        if (raw_ids + (uint32_t) (j + 1) * 4 > size - 0x20) {
+                            break;
+                        }
+                        if (read_host_u32(cdata + raw_ids + (uint32_t) j * 4) !=
+                            read_be_u32(rdata + raw_ids + (uint32_t) j * 4))
+                        {
+                            if (failed == 0) {
+                                fprintf(stderr,
+                                        "decomp_assets: %s x4C+%x array id[%d]"
+                                        "=%u want=%u\n",
+                                        path, at, j,
+                                        read_host_u32(cdata + raw_ids +
+                                                      (uint32_t) j * 4),
+                                        read_be_u32(rdata + raw_ids +
+                                                    (uint32_t) j * 4));
+                            }
+                            failed++;
+                        }
+                    }
+                }
+            }
+            checked++;
+        }
+    }
+    if (failed == 0) {
+        if (checked == 0) {
+            printf("decomp_assets: %s %s tables=none\n", path, symbol);
+        } else {
+            printf("decomp_assets: %s %s x40/x4C ok\n", path, symbol);
+        }
+    } else {
+        fprintf(stderr, "decomp_assets: %s %s %d ftData field mismatches\n",
+                path, symbol, failed);
+    }
+    free(raw);
+    free(buffer);
+    return failed != 0;
+}
+
+
 /* P-654: ItemAttr's two flag bytes are MSB-first on the console.  Retail
  * `itIsHeavy` is `lbz` + `extrwi r0,r0,1,24` (bit 0x80), `it_8026B30C` is
  * `extrwi r3,r3,4,25` (bits 0x78) and `itGetHoldKind` is `clrlwi r3,r3,29`
@@ -971,6 +1159,11 @@ int main(int argc, char** argv)
     failures += check_ft_part_anims(image, "PlLk.dat", "ftDataLink");
     failures += check_ft_part_anims(image, "PlFx.dat", "ftDataFox");
     failures += check_ft_part_anims(image, "PlPk.dat", "ftDataPikachu");
+    failures += check_ft_data_tables(image, "PlMr.dat", "ftDataMario");
+    failures += check_ft_data_tables(image, "PlNs.dat", "ftDataNess");
+    failures += check_ft_data_tables(image, "PlGw.dat", "ftDataGamewatch");
+    failures += check_ft_data_tables(image, "PlPe.dat", "ftDataPeach");
+    failures += check_ft_data_tables(image, "PlFx.dat", "ftDataFox");
     failures += check_item_models(image);
     failures += check_stage_matanims(image, "GrNBa.dat");
     failures += check_stage_matanims(image, "GrNLa.dat");

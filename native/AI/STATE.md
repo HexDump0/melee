@@ -181,7 +181,11 @@ the scripted opponent's percent).  Item attributes now read the console bits:
 `ItemAttr`'s two flag bytes are MSB-first (`itIsHeavy`/`it_8026B30C`/
 `itGetHoldKind` asm pins 0x80/0x78/0x07), so a `PORT_PC` ordering lands
 GCC's LSB-first fields on those bits (P-654/G-123); `test_decomp_assets`
-diffs all nine per-article fields against the raw bytes.  Open S6 follow-ups:
+diffs all nine per-article fields against the raw bytes.  Converter v71 walks
+`ftData->x40` (`itPickup`: twelve grab-offset floats that used to put the
+pickup volume at the world origin) and `ftData->x4C_sfx` (`FtSFX` sound ids
+plus three `FtSFXArr` count/id tables), so held-item offsets and per-character
+SFX are host order (P-655/G-124).  Open S6 follow-ups:
 results names/models are wrong (P-645), match HUD stock icons show the wrong
 character (P-644), and
 save data is blocked by the game's hsd card filesystem pump (P-646; the host

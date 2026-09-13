@@ -1549,3 +1549,21 @@ S6); the GC build keeps the retail declaration.  `test_decomp_assets` now
 compares every one of the nine compiled field reads against the raw
 console-ordered article bytes for all 43 common-item articles (199 mismatches
 without the patch).
+
+## G-124: ftData numeric pointees need their own walks (x40/x4C)
+
+**Symptom:** held/picked-up items snap to the world origin instead of the
+fighter's hands, and most per-character sound effects are silent or wrong.
+**Cause:** `ftData->x40` points at `itPickup` (twelve grab-offset floats) and
+`ftData->x4C_sfx` at `FtSFX` (eleven `s32` sound ids plus three `FtSFXArr`
+{`num`, `sfx_ids`} tables).  Relocation only fixes the pointers; the converter
+never walked either pointee, so compiled code read the big-endian floats as
+denormals near zero (`ftpickupitem_80094150` then measures the grab box at the
+origin) and the sound ids as `0xnn000000` values the synth bank cannot find.
+The decomp types `FtSFX.x1C` as `int`, but the archive stores a third
+`FtSFXArr*` there (it is a relocation target and `ftCo_Damage` assigns it to an
+`UNK_T`), so the array walk keys on the relocation entry.
+**Fix:** converter v71 walks `x40` (12 words), the eleven `FtSFX` ints and all
+three `FtSFXArr` counts/id arrays.  `test_decomp_assets` compares every one of
+those fields against a raw copy of the archive for Mario, Ness, Game & Watch,
+Peach and Fox; before the fix each reports 34 mismatches.
