@@ -291,7 +291,8 @@ static void usage(const char* argv0)
             "          [--angle DEG] [--elevation DEG] [--zoom F]\n"
             "          [--frames N] [--shot FILE] [--hidden] [--no-lights]\n"
             "          [--match [FRAME]] [--frontend] [--input FILE]\n"
-            "          [--no-items] [--record FILE|-] [--record-every N]\n"
+            "          [--no-items] [--items] [--record FILE|-]\n"
+            "          [--record-every N]\n"
             "          [--dump-draws FRAME]\n"
             "          [--unlit] [--wire] [--no-hud] [--cycle N] [--spin DEG]\n"
             "          [--cycle-maps N] [--freecam]\n"
@@ -1017,6 +1018,7 @@ int main(int argc, char** argv)
     int match_mode = 0;
     int frontend_mode = 0;
     int no_items = 0;
+    int items_explicit = 0;
     const char* input_path = NULL;
     unsigned match_frame = 20;
     int quit = 0;
@@ -1056,6 +1058,10 @@ int main(int argc, char** argv)
             frontend_mode = 1;
         } else if (strcmp(argv[i], "--no-items") == 0) {
             no_items = 1;
+            items_explicit = 1;
+        } else if (strcmp(argv[i], "--items") == 0) {
+            no_items = 0;
+            items_explicit = 1;
         } else if (strcmp(argv[i], "--input") == 0 && (int) i + 1 < argc) {
             input_path = argv[++i];
         } else if (strcmp(argv[i], "--record") == 0 &&
@@ -1149,6 +1155,16 @@ int main(int argc, char** argv)
         fprintf(stderr,
                 "melee: retail frontend (live input; ESC quits).  Use "
                 "--help for the development viewer options.\n");
+    }
+    if (frontend_mode && !no_items && !items_explicit) {
+        /* P-643: some item models still fail PObj resolution, which aborts
+         * the first match that spawns one.  Default the product to the game's
+         * own item switch off until the asset gap is fixed; --items forces
+         * them back on for testing. */
+        no_items = 1;
+        fprintf(stderr,
+                "melee: items off by default (P-643); pass --items to "
+                "enable them\n");
     }
 
     if (match_mode && record_path != NULL && strcmp(record_path, "-") == 0) {

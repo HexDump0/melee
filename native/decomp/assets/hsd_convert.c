@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 65u
+#define HSD_CONVERTER_VERSION 66u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -2464,6 +2464,26 @@ static void conv_static_model_full(Conv* c, uint32_t off)
  * "DataTable", so the generic branch used to treat it as an effect bank; the
  * camera descriptor then stayed big-endian and HSD_CObjInit panicked on the
  * projection type when the CSS loaded. */
+/* TyDataf `tyModelFileTbl`/`tyModelFileUsTbl`: 0x54-byte entries whose first
+ * s32 is the trophy id `Toy_8030813C` matches against (the rest is pointers
+ * and strings).  Unconverted ids make every character name resolve to the
+ * same fallback entry. */
+static void conv_toy_model_file_table(Conv* c, uint32_t off, int count)
+{
+    int i;
+
+    if (!in_data(c, off, 0x54)) {
+        return;
+    }
+    for (i = 0; i < count; i++) {
+        uint32_t e = off + (uint32_t) i * 0x54;
+        if (!in_data(c, e, 0x54)) {
+            break;
+        }
+        conv_u32(c, e + 0x00);
+    }
+}
+
 static void conv_mn_select_chr_table(Conv* c, uint32_t off)
 {
     uint32_t cam;
@@ -2773,6 +2793,15 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
         } else if (name_ends_with(name, length, "_figatree")) {
             c->st.roots_figatree++;
             conv_figatree(c, data_off);
+        } else if (length == 15 && memcmp(name, "tyModelFileTbl", 15) == 0) {
+            /* TyDataf: trophy name/model table (293 entries). */
+            c->st.roots_unknown++;
+            conv_toy_model_file_table(c, data_off, 293);
+        } else if (length == 17 &&
+                   memcmp(name, "tyModelFileUsTbl", 17) == 0) {
+            /* TyDataf: US trophy name/model overrides (5 entries). */
+            c->st.roots_unknown++;
+            conv_toy_model_file_table(c, data_off, 5);
         } else if (length == 6 &&
                    (memcmp(name, "pnlsce", 6) == 0 ||
                     memcmp(name, "flmsce", 6) == 0)) {
