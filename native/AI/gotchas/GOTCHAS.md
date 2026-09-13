@@ -1645,3 +1645,24 @@ HSD archives on the disc and checks every relocation field against a raw copy
 plus each effect table's descriptor count (EfCoData alone walks 50 entries
 for 47 descriptors, and the old code corrupted 167 pointers; ASan clean
 with the fixes).
+
+## G-129: MWCC register leftovers are not part of the C semantics
+
+**Symptom:** every player's HUD stock icon showed Captain Falcon (frame 0).
+**Cause:** two decompiled functions in `gm_1601.c` relied on MWCC leaving
+values in registers:
+1. `gm_80168B34` declares `int base;` uninitialized and only assigns it in
+   some branches; the retail asm keeps `ckind` in `r3` for the fallthrough
+   (`ble .L_80168BCC`), but GCC used the uninitialized local and happened to
+   pick the Popo constant (14), so every character returned frame 14.
+2. `gm_80168BF8` computes `gm_80168B34(...)` without `return`; MWCC's float
+   result survives the epilogue in `f1`, but GCC proves `gm_80168B34` has no
+   side effects and deletes the call, returning `0.0f`.
+   `ifStock_802F98E8` fed that 0 to `HSD_TObjReqAnimAll`, so every icon
+   selected atlas frame 0 = Captain Falcon (`CKind_Captain == 0`).
+**Fix:** under `PORT_PC`, initialize `base = ckind` and `return` the call
+(`patches/src/melee/gm/gm_1601.c.patch`, listed in
+`learnings/decomp_port.md` S6).  `ctest decomp_icons` (`MELEE_ICON_TEST=1` on
+the boot match) requires `gm_80168B34(CKind_Mario)=8`,
+`gm_80168B34(CKind_Donkey)=1` and different frames for the two live players;
+before the patch it prints `mario=14 dk=14 p0=0.0 p1=0.0 distinct=0`.

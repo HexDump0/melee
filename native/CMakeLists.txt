@@ -367,6 +367,18 @@ set_tests_properties(decomp_hit PROPERTIES
     PASS_REGULAR_EXPRESSION "\\[match\\] hit: slot [01] damage=[1-9]"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
     TIMEOUT 240)
+# HUD stock icons: the per-player icon frame comes from gm_80168BF8 ->
+# gm_80168B34.  Both decompiled functions relied on MWCC register leftovers
+# (uninitialized `base`, missing `return`), so on GCC every player asked for
+# frame 0 (Captain Falcon).  The harness checks the direct base values and
+# that the two live players (Link vs Mario) get different frames.
+add_test(NAME decomp_icons
+    COMMAND melee_decomp_boot --boot-frames 600 --boot-timeout 90 --boot-match 20)
+set_tests_properties(decomp_icons PROPERTIES
+    ENVIRONMENT "MELEE_ICON_TEST=1"
+    PASS_REGULAR_EXPRESSION "\\[icons\\] .*distinct=1"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    TIMEOUT 240)
 if(MELEE_SANITIZE)
   target_compile_options(melee_decomp_boot PRIVATE
       -fsanitize=address,undefined -fno-omit-frame-pointer)

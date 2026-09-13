@@ -1,0 +1,34 @@
+diff --git a/src/melee/gm/gm_1601.c b/src/melee/gm/gm_1601.c
+index 85d056f3a..aaf25cf9a 100644
+--- a/src/melee/gm/gm_1601.c
++++ b/src/melee/gm/gm_1601.c
+@@ -3901,6 +3901,14 @@ void fn_80168A6C(void* arg0, void* arg1, s32 idx)
+ f32 gm_80168B34(CharacterKind ckind, int arg1, int arg2)
+ {
+     int base;
++#ifdef PORT_PC
++    /* The retail code leaves `base` aliasing the `ckind` argument for the
++     * characters that fall through to `base + arg2*30` (ckind <= CKind_Seak;
++     * see 80168BC0: `ble` keeps r3).  The decompiled local is uninitialized
++     * and GCC picked the Popo constant, so every normal character returned
++     * Popo's frame. */
++    base = ckind;
++#endif
+     if (ckind == CKind_GKoops) {
+         return 58.0F;
+     }
+@@ -3933,7 +3941,14 @@ float gm_80168BF8(int arg0)
+ {
+     CharacterKind ckind = Player_GetPlayerCharacter(arg0);
+     u32 costume = Player_GetCostumeId(arg0);
++#ifdef PORT_PC
++    /* No `return` in the decompilation: MWCC keeps the callee's f1 across the
++     * epilogue, but GCC can prove gm_80168B34 has no side effects and drops
++     * the call, so every stock icon requested frame 0 (Captain Falcon). */
++    return gm_80168B34(ckind, Player_80036394(arg0), costume);
++#else
+     gm_80168B34(ckind, Player_80036394(arg0), costume);
++#endif
+ }
+ 
+ void gm_80168C5C(u32 arg0)

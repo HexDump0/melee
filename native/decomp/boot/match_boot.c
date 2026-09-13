@@ -18,6 +18,7 @@
 #include <stdlib.h>
 
 #include <melee/gm/forward.h>
+#include <melee/gm/gm_1601.h>
 #include <melee/gm/gm_1A3F.h>
 #include <melee/gm/gmscene.h>
 #include <melee/ft/ftlib.h>
@@ -37,6 +38,8 @@ static unsigned frame;
 static int stocks_frames;
 static int hit_test;
 static int hit_logged;
+static int icon_test;
+static int icon_logged;
 static PadInputFrame match_input[MATCH_INPUT_FRAMES][MATCH_INPUT_CHANNELS];
 
 /* MELEE_HIT_TEST: p0 jabs in place while p1 walks into it.  The default
@@ -171,6 +174,24 @@ static void match_boot_frame(void)
     if (frame >= start_frame + 60 && (frame % 120) == 0) {
         log_match_state();
     }
+    /* MELEE_ICON_TEST: the HUD stock icon frame is selected by
+     * gm_80168B34/gm_80168BF8.  With the decompiled `base` left
+     * uninitialized and gm_80168BF8 missing its return, every player asked
+     * for frame 0 (Captain Falcon) and both bugs are invisible to a plain
+     * boot.  Mario's frame must be CKind_Mario and DK's CKind_Donkey, and
+     * the two live players (Link vs Mario) must differ. */
+    if (icon_test && !icon_logged && frame >= start_frame + 90) {
+        f32 p0 = gm_80168BF8(0);
+        f32 p1 = gm_80168BF8(1);
+        f32 mario = gm_80168B34(CKind_Mario, 0, 0);
+        f32 dk = gm_80168B34(CKind_Donkey, 0, 0);
+        int distinct =
+            p0 != p1 && p0 != 0.0f && mario == 8.0f && dk == 1.0f;
+        icon_logged = 1;
+        boot_triage_note(
+            "[icons] p0=%.1f p1=%.1f mario=%.1f dk=%.1f distinct=%d\n", p0,
+            p1, mario, dk, distinct);
+    }
     /* The boot chain keeps requesting its own mode changes (GM_BOOT states
      * move to GM_MEMCARD), so keep re-requesting until the VS mode sticks. */
     if (gm_GetCurrentGameMode() == GM_DEBUG_VS) {
@@ -195,6 +216,9 @@ void match_boot_init(unsigned frame_in)
             build_hit_test_input();
         } else {
             build_match_input();
+        }
+        if (getenv("MELEE_ICON_TEST") != NULL) {
+            icon_test = 1;
         }
         boot_platform_set_frame_hook(match_boot_frame);
     }

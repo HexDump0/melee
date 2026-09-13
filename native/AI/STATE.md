@@ -195,10 +195,13 @@ Stadium `gmKumiteSystemTable*` walks found by an unknown-root scan over every
 disc archive (P-657/G-127).  Converter v75 hardens the walker bounds (32-bit
 `in_data` overflow, unaligned writes, effect-descriptor overrun) and
 `test_decomp_assets` now converts all 861 disc archives and checks every
-relocation field against a raw copy (P-659/G-128).  Open S6 follow-ups: match HUD stock icons show the
-wrong character (P-644), and
-save data is blocked by the game's hsd card filesystem pump (P-646; the host
-card backend is opt-in behind `MELEE_CARD_DIR` until then).
+relocation field against a raw copy (P-659/G-128).  The HUD stock icons are
+correct again: `gm_80168B34`/`gm_80168BF8` relied on MWCC register leftovers
+(uninitialized `base`, missing `return`), so GCC made every player request
+atlas frame 0 = Captain Falcon; the `PORT_PC` fix plus `ctest decomp_icons`
+is P-644/G-129.  Open S6 follow-up: save data is blocked by the game's hsd
+card filesystem pump (P-646; the host card backend is opt-in behind
+`MELEE_CARD_DIR` until then).
 
 ## TL;DR
 

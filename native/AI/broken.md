@@ -27,7 +27,6 @@ the viewer at 180 Hz is confirmed correct (H-4).
 
 | # | What you see | Status | Blocked on | Tracked as |
 |---|---|---|---|---|
-| B-20 | Match HUD stock icons show the same face (Captain Falcon) for every player | BROKEN (owner report) | needs a Dolphin capture to confirm the expected per-character frame/texture; `ifStock_802F96D0` selects it through `gm_80168B34(ckind,0,costume)` + a `TexAnim`, and the `TexAnim.id` conversion landed after the report (P-650) | P-644 |
 | B-3 | Characters never blink / no damage or angry faces | BROKEN | action-driven visibility events | P-207 |
 | B-4 | Feet/hands slip or float in landing and ledge clips (no IK) | BROKEN | IK joint port (`resolveIKJoint1/2`) | P-208 |
 | B-5 | Textures/materials do not scroll, fade or swap during clips | BROKEN | `HSD_MatAnimJoint` evaluation | P-209 |
