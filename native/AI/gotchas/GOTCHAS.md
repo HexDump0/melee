@@ -1567,3 +1567,22 @@ The decomp types `FtSFX.x1C` as `int`, but the archive stores a third
 three `FtSFXArr` counts/id arrays.  `test_decomp_assets` compares every one of
 those fields against a raw copy of the archive for Mario, Ness, Game & Watch,
 Peach and Fox; before the fix each reports 34 mismatches.
+
+## G-125: per-fighter x48 special-item Article arrays
+
+**Symptom:** item specials spawned by Ness, Peach, Game & Watch, Link, … read
+denormal throw speeds/damage and the wrong state trees (e.g. Ness PK Fire).
+**Cause:** `ftData->x48_items` is an array of `Article*` (indexed by item kind,
+with NULL holes) that the converter never walked.  Relocation fixed the six
+pointers, but the pointees' `ItemAttr`, hurt-bone, state, model and dynamics
+payloads stayed big-endian.
+**Fix:** converter v72 walks the leading run: entries while the slot is a
+relocation target (or zero), stopping at the first non-NULL slot that is not.
+Only entries whose `attr` really looks like an `ItemAttr` are walked (`attr`
+in range, the attr word itself not a relocated pointer, `x4_throw_speed_mul` /
+`x60_scale` sane, state array before the article) because Kirby/Yoshi/Pichu/
+Samus keep unrelated pointer tables after the run.  A shared `ItemAttr` (four
+Ness kinds point at the same one) must skip the sanity probe once converted or
+its host-order floats fail the BE check.  `test_decomp_assets` diffs all 31
+`ItemAttr` words of every accepted entry against a raw copy for eleven
+fighters; before the walk the first entry already fails.

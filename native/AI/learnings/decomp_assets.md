@@ -75,8 +75,11 @@ the per-structure reference.  Key differences from the §7 recommendation:
   leading relocation entries (at most the five `Fighter.x8B0` slots) and stops
   at the first non-relocation field (P-630/G-119).  Converter v71 adds the
   `x40` `itPickup` floats and the `x4C_sfx` `FtSFX` ints/`FtSFXArr` tables
-  (G-124); the `x48_items` per-fighter special `Article` arrays are still
-  unconverted (P-656).
+  (G-124).  Converter v72 adds the `x48_items` per-fighter special `Article`
+  arrays (G-125): a leading run of relocation-backed entries with legal NULL
+  holes, stopped at the first non-NULL non-relocated slot, and only walked
+  entry-by-entry when the target's `attr` passes an `ItemAttr` sanity check
+  (the tail of the array is unrelated pointer data for several fighters).
 
 ### `.ssm` sound banks (S3 scope: make the compiled loader run)
 

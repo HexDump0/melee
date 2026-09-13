@@ -272,6 +272,7 @@ static int check_ft_part_anims(const char* image, const char* path,
     unsigned char* ft_data;
     unsigned char* table;
     unsigned checked = 0;
+    unsigned x48_articles = 0;
     int failed = 0;
     int i;
 
@@ -489,6 +490,7 @@ static int check_ft_data_tables(const char* image, const char* path,
     uint32_t raw_x40;
     uint32_t raw_sfx;
     unsigned checked = 0;
+    unsigned x48_articles = 0;
     int failed = 0;
     int i;
 
@@ -630,11 +632,82 @@ static int check_ft_data_tables(const char* image, const char* path,
             checked++;
         }
     }
+    /* x48_items: the leading Article run.  Each accepted entry's ItemAttr
+     * (31 words at +0x04..+0x80) must be host order; holes (zero slots) are
+     * legal, and the run ends at the first non-relocated non-NULL slot. */
+    {
+        uint32_t raw_items = read_be_u32(raw + 0x20 + ft_off + 0x48);
+        int k;
+        int stop = 0;
+        int articles = 0;
+
+        if (raw_items != 0) {
+            for (k = 0; k < 32 && !stop; k++) {
+                uint32_t slot = raw_items + (uint32_t) k * 4;
+                uint32_t article;
+                uint32_t attr;
+                uint32_t states;
+                float f4;
+                float sc;
+                unsigned w;
+
+                if (slot + 4 > size - 0x20) {
+                    break;
+                }
+                article = read_be_u32(rdata + slot);
+                if (article == 0) {
+                    continue;
+                }
+                if (!archive_has_reloc(&archive,
+                                       (unsigned char*) cdata + slot) ||
+                    article + 0x18 > size - 0x20)
+                {
+                    break;
+                }
+                attr = read_be_u32(rdata + article);
+                if (attr == 0 || attr + 0x84 > size - 0x20 ||
+                    archive_has_reloc(&archive, (unsigned char*) cdata + attr))
+                {
+                    break;
+                }
+                f4 = read_be_f32(rdata + attr + 0x04);
+                sc = read_be_f32(rdata + attr + 0x60);
+                if (!(f4 > 0.01f && f4 < 1000.0f) ||
+                    !(sc > 0.01f && sc < 1000.0f))
+                {
+                    break;
+                }
+                states = read_be_u32(rdata + article + 0x0C);
+                if (states != 0 && states >= article) {
+                    break;
+                }
+                for (w = 0x04; w <= 0x80; w += 4) {
+                    uint32_t host = read_host_u32(cdata + attr + w);
+                    uint32_t want = read_be_u32(rdata + attr + w);
+                    if (host != want) {
+                        if (failed == 0) {
+                            fprintf(stderr,
+                                    "decomp_assets: %s x48[%d] attr+%x=%u "
+                                    "want=%u (not converted?)\n",
+                                    path, k, w, host, want);
+                        }
+                        failed++;
+                    }
+                }
+                articles++;
+            }
+            x48_articles = (unsigned) articles;
+            if (articles != 0) {
+                checked++;
+            }
+        }
+    }
     if (failed == 0) {
         if (checked == 0) {
             printf("decomp_assets: %s %s tables=none\n", path, symbol);
         } else {
-            printf("decomp_assets: %s %s x40/x4C ok\n", path, symbol);
+            printf("decomp_assets: %s %s x40/x4C/x48(%u) ok\n", path, symbol,
+                   x48_articles);
         }
     } else {
         fprintf(stderr, "decomp_assets: %s %s %d ftData field mismatches\n",
@@ -644,7 +717,6 @@ static int check_ft_data_tables(const char* image, const char* path,
     free(buffer);
     return failed != 0;
 }
-
 
 /* P-654: ItemAttr's two flag bytes are MSB-first on the console.  Retail
  * `itIsHeavy` is `lbz` + `extrwi r0,r0,1,24` (bit 0x80), `it_8026B30C` is
@@ -1164,6 +1236,12 @@ int main(int argc, char** argv)
     failures += check_ft_data_tables(image, "PlGw.dat", "ftDataGamewatch");
     failures += check_ft_data_tables(image, "PlPe.dat", "ftDataPeach");
     failures += check_ft_data_tables(image, "PlFx.dat", "ftDataFox");
+    failures += check_ft_data_tables(image, "PlDr.dat", "ftDataDrmario");
+    failures += check_ft_data_tables(image, "PlFc.dat", "ftDataFalco");
+    failures += check_ft_data_tables(image, "PlKb.dat", "ftDataKirby");
+    failures += check_ft_data_tables(image, "PlLk.dat", "ftDataLink");
+    failures += check_ft_data_tables(image, "PlCl.dat", "ftDataClink");
+    failures += check_ft_data_tables(image, "PlYs.dat", "ftDataYoshi");
     failures += check_item_models(image);
     failures += check_stage_matanims(image, "GrNBa.dat");
     failures += check_stage_matanims(image, "GrNLa.dat");

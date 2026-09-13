@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 71u
+#define HSD_CONVERTER_VERSION 72u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -111,6 +111,14 @@ static uint32_t le32(const unsigned char* p)
 static uint16_t be16(const unsigned char* p)
 {
     return (uint16_t) (((uint32_t) p[0] << 8) | p[1]);
+}
+
+static float be_f32(const unsigned char* p)
+{
+    uint32_t v = be32(p);
+    float f;
+    memcpy(&f, &v, sizeof(f));
+    return f;
 }
 
 static void wr32(unsigned char* p, uint32_t v)
@@ -2273,6 +2281,64 @@ static void conv_ft_data(Conv* c, uint32_t off)
                         conv_u32(c, u);
                     }
                 }
+            }
+        }
+    }
+    /* x48_items: per-fighter special-item Article array (Ness PK items,
+     * Peach's Toad/turnip, Game & Watch's judgement items, ...).  Every
+     * non-NULL entry is a relocation target; NULL holes are legal because
+     * the table is indexed by item kind.  The run ends at the first
+     * non-NULL slot that is not relocation-backed.  Only entries whose attr
+     * really looks like an ItemAttr are walked: after the run some fighters
+     * (Kirby, Yoshi, Pichu, Samus) have other pointer tables whose words
+     * would corrupt unrelated data if treated as Article sub-tables. */
+    {
+        uint32_t items = rd32(c, off + 0x48);
+        if (items != 0) {
+            int k;
+            for (k = 0; k < 32; k++) {
+                uint32_t slot = items + (uint32_t) k * 4;
+                uint32_t article;
+                uint32_t attr;
+                float f4;
+                float sc;
+                uint32_t states;
+
+                if (!in_data(c, slot, 4)) {
+                    break;
+                }
+                article = rd32(c, slot);
+                if (article == 0) {
+                    continue; /* empty item kind slot */
+                }
+                if (!c->reloc[slot] || !in_data(c, article, 0x18)) {
+                    break;
+                }
+                attr = rd32(c, article + 0x00);
+                if (attr == 0 || !in_data(c, attr, ITEMATTR_SIZE) ||
+                    c->reloc[attr])
+                {
+                    break;
+                }
+                /* ItemAttr.x4_throw_speed_mul / x60_scale are sane floats in
+                 * every retail article; a pointer offset misread as a float
+                 * is a denormal or huge.  Skip the check for an already
+                 * converted attr: several item kinds share one ItemAttr, and
+                 * its bytes are then host order. */
+                if (!c->seen[attr]) {
+                    f4 = be_f32(c->data + attr + 0x04);
+                    sc = be_f32(c->data + attr + 0x60);
+                    if (!(f4 > 0.01f && f4 < 1000.0f) ||
+                        !(sc > 0.01f && sc < 1000.0f))
+                    {
+                        break;
+                    }
+                }
+                states = rd32(c, article + 0x0C);
+                if (states != 0 && states >= article) {
+                    break; /* state arrays precede their Article */
+                }
+                conv_article(c, article, -1);
             }
         }
     }
