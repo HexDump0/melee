@@ -128,6 +128,14 @@ typedef struct GxHleDrawState {
     float fog_start, fog_end;
     float fog_color[3];
     unsigned char fog_enable, fog_type;
+    /* P-679: hardware fog coordinates from the SDK GXSetFog packing
+     * (A/(B - depth) - C, perspective; the SDK always programs
+     * c_proj_fsel's projection bit 0). */
+    float fog_a, fog_b, fog_c;
+    /* GXSetFogRangeAdj/GXInitFogAdjTable (12-bit table / 256). */
+    unsigned char fog_adj_enable;
+    unsigned short fog_adj_center;
+    float fog_adj_k[10];
     /* P-615: GXSetZTexture depth output (GX_ZT_DISABLE/ADD/REPLACE). */
     unsigned char ztex_op, ztex_fmt;
     float ztex_bias;

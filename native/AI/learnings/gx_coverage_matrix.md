@@ -24,8 +24,10 @@ Learnings: `gx_indirect_toon.md`, `gx_lighting_specular.md`,
 `gx_efb_copy.md`, `gx_texture_parity.md`, G-131.
 
 Also closed: **P-680** lines/points via per-draw topology runs.
-Still red, each with a task: **P-676** perf, **P-677** harness, **P-679** fog
-math + range adj, **P-681** spot cones, **P-682** Z24X8 depth snapshots.
+Also closed: **P-679** fog coefficients, screen-depth evaluation and range
+adjustment (the converter follow-up on `fogadjdesc` remains).
+Still red, each with a task: **P-676** perf, **P-677** harness, **P-681**
+spot cones, **P-682** Z24X8 depth snapshots.
 Session handoff: `handoffs/2026-09-13-renderer-parity.md`.
 
 ## Method
@@ -163,9 +165,9 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 | `GXSetDstAlpha` | EXACT | `gx_hle.c:911`, FS `:553` | `GXPixel.cpp` | — |
 | `GXSetColorUpdate`/`GXSetAlphaUpdate` (via color mask) | EXACT | `gx_gl.c:1227` | `GXPixel.cpp` | — |
 | `GXSetDither` | N/A | `gx_hle.c:953` | Aurora shader ignores it too | 8-bit host framebuffer; no visible banding in captures |
-| Fog color/type linear | APPROX | FS `gx_gl.c:536` | `GXPixel.cpp:GXSetFog` + `shader.cpp:1537` | **P-679**: hardware fog uses the packed `a/(b−z)−c` form (perspective) / `a·z+c` (ortho), not `(end−eye)/(end−start)` |
-| Fog exp/exp2/rev variants | APPROX | FS `:543` uses `exp(−density·d)` | `shader.cpp`: `1−exp2(−8·f)`, `1−exp2(−8·f²)`, `exp2(−8(1−f))`, `exp2(−8(1−f)²)` | **P-679** |
-| `GXSetFogRangeAdj`/`GXInitFogAdjTable` (`fog.c:51/80`) | **STUB** | `gx_hle.c:973/980` | `GXPixel.cpp` (SDK table math), `shader.cpp` `fog_range_base` indexed by `in.pos.x` | **P-679**; `HSD_FogDesc.fogadjdesc` is currently nulled by the converter (`hsd_convert.c:161`) — file the converter side with P-662/P-658, renderer side under P-679 |
+| Fog color/type linear | EXACT (closed by P-679): SDK `A/(B−z_ndc)−C` on `gl_FragCoord.z` | `gx_hle.c:GXSetFog`, FS fog block `gx_gl.c` | `GXPixel.cpp:GXSetFog` + `shader.cpp:1537` | `ctest decomp_efb` pass 9; learning `gx_fog.md` |
+| Fog exp/exp2/rev variants | EXACT (closed by P-679): `1−exp2(−8f)`, `1−exp2(−8f²)`, `exp2(−8(1−f))`, `1−exp2(−8(1−f)²)` | FS fog block | `shader.cpp:1537` | `ctest decomp_efb` pass 9 EXP2 |
+| `GXSetFogRangeAdj`/`GXInitFogAdjTable` (`fog.c:51/80`) | Implemented (closed by P-679); unreachable until the converter converts `fogadjdesc` | `gx_hle.c:GXInitFogAdjTable/GXSetFogRangeAdj`, FS range block | `GXPixel.cpp` (SDK table math), `shader.cpp` `fog_range_base` indexed by `in.pos.x` | `ctest decomp_efb` pass 9 adj frame; Dolphin's extra 4x table scale not copied (documented); converter follow-up with P-658/P-662 |
 
 ## 8. Host-equivalent / lifecycle
 
@@ -188,7 +190,7 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 | **P-676** perf | state-change batching, redundant binds, uniform upload diffing, VBO stream | `[match] frame N ... render=Xms` before/after, frame-718 pixel parity |
 | **P-677** harness | cross-character/stage/effect parity artifacts | one command per slice producing a pass/fail artifact |
 | ~~**P-678** `GXGetProjectionv` packed layout~~ **DONE** | §2 | `ctest decomp_gx_direct` asserts both layouts + `GXSetProjectionv` round trip; G-131 |
-| **P-679** fog math + range adj | §7 | shader vs `shader.cpp` formula comparison on a synthetic depth ramp; range table read |
+| ~~**P-679** fog math + range adj~~ **DONE** (converter follow-up remains) | §7 | shader vs `shader.cpp` formula comparison on a synthetic depth ramp; range table read |
 | ~~**P-680** lines/points primitives~~ **DONE** | §1 | `test_decomp_render --direct` line/point fixture asserting emitted geometry; `psdisp` HUD capture |
 | converter follow-up (P-658/P-662 family) | `HSD_FogDesc.fogadjdesc` nulled | converter field table for `Gr*` fog-adj descriptors; renders P-679 reachable |
 

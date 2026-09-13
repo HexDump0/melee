@@ -1136,16 +1136,30 @@ void GXSetDither(GXBool dither)
     gx.cur.dither = (u8) dither;
 }
 
+/* extern/dolphin/src/dolphin/gx/GXPixel.c: GXSetFog.  The SDK always packs
+ * the perspective coefficients (c_proj_fsel's projection bit stays 0); the
+ * hardware evaluates fogCoord = A/(B - z_ndc), fog = clamp(fogCoord - C). */
 void GXSetFog(GXFogType type, f32 startz, f32 endz, f32 nearz, f32 farz,
               GXColor color)
 {
+    f32 a, b, c;
     flush_direct();
-    (void) nearz;
-    (void) farz;
+    if (farz == nearz || endz == startz) {
+        a = 0.0f;
+        b = 0.5f;
+        c = 0.0f;
+    } else {
+        a = (farz * nearz) / ((farz - nearz) * (endz - startz));
+        b = farz / (farz - nearz);
+        c = startz / (endz - startz);
+    }
     gx.cur.fog_enable = type != GX_FOG_NONE;
     gx.cur.fog_type = (u8) type;
     gx.cur.fog_start = startz;
     gx.cur.fog_end = endz;
+    gx.cur.fog_a = a;
+    gx.cur.fog_b = b;
+    gx.cur.fog_c = c;
     gx.cur.fog_color[0] = color.r / 255.0f;
     gx.cur.fog_color[1] = color.g / 255.0f;
     gx.cur.fog_color[2] = color.b / 255.0f;
@@ -1153,16 +1167,45 @@ void GXSetFog(GXFogType type, f32 startz, f32 endz, f32 nearz, f32 farz,
 
 void GXSetFogRangeAdj(GXBool enable, u16 center, GXFogAdjTable* table)
 {
-    (void) enable;
-    (void) center;
-    (void) table;
+    int i;
+    flush_direct();
+    gx.cur.fog_adj_enable = enable ? 1 : 0;
+    gx.cur.fog_adj_center = center;
+    if (enable && table != NULL) {
+        for (i = 0; i < 10; ++i) {
+            gx.cur.fog_adj_k[i] = (f32) (table->r[i] & 0xFFFu) / 256.0f;
+        }
+    }
 }
 
+/* extern/dolphin/src/dolphin/gx/GXPixel.c: GXInitFogAdjTable.  r[i] is
+ * 256 * sqrt(1 + (x_i/nearZ)^2) for x_i = (i+1)*32 world units at the
+ * projection's horizontal scale. */
 void GXInitFogAdjTable(GXFogAdjTable* table, u16 width, f32 projmtx[4][4])
 {
-    (void) table;
-    (void) width;
-    (void) projmtx;
+    f32 nearz;
+    f32 sidex;
+    f32 iw;
+    int i;
+    if (table == NULL) {
+        return;
+    }
+    if (projmtx[3][3] == 0.0f) {
+        nearz = projmtx[2][3] / (projmtx[2][2] - 1.0f);
+        sidex = (nearz * (1.0f + projmtx[0][2])) / projmtx[0][0];
+    } else {
+        nearz = (1.0f + projmtx[2][3]) / projmtx[2][2];
+        sidex = -(projmtx[0][3] - 1.0f) / projmtx[0][0];
+    }
+    iw = 2.0f / (f32) width;
+    for (i = 0; i < 10; ++i) {
+        f32 xi = (f32) ((i + 1) << 5);
+        f32 range_val;
+        xi *= iw;
+        xi *= sidex;
+        range_val = sqrtf(1.0f + ((xi * xi) / (nearz * nearz)));
+        table->r[i] = (u32) (256.0f * range_val) & 0xFFFu;
+    }
 }
 
 void GXSetNumChans(u8 nChans)

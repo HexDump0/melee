@@ -245,6 +245,17 @@ RGB565/R4/RGBA8 bytes are unchanged.  `ctest decomp_efb` pass 7 covers the
 new formats with sensitivity flipped; Z24X8 depth snapshots and `GX_ZT_ADD`
 are documented in `learnings/gx_efb_copy.md` and filed as P-682.
 
+**P-679 (2026-09-13):** fog now follows the hardware again: `GXSetFog`
+stores the SDK's `A = f·n/((f−n)(e−s))`, `B = f/(f−n)`, `C = s/(e−s)` and
+the shader evaluates `A/(B − gl_FragCoord.z) − C` with all five
+`GX_FOG_*` families, replacing the eye-distance linear/exp approximations.
+`GXInitFogAdjTable`/`GXSetFogRangeAdj` are implemented (SDK 12-bit table +
+Dolphin's per-pixel `sqrt(offset²+k²)/k` adjustment); the converter still
+nulls `HSD_FogDesc.fogadjdesc`, so no retail scene reaches the range path
+yet.  `decomp_gx_direct` checks the coefficients/table and `decomp_efb` pass
+9 checks LIN/EXP2/range pixels; the character-select screenshot is
+unchanged (its fog is far beyond the model).  Learning `gx_fog.md`.
+
 **P-680 (2026-09-13):** `GX_LINES`/`GX_LINESTRIP`/`GX_POINTS` now render.
 `GxHleDraw` carries topology runs (consecutive same-mode groups merge, so
 triangle-only draws keep one run and are byte-identical: `decomp_render`

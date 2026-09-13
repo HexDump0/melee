@@ -689,6 +689,77 @@ static int direct_test(void)
         }
     }
 
+    /* P-679: GXSetFog packs the SDK's perspective coefficients
+     * (A = f*n/((f-n)*(e-s)), B = f/(f-n), C = s/(e-s)) and the
+     * degenerate-input fallback (A=0, B=0.5, C=0).  GXInitFogAdjTable's
+     * 10-entry sqrt table and GXSetFogRangeAdj capture are checked too. */
+    {
+        GXColor fogcolor = { 0x00, 0x00, 0xFF, 0xFF };
+        GXClearVtxDesc();
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+        GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+        gx_hle_begin_frame();
+        GXSetFog(GX_FOG_LIN, 500.0f, 1000.0f, 100.0f, 5000.0f, fogcolor);
+        GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+        GXPosition3f32(0.0f, 0.0f, 0.0f);
+        GXPosition3f32(1.0f, 0.0f, 0.0f);
+        GXPosition3f32(0.0f, 1.0f, 0.0f);
+        GXSetFog(GX_FOG_LIN, 0.0f, 0.0f, 100.0f, 5000.0f, fogcolor);
+        {
+            f32 proj[4][4] = { { 2.0f, 0.0f, 0.0f, 0.0f },
+                               { 0.0f, 2.0f, 0.0f, 0.0f },
+                               { 0.0f, 0.0f, -1.0f, -0.1f },
+                               { 0.0f, 0.0f, -1.0f, 0.0f } };
+            GXFogAdjTable* tbl =
+                (GXFogAdjTable*) malloc(sizeof(GXFogAdjTable));
+            GXInitFogAdjTable(tbl, 640, proj);
+            if (tbl->r[0] != 256 || tbl->r[9] != 286) {
+                printf("direct: FAIL fog adj r0=%u r9=%u (want 256/286)\n",
+                       tbl->r[0], tbl->r[9]);
+                fail = 1;
+            }
+            GXSetFogRangeAdj(GX_TRUE, 320, tbl);
+            free(tbl);
+        }
+        GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+        GXPosition3f32(0.0f, 0.0f, 0.0f);
+        GXPosition3f32(1.0f, 0.0f, 0.0f);
+        GXPosition3f32(0.0f, 1.0f, 0.0f);
+        gx_hle_get_frame(&verts, &vc, &draws, &dc, NULL, NULL);
+        if (dc != 2) {
+            printf("direct: FAIL fog draws=%zu (want 2)\n", dc);
+            return 0;
+        }
+        if (fabsf(draws[0].state.fog_a - 0.20408163f) > 1e-5f ||
+            fabsf(draws[0].state.fog_b - 1.02040816f) > 1e-5f ||
+            fabsf(draws[0].state.fog_c - 1.0f) > 1e-6f) {
+            printf("direct: FAIL fog abc=(%.6f,%.6f,%.6f) want "
+                   "(0.204082,1.020408,1.0)\n", (double) draws[0].state.fog_a,
+                   (double) draws[0].state.fog_b,
+                   (double) draws[0].state.fog_c);
+            fail = 1;
+        }
+        if (draws[1].state.fog_a != 0.0f ||
+            draws[1].state.fog_b != 0.5f ||
+            draws[1].state.fog_c != 0.0f) {
+            printf("direct: FAIL fog degenerate abc=(%.3f,%.3f,%.3f)\n",
+                   (double) draws[1].state.fog_a,
+                   (double) draws[1].state.fog_b,
+                   (double) draws[1].state.fog_c);
+            fail = 1;
+        }
+        if (draws[1].state.fog_adj_enable != 1 ||
+            draws[1].state.fog_adj_center != 320 ||
+            fabsf(draws[1].state.fog_adj_k[0] - 1.0f) > 1e-6f ||
+            fabsf(draws[1].state.fog_adj_k[9] - 286.0f / 256.0f) > 1e-4f) {
+            printf("direct: FAIL fog adj capture en=%u center=%u k0=%.5f\n",
+                   draws[1].state.fog_adj_enable,
+                   draws[1].state.fog_adj_center,
+                   (double) draws[1].state.fog_adj_k[0]);
+            fail = 1;
+        }
+    }
+
     /* P-675: the GXGetTexObj accessors and GXLoadTexObj must read the
      * caller's object, not the most recently initialized one (sobjlib and
      * lbspdisplay read stored texobjs long after other textures were
@@ -1396,6 +1467,124 @@ static int efb_test(void)
             printf("efb: FAIL point size pixel=%u,%u,%u (want 5px coverage)\n",
                    pixel[0], pixel[1], pixel[2]);
             fail = 1;
+        }
+    }
+
+    /* ---- pass 9: P-679 hardware fog coordinates ----
+     * A green quad spans z = 0.3 (left) .. 0.8 (right) under the identity
+     * projection; linear and EXP2 fog must match the SDK coefficient math
+     * evaluated against gl_FragCoord.z, and enabling range adjustment must
+     * visibly change the edge pixel. */
+    {
+        GXColor fog_red = { 0xFF, 0x00, 0x00, 0xFF };
+        GXColor green = { 0x00, 0xFF, 0x00, 0xFF };
+        const float nearz = 0.1f;
+        const float farz = 1.0f;
+        const float startz = 0.2f;
+        const float endz = 0.6f;
+        const float a =
+            (farz * nearz) / ((farz - nearz) * (endz - startz));
+        const float b = farz / (farz - nearz);
+        const float c = startz / (endz - startz);
+        int frame;
+
+        for (frame = 0; frame < 3; ++frame) {
+            /* The quad's depth runs 0.3..0.8 across NDC x; the identity
+             * projection makes clip z = z, and GL maps NDC z to the [0,1]
+             * depth the hardware fog reads. */
+            const float x_ndc = 2.0f * 608.0f / 640.0f - 1.0f;
+            const float t = (x_ndc + 1.0f) * 0.5f;
+            const float z_ndc = 0.3f + 0.5f * t;
+            const float d = (z_ndc + 1.0f) * 0.5f;
+            float fog_f = (a / (b - d)) - c;
+            float fogz;
+            GXColor expect;
+
+            if (fog_f < 0.0f) fog_f = 0.0f;
+            if (fog_f > 1.0f) fog_f = 1.0f;
+            if (frame == 1) {
+                fogz = 1.0f - exp2f(-8.0f * fog_f * fog_f);
+            } else {
+                fogz = fog_f;
+            }
+            expect.r = (unsigned char) (fogz * 255.0f + 0.5f);
+            expect.g = (unsigned char) ((1.0f - fogz) * 255.0f + 0.5f);
+
+            gx_hle_begin_frame();
+            gx_hle_reset_state();
+            GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
+            GXSetNumChans(1);
+            GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX,
+                          GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
+            GXSetNumTexGens(0);
+            GXSetNumTevStages(1);
+            GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL,
+                          GX_COLOR0A0);
+            GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+            GXSetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_COPY);
+            GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
+            GXSetCullMode(GX_CULL_NONE);
+            GXSetFog(frame == 1 ? GX_FOG_EXP2 : GX_FOG_LIN, startz, endz,
+                     nearz, farz, fog_red);
+            if (frame == 2) {
+                f32 adj_proj[4][4] = { { 2.0f, 0.0f, 0.0f, 0.0f },
+                                       { 0.0f, 2.0f, 0.0f, 0.0f },
+                                       { 0.0f, 0.0f, -1.0f, -0.1f },
+                                       { 0.0f, 0.0f, -1.0f, 0.0f } };
+                GXFogAdjTable* tbl =
+                    (GXFogAdjTable*) malloc(sizeof(GXFogAdjTable));
+                GXInitFogAdjTable(tbl, 640, adj_proj);
+                GXSetFogRangeAdj(GX_TRUE, 320, tbl);
+                free(tbl);
+            }
+            GXClearVtxDesc();
+            GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+            GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8,
+                            0);
+            GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+            GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+            GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+            GXPosition3f32(-1.0f, -1.0f, 0.3f);
+            GXColor4u8(green.r, green.g, green.b, green.a);
+            GXPosition3f32(1.0f, -1.0f, 0.8f);
+            GXColor4u8(green.r, green.g, green.b, green.a);
+            GXPosition3f32(1.0f, 1.0f, 0.8f);
+            GXColor4u8(green.r, green.g, green.b, green.a);
+            GXPosition3f32(-1.0f, 1.0f, 0.3f);
+            GXColor4u8(green.r, green.g, green.b, green.a);
+            if (gx_gl_render_frame() < 0) {
+                printf("efb: FAIL render_frame (fog)\n");
+                return 0;
+            }
+            glReadPixels(608, 240, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+            if (frame == 0) {
+                if (abs((int) pixel[0] - expect.r) > 6 ||
+                    abs((int) pixel[1] - expect.g) > 6) {
+                    printf("efb: FAIL fog LIN pixel=%u,%u,%u want ~%u,%u\n",
+                           pixel[0], pixel[1], pixel[2], expect.r, expect.g);
+                    fail = 1;
+                }
+                glReadPixels(64, 240, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE,
+                             pixel);
+                if (abs((int) pixel[0] - 35) > 6) {
+                    printf("efb: FAIL fog near pixel=%u,%u,%u (want "
+                           "~35,220,0)\n", pixel[0], pixel[1], pixel[2]);
+                    fail = 1;
+                }
+            } else if (frame == 1) {
+                if (abs((int) pixel[0] - expect.r) > 8 ||
+                    abs((int) pixel[1] - expect.g) > 8) {
+                    printf("efb: FAIL fog EXP2 pixel=%u,%u,%u want ~%u,%u\n",
+                           pixel[0], pixel[1], pixel[2], expect.r, expect.g);
+                    fail = 1;
+                }
+            } else {
+                if (!(pixel[0] > 240 && pixel[1] < 20)) {
+                    printf("efb: FAIL fog range adj pixel=%u,%u,%u (want "
+                           "full fog)\n", pixel[0], pixel[1], pixel[2]);
+                    fail = 1;
+                }
+            }
         }
     }
 

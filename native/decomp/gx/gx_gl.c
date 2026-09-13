@@ -82,9 +82,14 @@ static GLint u_aref;
 static GLint u_aop;
 static GLint u_fog_enable;
 static GLint u_fog_type;
-static GLint u_fog_start;
-static GLint u_fog_end;
+static GLint u_fog_a;
+static GLint u_fog_b;
+static GLint u_fog_c;
 static GLint u_fog_color;
+static GLint u_fog_adj_enable;
+static GLint u_fog_adj_center;
+static GLint u_fog_adj;
+static GLint u_fog_width;
 static GLint u_tex_enable;
 static GLint u_ras_flat;
 static GLuint ztex_program;
@@ -362,9 +367,14 @@ static const char* FRAGMENT_SRC =
     "uniform int u_aop;\n"
     "uniform int u_fog_enable;\n"
     "uniform int u_fog_type;\n"
-    "uniform float u_fog_start;\n"
-    "uniform float u_fog_end;\n"
+    "uniform float u_fog_a;\n"
+    "uniform float u_fog_b;\n"
+    "uniform float u_fog_c;\n"
     "uniform vec3 u_fog_color;\n"
+    "uniform int u_fog_adj_enable;\n"
+    "uniform float u_fog_adj_center;\n"
+    "uniform float u_fog_adj[10];\n"
+    "uniform float u_fog_width;\n"
     "uniform int u_tex_enable;\n"
     "uniform vec3 u_tex_lod_bias;\n"
     "uniform ivec3 u_tex_dynamic_i4;\n"
@@ -620,20 +630,30 @@ static const char* FRAGMENT_SRC =
     "        if (!pass) discard;\n"
     "    }\n"
     "    if (u_fog_enable != 0) {\n"
-    "        float d = v_dist;\n"
-    "        float f;\n"
-    "        if (u_fog_type == 2) {\n"
-    "            f = clamp((u_fog_end - d) / max(u_fog_end - u_fog_start, 1e-4),\n"
-    "                      0.0, 1.0);\n"
-    "        } else {\n"
-    "            float density = 1.0 / max(u_fog_end - u_fog_start, 1e-4);\n"
-    "            if (u_fog_type == 4) f = exp(-density * d);\n"
-    "            else if (u_fog_type == 5) f = exp(-density * density * d * d);\n"
-    "            else if (u_fog_type == 6) f = 1.0 - exp(-density * d);\n"
-    "            else if (u_fog_type == 7) f = 1.0 - exp(-density * density * d * d);\n"
-    "            else f = 1.0;\n"
+    "        /* P-679: hardware fog coordinate from the screen depth:\n"
+    "         * base = A/(B - z_ndc), fog = clamp(base - C, 0, 1), then the\n"
+    "         * GX_FOG_* family (Aurora shader.cpp:1537). */\n"
+    "        float d = gl_FragCoord.z;\n"
+    "        float base = u_fog_a / max(u_fog_b - d, 1e-9);\n"
+    "        if (u_fog_adj_enable != 0) {\n"
+    "            float offset = (gl_FragCoord.x - u_fog_adj_center) * 2.0 /\n"
+    "                           max(u_fog_width, 1.0);\n"
+    "            float fi = clamp(9.0 - abs(offset) * 9.0, 0.0, 9.0);\n"
+    "            int ilo = int(floor(fi));\n"
+    "            int ihi = ilo < 9 ? ilo + 1 : 9;\n"
+    "            float k = mix(u_fog_adj[ilo], u_fog_adj[ihi], fract(fi));\n"
+    "            if (k > 1e-6) base *= sqrt(offset * offset + k * k) / k;\n"
     "        }\n"
-    "        color.rgb = mix(u_fog_color, color.rgb, f);\n"
+    "        float f = clamp(base - u_fog_c, 0.0, 1.0);\n"
+    "        int fam = u_fog_type & 7;\n"
+    "        float fogz;\n"
+    "        if (fam == 2) fogz = f;\n"
+    "        else if (fam == 4) fogz = 1.0 - exp2(-8.0 * f);\n"
+    "        else if (fam == 5) fogz = 1.0 - exp2(-8.0 * f * f);\n"
+    "        else if (fam == 6) fogz = exp2(-8.0 * (1.0 - f));\n"
+    "        else if (fam == 7) { float g = 1.0 - f; fogz = 1.0 - exp2(-8.0 * g * g); }\n"
+    "        else fogz = 1.0;\n"
+    "        color.rgb = mix(color.rgb, u_fog_color, clamp(fogz, 0.0, 1.0));\n"
     "    }\n"
     "    /* GXSetDstAlpha replaces the framebuffer alpha after the TEV chain. */\n"
     "    if (u_dst_alpha_enable != 0) color.a = u_dst_alpha;\n"
@@ -700,9 +720,14 @@ static int build_program(char* error, size_t error_size)
     u_aop = glGetUniformLocation(program, "u_aop");
     u_fog_enable = glGetUniformLocation(program, "u_fog_enable");
     u_fog_type = glGetUniformLocation(program, "u_fog_type");
-    u_fog_start = glGetUniformLocation(program, "u_fog_start");
-    u_fog_end = glGetUniformLocation(program, "u_fog_end");
+    u_fog_a = glGetUniformLocation(program, "u_fog_a");
+    u_fog_b = glGetUniformLocation(program, "u_fog_b");
+    u_fog_c = glGetUniformLocation(program, "u_fog_c");
     u_fog_color = glGetUniformLocation(program, "u_fog_color");
+    u_fog_adj_enable = glGetUniformLocation(program, "u_fog_adj_enable");
+    u_fog_adj_center = glGetUniformLocation(program, "u_fog_adj_center");
+    u_fog_adj = glGetUniformLocation(program, "u_fog_adj");
+    u_fog_width = glGetUniformLocation(program, "u_fog_width");
     u_tex_enable = glGetUniformLocation(program, "u_tex_enable");
     u_ras_flat = glGetUniformLocation(program, "u_ras_flat");
 
@@ -1481,10 +1506,16 @@ static void upload_draw_uniforms(const GxHleDrawState* s)
     }
     glUniform1i(u_fog_enable, s->fog_enable);
     glUniform1i(u_fog_type, s->fog_type);
-    glUniform1f(u_fog_start, s->fog_start);
-    glUniform1f(u_fog_end, s->fog_end);
+    glUniform1f(u_fog_a, s->fog_a);
+    glUniform1f(u_fog_b, s->fog_b);
+    glUniform1f(u_fog_c, s->fog_c);
     glUniform3f(u_fog_color, s->fog_color[0], s->fog_color[1],
                 s->fog_color[2]);
+    glUniform1i(u_fog_adj_enable, s->fog_adj_enable);
+    glUniform1f(u_fog_adj_center,
+                (GLfloat) s->fog_adj_center * (GLfloat) gl_width / 640.0f);
+    glUniform1fv(u_fog_adj, 10, s->fog_adj_k);
+    glUniform1f(u_fog_width, (GLfloat) gl_width);
     /* P-680: GXSetPointSize drives gl_PointSize in the shared VS. */
     glUniform1f(u_point_size, (GLfloat) (s->point_size ? s->point_size : 1));
     glUniform1i(u_tex_enable, gl_options.textures);
