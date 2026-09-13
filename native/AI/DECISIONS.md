@@ -757,3 +757,94 @@ windowed viewer; `gx_gl` gains an "external context" init used with SDL, while
 the existing EGL-pbuffer path stays for headless tests.
 
 **Status:** accepted (2026-09-12).
+
+---
+
+## ADR-0015: Aurora as the desktop GX backend (64-bit); GLES3 stays the web backend
+
+**Context.** [Aurora](https://github.com/encounter/aurora) (MIT) is a
+source-level GameCube/Wii compatibility layer used by completed decomp ports
+(Dusklight, Metaforce) that implements the SDK GX API on D3D12/Vulkan/Metal
+through WebGPU/Dawn.  [`jonrosner/melee-native`](https://github.com/jonrosner/melee-native)
+ports this same upstream decompilation on top of it (x86-64 Linux + Vulkan,
+Apple Silicon + Metal) and its notes are public evidence of what the migration
+costs.  Our GX HLE (`native/decomp/gx/`, ~4.5k lines plus shaders) is
+functional but approximates parts of GX (indirect texturing/toon, specular and
+lighting, hand-rolled EFB copies).  The owner wants Aurora's accuracy.
+
+Two constraints shape the decision:
+
+- **Aurora's GX needs Dawn**, whose supported backends and prebuilt packages
+  are 64-bit (x86_64/arm64).  Our compiled product is 32-bit (ADR-0012)
+  because `archive.c:Locate` patches 4-byte pointer slots in place and the HSD
+  descriptors store pointers inline.
+- **The web target (S7/P-502) must survive.**  Dawn does not target browsers;
+  our EGL/GLES3 renderer (ADR-0009/0014) compiles to WebGL2 and is the only
+  web-capable path.
+
+`jonrosner/melee-native` also shows the two hard lessons: Aurora replaces the
+renderer only (their notes list the same bitfield/overlay/converter bugs we
+fixed by hand), and 64-bit requires **materializing typed host structures from
+the 32-bit archives** instead of converting in place.
+
+**Decision.**
+
+1. **Desktop targets move to 64-bit and Aurora.**  Linux (Vulkan) and macOS
+   (Metal) first; Windows (D3D12) later.  `aurora::gx` is the GX
+   implementation; `aurora::core`/`aurora::vi` provide the window, event and
+   present layer on desktop.
+2. **The GX shim stays the seam.**  `native/decomp/shim/dolphin/gx/` remains
+   the include/ABI boundary; a build-time switch (`MELEE_GX_BACKEND=aurora|gles`)
+   selects Aurora or the existing GLES3 HLE.  The GLES backend is frozen to
+   bug fixes and used by the **wasm32** target (WebGL2), which stays 32-bit and
+   keeps the in-place converter until the schema layer is wasm-ready.
+3. **64-bit unlocks the asset layer rewrite (descriptor expansion).**  The
+   in-place `hsd_convert.c` is replaced, family by family, by a schema
+   materializer that decodes big-endian fields into pointer-width host
+   structures (the plan sketched in `learnings/decomp_assets.md` §10).
+   `jonrosner/melee-native`'s MIT `asset_schema.c` / `archive_runtime.cpp` /
+   `archive_bridge.c` / `stage_numeric_layouts.hpp` are the starting point, not
+   a from-scratch design.  The converter stays in-tree as the test oracle
+   until each family reaches parity.
+4. **We keep our platform.**  OS heap/log/assert, DVD/CISO + ARQ completions,
+   AX/audio (Aurora has no audio HLE), PAD scripting and CARD stay ours, with
+   thin adapters where Aurora owns the app loop (`dvd_bridge`/`pad_bridge`
+   shape).  We do not adopt Aurora's DVD/CARD/PAD semantics wholesale: the
+   compiled SDK path depends on our interrupt/completion ordering.
+5. **The GameCube build and the 32-bit product stay green.**  ADR-0011 still
+   governs `src/`: portability-only `#ifdef PORT_PC` patches, GC side
+   byte-identical, never edit `extern/`.  64-bit-only fixes that upstream
+   cannot carry unchanged follow the ADR-0011 rule 3 replacement-TU route.
+6. **Aurora is pinned by commit** (its “native SDK ABI is part of the port”),
+   with dependency notices recorded; Dawn is a packaged/vendored dependency,
+   and the sanitizer instruments game/runtime code only, never Aurora.
+
+**Phases and gates.**
+
+| Phase | Work | Gate |
+|---|---|---|
+| S8.0 (P-663) | Spike: build Aurora's example 64-bit (Vulkan/Mesa) here; verify headless offscreen (`GXCreateFrameBuffer`) + screenshot; size Dawn/nod packaging, licenses, and “port our tree” vs “rebase on jonrosner” | Offscreen triangle/BMP captured; sizing note in `logs/` |
+| S8.1 (P-664) | 64-bit compiled game: compat header + generated SDK headers (reference: `prepare_sdk.py`/`compat.h`), portability scanner (their `scan_portability.py`), fix LP64/bitfield/overlay classes; GC DOL checksum stays OK | Full static link; boot to title headless on the existing platform |
+| S8.2 (P-665) | Schema asset layer, family by family (fighters → items → stages → menus/effects), gated by raw-vs-materialized tests | Every `Pl*`/`ItCo`/`Gr*`/menu archive materializes and loads as today |
+| S8.3 (P-666) | Aurora GX backend behind the shim + present hook; keep the GLES backend selectable | `decomp_frontend`/`decomp_match`/`decomp_hit`/`decomp_icons` pass on Vulkan; screenshot delta documented |
+| S8.4 (P-667) | Desktop platform adapters (Aurora app/VI/PAD; keep our DVD/ARQ/AX/CARD) | Interactive Linux run; no deterministic-test regressions |
+| S8.5 (P-668) | Web path: keep wasm32+GLES green throughout, then point wasm at the schema layer; Emscripten smoke | wasm build + documented headless browser smoke |
+| S8.6 (P-669) | Rebaseline: backend-agnostic tests (retire `decomp_gx_direct`/`decomp_efb` command-level checks), pin Aurora, perf, docs; revisit submodule+patches vs fork | Dual-backend CI green; release notes |
+
+**Consequences.** Desktop rendering fidelity jumps to Dolphin-class (indirect,
+toon, EFB, texture packs, resolution scaling) and the GLES HLE stops growing.
+In exchange: a second GX backend must be maintained for web; Dawn is a large
+pinned dependency; and the 64-bit migration re-opens the LP64 bug class ADR-0012
+sidestepped — mitigated by the portability scanner, sanitizers, the asset
+regressions, and the GC checksum.  P-617 (indirect/toon) and P-642 (HLE perf)
+are superseded on desktop and should not be started.
+
+**Considered alternatives.** (a) Stay 32-bit + GLES — rejected by the owner,
+accuracy gap.  (b) Build Dawn 32-bit — unsupported upstream; costs a permanent
+fork of a Chromium component.  (c) 64-bit + hand-write the descriptor expansion
+from scratch — rejected; an MIT reference exists.  (d) Rebase this tree on
+`jonrosner/melee-native` wholesale — kept as an explicit fallback if S8.0 shows
+porting our tree costs more than re-integrating our platform, web path and
+regressions into their fork.
+
+**Status:** accepted by the owner (2026-09-13); S8.0 gates the mechanics.

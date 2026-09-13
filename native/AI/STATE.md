@@ -1,6 +1,15 @@
 # State of the port
 
-Last updated: 2026-09-13 (S6 in progress: retail frontend flow runs end to end)
+Last updated: 2026-09-13 (S6 in progress; S8 Aurora migration accepted, ADR-0015)
+
+> **Direction (2026-09-13): ADR-0015 — Aurora on desktop, GLES3 for web.**
+> Desktop targets move to 64-bit + Aurora (`aurora::gx`, Vulkan/Metal), which
+> also replaces the in-place asset converter with a schema materializer
+> (descriptor expansion, `learnings/decomp_assets.md` §10; MIT reference:
+> `jonrosner/melee-native`).  The wasm32 target keeps the 32-bit converter +
+> GLES3/WebGL2 backend; the GX shim stays the seam.  Phases S8.0..S8.6 are
+> P-663..P-669; the 32-bit product stays shippable until parity.  P-617 and
+> P-642 are superseded on desktop and frozen for web only.
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
