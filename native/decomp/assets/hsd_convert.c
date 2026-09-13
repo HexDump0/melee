@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 69u
+#define HSD_CONVERTER_VERSION 70u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -2115,6 +2115,23 @@ static void conv_ft_data(Conv* c, uint32_t off)
             count = (int) ((end - start) / FT_WAITANIM_SIZE);
             if (count > 512) {
                 count = 512;
+            }
+            /* The pointer-value bound is only an upper bound: the words after
+             * the last entry can belong to other structures.  A WaitAnimData
+             * entry carries a name pointer (x0) and a command-script pointer
+             * (xC); an empty slot has both zero.  Stop at the first record
+             * with neither, or the walk byte-swaps unrelated data -- for Fox
+             * it lands in the part-animation x8 arrays and turns valid
+             * AnimJoint pointers into garbage (P-652). */
+            for (i = 1; i < count; i++) {
+                uint32_t e = start + (uint32_t) i * FT_WAITANIM_SIZE;
+                if (!in_data(c, e, FT_WAITANIM_SIZE)) {
+                    break;
+                }
+                if (!c->reloc[e] && rd32(c, e) != 0) {
+                    count = i;
+                    break;
+                }
             }
             for (i = 0; i < count; i++) {
                 uint32_t e = start + (uint32_t) i * FT_WAITANIM_SIZE;

@@ -171,7 +171,10 @@ part `0x29` into `0x2900` and index beyond `Fighter.parts`; Mario and Link's
 four serialized descriptors are covered by the asset regression.  Pokémon
 Stadium's stage-animation bootstrap now dispatches its AObj callbacks through
 their declared argument shapes (P-651/G-120), so Classic can initialize its
-first stage.  Open S6 follow-ups:
+first stage.  Converter v70 bounds the `Fighter_WaitAnimData` walk to the last
+record that carries a name pointer; the overrun used to rewrite Fox's
+part-animation pointers and crashed or froze the first Classic landing
+(P-652/G-121).  Open S6 follow-ups:
 results names/models are wrong (P-645), match HUD stock icons show the wrong
 character (P-644), and
 save data is blocked by the game's hsd card filesystem pump (P-646; the host

@@ -119,6 +119,12 @@ static uint16_t read_host_u16(const unsigned char* p)
     return value;
 }
 
+static uint32_t read_be_u32(const unsigned char* p)
+{
+    return ((uint32_t) p[0] << 24) | ((uint32_t) p[1] << 16) |
+           ((uint32_t) p[2] << 8) | p[3];
+}
+
 static float read_host_f32(const unsigned char* p)
 {
     float value;
@@ -144,6 +150,49 @@ static int archive_has_reloc(const HSD_Archive* archive,
         if (archive->reloc_info[i].offset == offset) {
             return 1;
         }
+    }
+    return 0;
+}
+
+/* Relocation-field integrity: every listed pointer must be exactly the raw
+ * big-endian offset plus the host data base.  A converter walk that writes
+ * outside its own structure is caught here (P-652 walked ftData->xC/x14 into
+ * the part-animation x8 arrays). */
+static int check_reloc_integrity(const char* path, const unsigned char* raw,
+                                 const unsigned char* buffer,
+                                 const HSD_Archive* archive)
+{
+    uint32_t r;
+    int corrupted = 0;
+
+    if (raw == NULL) {
+        return 0;
+    }
+    for (r = 0; r < archive->header.nb_reloc; r++) {
+        uint32_t off = archive->reloc_info[r].offset;
+        uint32_t raw_v;
+        uint32_t conv_v;
+        uint32_t expect;
+        if ((size_t) off + 4 > archive->header.data_size) {
+            continue;
+        }
+        raw_v = read_be_u32(raw + 0x20 + off);
+        conv_v = read_host_u32(buffer + 0x20 + off);
+        expect = raw_v + (uint32_t) (uintptr_t) (buffer + 0x20);
+        if (conv_v != expect) {
+            if (corrupted == 0) {
+                fprintf(stderr,
+                        "decomp_assets: %s reloc field %u corrupted: "
+                        "raw=%08x conv=%08x\n",
+                        path, off, raw_v, conv_v);
+            }
+            corrupted++;
+        }
+    }
+    if (corrupted != 0) {
+        fprintf(stderr, "decomp_assets: %s %d corrupted reloc fields\n", path,
+                corrupted);
+        return 1;
     }
     return 0;
 }
@@ -216,6 +265,7 @@ static int check_ft_part_anims(const char* image, const char* path,
     size_t size = 0;
     unsigned char* buffer = load_archive(image, path, NULL, &size, error,
                                          sizeof(error));
+    unsigned char* raw = NULL;
     HsdConvertStats stats;
     HSD_Archive archive;
     unsigned char* ft_data;
@@ -228,13 +278,22 @@ static int check_ft_part_anims(const char* image, const char* path,
         fprintf(stderr, "decomp_assets: %s: %s\n", path, error);
         return 1;
     }
+    raw = malloc(size);
+    if (raw != NULL) {
+        memcpy(raw, buffer, size);
+    }
     if (!hsd_asset_convert(buffer, size, &stats) ||
         HSD_ArchiveParse(&archive, buffer, size) != 0)
     {
         fprintf(stderr, "decomp_assets: %s conversion failed\n", path);
+        free(raw);
         free(buffer);
         return 1;
     }
+    if (check_reloc_integrity(path, raw, buffer, &archive)) {
+        failed = 1;
+    }
+    free(raw);
     ft_data = HSD_ArchiveGetPublicAddress(&archive, symbol);
     table = ft_data != NULL ? read_host_ptr(ft_data + 0x1C) : NULL;
     if (table == NULL || !ptr_in_buffer(table, buffer, size)) {
@@ -288,6 +347,105 @@ static int check_ft_part_anims(const char* image, const char* path,
     } else {
         printf("decomp_assets: %s part-animation slots=%u ok\n", path,
                checked);
+    }
+
+    /* Every relocation-backed x8 element must be an HSD_AnimJoint tree.  A
+     * converter walk that runs past a structure it does not own can overwrite
+     * these pointers (Fox's landing crash, P-652): the corrupted value either
+     * falls outside the archive or points at a node whose child/next is a raw
+     * big-endian word.  The array has no stored length, so invalid entries are
+     * only acceptable as a trailing run after the last real tree. */
+    {
+        unsigned anims_checked = 0;
+        int failed_order = 0;
+
+        for (i = 0; i < 5; i++) {
+            unsigned char* slot = table + i * sizeof(void*);
+            unsigned char* entry;
+            unsigned char* anims;
+            int anim;
+            int invalid_run = 0;
+
+            if (!archive_has_reloc(&archive, slot)) {
+                break;
+            }
+            entry = read_host_ptr(slot);
+            if (!ptr_in_buffer(entry, buffer, size)) {
+                continue;
+            }
+            anims = read_host_ptr(entry + 8);
+            for (anim = 0; anim < 32; anim++) {
+                unsigned char* aslot = anims + anim * 4;
+                unsigned char* stack[256];
+                unsigned char* node;
+                int sp = 0;
+                int nodes = 0;
+                int valid = 1;
+
+                if (!archive_has_reloc(&archive, aslot)) {
+                    break;
+                }
+                node = read_host_ptr(aslot);
+                if (node == NULL) {
+                    continue;
+                }
+                stack[sp++] = node;
+                while (sp > 0 && nodes < 4096) {
+                    unsigned char* n = stack[--sp];
+                    unsigned char* child;
+                    unsigned char* next;
+                    unsigned char* aobj;
+                    nodes++;
+                    if (!ptr_in_buffer(n, buffer, size) ||
+                        !ptr_in_buffer(n + 0x13, buffer, size))
+                    {
+                        valid = 0;
+                        break;
+                    }
+                    child = read_host_ptr(n);
+                    next = read_host_ptr(n + 4);
+                    aobj = read_host_ptr(n + 8);
+                    if ((child != NULL && !ptr_in_buffer(child, buffer, size)) ||
+                        (next != NULL && !ptr_in_buffer(next, buffer, size)) ||
+                        (aobj != NULL && !ptr_in_buffer(aobj, buffer, size)))
+                    {
+                        valid = 0;
+                        break;
+                    }
+                    if (child != NULL && sp < 256) {
+                        stack[sp++] = child;
+                    }
+                    if (next != NULL && sp < 256) {
+                        stack[sp++] = next;
+                    }
+                }
+                if (sp > 0 || nodes >= 4096) {
+                    valid = 0;
+                }
+                if (valid) {
+                    if (invalid_run) {
+                        failed_order = 1;
+                        fprintf(stderr,
+                                "decomp_assets: %s part-animation slot %d "
+                                "anim %d valid after invalid entries\n",
+                                path, i, anim);
+                    }
+                    anims_checked++;
+                } else {
+                    invalid_run = 1;
+                }
+            }
+        }
+        if (failed_order) {
+            failed = 1;
+        } else if (anims_checked == 0) {
+            fprintf(stderr,
+                    "decomp_assets: %s has no part-animation trees\n", path);
+            failed = 1;
+        } else {
+            printf("decomp_assets: %s part-animation trees=%u ok\n", path,
+                   anims_checked);
+        }
     }
     free(buffer);
     return failed;
@@ -542,6 +700,7 @@ static int check_archive(const char* image, const char* path,
     size_t size = 0;
     unsigned char* buffer = load_archive(image, path, NULL, &size, error,
                                          sizeof(error));
+    unsigned char* raw = NULL;
     HSD_Archive archive;
     char* root_name = NULL;
     HSD_Joint* joint;
@@ -557,9 +716,16 @@ static int check_archive(const char* image, const char* path,
         fprintf(stderr, "decomp_assets: %s: %s\n", path, error);
         return -1;
     }
+    if (size >= 0x20) {
+        raw = malloc(size);
+        if (raw != NULL) {
+            memcpy(raw, buffer, size);
+        }
+    }
     if (size < 0x20 ||
         hsd_asset_convert(buffer, size, &result->stats) == 0) {
         fprintf(stderr, "decomp_assets: %s: not an HSD archive\n", path);
+        free(raw);
         free(buffer);
         return -1;
     }
@@ -570,9 +736,14 @@ static int check_archive(const char* image, const char* path,
     }
     if (HSD_ArchiveParse(&archive, buffer, size) != 0) {
         fprintf(stderr, "decomp_assets: %s: parse failed\n", path);
+        free(raw);
         free(buffer);
         return -1;
     }
+    /* Relocation-field integrity: every listed pointer must be exactly the
+     * raw big-endian offset plus the host data base. */
+    failures += check_reloc_integrity(path, raw, buffer, &archive);
+    free(raw);
 
     /* Root joint (if any): load, pose and count. */
     for (i = 0; i < archive.header.nb_public; ++i) {
@@ -714,6 +885,8 @@ int main(int argc, char** argv)
     failures += check_link_dynamics(image);
     failures += check_ft_part_anims(image, "PlMr.dat", "ftDataMario");
     failures += check_ft_part_anims(image, "PlLk.dat", "ftDataLink");
+    failures += check_ft_part_anims(image, "PlFx.dat", "ftDataFox");
+    failures += check_ft_part_anims(image, "PlPk.dat", "ftDataPikachu");
     failures += check_item_models(image);
     failures += check_stage_matanims(image, "GrNBa.dat");
     failures += check_stage_matanims(image, "GrNLa.dat");

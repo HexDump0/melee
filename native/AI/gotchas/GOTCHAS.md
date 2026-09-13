@@ -1494,3 +1494,19 @@ stack holds instead.
 **Fix:** under `PORT_PC`, dispatch on the `AObj_Arg_Type` and call the exact
 declared shape (`patches/src/melee/gr/granime.c.patch`, listed in
 `learnings/decomp_port.md` S6).  The GC build keeps the retail calls.
+
+## G-121: converter array bounds must not trust the next pointer alone
+
+**Symptom:** Fox crashes or freezes the first Classic match right after
+landing; `ftAnim_80070904` dereferences a bogus joint from
+`ftData->x1C[slot]->x8[arg2]`.
+**Cause:** `conv_ft_data` bounded the `Fighter_WaitAnimData` arrays (`xC`/`x14`)
+by the closest `ftData` pointer value after the array start.  For Fox that
+value sits past the part-animation pointer arrays, so the walk processed other
+structures' words as records and `conv_waitanim_flags` overwrote a valid
+`HSD_AnimJoint*` (raw `0x00700313`).
+**Fix:** stop the walk at the first record whose `x0` is neither a relocation
+target nor zero: real records carry a name pointer and empty slots are legal
+because the runtime indexes by anim id.  Converter v70 makes the trim;
+`test_decomp_assets` now diffs every relocation field against a raw copy of the
+archive and validates the part-animation trees (P-652).

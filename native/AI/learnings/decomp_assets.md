@@ -603,6 +603,27 @@ Converter v68 derives the count from the archive layout.  The asset regression
 loads all 40 non-null common-item model roots through the compiled
 `HSD_JObjLoadJoint` path.
 
+### `Fighter_WaitAnimData` arrays have no stored count
+
+`ftData->xC` and `ftData->x14` are arrays of 0x18-byte `Fighter_WaitAnimData`
+records indexed by animation id, and the archive stores no element count.  The
+converter bounded each array with the closest `ftData` pointer value after its
+start, but that is only an upper bound: for Fox the `x14` array is followed by
+the `ftData->x1C` descriptors' part-animation pointer arrays, and the bound
+fell past them.  The extra "records" treated those pointers as `x4`/`x8`
+numerics and `x10_animCurrFlags`, and `conv_waitanim_flags` rewrote a valid
+`HSD_AnimJoint*` with a recomputed word (observed `0x00700313`).  Fox's landing
+animation command then called `ftAnim_80070904` with a garbage AnimJoint tree
+and crashed or froze the match.
+
+A record is real when its `x0` (animation name) is a relocation target; empty
+slots have `x0 == 0` and belong to the array because the runtime indexes by
+anim id.  Converter v70 keeps the pointer-value bound but stops at the first
+record whose `x0` is neither a relocation target nor zero.  The asset
+regression now compares every relocation field against a raw copy of the
+archive and walks every part-animation `x8` entry as an `HSD_AnimJoint` tree
+for `PlMr`/`PlLk`/`PlFx`/`PlPk`.
+
 ## 9. Open questions
 
 1. **HSD_RObj/HSD_RObjDesc conversion.** Required before S3 ships geometry:
