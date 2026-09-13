@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 61u
+#define HSD_CONVERTER_VERSION 64u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -1689,9 +1689,40 @@ static void conv_item_state_array(Conv* c, uint32_t off)
 
 /* Article { ItemAttr*; special*; ItHurtBoneList*; ItemStateArray*;
  * ItemModelDesc*; ItemDynamics* } — six relocation targets. */
-static void conv_article(Conv* c, uint32_t off)
+/* It_Kind_Foods special attributes: { s32 x0; HSD_Joint* x4; s32 x8; s32 xC }
+ * entries, entry 0's `x0` is the random range (28).  `x4` is a relocation
+ * target (left to HSD_ArchiveParse); the other fields are big-endian and the
+ * spawner reads them directly (unconverted `x0` makes HSD_Randi run wild and
+ * the joint look invalid). */
+#define ITEM_KIND_FOODS 18
+
+static void conv_it_food_attrs(Conv* c, uint32_t off)
+{
+    uint32_t count;
+    uint32_t i;
+
+    if (!in_data(c, off, 16) || !mark(c, off)) {
+        return;
+    }
+    count = rd32(c, off);
+    if (count == 0 || count > 64) {
+        count = 1;
+    }
+    for (i = 0; i < count; i++) {
+        uint32_t e = off + i * 16;
+        if (!in_data(c, e, 16)) {
+            break;
+        }
+        conv_u32(c, e + 0x00);
+        conv_u32(c, e + 0x08);
+        conv_u32(c, e + 0x0C);
+    }
+}
+
+static void conv_article(Conv* c, uint32_t off, int item_kind)
 {
     uint32_t attr;
+    uint32_t special;
     uint32_t hurt;
     uint32_t states;
     uint32_t model;
@@ -1701,12 +1732,16 @@ static void conv_article(Conv* c, uint32_t off)
         return;
     }
     attr = rd32(c, off + 0x00);
+    special = rd32(c, off + 0x04);
     hurt = rd32(c, off + 0x08);
     states = rd32(c, off + 0x0C);
     model = rd32(c, off + 0x10);
     dynamics = rd32(c, off + 0x14);
     if (attr != 0) {
         conv_item_attr(c, attr);
+    }
+    if (special != 0 && item_kind == ITEM_KIND_FOODS) {
+        conv_it_food_attrs(c, special);
     }
     if (hurt != 0) {
         conv_it_hurtbone_list(c, hurt);
@@ -1725,8 +1760,9 @@ static void conv_article(Conv* c, uint32_t off)
 /* Common/character/pokemon Article* arrays.  Counts come from the item kind
  * enums (it/forward.h): common = It_Kind_Kuriboh (43), character =
  * It_PKind_Start - It_Kind_Kuriboh (118), pokemon =
- * It_Kind_Old_Kuri - It_PKind_Start (47). */
-static void conv_article_array(Conv* c, uint32_t off, int count)
+ * It_Kind_Old_Kuri - It_PKind_Start (47).  `first_kind` is the It_Kind of
+ * entry 0 so per-kind special attributes can be recognised. */
+static void conv_article_array(Conv* c, uint32_t off, int count, int first_kind)
 {
     int i;
 
@@ -1740,7 +1776,7 @@ static void conv_article_array(Conv* c, uint32_t off, int count)
         if (article == 0) {
             continue;
         }
-        conv_article(c, article);
+        conv_article(c, article, first_kind + i);
     }
 }
 
@@ -2249,13 +2285,13 @@ static void conv_it_public_data(Conv* c, uint32_t off)
         uint32_t x8 = rd32(c, off + 0x08);
         uint32_t xC = rd32(c, off + 0x0C);
         if (x4 != 0) {
-            conv_article_array(c, x4, 43);
+            conv_article_array(c, x4, 43, 0);
         }
         if (x8 != 0) {
-            conv_article_array(c, x8, 118);
+            conv_article_array(c, x8, 118, 43);
         }
         if (xC != 0) {
-            conv_article_array(c, xC, 47);
+            conv_article_array(c, xC, 47, 43 + 118);
         }
     }
     if (x10 != 0 && in_data(c, x10, 0x1C)) {
@@ -2420,6 +2456,90 @@ static void conv_static_model_full(Conv* c, uint32_t off)
     shapeanim = rd32(c, off + 0x0C);
     if (shapeanim != 0) {
         conv_shapeanim_joint(c, shapeanim);
+    }
+}
+
+/* MnSelectChrDataTable (mncharsel.c): the character-select camera, two lights,
+ * fog and nine StaticModelDescs at +0x10.  The symbol name ends in
+ * "DataTable", so the generic branch used to treat it as an effect bank; the
+ * camera descriptor then stayed big-endian and HSD_CObjInit panicked on the
+ * projection type when the CSS loaded. */
+static void conv_mn_select_chr_table(Conv* c, uint32_t off)
+{
+    uint32_t cam;
+    uint32_t light0;
+    uint32_t light1;
+    uint32_t fog;
+    int i;
+
+    if (!in_data(c, off, 0x10)) {
+        return;
+    }
+    cam = rd32(c, off + 0x00);
+    if (cam != 0) {
+        conv_cobjdesc(c, cam);
+    }
+    light0 = rd32(c, off + 0x04);
+    if (light0 != 0) {
+        conv_lightdesc(c, light0);
+    }
+    light1 = rd32(c, off + 0x08);
+    if (light1 != 0) {
+        conv_lightdesc(c, light1);
+    }
+    fog = rd32(c, off + 0x0C);
+    if (fog != 0) {
+        conv_fogdesc(c, fog);
+    }
+    for (i = 0; i < 9; i++) {
+        conv_static_model_full(c, off + 0x10 + (uint32_t) i * 0x10);
+    }
+}
+
+/* MnSelectStageDataTable (mnstagesel.c): the stage-select camera, two lights,
+ * fog, eleven StaticModelDescs at +0x10 and a joint/anim tail at +0xC0. */
+static void conv_mn_stage_sel_table(Conv* c, uint32_t off)
+{
+    uint32_t p;
+    int i;
+
+    if (!in_data(c, off, 0x10)) {
+        return;
+    }
+    p = rd32(c, off + 0x00);
+    if (p != 0) {
+        conv_cobjdesc(c, p);
+    }
+    p = rd32(c, off + 0x04);
+    if (p != 0) {
+        conv_lightdesc(c, p);
+    }
+    p = rd32(c, off + 0x08);
+    if (p != 0) {
+        conv_lightdesc(c, p);
+    }
+    p = rd32(c, off + 0x0C);
+    if (p != 0) {
+        conv_fogdesc(c, p);
+    }
+    for (i = 0; i < 11; i++) {
+        conv_static_model_full(c, off + 0x10 + (uint32_t) i * 0x10);
+    }
+    p = rd32(c, off + 0xC0);
+    if (p != 0) {
+        conv_joint(c, p);
+    }
+    p = rd32(c, off + 0xC4);
+    if (p != 0) {
+        conv_anim_joint(c, p);
+    }
+    p = rd32(c, off + 0xC8);
+    if (p != 0) {
+        conv_matanim_joint(c, p);
+    }
+    p = rd32(c, off + 0xCC);
+    if (p != 0) {
+        conv_shapeanim_joint(c, p);
     }
 }
 
@@ -2673,6 +2793,16 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
             conv_lightlist_array(c, data_off);
         } else if (name_ends_with(name, length, "_fog")) {
             conv_fogdesc(c, data_off);
+        } else if (length == 22 &&
+                   memcmp(name, "MnSelectStageDataTable", 22) == 0) {
+            /* MnSlMap: stage-select camera/lights/fog/models table. */
+            c->st.roots_unknown++;
+            conv_mn_stage_sel_table(c, data_off);
+        } else if (length == 20 &&
+                   memcmp(name, "MnSelectChrDataTable", 20) == 0) {
+            /* MnSlChr: character-select camera/lights/fog/models table. */
+            c->st.roots_unknown++;
+            conv_mn_select_chr_table(c, data_off);
         } else if (name_ends_with(name, length, "DataTable")) {
             /* Ef*.dat eff*DataTable: cmd/tex PS bank pair */
             conv_ef_dat(c, data_off);
