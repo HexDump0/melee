@@ -19,6 +19,7 @@
 
 #include <dolphin/os.h>
 #include <math.h>
+#include <melee/it/types.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -457,6 +458,87 @@ static int ptr_in_buffer(const void* p, const unsigned char* base, size_t size)
     return q >= base && q < base + size;
 }
 
+/* P-654: ItemAttr's two flag bytes are MSB-first on the console.  Retail
+ * `itIsHeavy` is `lbz` + `extrwi r0,r0,1,24` (bit 0x80), `it_8026B30C` is
+ * `extrwi r3,r3,4,25` (bits 0x78) and `itGetHoldKind` is `clrlwi r3,r3,29`
+ * (bits 0x07); byte 1 is x1_1=0xB0, x1_3=0x20, x1_4=0x10, x1_5=0x08,
+ * x1_67_cam_kind=0x06, x1_8=0x01.  GCC allocates bitfields LSB-first, so
+ * without the PORT_PC ordering in `melee/it/types.h` every compiled read
+ * below sees the wrong bits and item behavior (heavy/hold/camera flags) is
+ * wrong.  Compare the compiled struct against the raw article bytes. */
+static int check_item_attr_bits(unsigned char** articles, unsigned count)
+{
+    unsigned i;
+    int failed = 0;
+    static const char* const names[] = {
+        "x0_is_heavy", "x0_78", "x0_hold_kind", "x1_1", "x1_3",
+        "x1_4",         "x1_5",  "x1_67_cam_kind", "x1_8",
+    };
+
+    if (sizeof(ItemAttr) != 0x84) {
+        fprintf(stderr, "decomp_assets: ItemAttr size=%zu (want 0x84)\n",
+                sizeof(ItemAttr));
+        return 1;
+    }
+    for (i = 0; i < count; i++) {
+        unsigned char* article = articles[i];
+        unsigned char* attr;
+        ItemAttr* a;
+        const u8* b;
+        u32 got[9];
+        u32 want[9];
+        unsigned k;
+
+        if (article == NULL) {
+            continue;
+        }
+        attr = read_host_ptr(article + 0x00);
+        if (attr == NULL) {
+            continue;
+        }
+        a = (ItemAttr*) attr;
+        b = (const u8*) attr;
+        got[0] = a->x0_is_heavy;
+        got[1] = a->x0_78;
+        got[2] = a->x0_hold_kind;
+        got[3] = a->x1_1;
+        got[4] = a->x1_3;
+        got[5] = a->x1_4;
+        got[6] = a->x1_5;
+        got[7] = a->x1_67_cam_kind;
+        got[8] = a->x1_8;
+        want[0] = (b[0] >> 7) & 1;
+        want[1] = (b[0] >> 3) & 0xF;
+        want[2] = b[0] & 7;
+        want[3] = (b[1] >> 6) & 3;
+        want[4] = (b[1] >> 5) & 1;
+        want[5] = (b[1] >> 4) & 1;
+        want[6] = (b[1] >> 3) & 1;
+        want[7] = (b[1] >> 1) & 3;
+        want[8] = b[1] & 1;
+        for (k = 0; k < 9; k++) {
+            if (got[k] == want[k]) {
+                continue;
+            }
+            if (failed == 0) {
+                fprintf(stderr,
+                        "decomp_assets: item attr kind %u byte0=%02x "
+                        "byte1=%02x: %s=%u want=%u\n",
+                        i, b[0], b[1], names[k], got[k], want[k]);
+            }
+            failed++;
+        }
+    }
+    if (failed == 0) {
+        printf("decomp_assets: item attr bits ok (" "%u" " articles)\n",
+               count);
+    } else {
+        fprintf(stderr, "decomp_assets: %d item attr bit mismatches\n",
+                failed);
+    }
+    return failed != 0;
+}
+
 /* HSD_JObjLoadJoint resolves every PObj joint ID against the descriptors in
  * the root it just loaded.  Exercise all common-item model roots so an item
  * whose PObj points outside that root is caught before a random match spawn. */
@@ -473,6 +555,7 @@ static int check_item_models(const char* image)
     unsigned checked = 0;
     unsigned loaded = 0;
     unsigned i;
+    int attr_failed = 0;
 
     if (buffer == NULL) {
         buffer = load_archive(image, "ItCo.dat", NULL, &size, error,
@@ -502,6 +585,7 @@ static int check_item_models(const char* image)
         free(buffer);
         return 1;
     }
+    attr_failed = check_item_attr_bits(articles, 43);
     for (i = 0; i < 43; i++) {
         unsigned char* article = articles[i];
         unsigned char* model;
@@ -545,7 +629,7 @@ static int check_item_models(const char* image)
     }
     printf("decomp_assets: item models=%u loaded=%u\n", checked, loaded);
     free(buffer);
-    return checked == loaded ? 0 : 1;
+    return (checked == loaded && attr_failed == 0) ? 0 : 1;
 }
 
 /* The compiled stage code (grAnime_801C7C1C -> grAnime_801C6C0C) reads the

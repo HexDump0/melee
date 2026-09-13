@@ -1527,3 +1527,25 @@ is set in normal attack commands, so every `spawn_hitbox` command took the
 console-ordered `u8` (`patches/src/melee/lb/types.h.patch`, listed in
 `learnings/decomp_port.md` S6).  `ctest decomp_hit`
 (`MELEE_HIT_TEST=1` on the boot match) asserts the opponent takes damage.
+
+## G-123: ItemAttr's byte bitfields are MSB-first on the console
+
+**Symptom:** item behavior reads the wrong flags: heavy items (crates) are not
+treated as heavy, throwable/swingable/shootable classification (`x0_78`) and
+the item camera kind (`x1_67_cam_kind`) come out of unrelated bits, and the
+`x1_4`/`x1_5` flags copied into `Item.xDC8_word` are wrong.
+**Cause:** `ItemAttr` (loaded verbatim from `ItCo.dat`; the converter only
+touches `+0x04..+0x80`) declares two bytes of `u8` bitfields.  MWCC packs them
+MSB-first, so byte 0 is `x0_is_heavy=0x80`, `x0_78=0x78`, `x0_hold_kind=0x07`
+and byte 1 is `x1_1=0xB0`, `x1_3=0x20`, `x1_4=0x10`, `x1_5=0x08`,
+`x1_67_cam_kind=0x06`, `x1_8=0x01`.  The retail asm pins this: `itIsHeavy` is
+`lbz` + `extrwi r0,r0,1,24` (bit 0x80), `it_8026B30C` is
+`extrwi r3,r3,4,25` (bits 0x78) and `itGetHoldKind` is `clrlwi r3,r3,29`
+(bits 0x07).  GCC allocates LSB-first, so every compiled field read landed on
+a different bit.
+**Fix:** under `PORT_PC`, declare the fields in reverse order within each byte
+(`patches/src/melee/it/types.h.patch`, listed in `learnings/decomp_port.md`
+S6); the GC build keeps the retail declaration.  `test_decomp_assets` now
+compares every one of the nine compiled field reads against the raw
+console-ordered article bytes for all 43 common-item articles (199 mismatches
+without the patch).

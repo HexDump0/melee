@@ -1,0 +1,37 @@
+diff --git a/src/melee/it/types.h b/src/melee/it/types.h
+index 693afa98d..b096278e2 100644
+--- a/src/melee/it/types.h
++++ b/src/melee/it/types.h
+@@ -77,6 +77,24 @@ struct Item_DynamicBones {
+ ASSERT_SIZE(struct Item_DynamicBones, 0x1C);
+ 
+ struct ItemAttr {
++#ifdef PORT_PC
++    /* MWCC packs byte bitfields MSB-first, so the article's byte 0 is
++     * x0_is_heavy=0x80, x0_78=0x78, x0_hold_kind=0x07 and byte 1 is
++     * x1_1=0xB0, x1_3=0x20, x1_4=0x10, x1_5=0x08, x1_67_cam_kind=0x06,
++     * x1_8=0x01 (retail `itIsHeavy` `extrwi r0,r0,1,24`, `it_8026B30C`
++     * `extrwi r3,r3,4,25`, `itGetHoldKind` `clrlwi r3,r3,29`).  GCC allocates
++     * LSB-first, so declare the fields in reverse order within each byte to
++     * land them on the console bits. */
++    u8 x0_hold_kind : 3;    // 0x0 0x07
++    u8 x0_78 : 4;           // 0x0 0x78
++    u8 x0_is_heavy : 1;     // 0x0 0x80
++    u8 x1_8 : 1;            // 0x1 0x01
++    u8 x1_67_cam_kind : 2;  // 0x1 0x06
++    u8 x1_5 : 1;            // 0x1 0x08
++    u8 x1_4 : 1;            // 0x1 0x10
++    u8 x1_3 : 1;            // 0x1 0x20
++    u8 x1_1 : 2;            // 0x1 0xB0
++#else
+     u8 x0_is_heavy : 1; // 0x0, bit 0x80, is heavy item (crate)
+     u8 x0_78 : 4; // Should be enum (Item_UnkKinds?) for type of action char
+                   // takes when using - 0: throwable, 2: Swingable, 3:
+@@ -88,6 +106,7 @@ struct ItemAttr {
+     u8 x1_5 : 1;            // 0x1 0x08
+     u8 x1_67_cam_kind : 2;  // 0x1 0x06, is stored to 0xdcd
+     u8 x1_8 : 1;            // 0x1 0x01    char flags3; //0x2
++#endif
+     u8 x3;                  // 0x3
+     f32 x4_throw_speed_mul; // 0x4, speed multiplier at which this item is
+                             // thrown at

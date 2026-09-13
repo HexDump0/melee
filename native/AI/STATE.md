@@ -177,7 +177,11 @@ part-animation pointers and crashed or froze the first Classic landing
 (P-652/G-121).  Attacks now apply damage: the `spawn_hitbox_skip` flag is bit 3
 of command byte 0xF on the console, and the `PORT_PC` layout reads that bit
 instead of bit 4, so hitboxes activate (P-653/G-122; `ctest decomp_hit` checks
-the scripted opponent's percent).  Open S6 follow-ups:
+the scripted opponent's percent).  Item attributes now read the console bits:
+`ItemAttr`'s two flag bytes are MSB-first (`itIsHeavy`/`it_8026B30C`/
+`itGetHoldKind` asm pins 0x80/0x78/0x07), so a `PORT_PC` ordering lands
+GCC's LSB-first fields on those bits (P-654/G-123); `test_decomp_assets`
+diffs all nine per-article fields against the raw bytes.  Open S6 follow-ups:
 results names/models are wrong (P-645), match HUD stock icons show the wrong
 character (P-644), and
 save data is blocked by the game's hsd card filesystem pump (P-646; the host
