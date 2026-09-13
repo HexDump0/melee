@@ -249,3 +249,12 @@ All `#ifdef PORT_PC`-gated; see `learnings/decomp_audio.md` for the formats.
 
 The `MELEE_PORT_AX_*` macros live in `native/decomp/shim/decomp_shim.h`
 (force-included on the host only), so the GC build sees the original code.
+
+## S6 `src/` portability patches (frontend, 2026-09-13)
+
+| File | Patch | Reason |
+|---|---|---|
+| `src/melee/gr/granime.c` (`grAnime_801C6F50`) | under `PORT_PC`, dispatch `AOBJ_ARG_A`..`AOBJ_ARG_AOTU` through the exact declared callback shapes (`(HSD_AObj*)`, `(HSD_AObj*, f32)`, `(HSD_AObj*, void*, u32)`, ...) | The retail dispatcher calls `func` through a common oversized prototype (`((Event) func)()` for `AOBJ_ARG_A`).  PowerPC keeps the first integer argument in `r3` across that call, so the no-argument callee still receives the `HSD_AObj*` the caller passed.  i386 cdecl passes every argument on the stack; `fn_801C6F2C` then saw the function pointer itself as `aobj` and Pokémon Stadium faulted during `grStadium_OnInit` (G-120).  The GameCube build keeps the original calls. |
+
+Other S6 frontend patches landed with their own tasks (P-641 camera/results
+tables, P-647 SisLib fonts, P-650 TexAnim); see `STATE.md`.

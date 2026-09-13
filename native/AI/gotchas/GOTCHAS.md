@@ -1480,3 +1480,17 @@ pointer.
 **Fix:** converter v69 walks at most five entries while each slot is a real
 relocation, and converts descriptor offsets `+0/+2`.  `test_decomp_assets`
 checks all four serialized slots in both `PlMr.dat` and `PlLk.dat`.
+
+## G-120: PowerPC callbacks cannot be invoked through smaller prototypes on i386
+
+**Symptom:** Pokémon Stadium crashes during `grStadium_OnInit` when
+`grAnime_801C77FC` applies the stage's looping AObjs; `fn_801C6F2C` receives
+`aobj == fn_801C6F2C` and faults on the first write.
+**Cause:** the retail `grAnime_801C6F50` dispatcher calls the AObj callback
+through generic prototypes (`((Event) func)()` for `AOBJ_ARG_A`).  PowerPC's ABI
+keeps the first integer argument in `r3` across that call, so a no-argument
+callee still sees the `HSD_AObj*`; on i386 cdecl the callee reads whatever the
+stack holds instead.
+**Fix:** under `PORT_PC`, dispatch on the `AObj_Arg_Type` and call the exact
+declared shape (`patches/src/melee/gr/granime.c.patch`, listed in
+`learnings/decomp_port.md` S6).  The GC build keeps the retail calls.
