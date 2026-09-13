@@ -11,8 +11,22 @@ git-ignored; a second copy lives in `/tmp/opencode/aurora-reference`).
 
 This matrix is the worklist and the acceptance metric for the renderer parity
 program (ADR-0017, `workflows/renderer_parity.md`). Rows marked **APPROX** or
-**STUB** must either close under P-672..P-681 or be documented as a deliberate
+**STUB** must either close under P-672..P-682 or be documented as a deliberate
 deviation in `learnings/`.
+
+## Session status (2026-09-13)
+
+Closed by P-672..P-675 and P-678, each with a sensitivity-flipped regression:
+texgen `GX_TG_MTX3x4`/normalize/SRTG, indirect evaluation + `GXSetTevDirect`,
+light-object math + tinted `GX_AF_SPEC`, EFB copy formats (I4/I8/IA4/IA8/
+RGB5A3), texture expansion + per-object `GXTexObj`, `GXGetProjectionv`.
+Learnings: `gx_indirect_toon.md`, `gx_lighting_specular.md`,
+`gx_efb_copy.md`, `gx_texture_parity.md`, G-131.
+
+Still red, each with a task: **P-676** perf, **P-677** harness, **P-679** fog
+math + range adj, **P-680** lines/points primitives (the largest remaining
+geometry gap), **P-681** spot cones, **P-682** Z24X8 depth snapshots.
+Session handoff: `handoffs/2026-09-13-renderer-parity.md`.
 
 ## Method
 
