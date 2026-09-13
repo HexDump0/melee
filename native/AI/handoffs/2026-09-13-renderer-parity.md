@@ -22,7 +22,8 @@ sensitivity-flipped regressions:
 | `3c4e4ec4b` | P-680 | Topology runs so `GX_LINES`/`GX_LINESTRIP`/`GX_POINTS` render; line width/point size |
 | `76448c9c5` | P-679 | SDK fog coefficients + `gl_FragCoord.z` evaluation, all five families, range adjustment |
 | `7e901f241` | P-681 | Per-channel `GX_AF_*` attenuation; SPOT cosine/distance polynomials |
-| (P-682, this commit) | P-682 | Z24X8 depth snapshots (blit + tiling), ADD/REPLACE/bias |
+| `863ac3174` | P-682 | Z24X8 depth snapshots (blit + tiling), ADD/REPLACE/bias |
+| (P-676, this commit) | P-676 | Draw-state batching: -2.0% cycles, frames 600/718 byte-identical |
 
 ## Coverage matrix delta
 
@@ -36,7 +37,6 @@ Closed (now EXACT or documented):
 - §6 `GXCopyTex` I4/I8/IA4/IA8/RGB5A3, copy clear (P-674).
 
 Still red (each has a task):
-- **P-676** match-path performance (reinstated P-642).
 - **P-677** parity harness breadth.
 
 Documented deviations (no task): EFB always RGBA8 (`GXSetPixelFmt`),
@@ -49,7 +49,7 @@ and bias-clamp, `GXInitLightDir` sign, `GXSetCopyClear`.
 ctest --test-dir build/native --output-on-failure          # 17/17
 MELEE_NO_ASSET_CACHE=1 ./build/native/test_decomp_assets   # PASS
 ./build/native/test_decomp_render --direct                 # texgen/indirect/light/texobj
-./build/native/test_decomp_render --efb                    # 7 passes incl. new 5-7
+./build/native/test_decomp_render --efb                    # 11 passes (5-11 added)
 ASAN_OPTIONS=detect_leaks=0 ./build/native-asan/test_decomp_render --direct
 ASAN_OPTIONS=detect_leaks=0 ./build/native-asan/test_decomp_render --efb
 ```
@@ -67,10 +67,7 @@ outputs are in each learning under `native/AI/learnings/`
 
 ## Suggested next slice
 
-1. **P-676 perf** (profile under a quiet system first; the P-642 notes warn
-   that a decoded-display-list cache was slower).  The run path added by
-   P-680 is a natural place to start: same-topology runs merge already.
-3. **P-677 harness** breadth.
+1. **P-677 harness** breadth (the last red row).
 
 ## Notes for the next agent
 

@@ -245,6 +245,14 @@ RGB565/R4/RGBA8 bytes are unchanged.  `ctest decomp_efb` pass 7 covers the
 new formats with sensitivity flipped; Z24X8 depth snapshots and `GX_ZT_ADD`
 are documented in `learnings/gx_efb_copy.md` (closed by P-682).
 
+**P-676 (2026-09-13):** match-path batching: `gx_gl` remembers the last
+applied draw state and skips the uniform/state/scissor calls when the next
+draw's captured state is identical (19.4% of draws in a 900-frame match;
+-2.0% total cycles, match frames 600/718 byte-identical).  Profiling notes,
+the reverted `read_comp` experiment and remaining opportunities are in
+`learnings/gx_match_perf.md`.  Benchmark with the `melee` product binary; the
+`melee_decomp_viewer` target is stale.
+
 **P-682 (2026-09-13):** `GXCopyTex(GX_TF_Z24X8)` depth snapshots work: the
 EFB depth is blitted into a DEPTH_COMPONENT24 renderbuffer and read as
 `GL_UNSIGNED_INT` (the EGL pbuffer itself cannot read depth), encoded into

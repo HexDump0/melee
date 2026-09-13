@@ -1395,6 +1395,21 @@ static void apply_draw_state(const GxHleDrawState* s)
                 s->alpha_update ? GL_TRUE : GL_FALSE);
 }
 
+/* P-676: consecutive draws frequently share the exact captured GX state
+ * (multi-part materials).  The uniform upload and pipeline-state calls are
+ * pure functions of that state, so remember the last applied one and skip
+ * the redundant GL calls; textures are still bound every draw.  The memo is
+ * invalidated by the frame clear (which disables scissor), EFB copies and
+ * the depth-only Z-texture pass (which uses a different program). */
+static GxHleDrawState last_applied_state;
+static int have_applied_state;
+
+static int draw_state_matches(const GxHleDrawState* s)
+{
+    return have_applied_state &&
+           memcmp(&last_applied_state, s, sizeof(*s)) == 0;
+}
+
 static void upload_draw_uniforms(const GxHleDrawState* s)
 {
     GLint orders[MAX_TEV_STAGES][4];
@@ -2072,6 +2087,7 @@ int gx_gl_render_frame(void)
     glUseProgram(program);
     glBindVertexArray(vertex_vao);
     glBindBuffer(GL_ARRAY_BUFFER, vertex_vbo);
+    have_applied_state = 0;
     {
         size_t bytes = vertex_count * sizeof(GxHleVertex);
         glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) bytes, vertices,
@@ -2086,6 +2102,7 @@ int gx_gl_render_frame(void)
         const GxHleTexture* t1 = NULL;
         const GxHleTexture* t2 = NULL;
         GLuint tex0 = 0;
+        int state_same;
         if (gl_options.only_draw >= 0 &&
             (size_t) gl_options.only_draw != i) {
             continue;
@@ -2096,11 +2113,13 @@ int gx_gl_render_frame(void)
         }
         if (d->kind == GX_HLE_DRAW_COPY_TEX) {
             efb_copy_tex(d);
+            have_applied_state = 0;
             continue;
         }
         if (d->vertex_count != 0 && s->ztex_op != 0 && ztex_program != 0) {
             draw_ztex(d, s, textures, texture_count);
             glUseProgram(program);
+            have_applied_state = 0;
             continue;
         }
         GLuint tex1 = 0;
@@ -2112,7 +2131,12 @@ int gx_gl_render_frame(void)
         if (s->cull_mode == 3) {
             continue;
         }
-        upload_draw_uniforms(s);
+        state_same = draw_state_matches(s);
+        if (!state_same) {
+            upload_draw_uniforms(s);
+            last_applied_state = *s;
+            have_applied_state = 1;
+        }
 
         if (s->texmap[0] >= 0 && (size_t) s->texmap[0] < texture_count) {
             t0 = &textures[s->texmap[0]];
@@ -2162,8 +2186,10 @@ int gx_gl_render_frame(void)
             glUniform3fv(u_tex_size, 3, &sizes[0][0]);
         }
 
-        apply_viewport(s);
-        apply_draw_state(s);
+        if (!state_same) {
+            apply_viewport(s);
+            apply_draw_state(s);
+        }
         /* GX scissor is in 640x480 EFB pixels; scale it onto the surface the
          * same way the projection/viewport stretch is applied. */
         {

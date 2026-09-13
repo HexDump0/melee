@@ -26,8 +26,8 @@ Learnings: `gx_indirect_toon.md`, `gx_lighting_specular.md`,
 Also closed: **P-680** lines/points via per-draw topology runs.
 Also closed: **P-679** fog coefficients, screen-depth evaluation and range
 adjustment (the converter follow-up on `fogadjdesc` remains).
-Also closed: **P-681** spot-light cones and **P-682** Z24X8 depth snapshots.
-Still red, each with a task: **P-676** perf, **P-677** harness.
+Also closed: **P-681** spot-light cones, **P-682** Z24X8 depth snapshots and
+**P-676** match-path batching.  Only **P-677** (harness breadth) remains.
 Session handoff: `handoffs/2026-09-13-renderer-parity.md`.
 
 ## Method
@@ -187,7 +187,7 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 | ~~**P-673** lighting/specular~~ **DONE** | §4 | `ctest decomp_gx_direct` light-object cases + `ctest decomp_efb` pass 6 (tinted spec); learning `gx_lighting_specular.md`. Follow-up: P-681 spot cones |
 | ~~**P-674** EFB copy formats~~ **DONE** (Z24X8 closed by P-682) | §6 | `ctest decomp_efb` pass 7; learning `gx_efb_copy.md` |
 | ~~**P-675** textures/samplers~~ **DONE** (edge-lod/bias-clamp documented) | §5 | `ctest decomp_gx_direct` expansion + texobj cases; learning `gx_texture_parity.md` |
-| **P-676** perf | state-change batching, redundant binds, uniform upload diffing, VBO stream | `[match] frame N ... render=Xms` before/after, frame-718 pixel parity |
+| ~~**P-676** perf~~ **DONE** | draw-state batching (-2.0% cycles, 19.4% hit rate); profile in `gx_match_perf.md`; match frames 600/718 byte-identical |
 | **P-677** harness | cross-character/stage/effect parity artifacts | one command per slice producing a pass/fail artifact |
 | ~~**P-678** `GXGetProjectionv` packed layout~~ **DONE** | §2 | `ctest decomp_gx_direct` asserts both layouts + `GXSetProjectionv` round trip; G-131 |
 | ~~**P-679** fog math + range adj~~ **DONE** (converter follow-up remains) | §7 | shader vs `shader.cpp` formula comparison on a synthetic depth ramp; range table read |
