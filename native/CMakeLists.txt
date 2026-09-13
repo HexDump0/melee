@@ -353,7 +353,18 @@ set_tests_properties(decomp_audio PROPERTIES
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
     TIMEOUT 240)
 set_tests_properties(decomp_match PROPERTIES
-    PASS_REGULAR_EXPRESSION "slot 0 stocks=3 dmg=0 pos=\\(10\\.75,33\\.45,0\\.00\\)"
+    PASS_REGULAR_EXPRESSION "slot 0 stocks=3 dmg=0 pos=\\(14\\.20,41\\.04,0\\.00\\)"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    TIMEOUT 240)
+# Combat smoke test: MELEE_HIT_TEST makes p0 jab while p1 walks into it, so a
+# hitbox command must spawn a capsule, collide, and apply damage.  Guards the
+# command -> hitbox -> collision -> damage path (hitboxes never activated when
+# `spawn_hitbox_skip` read the wrong bit).
+add_test(NAME decomp_hit
+    COMMAND melee_decomp_boot --boot-frames 600 --boot-timeout 90 --boot-match 20)
+set_tests_properties(decomp_hit PROPERTIES
+    ENVIRONMENT "MELEE_HIT_TEST=1"
+    PASS_REGULAR_EXPRESSION "\\[match\\] hit: slot [01] damage=[1-9]"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
     TIMEOUT 240)
 if(MELEE_SANITIZE)

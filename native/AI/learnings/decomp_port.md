@@ -255,6 +255,7 @@ The `MELEE_PORT_AX_*` macros live in `native/decomp/shim/decomp_shim.h`
 | File | Patch | Reason |
 |---|---|---|
 | `src/melee/gr/granime.c` (`grAnime_801C6F50`) | under `PORT_PC`, dispatch `AOBJ_ARG_A`..`AOBJ_ARG_AOTU` through the exact declared callback shapes (`(HSD_AObj*)`, `(HSD_AObj*, f32)`, `(HSD_AObj*, void*, u32)`, ...) | The retail dispatcher calls `func` through a common oversized prototype (`((Event) func)()` for `AOBJ_ARG_A`).  PowerPC keeps the first integer argument in `r3` across that call, so the no-argument callee still receives the `HSD_AObj*` the caller passed.  i386 cdecl passes every argument on the stack; `fn_801C6F2C` then saw the function pointer itself as `aobj` and Pokémon Stadium faulted during `grStadium_OnInit` (G-120).  The GameCube build keeps the original calls. |
+| `src/melee/lb/types.h` (`spawn_hitbox_skip`) | under `PORT_PC`, declare the five flags as a single console-ordered `u8` (`pad:3; xF_b4; xF_b3; ...`) instead of the unaligned `u32` bitfield | The retail code tests bit 3 of byte 0xF (`lbz` + `extrwi. r0, r0, 1, 28`); MWCC packs the flags MSB-first from bit 7.  GCC placed the `u32` storage differently and `xF_b4` read bit 4, which is set in normal attack commands, so every `spawn_hitbox` took the skip path and no hitbox ever activated (G-122). |
 
 Other S6 frontend patches landed with their own tasks (P-641 camera/results
 tables, P-647 SisLib fonts, P-650 TexAnim); see `STATE.md`.

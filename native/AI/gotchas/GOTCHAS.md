@@ -1510,3 +1510,20 @@ target nor zero: real records carry a name pointer and empty slots are legal
 because the runtime indexes by anim id.  Converter v70 makes the trim;
 `test_decomp_assets` now diffs every relocation field against a raw copy of the
 archive and validates the part-animation trees (P-652).
+
+## G-122: unaligned bitfield overlays on command data read the wrong bit
+
+**Symptom:** no attack ever damages anyone.  Fighters walk through each other
+and the opponent's percent stays 0; `ftColl_8007ABD0` (hitbox activation) is
+never called.
+**Cause:** `ftAction_8007121C` tests `((struct spawn_hitbox_skip*) cmd)->xF_b4`
+before spawning a hitbox.  The struct is a bare overlay on the command bytes
+(`u8 _0[0xF]` then a `u32` bitfield), and MWCC packs the flags MSB-first from
+bit 7 of byte 0xF, so `xF_b4` is bit 3 (`lbz r0,0xf(r4)` + `extrwi. r0,r0,1,28`
+in the retail asm).  GCC placed the bitfield differently and read bit 4, which
+is set in normal attack commands, so every `spawn_hitbox` command took the
+`ftAction_800715EC` skip path.
+**Fix:** under `PORT_PC`, `spawn_hitbox_skip` declares the flags in a single
+console-ordered `u8` (`patches/src/melee/lb/types.h.patch`, listed in
+`learnings/decomp_port.md` S6).  `ctest decomp_hit`
+(`MELEE_HIT_TEST=1` on the boot match) asserts the opponent takes damage.

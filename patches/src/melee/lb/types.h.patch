@@ -1,5 +1,5 @@
 diff --git a/src/melee/lb/types.h b/src/melee/lb/types.h
-index 5917d53b6..baad1402b 100644
+index 5917d53b6..958336e45 100644
 --- a/src/melee/lb/types.h
 +++ b/src/melee/lb/types.h
 @@ -2,6 +2,16 @@
@@ -375,9 +375,29 @@ index 5917d53b6..baad1402b 100644
      u32 base_knockback : 9;
      u32 element : 5;
      u32 x40_b0 : 1;
-@@ -834,48 +844,48 @@ struct spawn_hitbox_skip {
+@@ -828,54 +838,68 @@ struct it_create_hitbox_4 {
+ };
+ struct spawn_hitbox_skip {
+     u8 _0[0xF];
++#ifdef PORT_PC
++    /* The retail code tests bit 3 of byte 0xF (`lbz` + `extrwi. r0, r0, 1,
++     * 28`): MWCC packs the five flags MSB-first from bit 7.  GCC packs
++     * bitfields LSB-first, so declare the flags in a single console-ordered
++     * byte.  Reading the u32 bitfield here returns bit 4 and skips every
++     * hitbox spawn (hitboxes never activate). */
++    u8 pad_xF : 3;
++    u8 xF_b4 : 1;
++    u8 xF_b3 : 1;
++    u8 xF_b2 : 1;
++    u8 xF_b1 : 1;
++    u8 xF_b0 : 1;
++#else
+     u32 xF_b0 : 1;
+     u32 xF_b1 : 1;
+     u32 xF_b2 : 1;
      u32 xF_b3 : 1;
      u32 xF_b4 : 1;
++#endif
  };
 -struct sound_effect_0 {
 +struct CMD_BE sound_effect_0 {
@@ -434,7 +454,7 @@ index 5917d53b6..baad1402b 100644
      u32 opcode : 6;
      u32 boneId : 8;
      u32 use_alt_bone : 1;
-@@ -883,36 +893,36 @@ struct footstep_fx_0 {
+@@ -883,36 +907,36 @@ struct footstep_fx_0 {
      u32 x2_b0_7 : 8;
      u32 x3_b0_7 : 8;
  };

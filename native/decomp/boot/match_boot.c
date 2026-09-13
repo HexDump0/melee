@@ -15,6 +15,8 @@
  */
 #include "decomp/boot/match_boot.h"
 
+#include <stdlib.h>
+
 #include <melee/gm/forward.h>
 #include <melee/gm/gm_1A3F.h>
 #include <melee/gm/gmscene.h>
@@ -33,7 +35,31 @@
 static unsigned start_frame;
 static unsigned frame;
 static int stocks_frames;
+static int hit_test;
+static int hit_logged;
 static PadInputFrame match_input[MATCH_INPUT_FRAMES][MATCH_INPUT_CHANNELS];
+
+/* MELEE_HIT_TEST: p0 jabs in place while p1 walks into it.  The default
+ * script never guarantees contact, so this is the headless regression for
+ * the command -> hitbox -> collision -> damage path. */
+static void build_hit_test_input(void)
+{
+    unsigned f;
+
+    for (f = 0; f < MATCH_INPUT_FRAMES; f++) {
+        PadInputFrame* p0 = &match_input[f][0];
+        PadInputFrame* p1 = &match_input[f][1];
+
+        if (f >= 160 && f < 520) {
+            p1->stick_x = -60;
+        }
+        if (f >= 200 && f < 520 && (f % 15) < 5) {
+            p0->buttons |= PAD_BUTTON_A;
+        }
+    }
+    pad_set_input_script(&match_input[0][0], MATCH_INPUT_CHANNELS,
+                         MATCH_INPUT_FRAMES);
+}
 
 static void build_match_input(void)
 {
@@ -102,6 +128,11 @@ static void log_match_state(void)
                 fp->co_attrs.gravity, fp->co_attrs.terminal_velocity,
                 fp->co_attrs.jump_v_initial_velocity, fp->x34_scale.y);
         }
+        if (hit_test && !hit_logged && Player_GetDamage(slot) > 0) {
+            hit_logged = 1;
+            boot_triage_note("[match] hit: slot %d damage=%d\n", slot,
+                             (int) Player_GetDamage(slot));
+        }
     }
 }
 
@@ -159,7 +190,12 @@ void match_boot_init(unsigned frame_in)
     start_frame = frame_in;
     frame = 0;
     if (frame_in != 0) {
-        build_match_input();
+        if (getenv("MELEE_HIT_TEST") != NULL) {
+            hit_test = 1;
+            build_hit_test_input();
+        } else {
+            build_match_input();
+        }
         boot_platform_set_frame_hook(match_boot_frame);
     }
 }

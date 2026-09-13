@@ -174,7 +174,10 @@ their declared argument shapes (P-651/G-120), so Classic can initialize its
 first stage.  Converter v70 bounds the `Fighter_WaitAnimData` walk to the last
 record that carries a name pointer; the overrun used to rewrite Fox's
 part-animation pointers and crashed or froze the first Classic landing
-(P-652/G-121).  Open S6 follow-ups:
+(P-652/G-121).  Attacks now apply damage: the `spawn_hitbox_skip` flag is bit 3
+of command byte 0xF on the console, and the `PORT_PC` layout reads that bit
+instead of bit 4, so hitboxes activate (P-653/G-122; `ctest decomp_hit` checks
+the scripted opponent's percent).  Open S6 follow-ups:
 results names/models are wrong (P-645), match HUD stock icons show the wrong
 character (P-644), and
 save data is blocked by the game's hsd card filesystem pump (P-646; the host
