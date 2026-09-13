@@ -1143,6 +1143,14 @@ int main(int argc, char** argv)
     opt.width = width;
     opt.height = height;
 
+    /* The product runs the retail flow from a bare invocation. */
+    if (argc == 1 && !match_mode && !frontend_mode) {
+        frontend_mode = 1;
+        fprintf(stderr,
+                "melee: retail frontend (live input; ESC quits).  Use "
+                "--help for the development viewer options.\n");
+    }
+
     if (match_mode && record_path != NULL && strcmp(record_path, "-") == 0) {
         /* Keep stdout clean for the PPM pipe: move logs to /dev/null and
          * hand the original fd to the recorder before anything prints. */

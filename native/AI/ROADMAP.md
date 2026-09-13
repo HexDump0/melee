@@ -8,10 +8,12 @@ references, acceptance commands and risks is
 
 **Current position: the project pivoted on 2026-09-11 from the hand-written
 prototype to a decompilation-based full-game port (ADR-0010). S0–S5 are done
-as of 2026-09-12: the compiled decomp boots, renders, loads every asset
-family, runs a deterministic match and now plays its own audio through a
-software AX mixer (see `STATE.md`), and the owner confirmed the sound
-(2026-09-13). The next milestone is S6 (frontend and saves).**
+(see `STATE.md`), and S6 is in progress (2026-09-13): the retail frontend flow
+runs end to end (title → menu → VS CSS → stage select → match → results) from
+the product binary `build/native/melee`, with `ctest decomp_frontend` as the
+headless regression.  The remaining S6 work is save data (the game's hsd card
+filesystem pump deadlocks with the host card backend, P-646), the results/HUD
+visual bugs (P-644/P-645) and the item-model asset gap (P-643).**
 
 ---
 

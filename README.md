@@ -40,11 +40,11 @@ committed to this repository.
 ## Running
 
 ```sh
-./build/native/melee --inspect                 # disc → HSD pipeline smoke test
+./build/native/melee                         # the product: retail frontend
+./build/native/melee --match                 # debug match (dev)
+./build/native/melee_prototype --inspect     # prototype sandbox (dev tool)
 ./build/native/melee_decomp_boot --boot-frames 600 --boot-timeout 90
-./build/native/melee_decomp_viewer             # interactive compiled viewer
-./build/native/melee_decomp_viewer --match     # live compiled match
-ctest --test-dir build/native                  # full regression suite
+ctest --test-dir build/native                # full regression suite
 ```
 
 Agent workflow, milestones and current state: [`native/AI/STATE.md`](native/AI/STATE.md),

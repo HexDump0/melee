@@ -69,7 +69,7 @@ set(MELEE_AX_SOURCES
     # this replacement TU ports reverb_std and stubs the two unused effects.
     ${CMAKE_CURRENT_SOURCE_DIR}/decomp/axfx/axfx_port.c)
 
-add_executable(melee
+add_executable(melee_prototype
     main.c
     platform/disc.c
     platform/screenshot.c
@@ -87,14 +87,14 @@ add_executable(melee
     extras/physics.c
     extras/viewer.c
     extras/sandbox.c)
-target_include_directories(melee PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_compile_options(melee PRIVATE -Wall -Wextra -Wpedantic)
-target_link_libraries(melee PRIVATE PkgConfig::SDL2 OpenGL::GL m melee_decomp_math)
-target_link_options(melee PRIVATE "LINKER:--gc-sections")
+target_include_directories(melee_prototype PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_options(melee_prototype PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(melee_prototype PRIVATE PkgConfig::SDL2 OpenGL::GL m melee_decomp_math)
+target_link_options(melee_prototype PRIVATE "LINKER:--gc-sections")
 option(MELEE_SANITIZE "Enable memory and undefined behavior checks" OFF)
 if(MELEE_SANITIZE)
-  target_compile_options(melee PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
-  target_link_options(melee PRIVATE -fsanitize=address,undefined)
+  target_compile_options(melee_prototype PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+  target_link_options(melee_prototype PRIVATE -fsanitize=address,undefined)
 endif()
 
 enable_testing()
@@ -465,7 +465,7 @@ endif()
 # 32-bit SDL3 library is absent so the rest of the port still builds.
 find_library(MELEE_SDL3_LIB32 NAMES SDL3 PATHS /usr/lib32 NO_DEFAULT_PATH)
 if(MELEE_SDL3_LIB32)
-  add_executable(melee_decomp_viewer
+  add_executable(melee
       decomp/render/viewer_main.c
       decomp/render/render_scene.c
       decomp/render/hud.c
@@ -497,13 +497,13 @@ if(MELEE_SDL3_LIB32)
       platform/font_stub.c
       platform/misc.c
       $<TARGET_OBJECTS:melee_decomp_game>)
-  target_include_directories(melee_decomp_viewer BEFORE PRIVATE
+  target_include_directories(melee BEFORE PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
       ${CMAKE_CURRENT_SOURCE_DIR})
-  target_include_directories(melee_decomp_viewer SYSTEM PRIVATE
+  target_include_directories(melee SYSTEM PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src
       ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/include)
-  target_compile_options(melee_decomp_viewer PRIVATE
+  target_compile_options(melee PRIVATE
       -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS}
       -Wall -Wextra -Wpedantic -Wno-overlength-strings -fgnu89-inline
       -ffunction-sections -fdata-sections -rdynamic -D_GNU_SOURCE
@@ -514,10 +514,21 @@ if(MELEE_SDL3_LIB32)
       decomp/render/viewer_main.c
       decomp/render/sdl_audio.c
       PROPERTIES COMPILE_DEFINITIONS "MELEE_SHIM_REAL_STDBOOL")
-  target_link_libraries(melee_decomp_viewer PRIVATE
+  target_link_libraries(melee PRIVATE
       ${MELEE_SDL3_LIB32} m EGL GLESv2 ${CMAKE_DL_LIBS})
-  target_link_options(melee_decomp_viewer PRIVATE
+  target_link_options(melee PRIVATE
       -m32 -malign-double -rdynamic "LINKER:--gc-sections")
+  # S6: the retail frontend flow, headless and deterministic: boot -> title ->
+  # main menu -> VS. Mode -> CSS (Mario + CPU) -> stage select -> match.
+  add_test(NAME decomp_frontend COMMAND melee
+      --frontend --no-items
+      --input ${CMAKE_CURRENT_SOURCE_DIR}/tests/frontend_vs.txt
+      --frames 2400 --shot ${CMAKE_CURRENT_BINARY_DIR}/decomp_frontend.bmp)
+  set_tests_properties(decomp_frontend PROPERTIES
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
+      PASS_REGULAR_EXPRESSION "scene=2"
+      TIMEOUT 600
+      ENVIRONMENT "SDL_VIDEODRIVER=offscreen;SDL_AUDIODRIVER=dummy;MELEE_NO_CARD=1")
 else()
-  message(STATUS "32-bit SDL3 not found; skipping melee_decomp_viewer")
+  message(STATUS "32-bit SDL3 not found; skipping the product melee target")
 endif()

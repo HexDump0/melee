@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-12 (S5 audio: compiled AX stack + software mixer, .ssm/.sem/.hps conversion, HPS/BGM and SFX play)
+Last updated: 2026-09-13 (S6 in progress: retail frontend flow runs end to end)
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -134,6 +134,26 @@ u16-pair address/ratio aliasing needs host helpers (G-098), `.sem`/`.hps`
 needed endian conversion (G-099), and synchronous `.sem` loading needed the
 idle tick to pump completions (G-100).  Owner listening check passed
 2026-09-13 ("audio sound pretty fine").
+
+**S6 in progress (2026-09-13): the retail frontend flow runs end to end.**
+The product target is now `melee` (the compiled game's own frontend; the old
+hand-port sandbox is `melee_prototype`).  A bare `./build/native/melee` runs the
+retail flow with live keyboard input (Enter=START, Z=A, X=B, C=X, V=Y, A=L,
+S=R, Q=Z, arrows=stick); `--frontend --input FILE` replays a deterministic
+script and `--no-items` uses the game's own debug item switch.  Verified with
+screenshots through: memory-card prompt (no card) -> title (logo starts at
+frame 400, no reveal card) -> main menu -> VS. Mode -> character select (Mario
++ CPU DK) -> stage select -> live match (Yoshi's Story, HUD/stocks/timer) ->
+results.  `ctest decomp_frontend` drives the same flow headlessly to the match
+start and asserts the scene transition.  Eight `PORT_PC` patches now cover the
+decomp's static-data adjacency assumptions (camera tables, `ftMapping_list`,
+the results `CameraKindData` block) and a main-menu stack overflow.  Converter
+v65 converts the CSS/stage-select/results scene tables, `GmRst`
+`pnlsce`/`flmsce`, and the food item special attributes.  Open S6 follow-ups:
+item models crash PObj resolution for some items (P-643), results names/models
+are wrong (P-645), match HUD stock icons show the wrong character (P-644), and
+save data is blocked by the game's hsd card filesystem pump (P-646; the host
+card backend is opt-in behind `MELEE_CARD_DIR` until then).
 
 ## TL;DR
 
@@ -281,12 +301,16 @@ Ordered by impact.
 ```sh
 cmake -S native -B build/native -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build/native -j4
-./build/native/melee --inspect
-./build/native/melee --list-models
-./build/native/melee --list-clips
-SDL_VIDEODRIVER=offscreen ./build/native/melee --view --frames 3 \
+./build/native/melee                          # the product: retail frontend
+./build/native/melee --frontend --input native/tests/frontend_vs.txt \
+    --no-items --frames 2400 --shot /tmp/fe.bmp   # headless frontend flow
+ctest --test-dir build/native -R decomp_frontend  # the same, as a ctest
+./build/native/melee_prototype --inspect      # prototype sandbox (dev tool)
+./build/native/melee_prototype --list-models
+./build/native/melee_prototype --list-clips
+SDL_VIDEODRIVER=offscreen ./build/native/melee_prototype --view --frames 3 \
     --screenshot /tmp/viewer.bmp
-SDL_VIDEODRIVER=offscreen ./build/native/melee --view --animate \
+SDL_VIDEODRIVER=offscreen ./build/native/melee_prototype --view --animate \
     --clip Wait1 --anim-frame 25 --frames 1 --screenshot /tmp/anim.bmp
 SDL_VIDEODRIVER=offscreen ./build/native/melee --scripted --frames 240 \
     --screenshot /tmp/baseline.bmp
