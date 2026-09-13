@@ -20,7 +20,8 @@ sensitivity-flipped regressions:
 | `447826c1d` | P-674 | BT.601 I4/I8/IA4/IA8 copies, RGB5A3 copies, shared tiling encoder |
 | `3bdf7945a` | P-675 | Bit-replication channel expansion (image+TLUT), per-object `GXTexObj` state |
 | `3c4e4ec4b` | P-680 | Topology runs so `GX_LINES`/`GX_LINESTRIP`/`GX_POINTS` render; line width/point size |
-| (P-679, this commit) | P-679 | SDK fog coefficients + `gl_FragCoord.z` evaluation, all five families, range adjustment |
+| `76448c9c5` | P-679 | SDK fog coefficients + `gl_FragCoord.z` evaluation, all five families, range adjustment |
+| (P-681, this commit) | P-681 | Per-channel `GX_AF_*` attenuation; SPOT cosine/distance polynomials |
 
 ## Coverage matrix delta
 
@@ -36,7 +37,6 @@ Closed (now EXACT or documented):
 Still red (each has a task):
 - **P-676** match-path performance (reinstated P-642).
 - **P-677** parity harness breadth.
-- **P-681** spot-light cones (`LOBJ_SPOT`, only `GrZebesRoute`).
 - **P-682** Z24X8 EFB depth snapshots + `GX_ZT_ADD`/bias edges.
 
 Documented deviations (no task): EFB always RGBA8 (`GXSetPixelFmt`),
@@ -67,7 +67,7 @@ outputs are in each learning under `native/AI/learnings/`
 
 ## Suggested next slice
 
-1. **P-681** spot cones, **P-682** Z24X8 depth snapshots.
+1. **P-682** Z24X8 depth snapshots.
 2. **P-676 perf** (profile under a quiet system first; the P-642 notes warn
    that a decoded-display-list cache was slower).  The run path added by
    P-680 is a natural place to start: same-topology runs merge already.

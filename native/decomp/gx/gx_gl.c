@@ -104,6 +104,7 @@ static GLint u_ch_enable;
 static GLint u_ch_amb_src;
 static GLint u_ch_mat_src;
 static GLint u_ch_diff_fn;
+static GLint u_ch_attn_fn;
 static GLint u_ch_light_mask;
 static GLint u_ch_amb;
 static GLint u_ch_mat;
@@ -192,6 +193,7 @@ static const char* VERTEX_SRC =
     "uniform int u_ch_amb_src[4];\n"
     "uniform int u_ch_mat_src[4];\n"
     "uniform int u_ch_diff_fn[4];\n"
+    "uniform int u_ch_attn_fn[4];\n"
     "uniform int u_ch_light_mask[4];\n"
     "uniform vec4 u_ch_amb[4];\n"
     "uniform vec4 u_ch_mat[4];\n"
@@ -209,15 +211,17 @@ static const char* VERTEX_SRC =
     "out vec4 v_ras1;\n"
     "out float v_dist;\n"
     "bool light_infinite(vec3 p) { return dot(p, p) > 1.0e10; }\n"
-    "void light_view_dir(int i, vec3 view, out vec3 ldir, out float attn) {\n"
+    "void light_view_dir(int i, vec3 view, out vec3 ldir, out float dist,\n"
+    "                    out float attn) {\n"
     "    vec3 p = u_light_pos[i].xyz;\n"
     "    attn = 1.0;\n"
+    "    dist = 0.0;\n"
     "    if (light_infinite(p)) {\n"
     "        float len = length(p);\n"
     "        ldir = len > 0.0 ? p / len : vec3(0.0, 0.0, 1.0);\n"
     "    } else {\n"
     "        vec3 d = p - view;\n"
-    "        float dist = length(d);\n"
+    "        dist = length(d);\n"
     "        ldir = dist > 0.0 ? d / dist : vec3(0.0, 0.0, 1.0);\n"
     "        float dd = dist * dist;\n"
     "        float den = u_light_k[i].x + u_light_k[i].y * dist +\n"
@@ -225,6 +229,27 @@ static const char* VERTEX_SRC =
     "        attn = (u_light_a[i].x + u_light_a[i].y * dist +\n"
     "                u_light_a[i].z * dd) / den;\n"
     "    }\n"
+    "}\n"
+    "/* GX_AF_* is SPEC=0, SPOT=1, NONE=2.  SPOT is a cosine polynomial over\n"
+    " * the cone axis (the stored light direction is the SDK-input travel\n"
+    " * direction, so the hardware negates it) divided by the distance\n"
+    " * polynomial (Dolphin LightingShaderGen AttenuationFunc::Spot). */\n"
+    "float channel_attn(int ch, int i, vec3 ldir, float dist,\n"
+    "                   float distance_attn) {\n"
+    "    int fn = u_ch_attn_fn[ch];\n"
+    "    if (fn == 1) {\n"
+    "        float hn = length(u_light_dir[i].xyz);\n"
+    "        vec3 axis = hn > 1.0e-6 ? u_light_dir[i].xyz / hn\n"
+    "                               : vec3(0.0, 0.0, 1.0);\n"
+    "        float cosine = max(0.0, dot(ldir, -axis));\n"
+    "        float num = u_light_a[i].x + u_light_a[i].y * cosine +\n"
+    "                    u_light_a[i].z * cosine * cosine;\n"
+    "        float den = u_light_k[i].x + u_light_k[i].y * dist +\n"
+    "                    u_light_k[i].z * dist * dist;\n"
+    "        return den != 0.0 ? max(0.0, num / den) : 0.0;\n"
+    "    }\n"
+    "    if (fn == 2) return 1.0;\n"
+    "    return distance_attn;\n"
     "}\n"
     "float diffuse_term(int fn, float ndl) {\n"
     "    if (fn == 0) return 1.0;\n"
@@ -244,8 +269,9 @@ static const char* VERTEX_SRC =
     "                                                      : u_ch_amb[ac].a;\n"
     "    for (int i = 0; i < 8; i++) {\n"
     "        if ((mask & (1 << i)) == 0) continue;\n"
-    "        vec3 ldir; float attn;\n"
-    "        light_view_dir(i, a_view, ldir, attn);\n"
+    "        vec3 ldir; float dist; float attn;\n"
+    "        light_view_dir(i, a_view, ldir, dist, attn);\n"
+    "        attn = channel_attn(ac, i, ldir, dist, attn);\n"
     "        float ndl = dot(a_nrm, ldir);\n"
     "        lacc += diffuse_term(u_ch_diff_fn[ac], ndl) * attn *\n"
     "                u_light_color[i].a;\n"
@@ -265,8 +291,8 @@ static const char* VERTEX_SRC =
     "        vec3 spec = vec3(0.0);\n"
     "        for (int i = 0; i < 8; i++) {\n"
     "            if ((mask & (1 << i)) == 0) continue;\n"
-    "            vec3 ldir; float attn;\n"
-    "            light_view_dir(i, a_view, ldir, attn);\n"
+    "            vec3 ldir; float ldist; float attn;\n"
+    "            light_view_dir(i, a_view, ldir, ldist, attn);\n"
     "            vec3 h;\n"
     "            float hn = length(u_light_dir[i].xyz);\n"
     "            if (hn > 1.0e-6) {\n"
@@ -301,8 +327,9 @@ static const char* VERTEX_SRC =
     "    vec3 lacc = amb;\n"
     "    for (int i = 0; i < 8; i++) {\n"
     "        if ((mask & (1 << i)) == 0) continue;\n"
-    "        vec3 ldir; float attn;\n"
-    "        light_view_dir(i, a_view, ldir, attn);\n"
+    "        vec3 ldir; float dist; float attn;\n"
+    "        light_view_dir(i, a_view, ldir, dist, attn);\n"
+    "        attn = channel_attn(ch, i, ldir, dist, attn);\n"
     "        float ndl = dot(a_nrm, ldir);\n"
     "        float t = diffuse_term(u_ch_diff_fn[ch], ndl) * attn;\n"
     "        lacc += t * u_light_color[i].rgb;\n"
@@ -740,6 +767,7 @@ static int build_program(char* error, size_t error_size)
     u_ch_amb_src = glGetUniformLocation(program, "u_ch_amb_src");
     u_ch_mat_src = glGetUniformLocation(program, "u_ch_mat_src");
     u_ch_diff_fn = glGetUniformLocation(program, "u_ch_diff_fn");
+    u_ch_attn_fn = glGetUniformLocation(program, "u_ch_attn_fn");
     u_ch_light_mask = glGetUniformLocation(program, "u_ch_light_mask");
     u_ch_amb = glGetUniformLocation(program, "u_ch_amb");
     u_ch_mat = glGetUniformLocation(program, "u_ch_mat");
@@ -1434,6 +1462,7 @@ static void upload_draw_uniforms(const GxHleDrawState* s)
         GLint ch_amb_src[4];
         GLint ch_mat_src[4];
         GLint ch_diff_fn[4];
+        GLint ch_attn_fn[4];
         GLint ch_light_mask[4];
         GLfloat ch_amb[4][4];
         GLfloat ch_mat[4][4];
@@ -1447,6 +1476,7 @@ static void upload_draw_uniforms(const GxHleDrawState* s)
             ch_amb_src[i] = s->ch_amb_src[i];
             ch_mat_src[i] = s->ch_mat_src[i];
             ch_diff_fn[i] = s->ch_diff_fn[i];
+            ch_attn_fn[i] = s->ch_attn_fn[i];
             ch_light_mask[i] = (GLint) s->ch_light_mask[i];
             memcpy(ch_amb[i], s->ch_amb[i], sizeof(ch_amb[i]));
             memcpy(ch_mat[i], s->ch_mat[i], sizeof(ch_mat[i]));
@@ -1478,6 +1508,7 @@ static void upload_draw_uniforms(const GxHleDrawState* s)
         glUniform1iv(u_ch_amb_src, 4, ch_amb_src);
         glUniform1iv(u_ch_mat_src, 4, ch_mat_src);
         glUniform1iv(u_ch_diff_fn, 4, ch_diff_fn);
+        glUniform1iv(u_ch_attn_fn, 4, ch_attn_fn);
         glUniform1iv(u_ch_light_mask, 4, ch_light_mask);
         glUniform4fv(u_ch_amb, 4, &ch_amb[0][0]);
         glUniform4fv(u_ch_mat, 4, &ch_mat[0][0]);

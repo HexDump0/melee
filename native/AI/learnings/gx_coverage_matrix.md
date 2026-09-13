@@ -26,8 +26,9 @@ Learnings: `gx_indirect_toon.md`, `gx_lighting_specular.md`,
 Also closed: **P-680** lines/points via per-draw topology runs.
 Also closed: **P-679** fog coefficients, screen-depth evaluation and range
 adjustment (the converter follow-up on `fogadjdesc` remains).
-Still red, each with a task: **P-676** perf, **P-677** harness, **P-681**
-spot cones, **P-682** Z24X8 depth snapshots.
+Also closed: **P-681** spot-light cones.
+Still red, each with a task: **P-676** perf, **P-677** harness, **P-682**
+Z24X8 depth snapshots.
 Session handoff: `handoffs/2026-09-13-renderer-parity.md`.
 
 ## Method
@@ -113,7 +114,7 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 | `GXInitLightDir` | EXACT capture, documented sign convention | `gx_hle.c:GXInitLightDir` stores the API value; the shader consumes it as H (HSD computes `half`; prototype-validated) | `GXLighting.cpp` stores `-input`; Dolphin's Spec path reads the register | learning `gx_lighting_specular.md`; convention documented, not scheduled |
 | `GXInitLightDistAttn` | EXACT (closed by P-673) | `gx_hle.c:GXInitLightDistAttn` — SDK OFF guards + GENTLE/MEDIUM/STEEP | `GXLighting.cpp` (SDK `GXLight.c`) | `ctest decomp_gx_direct` light-math cases |
 | `GXInitLightSpot` | EXACT (closed by P-673) | `gx_hle.c:GXInitLightSpot` — out-of-range cutoff → `GX_SP_OFF` | `GXLighting.cpp` (SDK `GXLight.c`) | `ctest decomp_gx_direct` spot cases. (Aurora's RING1 `a0` sign differs from the SDK; our RING1 matches the SDK — keep ours) |
-| Channel-1 specular evaluation (`GX_AF_SPEC`) | EXACT for Melee's use (closed by P-673): per-channel tint, `max(0, a(t)/k(t))`, N·L gate, DF-none | VS `channel_raster` spec branch `gx_gl.c` | `shader.cpp:lighting_func`; Dolphin `LightingShaderGen` AttenuationFunc::Spec | `ctest decomp_efb` pass 6. Spot-light cones (`a.y/a.z != 0`) are approximate → P-681 |
+| Channel attenuation functions (SPEC/SPOT/NONE) | EXACT (closed by P-673/P-681): tinted `GX_AF_SPEC` polynomial, `GX_AF_SPOT` cosine/distance polynomials, `GX_AF_NONE` = 1 | VS `channel_attn`/spec branch `gx_gl.c` | `shader.cpp:lighting_func`; Dolphin `LightingShaderGen` AttenuationFunc::Spec/Spot | `ctest decomp_efb` passes 6 and 10; learning `gx_lighting_specular.md` |
 | `GXLoadLightObjImm` (8 lights) | EXACT | `gx_hle.c:1962` | `GXLighting.cpp` | — |
 | `GXInitSpecularDir`/`HA` | N/A | not called by Melee (HSD builds the half vector itself) | `GXLighting.cpp` | add only if a call site appears |
 

@@ -50,14 +50,31 @@ change there).
 - The spec fixture uses `a = (0,0,1)`, `k = (k0,0,1-k0)` exactly like
   `HSD_LObjSetup` (`lobj.c:289`), with `N = H` so the polynomial is 1.
 
-## Deviation filed
+## Spot-light cones (P-681)
 
-- **Spot-light cones** (`GX_AF_SPOT` with nonzero `a.y/a.z`): our shader
-  attenuates by distance only; the hardware multiplies by a cosine
-  polynomial.  HSD's point lights always end with `a = (1,0,0)` after the
-  `GXInitLightSpot(..., 0, 0)` call, so this is exact for them.  Only
-  `GrZebesRoute` references `LOBJ_SPOT`; filed as **P-681** with a Brinstar
-  fixture once a stage harness can reach it.
+The channel attenuation function is now evaluated per channel from the
+captured `GXSetChanCtrl` attn_fn (`GX_AF_SPEC=0`, `GX_AF_SPOT=1`,
+`GX_AF_NONE=2` — the enum order is easy to misread):
+
+- **SPOT**: `attn = max(0, (a.x + a.y·c + a.z·c²) / (k.x + k.y·d + k.z·d²))`
+  with `d` the light distance and `c = max(0, dot(ldir, -axis))`.  The
+  negation is required because the SDK stores the *travel* direction
+  (`HSD_LObjGetLightVector` = interest - position) and the hardware register
+  holds the SDK input negated; our HLE keeps the raw input, so the shader
+  applies the same negation the hardware sees.  Dolphin
+  `LightingShaderGen` `AttenuationFunc::Spot` is the reference.
+- **NONE**: `attn = 1`.
+- **SPEC** (channel 1): the distance form remains part of the specular
+  polynomial.
+
+HSD's point lights set `a = (1,0,0)` via `GXInitLightSpot(..., 0, 0)`, for
+which SPOT reduces to the pure distance falloff the port already used, so
+only real cones (`GrZebesRoute`'s `LOBJ_SPOT`) change.  `ctest decomp_efb`
+pass 10 places two size-1 points on and off the cone axis: `a=(0,0,1)`,
+`k=(1,0,0)` gives green on the axis and `cos² = 0.25` green off it.
+
+Flips: removing the SPOT branch fails `spot cone pixel=0,255,0 (want
+~0,64,0)`; dropping the axis negation fails both spot pixels (`0,0,0`).
 
 ## Re-run
 

@@ -1588,6 +1588,69 @@ static int efb_test(void)
         }
     }
 
+    /* ---- pass 10: P-681 spot cone cosine attenuation ----
+     * GX_AF_SPOT with a = (0,0,1) and k = (1,0,0) makes the channel raster
+     * attn * lightColor with attn = cos^2(axis).  Two size-1 points: one on
+     * the axis (cos=1 -> green), one at cos=0.5 (-> 0.25 green). */
+    {
+        static const float spot_identity[4][4] = {
+            { 0.2f, 0.0f, 0.0f, 0.0f },
+            { 0.0f, 0.5f, 0.0f, 0.0f },
+            { 0.0f, 0.0f, 1.0f, 0.0f },
+            { 0.0f, 0.0f, 0.0f, 1.0f }
+        };
+        GXLightObj lt;
+        GXColor white = { 0xFF, 0xFF, 0xFF, 0xFF };
+        GXColor black = { 0x00, 0x00, 0x00, 0xFF };
+        GXColor green = { 0x00, 0xFF, 0x00, 0xFF };
+
+        gx_hle_begin_frame();
+        gx_hle_reset_state();
+        GXSetProjection((f32(*)[4]) spot_identity, GX_PERSPECTIVE);
+        GXSetNumChans(1);
+        GXSetChanCtrl(GX_COLOR0A0, GX_TRUE, GX_SRC_REG, GX_SRC_REG,
+                      GX_LIGHT0, GX_DF_NONE, GX_AF_SPOT);
+        GXSetChanAmbColor(GX_COLOR0A0, black);
+        GXSetChanMatColor(GX_COLOR0A0, white);
+        GXInitLightColor(&lt, green);
+        GXInitLightPos(&lt, 0.0f, 0.0f, 2.0f);
+        GXInitLightDir(&lt, 0.0f, 0.0f, -1.0f); /* travel direction */
+        GXInitLightAttn(&lt, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f);
+        GXLoadLightObjImm(&lt, GX_LIGHT0);
+        GXSetNumTexGens(0);
+        GXSetNumTevStages(1);
+        GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL,
+                      GX_COLOR0A0);
+        GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+        GXSetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_COPY);
+        GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
+        GXSetCullMode(GX_CULL_NONE);
+        GXClearVtxDesc();
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+        GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+        /* Clip coordinates chosen so the 1px point centres land on pixel
+         * centres (320.5, 240.5) and (541.5, 240.5). */
+        GXBegin(GX_POINTS, GX_VTXFMT0, 2);
+        GXPosition3f32(1.0f / 640.0f, 1.0f / 480.0f, 0.0f);
+        GXPosition3f32(3.4570313f, 1.0f / 480.0f, 0.0f);
+        if (gx_gl_render_frame() < 0) {
+            printf("efb: FAIL render_frame (spot)\n");
+            return 0;
+        }
+        glReadPixels(320, 240, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+        if (!(pixel[1] > 240 && pixel[0] < 20 && pixel[2] < 20)) {
+            printf("efb: FAIL spot axis pixel=%u,%u,%u (want green)\n",
+                   pixel[0], pixel[1], pixel[2]);
+            fail = 1;
+        }
+        glReadPixels(541, 240, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+        if (!(pixel[1] > 50 && pixel[1] < 80 && pixel[0] < 20)) {
+            printf("efb: FAIL spot cone pixel=%u,%u,%u (want ~0,64,0)\n",
+                   pixel[0], pixel[1], pixel[2]);
+            fail = 1;
+        }
+    }
+
     printf("efb: %s\n", fail ? "FAIL" : "PASS");
     return !fail;
 }
