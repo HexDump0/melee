@@ -1449,3 +1449,18 @@ byte swap).  Validated by decoding the concatenated per-voice page data in a
 throwaway Python probe: the stored context at every page boundary matches the
 running decoder state exactly (`yn1`/`yn2`/`pred` identical, pages 1–11, both
 voices), so applying it makes the seams bit-continuous.
+
+## G-118: `ItemStateArray[8]` is not the serialized array bound
+
+**Symptom:** random common items, especially Bob-omb, abort in
+`HSD_PObjResolveRefs` because a skin PObj's referenced joint is absent from the
+loaded model root.  Other item model counts/attach IDs remain byte-reversed.
+**Cause:** the decomp type declares eight states, but `ItCo` serializes a
+variable-length state array immediately before each `Article` (with alignment
+padding).  Walking eight entries overruns short arrays into the article/model
+metadata; animation walkers mark or mutate those descriptors before their real
+converter runs.  Some articles also have more than eight states.
+**Fix:** derive the state count as
+`(article_offset - states_offset) / sizeof(ItemStateDesc)` and bounds-check it.
+Converter v68 plus `test_decomp_assets` now loads all 40 common-item model roots
+through `HSD_JObjLoadJoint`.

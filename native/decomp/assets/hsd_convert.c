@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 67u
+#define HSD_CONVERTER_VERSION 68u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -1665,16 +1665,21 @@ static void conv_item_dynamics(Conv* c, uint32_t off)
     }
 }
 
-/* ItemStateArray: 8 ItemStateDesc { AnimJoint*; MatAnimJoint*;
- * ShapeAnimJoint*; UNK script } — pointer targets need their own walks. */
-static void conv_item_state_array(Conv* c, uint32_t off)
+/* ItemStateDesc { AnimJoint*; MatAnimJoint*; ShapeAnimJoint*; UNK script }.
+ * ItemStateArray is declared with eight entries in the decomp, but the DAT
+ * stores the states used by each article (some have more than eight), followed
+ * by up to 15 bytes of alignment padding and then the Article.  Walking eight
+ * entries unconditionally interprets following metadata as animation roots
+ * for short arrays and misses states in long arrays. */
+static void conv_item_state_array(Conv* c, uint32_t off, int count)
 {
     int i;
 
-    if (!in_data(c, off, 8 * 0x10) || !mark(c, off)) {
+    if (count <= 0 || count > 64 ||
+        !in_data(c, off, (size_t) count * 0x10) || !mark(c, off)) {
         return;
     }
-    for (i = 0; i < 8; i++) {
+    for (i = 0; i < count; i++) {
         uint32_t st = off + (uint32_t) i * 0x10;
         uint32_t anim = rd32(c, st + 0x00);
         uint32_t mat = rd32(c, st + 0x04);
@@ -1751,7 +1756,9 @@ static void conv_article(Conv* c, uint32_t off, int item_kind)
         conv_it_hurtbone_list(c, hurt);
     }
     if (states != 0) {
-        conv_item_state_array(c, states);
+        uint32_t bytes = off > states ? off - states : 0;
+        int state_count = bytes >= 0x10 ? (int) (bytes / 0x10) : 0;
+        conv_item_state_array(c, states, state_count);
     }
     if (model != 0) {
         conv_item_model_desc(c, model);

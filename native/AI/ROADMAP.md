@@ -13,7 +13,8 @@ runs end to end (title → menu → VS CSS → stage select → match → result
 the product binary `build/native/melee`, with `ctest decomp_frontend` as the
 headless regression.  The remaining S6 work is save data (the game's hsd card
 filesystem pump deadlocks with the host card backend, P-646), the results/HUD
-visual bugs (P-644/P-645) and the item-model asset gap (P-643).**
+visual bugs (P-644/P-645).  Item models are fixed and enabled by default
+(P-643).**
 
 ---
 

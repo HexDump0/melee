@@ -969,8 +969,7 @@ static int run_match(SDL_Window* window, SDL_GLContext context,
     gx_gl_set_options(gl);
     boot_platform_set_present_hook(match_present);
     if (no_items) {
-        /* The game's own debug item switch; lets the retail flow regress
-         * without the item-model asset work (see TASKS.md P-643). */
+        /* The game's own debug item switch for deterministic flow tests. */
         db_DisableItemSpawns();
     }
     if (frontend) {
@@ -1039,7 +1038,6 @@ int main(int argc, char** argv)
     int match_mode = 0;
     int frontend_mode = 0;
     int no_items = 0;
-    int items_explicit = 0;
     const char* input_path = NULL;
     unsigned match_frame = 20;
     int quit = 0;
@@ -1079,10 +1077,8 @@ int main(int argc, char** argv)
             frontend_mode = 1;
         } else if (strcmp(argv[i], "--no-items") == 0) {
             no_items = 1;
-            items_explicit = 1;
         } else if (strcmp(argv[i], "--items") == 0) {
             no_items = 0;
-            items_explicit = 1;
         } else if (strcmp(argv[i], "--input") == 0 && (int) i + 1 < argc) {
             input_path = argv[++i];
         } else if (strcmp(argv[i], "--record") == 0 &&
@@ -1177,17 +1173,6 @@ int main(int argc, char** argv)
                 "melee: retail frontend (live input; ESC quits).  Use "
                 "--help for the development viewer options.\n");
     }
-    if (frontend_mode && !no_items && !items_explicit) {
-        /* P-643: some item models still fail PObj resolution, which aborts
-         * the first match that spawns one.  Default the product to the game's
-         * own item switch off until the asset gap is fixed; --items forces
-         * them back on for testing. */
-        no_items = 1;
-        fprintf(stderr,
-                "melee: items off by default (P-643); pass --items to "
-                "enable them\n");
-    }
-
     if (match_mode && record_path != NULL && strcmp(record_path, "-") == 0) {
         /* Keep stdout clean for the PPM pipe: move logs to /dev/null and
          * hand the original fd to the recorder before anything prints. */

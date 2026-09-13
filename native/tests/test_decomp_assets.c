@@ -1,8 +1,8 @@
 /*
  * S3 asset pipeline sweep.
  *
- * Loads every Pl*Nr character archive (plus one stage and the common
- * MnSlChr/IfAll assets) through the compiled HSD path:
+ * Loads every Pl*Nr character archive, all common-item models, one stage and
+ * the common MnSlChr/IfAll assets through the compiled HSD path:
  *
  *   1. disc.c reads the archive from the user's image,
  *   2. native/decomp/assets/hsd_convert.c converts it to host order and
@@ -181,6 +181,97 @@ static int ptr_in_buffer(const void* p, const unsigned char* base, size_t size)
 {
     const unsigned char* q = (const unsigned char*) p;
     return q >= base && q < base + size;
+}
+
+/* HSD_JObjLoadJoint resolves every PObj joint ID against the descriptors in
+ * the root it just loaded.  Exercise all common-item model roots so an item
+ * whose PObj points outside that root is caught before a random match spawn. */
+static int check_item_models(const char* image)
+{
+    char error[256];
+    size_t size = 0;
+    unsigned char* buffer = load_archive(image, "ItCo.usd", NULL, &size,
+                                         error, sizeof(error));
+    HsdConvertStats stats;
+    HSD_Archive archive;
+    unsigned char* public_data;
+    unsigned char** articles;
+    unsigned checked = 0;
+    unsigned loaded = 0;
+    unsigned i;
+
+    if (buffer == NULL) {
+        buffer = load_archive(image, "ItCo.dat", NULL, &size, error,
+                              sizeof(error));
+    }
+    if (buffer == NULL) {
+        fprintf(stderr, "decomp_assets: item models: %s\n", error);
+        return 1;
+    }
+    if (!hsd_asset_convert(buffer, size, &stats) ||
+        HSD_ArchiveParse(&archive, buffer, size) != 0)
+    {
+        fprintf(stderr, "decomp_assets: item model conversion failed\n");
+        free(buffer);
+        return 1;
+    }
+    for (i = 0; i < archive.header.nb_extern; i++) {
+        const char* symbol = HSD_ArchiveGetExtern(&archive, (int) i);
+        if (symbol != NULL) {
+            HSD_ArchiveLocateExtern(&archive, symbol, NULL);
+        }
+    }
+    public_data = HSD_ArchiveGetPublicAddress(&archive, "itPublicData");
+    articles = public_data != NULL ? read_host_ptr(public_data + 0x04) : NULL;
+    if (articles == NULL || !ptr_in_buffer(articles, buffer, size)) {
+        fprintf(stderr, "decomp_assets: common item article table missing\n");
+        free(buffer);
+        return 1;
+    }
+    for (i = 0; i < 43; i++) {
+        unsigned char* article = articles[i];
+        unsigned char* model;
+        HSD_Joint* root;
+        HSD_JObj* jobj;
+
+        if (article == NULL) {
+            continue;
+        }
+        if (!ptr_in_buffer(article, buffer, size)) {
+            fprintf(stderr,
+                    "decomp_assets: item kind %u article pointer outside "
+                    "archive\n",
+                    i);
+            free(buffer);
+            return 1;
+        }
+        model = read_host_ptr(article + 0x10);
+        if (model != NULL && !ptr_in_buffer(model, buffer, size)) {
+            fprintf(stderr,
+                    "decomp_assets: item kind %u article=%td model=%p "
+                    "outside archive\n",
+                    i, article - buffer, (void*) model);
+            free(buffer);
+            return 1;
+        }
+        root = model != NULL ? read_host_ptr(model) : NULL;
+        if (root == NULL) {
+            continue;
+        }
+        checked++;
+        jobj = HSD_JObjLoadJoint(root);
+        if (jobj == NULL) {
+            fprintf(stderr,
+                    "decomp_assets: item kind %u model failed to load\n", i);
+            free(buffer);
+            return 1;
+        }
+        HSD_JObjUnrefThis(jobj);
+        loaded++;
+    }
+    printf("decomp_assets: item models=%u loaded=%u\n", checked, loaded);
+    free(buffer);
+    return checked == loaded ? 0 : 1;
 }
 
 /* The compiled stage code (grAnime_801C7C1C -> grAnime_801C6C0C) reads the
@@ -505,6 +596,7 @@ int main(int argc, char** argv)
         failures++;
     }
     failures += check_link_dynamics(image);
+    failures += check_item_models(image);
     failures += check_stage_matanims(image, "GrNBa.dat");
     failures += check_stage_matanims(image, "GrNLa.dat");
 

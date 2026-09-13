@@ -140,7 +140,8 @@ The product target is now `melee` (the compiled game's own frontend; the old
 hand-port sandbox is `melee_prototype`).  A bare `./build/native/melee` runs the
 retail flow with live keyboard input (Enter=START, Z=A, X=B, C=X, V=Y, A=L,
 S=R, Q=Z, arrows=stick); `--frontend --input FILE` replays a deterministic
-script and `--no-items` uses the game's own debug item switch.  Verified with
+script and `--no-items` uses the game's own debug item switch.  Items are
+enabled by default.  Verified with
 screenshots through: memory-card prompt (no card) -> title (logo starts at
 frame 400, no reveal card) -> main menu -> VS. Mode -> character select (Mario
 + CPU DK) -> stage select -> live match (Yoshi's Story, HUD/stocks/timer) ->
@@ -160,9 +161,12 @@ Menu BGM now sustains through the HPS page ring (P-648, G-115..G-117): the
 header `loopFlag` survives the single-frame DevCom burst, the mixer's end test
 is crossing-based so a page handoff does not re-wrap into a buzz, and the page
 table's `AXPBADPCMLOOP` predictor contexts byte-swap so the seams are
-sample-continuous.  Open S6 follow-ups:
-item models crash PObj resolution for some items (P-643), results names/models
-are wrong (P-645), match HUD stock icons show the wrong character (P-644), and
+sample-continuous.  Converter v68 derives each article's variable-length item
+state array from the DAT layout instead of assuming eight entries; this stops
+the walk from corrupting adjacent model descriptors, and all 40 common-item
+models now load through `HSD_JObjLoadJoint` (P-643).  Open S6 follow-ups:
+results names/models are wrong (P-645), match HUD stock icons show the wrong
+character (P-644), and
 save data is blocked by the game's hsd card filesystem pump (P-646; the host
 card backend is opt-in behind `MELEE_CARD_DIR` until then).
 

@@ -582,6 +582,24 @@ directly, so a NULL slot is a legal gap; the relocation table is the array
 bound (the first non-relocated slot ends it).  All three must be walked, or
 stage material/TEV AObjDescs stay big-endian and their animations stop.
 
+### Item state arrays are variable-length
+
+`ItemStateArray` is declared as eight `ItemStateDesc` entries in the decomp,
+but `ItCo.dat`/`ItCo.usd` stores the number used by each article; observed
+arrays range past eight entries.  The array sits immediately before its
+`Article`, with at most 15 bytes of alignment padding, so its count is
+`(article_offset - states_offset) / sizeof(ItemStateDesc)`.
+
+Walking a fixed eight entries is unsafe in both directions.  For short arrays
+it treats the following `Article` and `ItemModelDesc` pointer fields as
+AnimJoint/MatAnimJoint roots.  The converter's shared `seen` map then marks
+the real model descriptor as already converted and leaves its counts and joint
+tree numeric fields big-endian; Bob-omb later fails in `HSD_PObjResolveRefs`.
+For long arrays, a fixed walk leaves later animation descriptors unconverted.
+Converter v68 derives the count from the archive layout.  The asset regression
+loads all 40 non-null common-item model roots through the compiled
+`HSD_JObjLoadJoint` path.
+
 ## 9. Open questions
 
 1. **HSD_RObj/HSD_RObjDesc conversion.** Required before S3 ships geometry:
