@@ -61,7 +61,7 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 | `GXSetProjection` (perspective + ortho) | EXACT | `gx_hle.c:852` | `GXTransform.cpp` | — |
 | `GXProject` | EXACT (SDK formula) | `gx_hle.c:817` | `GXTransform.cpp` | — |
 | `GXGetViewportv` | EXACT | `gx_hle.c:847` | `GXTransform.cpp` | — |
-| `GXGetProjectionv` | **APPROX (wrong layout)** | `gx_hle.c:808` returns the 4x4 diagonal; SDK packs `{type,A,B,C,D,E,F}` | `GXGet.cpp` | **P-678** (breaks `psdisp.c:1936` billboard axes and `fog.c:56`) |
+| `GXSetProjectionv`/`GXGetProjectionv` | EXACT (closed by P-678) | `gx_hle.c` stores the packed `{A..F}`; `GXGetProjectionv` returns `{type,A..F}` | `GXGet.cpp`, SDK `GXTransform.c` | regression: `ctest decomp_gx_direct` (G-131) |
 | `GXSetViewport`/`GXSetViewportJitter` | EXACT | `gx_hle.c:859/876`, `gx_gl.c:apply_viewport` | `GXTransform.cpp` | — |
 | `GXSetScissor` | EXACT | `gx_hle.c:883`, `gx_gl.c:1718` | `lib/gx/regs.cpp` scissor | — |
 | `GXSetCoPlanar` | N/A | `gx_hle.c:897` | `GXGeometry.cpp` | no-op on hardware too |
@@ -172,7 +172,7 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 | **P-675** textures/samplers | expand5/expand6 bit replication, per-object texobj state (`GXGetTexObj*`), edge-lod/bias-clamp, TLUT bounds | `ctest decomp_stage`/`decomp_render` baselines + new unit assertions on decode of a synthetic 5/6-bit pattern; `sobjlib`/`lbspdisplay` object read-back |
 | **P-676** perf | state-change batching, redundant binds, uniform upload diffing, VBO stream | `[match] frame N ... render=Xms` before/after, frame-718 pixel parity |
 | **P-677** harness | cross-character/stage/effect parity artifacts | one command per slice producing a pass/fail artifact |
-| **P-678** `GXGetProjectionv` packed layout | §2 | `ctest decomp_gx_direct`: call `GXSetProjection` then `GXGetProjectionv`, assert SDK `{type,A,B,C,D,E,F}` |
+| ~~**P-678** `GXGetProjectionv` packed layout~~ **DONE** | §2 | `ctest decomp_gx_direct` asserts both layouts + `GXSetProjectionv` round trip; G-131 |
 | **P-679** fog math + range adj | §7 | shader vs `shader.cpp` formula comparison on a synthetic depth ramp; range table read |
 | **P-680** lines/points primitives | §1 | `test_decomp_render --direct` line/point fixture asserting emitted geometry; `psdisp` HUD capture |
 | converter follow-up (P-658/P-662 family) | `HSD_FogDesc.fogadjdesc` nulled | converter field table for `Gr*` fog-adj descriptors; renders P-679 reachable |

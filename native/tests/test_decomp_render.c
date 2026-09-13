@@ -77,6 +77,61 @@ static int direct_test(void)
         }
     }
 
+    /* P-678: GXGetProjectionv must expose the SDK packed form
+     * {projType, A, B, C, D, E, F} (GXTransform.c).  psdisp.c:1936 rebuilds
+     * particle billboard axes from it, so a diagonal-only return silently
+     * breaks match particles. */
+    {
+        f32 pm[4][4] = {
+            { 2.0f, 0.0f, 0.25f, 0.125f },
+            { 0.0f, 3.0f, 0.5f, 0.75f },
+            { 0.0f, 0.0f, 4.0f, 5.0f },
+            { 0.0f, 0.0f, -1.0f, 0.0f },
+        };
+        f32 got[7];
+        static const f32 want_persp[6] = { 2.0f, 0.25f, 3.0f, 0.5f, 4.0f, 5.0f };
+        static const f32 want_ortho[6] = { 2.0f, 0.125f, 3.0f, 0.75f, 4.0f, 5.0f };
+        int k;
+        GXSetProjection(pm, GX_PERSPECTIVE);
+        GXGetProjectionv(got);
+        if (got[0] != (f32) GX_PERSPECTIVE) {
+            printf("direct: FAIL GXGetProjectionv type=%.0f want %d\n",
+                   (double) got[0], (int) GX_PERSPECTIVE);
+            fail = 1;
+        }
+        for (k = 0; k < 6; ++k) {
+            if (got[k + 1] != want_persp[k]) {
+                printf("direct: FAIL GXGetProjectionv persp[%d]=%.3f want "
+                       "%.3f\n", k, (double) got[k + 1],
+                       (double) want_persp[k]);
+                fail = 1;
+            }
+        }
+        GXSetProjection(pm, GX_ORTHOGRAPHIC);
+        GXGetProjectionv(got);
+        for (k = 0; k < 6; ++k) {
+            if (got[k + 1] != want_ortho[k]) {
+                printf("direct: FAIL GXGetProjectionv ortho[%d]=%.3f want "
+                       "%.3f\n", k, (double) got[k + 1],
+                       (double) want_ortho[k]);
+                fail = 1;
+            }
+        }
+        /* GXSetProjectionv is the pointer-fed equivalent; round-trip it. */
+        {
+            f32 pv[7] = { (f32) GX_PERSPECTIVE, 7.0f, 0.1f, 8.0f, 0.2f,
+                          9.0f, 0.3f };
+            GXSetProjectionv(pv);
+            GXGetProjectionv(got);
+            for (k = 0; k < 6; ++k) {
+                if (got[k + 1] != pv[k + 1]) {
+                    printf("direct: FAIL GXSetProjectionv round-trip[%d]\n", k);
+                    fail = 1;
+                }
+            }
+        }
+    }
+
     gx_hle_begin_frame();
     gx_hle_reset_state();
     GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);

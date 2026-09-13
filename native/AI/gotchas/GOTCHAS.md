@@ -1683,3 +1683,20 @@ publics carry the `GrdYorster*` texture names and converts the eight fields.
 `test_decomp_assets` checks `x00=0.8, x10=2, x14=5, x1C=140` against the raw
 archive (the first word fails before the fix).  Other stages with their own
 `yakumono_param` structs still need their own field tables (P-662).
+
+## G-131: `GXGetProjectionv` returns the packed XF form, not matrix diagonals
+
+**Symptom:** match particle billboards use wrong axes (the `psdisp.c`
+billboard matrix is built from the projection); HSD fog range adjustment would
+also read garbage.
+**Cause:** our GX HLE returned `projection[0][0], [1][1], [2][2], [3][3]`.
+The SDK (`GXTransform.c:GXGetProjectionv`) packs
+`{projType, A, B, C, D, E, F}` where perspective uses
+`{m00, m02, m11, m12, m22, m23}` and ortho `{m00, m03, m11, m13, m22, m23}`.
+`psdisp.c:1936` branches on `prj[0]` (our `m00` is a float like 0.5, so it
+took the ortho branch) and then builds billboard axes from `prj[1..4]`.
+**Fix:** `GXSetProjection` stores the packed coefficients, `GXGetProjectionv`
+returns them, and `GXSetProjectionv` is implemented (P-678).  `ctest
+decomp_gx_direct` now asserts both layouts and the pointer-fed round trip;
+flipping the getter back to the diagonal form fails with
+`GXGetProjectionv type=2 want 0`.

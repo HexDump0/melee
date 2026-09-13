@@ -49,6 +49,9 @@ typedef struct {
 
     u32 current_mtx;
     float projection[4][4];
+    /* Packed XF projection form {A,B,C,D,E,F} retained for GXGetProjectionv
+     * (SDK GXTransform.c: GXSetProjection/GXGetProjectionv). */
+    float proj_mtx[6];
     float viewport[6];
     int projection_type;
 
@@ -805,11 +808,17 @@ GXFifoObj* GXInit(void* base, u32 size)
     return (GXFifoObj*) fifo;
 }
 
+/* extern/dolphin/src/dolphin/gx/GXTransform.c: GXGetProjectionv packs the XF
+ * projection registers as {projType, A, B, C, D, E, F}.  Since the game's
+ * GXProject/HUD code reads the six coefficients (psdisp.c:1936 particle
+ * billboards, fog.c:56 fog-range adjustment), the diagonal-only return was
+ * silently corrupting billboard axes in matches. */
 void GXGetProjectionv(f32* ptr)
 {
     int i;
-    for (i = 0; i < 4; ++i) {
-        ptr[i] = gx.projection[i][i];
+    ptr[0] = (f32) gx.projection_type;
+    for (i = 0; i < 6; ++i) {
+        ptr[i + 1] = gx.proj_mtx[i];
     }
 }
 
@@ -854,6 +863,43 @@ void GXSetProjection(f32 mtx[4][4], GXProjectionType type)
     flush_direct();
     memcpy(gx.projection, mtx, sizeof(gx.projection));
     gx.projection_type = (int) type;
+    /* extern/dolphin/src/dolphin/gx/GXTransform.c: GXSetProjection packs the
+     * XF registers; ortho keeps the translation in column 3, perspective in
+     * column 2 (both plus [2][3] = F). */
+    gx.proj_mtx[0] = mtx[0][0];
+    gx.proj_mtx[2] = mtx[1][1];
+    gx.proj_mtx[4] = mtx[2][2];
+    gx.proj_mtx[5] = mtx[2][3];
+    if (type == GX_ORTHOGRAPHIC) {
+        gx.proj_mtx[1] = mtx[0][3];
+        gx.proj_mtx[3] = mtx[1][3];
+    } else {
+        gx.proj_mtx[1] = mtx[0][2];
+        gx.proj_mtx[3] = mtx[1][2];
+    }
+}
+
+/* Companion to GXSetProjection above; HSD's fog range adjustment builds a
+ * 4x4 back from the packed form exactly this way (fog.c:56-83). */
+void GXSetProjectionv(f32* ptr)
+{
+    flush_direct();
+    gx.projection_type = (int) ptr[0];
+    memcpy(gx.proj_mtx, ptr + 1, sizeof(gx.proj_mtx));
+    memset(gx.projection, 0, sizeof(gx.projection));
+    gx.projection[0][0] = ptr[1];
+    gx.projection[1][1] = ptr[3];
+    gx.projection[2][2] = ptr[5];
+    gx.projection[2][3] = ptr[6];
+    if (gx.projection_type == GX_ORTHOGRAPHIC) {
+        gx.projection[0][3] = ptr[2];
+        gx.projection[1][3] = ptr[4];
+        gx.projection[3][3] = 1.0f;
+    } else {
+        gx.projection[0][2] = ptr[2];
+        gx.projection[1][2] = ptr[4];
+        gx.projection[3][2] = -1.0f;
+    }
 }
 
 void GXSetViewport(f32 left, f32 top, f32 wd, f32 ht, f32 nearz, f32 farz)
@@ -2211,6 +2257,13 @@ static void reset_state(void)
     }
     memcpy(gx.projection, ident, sizeof(ident));
     gx.projection[3][3] = 1.0f;
+    /* Packed identity: A=1, B=0, C=1, D=0, E=1, F=0. */
+    gx.proj_mtx[0] = 1.0f;
+    gx.proj_mtx[1] = 0.0f;
+    gx.proj_mtx[2] = 1.0f;
+    gx.proj_mtx[3] = 0.0f;
+    gx.proj_mtx[4] = 1.0f;
+    gx.proj_mtx[5] = 0.0f;
 }
 
 void gx_hle_begin_frame(void)
