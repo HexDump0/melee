@@ -227,6 +227,16 @@ matrices, and `GX_TG_SRTG` toon coordinates sample the lit raster.  Mario's
 cap/face reflection-map UVs change (19 pixels, RMSE 0.0009).  `ctest` 17/17,
 ASan clean; see `learnings/gx_indirect_toon.md`.
 
+**P-673 (2026-09-13):** light-object math now matches `GXLight.c`
+(`GXInitLightDistAttn` MEDIUM/STEEP and the OFF guards; `GXInitLightSpot`
+falls back to `GX_SP_OFF` for out-of-range cutoffs) and the `GX_AF_SPEC`
+(enum value 0 — the SDK's specular default, easy to misread as "none")
+channel accumulates `attn * light.color.rgb` with the hardware a/k
+polynomial instead of a clamped grey average.  The character-select
+screenshot is unchanged (its only light is white/infinite); regressions are
+the `decomp_gx_direct` light cases and `decomp_efb` pass 6.  Learnings:
+`gx_lighting_specular.md`; spot-light cones filed as P-681.
+
 ## TL;DR
 
 A playable two-player sandbox runs natively on Linux, rendering real disc

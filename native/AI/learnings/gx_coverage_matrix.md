@@ -93,10 +93,10 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 | `GXSetChanAmbColor`/`GXSetChanMatColor` | EXACT (combined ids mirror alpha) | `gx_hle.c:1046/1069` | `GXLighting.cpp` | — |
 | Channel lighting evaluation (`GX_DF_NONE/SIGN/CLAMP`, amb/mat SRC_REG/VTX) | EXACT | VS `channel_raster` `gx_gl.c:238` | `GXLighting.cpp` + `shader.cpp:lighting_func` | — |
 | Light objects: attn a/k, position, color | EXACT | `gx_hle.c:1833-1873` | `GXLighting.cpp` | — |
-| `GXInitLightDir` | **APPROX (sign)** | `gx_hle.c:1875` stores as given; SDK/Aurora negate | `GXLighting.cpp` (`nx = -nx`) | **P-673**; HSD calls it for every spec light (`lobj.c:338/458`) |
-| `GXInitLightDistAttn` | **APPROX (wrong MEDIUM/STEEP, bad OFF guard)** | `gx_hle.c:1883`: MEDIUM `k2=k1²`; STEEP `k2=((1-b)/(b·d))²`; clamps `ref_br` instead of falling back to OFF | `GXLighting.cpp` (SDK `GXLight.c`) | **P-673** |
-| `GXInitLightSpot` | APPROX | `gx_hle.c:1913`: out-of-range `cutoff` clamps to 90° instead of `GX_SP_OFF` | `GXLighting.cpp` (SDK `GXLight.c`) | **P-673**. (Aurora's RING1 `a0` sign differs from the SDK; our RING1 matches the SDK — keep ours) |
-| Channel-1 specular evaluation | APPROX | VS `channel_raster` `gx_gl.c:241` | `shader.cpp:lighting_func` `GX_AF_SPEC` | **P-673**: light tint lost (grey average, clamped), DIST attn for `GX_DF_NONE` needs `normalize(dist_att)` + `max(0,·)`, `N·L>=0` gate must use `light.dir` vs `ldir` like Aurora |
+| `GXInitLightDir` | EXACT capture, documented sign convention | `gx_hle.c:GXInitLightDir` stores the API value; the shader consumes it as H (HSD computes `half`; prototype-validated) | `GXLighting.cpp` stores `-input`; Dolphin's Spec path reads the register | learning `gx_lighting_specular.md`; convention documented, not scheduled |
+| `GXInitLightDistAttn` | EXACT (closed by P-673) | `gx_hle.c:GXInitLightDistAttn` — SDK OFF guards + GENTLE/MEDIUM/STEEP | `GXLighting.cpp` (SDK `GXLight.c`) | `ctest decomp_gx_direct` light-math cases |
+| `GXInitLightSpot` | EXACT (closed by P-673) | `gx_hle.c:GXInitLightSpot` — out-of-range cutoff → `GX_SP_OFF` | `GXLighting.cpp` (SDK `GXLight.c`) | `ctest decomp_gx_direct` spot cases. (Aurora's RING1 `a0` sign differs from the SDK; our RING1 matches the SDK — keep ours) |
+| Channel-1 specular evaluation (`GX_AF_SPEC`) | EXACT for Melee's use (closed by P-673): per-channel tint, `max(0, a(t)/k(t))`, N·L gate, DF-none | VS `channel_raster` spec branch `gx_gl.c` | `shader.cpp:lighting_func`; Dolphin `LightingShaderGen` AttenuationFunc::Spec | `ctest decomp_efb` pass 6. Spot-light cones (`a.y/a.z != 0`) are approximate → P-681 |
 | `GXLoadLightObjImm` (8 lights) | EXACT | `gx_hle.c:1962` | `GXLighting.cpp` | — |
 | `GXInitSpecularDir`/`HA` | N/A | not called by Melee (HSD builds the half vector itself) | `GXLighting.cpp` | add only if a call site appears |
 
@@ -167,7 +167,7 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 | Task | Rows | Verification plan |
 |---|---|---|
 | ~~**P-672** indirect + toon + projective texgen~~ **DONE** | §1/§3 | `ctest decomp_gx_direct` (texgen/capture) + `ctest decomp_efb` pass 5 (GPU indirect); learning `gx_indirect_toon.md` |
-| **P-673** lighting/specular | `GXInitLightDir` sign, `GXInitLightDistAttn`, `GXInitLightSpot` guard, `GX_AF_SPEC` evaluation (tint + normalized dist attn + gates) | disc-free unit test in `test_decomp_render --direct` calling `GXInitLight*` and diffing against transcription of `GXLight.c`; match-frame screenshot delta |
+| ~~**P-673** lighting/specular~~ **DONE** | §4 | `ctest decomp_gx_direct` light-object cases + `ctest decomp_efb` pass 6 (tinted spec); learning `gx_lighting_specular.md`. Follow-up: P-681 spot cones |
 | **P-674** EFB copy / Z-texture | I4/I8/IA4/IA8 copy intensity, RGB5A3 copy, Z24X8 copy + decode, copy clear colour, `GXSetZTexture` bias/format/op | extend `ctest decomp_efb` with a synthetic 2x2 EFB pattern per copy format and `GXSetZTexture` read-back; keep existing pass 1-3 |
 | **P-675** textures/samplers | expand5/expand6 bit replication, per-object texobj state (`GXGetTexObj*`), edge-lod/bias-clamp, TLUT bounds | `ctest decomp_stage`/`decomp_render` baselines + new unit assertions on decode of a synthetic 5/6-bit pattern; `sobjlib`/`lbspdisplay` object read-back |
 | **P-676** perf | state-change batching, redundant binds, uniform upload diffing, VBO stream | `[match] frame N ... render=Xms` before/after, frame-718 pixel parity |

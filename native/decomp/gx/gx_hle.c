@@ -1997,42 +1997,55 @@ void GXInitLightDir(GXLightObj* lt_obj, f32 nx, f32 ny, f32 nz)
     l->dir[2] = nz;
 }
 
+/* extern/dolphin/src/dolphin/gx/GXLight.c: GXInitLightDistAttn.  A negative
+ * reference distance or an out-of-range reference brightness disables the
+ * attenuation (the old host version clamped ref_br and kept going), and
+ * MEDIUM/STEEP use half the k1 and the ref_dist^-2 term respectively. */
 void GXInitLightDistAttn(GXLightObj* lt_obj, f32 ref_dist, f32 ref_br,
                          GXDistAttnFn dist_func)
 {
-    f32 k0;
-    if (ref_br < 0.0f) {
-        ref_br = 0.0f;
-    } else if (ref_br >= 1.0f) {
-        ref_br = 1.0f;
+    f32 k0, k1, k2;
+    if (ref_dist < 0.0f) {
+        dist_func = GX_DA_OFF;
+    }
+    if (ref_br <= 0.0f || ref_br >= 1.0f) {
+        dist_func = GX_DA_OFF;
     }
     switch (dist_func) {
-    case GX_DA_OFF:
-        GXInitLightAttnK(lt_obj, 1.0f, 0.0f, 0.0f);
-        break;
     case GX_DA_GENTLE:
-        k0 = (1.0f - ref_br) / (ref_br * ref_dist);
-        GXInitLightAttnK(lt_obj, 1.0f, k0, 0.0f);
+        k0 = 1.0f;
+        k1 = (1.0f - ref_br) / (ref_br * ref_dist);
+        k2 = 0.0f;
         break;
     case GX_DA_MEDIUM:
-        k0 = (1.0f - ref_br) / (ref_br * ref_dist);
-        GXInitLightAttnK(lt_obj, 1.0f, k0, k0 * k0);
+        k0 = 1.0f;
+        k1 = (0.5f * (1.0f - ref_br)) / (ref_br * ref_dist);
+        k2 = (0.5f * (1.0f - ref_br)) / (ref_br * ref_dist * ref_dist);
         break;
     case GX_DA_STEEP:
+        k0 = 1.0f;
+        k1 = 0.0f;
+        k2 = (1.0f - ref_br) / (ref_br * ref_dist * ref_dist);
+        break;
+    case GX_DA_OFF:
     default:
-        k0 = (1.0f - ref_br) / (ref_br * ref_dist);
-        k0 = k0 * k0;
-        GXInitLightAttnK(lt_obj, 1.0f, 0.0f, k0);
+        k0 = 1.0f;
+        k1 = 0.0f;
+        k2 = 0.0f;
         break;
     }
+    GXInitLightAttnK(lt_obj, k0, k1, k2);
 }
 
 void GXInitLightSpot(GXLightObj* lt_obj, f32 cutoff, GXSpotFn spot_func)
 {
     f32 a0, a1, a2;
     f32 d;
+    /* SDK GXLight.c: an out-of-range cutoff falls back to GX_SP_OFF; it does
+     * not clamp the angle and keep the requested falloff.  HSD relies on
+     * this for its diffuse lights (GXInitLightSpot(lt, 0.0F, 0) -> a=(1,0,0)). */
     if (cutoff <= 0.0f || cutoff > 90.0f) {
-        cutoff = 90.0f;
+        spot_func = GX_SP_OFF;
     }
     d = cosf(cutoff * 3.14159265f / 180.0f);
     switch (spot_func) {

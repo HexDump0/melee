@@ -525,6 +525,106 @@ static int direct_test(void)
         }
     }
 
+    /* P-673: light-object math must match the SDK GXLight.c transcription.
+     * MEDIUM/STEEP previously used k1 for k2; out-of-range reference
+     * brightness/distance and cutoff angles must fall back to OFF. */
+    {
+        struct {
+            f32 ref_dist, ref_br;
+            GXDistAttnFn fn;
+            f32 k0, k1, k2;
+        } dist_cases[] = {
+            { 200.0f, 0.5f, GX_DA_GENTLE, 1.0f, 0.005f, 0.0f },
+            { 200.0f, 0.5f, GX_DA_MEDIUM, 1.0f, 0.0025f, 0.0000125f },
+            { 200.0f, 0.5f, GX_DA_STEEP, 1.0f, 0.0f, 0.000025f },
+            { 200.0f, 1.5f, GX_DA_GENTLE, 1.0f, 0.0f, 0.0f },
+            { -1.0f, 0.5f, GX_DA_MEDIUM, 1.0f, 0.0f, 0.0f },
+        };
+        struct {
+            f32 cutoff;
+            GXSpotFn fn;
+            f32 a0, a1, a2;
+        } spot_cases[] = {
+            { 60.0f, GX_SP_COS, -1.0f, 2.0f, 0.0f },
+            { 120.0f, GX_SP_COS, 1.0f, 0.0f, 0.0f },
+            { 0.0f, GX_SP_SHARP, 1.0f, 0.0f, 0.0f },
+        };
+        GXLightObj lt;
+        const GxHleDraw* d;
+        int c;
+        int expect_draws = 5 + 3 + 1;
+
+        gx_hle_begin_frame();
+        GXClearVtxDesc();
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+        GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+        for (c = 0; c < 5; ++c) {
+            GXInitLightDistAttn(&lt, dist_cases[c].ref_dist,
+                                dist_cases[c].ref_br, dist_cases[c].fn);
+            GXLoadLightObjImm(&lt, GX_LIGHT0);
+            GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+            GXPosition3f32(0.0f, 0.0f, 0.0f);
+            GXPosition3f32(1.0f, 0.0f, 0.0f);
+            GXPosition3f32(0.0f, 1.0f, 0.0f);
+        }
+        for (c = 0; c < 3; ++c) {
+            GXInitLightSpot(&lt, spot_cases[c].cutoff, spot_cases[c].fn);
+            GXLoadLightObjImm(&lt, GX_LIGHT0);
+            GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+            GXPosition3f32(0.0f, 0.0f, 0.0f);
+            GXPosition3f32(1.0f, 0.0f, 0.0f);
+            GXPosition3f32(0.0f, 1.0f, 0.0f);
+        }
+        GXInitLightDir(&lt, 0.25f, 0.5f, 0.75f);
+        GXLoadLightObjImm(&lt, GX_LIGHT0);
+        GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+        GXPosition3f32(0.0f, 0.0f, 0.0f);
+        GXPosition3f32(1.0f, 0.0f, 0.0f);
+        GXPosition3f32(0.0f, 1.0f, 0.0f);
+        gx_hle_get_frame(&verts, &vc, &draws, &dc, NULL, NULL);
+        if (dc != (size_t) expect_draws) {
+            printf("direct: FAIL light draws=%zu (want %d)\n", dc,
+                   expect_draws);
+            return 0;
+        }
+        for (c = 0; c < 5; ++c) {
+            const GxHleLight* l = &draws[c].state.lights[0];
+            if (fabsf(l->k[0] - dist_cases[c].k0) > 1e-6f ||
+                fabsf(l->k[1] - dist_cases[c].k1) > 1e-6f ||
+                fabsf(l->k[2] - dist_cases[c].k2) > 1e-6f) {
+                printf("direct: FAIL dist attn case %d k=(%.6f,%.6f,%.6f) want "
+                       "(%.6f,%.6f,%.6f)\n", c, (double) l->k[0],
+                       (double) l->k[1], (double) l->k[2],
+                       (double) dist_cases[c].k0, (double) dist_cases[c].k1,
+                       (double) dist_cases[c].k2);
+                fail = 1;
+            }
+        }
+        for (c = 0; c < 3; ++c) {
+            const GxHleLight* l = &draws[5 + c].state.lights[0];
+            if (fabsf(l->a[0] - spot_cases[c].a0) > 1e-5f ||
+                fabsf(l->a[1] - spot_cases[c].a1) > 1e-5f ||
+                fabsf(l->a[2] - spot_cases[c].a2) > 1e-5f) {
+                printf("direct: FAIL spot case %d a=(%.5f,%.5f,%.5f) want "
+                       "(%.5f,%.5f,%.5f)\n", c, (double) l->a[0],
+                       (double) l->a[1], (double) l->a[2],
+                       (double) spot_cases[c].a0, (double) spot_cases[c].a1,
+                       (double) spot_cases[c].a2);
+                fail = 1;
+            }
+        }
+        d = &draws[8];
+        if (d->state.lights[0].dir[0] != 0.25f ||
+            d->state.lights[0].dir[1] != 0.5f ||
+            d->state.lights[0].dir[2] != 0.75f) {
+            printf("direct: FAIL light dir=(%.3f,%.3f,%.3f) want raw input\n",
+                   (double) d->state.lights[0].dir[0],
+                   (double) d->state.lights[0].dir[1],
+                   (double) d->state.lights[0].dir[2]);
+            fail = 1;
+        }
+    }
+
     printf("direct: %s draws=%zu verts=%zu primitives=%u\n",
            fail ? "FAIL" : "PASS", dc, vc,
            (unsigned) gx_hle_primitive_count());
@@ -950,6 +1050,74 @@ static int efb_test(void)
         glReadPixels(320, 240, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
         if (!(pixel[1] > 200 && pixel[0] < 60 && pixel[2] < 60)) {
             printf("efb: FAIL direct pixel=%u,%u,%u (want green texel 1,1)\n",
+                   pixel[0], pixel[1], pixel[2]);
+            fail = 1;
+        }
+    }
+
+    /* ---- pass 6: P-673 specular channel is light-tinted ----
+     * Channel 1 with GX_AF_SPEC (the SDK's 0, HSD's default) accumulates
+     * attn * light.color per channel.  With N = H the a/k polynomial gives
+     * attn = 1, so the readback must be the light colour (orange), not the
+     * old grey average. */
+    {
+        GXLightObj lt;
+        GXColor white = { 0xFF, 0xFF, 0xFF, 0xFF };
+        GXColor black = { 0x00, 0x00, 0x00, 0xFF };
+        GXColor orange = { 0xFF, 0x80, 0x00, 0xFF };
+
+        gx_hle_begin_frame();
+        gx_hle_reset_state();
+        GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
+        GXSetNumChans(2);
+        GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_REG, GX_SRC_REG,
+                      GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
+        GXSetChanCtrl(GX_COLOR1, GX_TRUE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT0,
+                      GX_DF_CLAMP, GX_AF_SPEC);
+        GXSetChanAmbColor(GX_COLOR1, black);
+        GXSetChanMatColor(GX_COLOR1, white);
+        GXInitLightColor(&lt, orange);
+        GXInitLightPos(&lt, 0.0f, 0.0f, 1048576.0f);
+        GXInitLightAttn(&lt, 0.0f, 0.0f, 1.0f, 0.5f, 0.0f, 0.5f);
+        GXInitLightDir(&lt, 0.0f, 0.0f, 1.0f);
+        GXLoadLightObjImm(&lt, GX_LIGHT0);
+        GXSetNumTexGens(0);
+        GXSetNumTevStages(1);
+        GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL,
+                      GX_COLOR1);
+        GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO,
+                        GX_CC_RASC);
+        GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO,
+                        GX_CA_RASA);
+        GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO,
+                        GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+        GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO,
+                        GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+        GXSetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_COPY);
+        GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
+        GXSetCullMode(GX_CULL_NONE);
+        GXClearVtxDesc();
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_NRM, GX_NRM_XYZ, GX_F32, 0);
+        GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+        GXSetVtxDesc(GX_VA_NRM, GX_DIRECT);
+        GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+        GXPosition3f32(-1.0f, -1.0f, 0.0f);
+        GXNormal3f32(0.0f, 0.0f, 1.0f);
+        GXPosition3f32(1.0f, -1.0f, 0.0f);
+        GXNormal3f32(0.0f, 0.0f, 1.0f);
+        GXPosition3f32(1.0f, 1.0f, 0.0f);
+        GXNormal3f32(0.0f, 0.0f, 1.0f);
+        GXPosition3f32(-1.0f, 1.0f, 0.0f);
+        GXNormal3f32(0.0f, 0.0f, 1.0f);
+        if (gx_gl_render_frame() < 0) {
+            printf("efb: FAIL render_frame (spec)\n");
+            return 0;
+        }
+        glReadPixels(320, 240, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+        if (!(pixel[0] > 240 && pixel[1] > 110 && pixel[1] < 150 &&
+              pixel[2] < 20)) {
+            printf("efb: FAIL spec pixel=%u,%u,%u (want tinted 255,128,0)\n",
                    pixel[0], pixel[1], pixel[2]);
             fail = 1;
         }
