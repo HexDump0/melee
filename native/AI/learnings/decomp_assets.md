@@ -562,7 +562,18 @@ decomp_hsd: S0b root=PlyMario5K_Share_joint descriptors=61 objects=61 posed=61 w
 `ctest --test-dir build/native -R decomp_hsd` (SKIPs without the disc; the
 probe is built 32-bit per ADR-0012).
 
-## 8. Open questions
+## 8. Packed dynamics pointees
+
+Relocation only proves that `BoneDynamicsDesc.data` becomes a valid pointer;
+it says nothing about the byte order of the pointed-to numeric payload.
+`lb_80011710` treats that payload as `count` contiguous 0x3C-byte records and
+copies 15 floats from each into its runtime dynamics chain. Converter v59
+therefore swaps the header (`bone_id`, count, position) and every word of the
+packed records for both fighter and item dynamics. Link's cap is the visible
+regression case: finite byte-reversed parameters stretch it into a rogue
+polygon without producing the NaNs that matrix diagnostics normally catch.
+
+## 9. Open questions
 
 1. **HSD_RObj/HSD_RObjDesc conversion.** Required before S3 ships geometry:
    `JObjLoad` resolves `joint->robjdesc` (`jobj.c:650`), and the port's S0
@@ -599,7 +610,7 @@ probe is built 32-bit per ADR-0012).
    descriptor seen is zero-filled. Confirm the offset with a positive sample
    (or a GC capture) before the HLE depends on it.
 
-## 9. What changes for a 64-bit build
+## 10. What changes for a 64-bit build
 
 The 32-bit product build is what makes the current approach possible:
 `Locate` adds `(u32)archive->data` into the 4-byte field in place

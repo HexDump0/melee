@@ -1262,3 +1262,33 @@ had only `u_tex0`/`u_tex1` and silently dropped the map-2 stage.
 **Fix:** added a third texture unit (`u_tex2`, `u_tex_lod_bias.z`, texmap[2]);
 the vertex already carries a third texcoord (`v_uv2`).  A 1200-frame match
 uses at most map/coord 2, so three is enough for the shipped content.
+
+## G-105: offscreen SDL video does not mute the match viewer
+
+**Symptom:** an automated screenshot or frame-capture command unexpectedly
+plays game audio through the user's speakers even though
+`SDL_VIDEODRIVER=offscreen` is set.
+**Cause:** SDL's video and audio drivers are independent.  The compiled match
+viewer still opens the default audio device after the game initializes.
+**Fix:** set both variables for every non-listening viewer run:
+`SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy`.  Omit the dummy audio
+driver only when the user explicitly asks for a listening test.
+
+## G-106: relocated dynamics pointers do not convert packed solver numbers
+
+**Symptom:** Link's cap/head sprouts a long, otherwise finite green polygon;
+matrix and NaN probes look clean. **Cause:** `BoneDynamicsDesc.data` is
+relocated, but its pointee is a packed array of `count` 0x3C-byte solver
+records. `lb_80011710` reads 15 floats per record, which remained big-endian.
+**Fix:** converter v59 swaps every packed record for fighter and item dynamics;
+`test_decomp_assets` checks Link's node count and representative parameters.
+
+## G-107: live R4 EFB copies must stay on-GPU without inherited scissoring
+
+**Symptom:** stage shadow maps create recurring render stalls, or a direct GPU
+blit makes Final Destination's platform top black. **Cause:** materializing R4
+through `glReadPixels` is a synchronous GPU-to-CPU-to-GPU round trip; the fast
+blit is itself clipped if the previous GX draw's scissor remains enabled.
+**Fix:** the SDL-attached renderer keeps R4 copies in GPU textures, disables
+and restores scissoring around the blit, and marks dynamic I4 sampling in the
+TEV shader. The headless EGL test path still materializes bytes.

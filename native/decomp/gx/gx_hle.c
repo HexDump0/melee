@@ -135,6 +135,23 @@ typedef struct {
     int has_pos, has_nrm, has_nbt, has_color, has_uv[8];
 } GxRawVertex;
 
+typedef struct {
+    u8 attr;
+    u8 desc_type;
+    u8 comp_type;
+    u8 frac;
+    u8 count;
+    u8 component_size;
+    u8 element_size;
+    u8 stride;
+    const u8* base;
+} GxDecodeAttr;
+
+typedef struct {
+    GxDecodeAttr attrs[32];
+    int count;
+} GxVertexDecoder;
+
 static size_t scalar_size(u32 type)
 {
     switch (type) {
@@ -189,6 +206,48 @@ static size_t comp_count(u32 attr, u32 cnt)
 static int is_matrix_attr(u32 attr)
 {
     return attr <= GX_VA_TEX7MTXIDX;
+}
+
+static void init_vertex_decoder(GXVtxFmt vtxfmt, GxVertexDecoder* decoder)
+{
+    int i;
+
+    decoder->count = 0;
+    for (i = 0; i < gx.desc_count; ++i) {
+        u32 attr = gx.desc_order[i];
+        const GxHleAttrDesc* d = &gx.desc[attr];
+        const GxHleAttrFmt* f = &gx.fmt[vtxfmt][attr];
+        GxDecodeAttr* a;
+        size_t count;
+        size_t component_size;
+
+        /* Preserve the command stream's established matrix-index handling:
+         * descriptor order determines their byte, while GX_NONE suppresses
+         * ordinary attributes. */
+        if (!is_matrix_attr(attr) && d->type == GX_NONE) {
+            continue;
+        }
+        a = &decoder->attrs[decoder->count++];
+        memset(a, 0, sizeof(*a));
+        a->attr = (u8) attr;
+        a->desc_type = d->type;
+        if (is_matrix_attr(attr)) {
+            a->element_size = 1;
+            continue;
+        }
+        count = comp_count(attr, f->cnt);
+        component_size = scalar_size(f->type);
+        a->comp_type = f->type;
+        a->frac = f->frac;
+        a->count = (u8) count;
+        a->component_size = (u8) component_size;
+        a->element_size = (u8)
+            ((attr == GX_VA_CLR0 || attr == GX_VA_CLR1)
+                 ? color_size(f->type)
+                 : count * component_size);
+        a->base = (const u8*) gx.arrays[attr].base;
+        a->stride = gx.arrays[attr].stride;
+    }
 }
 
 /* One component at p; integer values are fixed point (value / 2^frac). */
@@ -264,17 +323,14 @@ static void decode_color(u32 type, const u8* p, u8 out[4])
  * color enum for their inline size (both verified in native/hsd/model.c).
  */
 static int read_vertex(const u8* list, size_t length, size_t* cursor,
-                       GXVtxFmt vtxfmt, GxRawVertex* out)
+                       const GxVertexDecoder* decoder, GxRawVertex* out)
 {
     int i;
     memset(out, 0, sizeof(*out));
-    for (i = 0; i < gx.desc_count; ++i) {
-        u32 attr = gx.desc_order[i];
-        GxHleAttrDesc* d = &gx.desc[attr];
-        GxHleAttrFmt* f = &gx.fmt[vtxfmt][attr];
+    for (i = 0; i < decoder->count; ++i) {
+        const GxDecodeAttr* plan = &decoder->attrs[i];
+        u32 attr = plan->attr;
         const u8* src = NULL;
-        size_t count;
-        size_t esize;
         size_t a;
 
         if (is_matrix_attr(attr)) {
@@ -284,64 +340,56 @@ static int read_vertex(const u8* list, size_t length, size_t* cursor,
             out->matrix = list[(*cursor)++];
             continue;
         }
-        if (d->type == GX_NONE) {
-            continue;
-        }
-
-        count = comp_count(attr, f->cnt);
-        esize = (attr == GX_VA_CLR0 || attr == GX_VA_CLR1)
-                    ? color_size(f->type)
-                    : count * scalar_size(f->type);
-
-        if (d->type == GX_DIRECT) {
-            if (*cursor + esize > length) {
+        if (plan->desc_type == GX_DIRECT) {
+            if (*cursor + plan->element_size > length) {
                 return 0;
             }
             src = list + *cursor;
-            *cursor += esize;
+            *cursor += plan->element_size;
             if (attr == GX_VA_POS) {
-                for (a = 0; a < count && a < 3; ++a) {
-                    out->pos[a] = read_comp(f->type, f->frac,
-                                            src + a * scalar_size(f->type));
+                for (a = 0; a < plan->count && a < 3; ++a) {
+                    out->pos[a] = read_comp(plan->comp_type, plan->frac,
+                                            src + a * plan->component_size);
                 }
                 out->has_pos = 1;
             } else if (attr == GX_VA_NRM || attr == GX_VA_NBT) {
                 for (a = 0; a < 3; ++a) {
-                    out->nrm[a] = read_comp(f->type, f->frac,
-                                            src + a * scalar_size(f->type));
+                    out->nrm[a] = read_comp(plan->comp_type, plan->frac,
+                                            src + a * plan->component_size);
                 }
                 out->has_nrm = 1;
                 if (attr == GX_VA_NBT) {
                     for (a = 0; a < 3; ++a) {
                         out->binormal[a] = read_comp(
-                            f->type, f->frac,
-                            src + (3 + a) * scalar_size(f->type));
+                            plan->comp_type, plan->frac,
+                            src + (3 + a) * plan->component_size);
                         out->tangent[a] = read_comp(
-                            f->type, f->frac,
-                            src + (6 + a) * scalar_size(f->type));
+                            plan->comp_type, plan->frac,
+                            src + (6 + a) * plan->component_size);
                     }
                     out->has_nbt = 1;
                 }
             } else if (attr >= GX_VA_TEX0 && attr <= GX_VA_TEX7) {
                 int t = attr - GX_VA_TEX0;
-                for (a = 0; a < count && a < 2; ++a) {
+                for (a = 0; a < plan->count && a < 2; ++a) {
                     out->uv[t][a] = read_comp(
-                        f->type, f->frac, src + a * scalar_size(f->type));
+                        plan->comp_type, plan->frac,
+                        src + a * plan->component_size);
                 }
                 out->has_uv[t] = 1;
             } else if (attr == GX_VA_CLR0 || attr == GX_VA_CLR1) {
                 u8 c[4];
-                decode_color(f->type, src, c);
+                decode_color(plan->comp_type, src, c);
                 if (attr == GX_VA_CLR0) {
                     memcpy(out->color, c, 4);
                     out->has_color = 1;
                 }
             }
-        } else if (d->type == GX_INDEX8 || d->type == GX_INDEX16) {
+        } else if (plan->desc_type == GX_INDEX8 ||
+                   plan->desc_type == GX_INDEX16) {
             size_t index;
-            GxHleArray* arr = &gx.arrays[attr];
             const u8* elem;
-            if (d->type == GX_INDEX8) {
+            if (plan->desc_type == GX_INDEX8) {
                 if (*cursor + 1 > length) {
                     return 0;
                 }
@@ -353,43 +401,44 @@ static int read_vertex(const u8* list, size_t length, size_t* cursor,
                 index = be16(list + *cursor);
                 *cursor += 2;
             }
-            if (arr->base == NULL || arr->stride == 0) {
+            if (plan->base == NULL || plan->stride == 0) {
                 continue;
             }
-            elem = (const u8*) arr->base + index * arr->stride;
+            elem = plan->base + index * plan->stride;
             if (attr == GX_VA_POS) {
-                for (a = 0; a < count && a < 3; ++a) {
-                    out->pos[a] = read_comp(f->type, f->frac,
-                                            elem + a * scalar_size(f->type));
+                for (a = 0; a < plan->count && a < 3; ++a) {
+                    out->pos[a] = read_comp(plan->comp_type, plan->frac,
+                                            elem + a * plan->component_size);
                 }
                 out->has_pos = 1;
             } else if (attr == GX_VA_NRM || attr == GX_VA_NBT) {
                 for (a = 0; a < 3; ++a) {
-                    out->nrm[a] = read_comp(f->type, f->frac,
-                                            elem + a * scalar_size(f->type));
+                    out->nrm[a] = read_comp(plan->comp_type, plan->frac,
+                                            elem + a * plan->component_size);
                 }
                 out->has_nrm = 1;
                 if (attr == GX_VA_NBT) {
                     for (a = 0; a < 3; ++a) {
                         out->binormal[a] = read_comp(
-                            f->type, f->frac,
-                            elem + (3 + a) * scalar_size(f->type));
+                            plan->comp_type, plan->frac,
+                            elem + (3 + a) * plan->component_size);
                         out->tangent[a] = read_comp(
-                            f->type, f->frac,
-                            elem + (6 + a) * scalar_size(f->type));
+                            plan->comp_type, plan->frac,
+                            elem + (6 + a) * plan->component_size);
                     }
                     out->has_nbt = 1;
                 }
             } else if (attr >= GX_VA_TEX0 && attr <= GX_VA_TEX7) {
                 int t = attr - GX_VA_TEX0;
-                for (a = 0; a < count && a < 2; ++a) {
+                for (a = 0; a < plan->count && a < 2; ++a) {
                     out->uv[t][a] = read_comp(
-                        f->type, f->frac, elem + a * scalar_size(f->type));
+                        plan->comp_type, plan->frac,
+                        elem + a * plan->component_size);
                 }
                 out->has_uv[t] = 1;
             } else if (attr == GX_VA_CLR0 || attr == GX_VA_CLR1) {
                 u8 c[4];
-                decode_color(f->type, elem, c);
+                decode_color(plan->comp_type, elem, c);
                 if (attr == GX_VA_CLR0) {
                     memcpy(out->color, c, 4);
                     out->has_color = 1;
@@ -573,19 +622,37 @@ static void transform_vertex(const GxRawVertex* raw, GxHleVertex* v)
 {
     float pos[3];
     float nrm[3];
+    float binormal[3] = { 0.0f, 0.0f, 0.0f };
+    float tangent[3] = { 0.0f, 0.0f, 0.0f };
     float v4[4];
     float clip[4];
     int idx = raw->matrix + (int) gx.current_mtx;
+    int texgen_count = gx.cur.num_texgens;
+    int need_nbt = 0;
+    int i;
 
     if (idx < 0 || idx > 29) {
         idx = 0;
     }
-    float binormal[3];
-    float tangent[3];
+    /* Direct-mode callers may configure generators without emitting
+     * GXSetNumTexGens (displayfunc.c's small utility draws); retain the
+     * established three-coordinate fallback for that command stream. */
+    if (texgen_count <= 0 || texgen_count > 3) {
+        texgen_count = 3;
+    }
+    for (i = 0; i < texgen_count; i++) {
+        int type = gx.cur.texgen[i].type;
+        if (type >= GX_TG_BUMP0 && type <= GX_TG_BUMP7) {
+            need_nbt = raw->has_nbt;
+            break;
+        }
+    }
     mtx3x4_mul_vec(&gx.pos_mtx[idx][0][0], raw->pos, pos);
     mtx3x3_mul_vec(&gx.nrm_mtx[idx][0][0], raw->nrm, nrm);
-    mtx3x3_mul_vec(&gx.nrm_mtx[idx][0][0], raw->binormal, binormal);
-    mtx3x3_mul_vec(&gx.nrm_mtx[idx][0][0], raw->tangent, tangent);
+    if (need_nbt) {
+        mtx3x3_mul_vec(&gx.nrm_mtx[idx][0][0], raw->binormal, binormal);
+        mtx3x3_mul_vec(&gx.nrm_mtx[idx][0][0], raw->tangent, tangent);
+    }
     {
         float len = sqrtf(nrm[0] * nrm[0] + nrm[1] * nrm[1] +
                           nrm[2] * nrm[2]);
@@ -594,19 +661,22 @@ static void transform_vertex(const GxRawVertex* raw, GxHleVertex* v)
             nrm[1] /= len;
             nrm[2] /= len;
         }
-        len = sqrtf(binormal[0] * binormal[0] + binormal[1] * binormal[1] +
-                    binormal[2] * binormal[2]);
-        if (len > 1e-8f) {
-            binormal[0] /= len;
-            binormal[1] /= len;
-            binormal[2] /= len;
-        }
-        len = sqrtf(tangent[0] * tangent[0] + tangent[1] * tangent[1] +
-                    tangent[2] * tangent[2]);
-        if (len > 1e-8f) {
-            tangent[0] /= len;
-            tangent[1] /= len;
-            tangent[2] /= len;
+        if (need_nbt) {
+            len = sqrtf(binormal[0] * binormal[0] +
+                        binormal[1] * binormal[1] +
+                        binormal[2] * binormal[2]);
+            if (len > 1e-8f) {
+                binormal[0] /= len;
+                binormal[1] /= len;
+                binormal[2] /= len;
+            }
+            len = sqrtf(tangent[0] * tangent[0] + tangent[1] * tangent[1] +
+                        tangent[2] * tangent[2]);
+            if (len > 1e-8f) {
+                tangent[0] /= len;
+                tangent[1] /= len;
+                tangent[2] /= len;
+            }
         }
     }
     v4[0] = pos[0];
@@ -623,9 +693,10 @@ static void transform_vertex(const GxRawVertex* raw, GxHleVertex* v)
     v->view[1] = pos[1];
     v->view[2] = pos[2];
     memcpy(v->color, raw->color, 4);
-    texgen_coord(0, raw, pos, nrm, binormal, tangent, v->uv[0]);
-    texgen_coord(1, raw, pos, nrm, binormal, tangent, v->uv[1]);
-    texgen_coord(2, raw, pos, nrm, binormal, tangent, v->uv[2]);
+    memset(v->uv, 0, sizeof(v->uv));
+    for (i = 0; i < texgen_count; i++) {
+        texgen_coord(i, raw, pos, nrm, binormal, tangent, v->uv[i]);
+    }
     v->nrm[0] = nrm[0];
     v->nrm[1] = nrm[1];
     v->nrm[2] = nrm[2];
@@ -662,15 +733,17 @@ static void exec_primitive(u8 op, const u8* list, size_t length,
                            size_t* cursor, u16 nverts)
 {
     GXVtxFmt vtxfmt = (GXVtxFmt) (op & 7);
+    GxVertexDecoder decoder;
     u8 prim = op & 0xF8;
     GxHleVertex win[4];
     GxHleVertex fan_first;
     unsigned i;
 
+    init_vertex_decoder(vtxfmt, &decoder);
     for (i = 0; i < nverts; ++i) {
         GxRawVertex raw;
         GxHleVertex* v;
-        if (!read_vertex(list, length, cursor, vtxfmt, &raw)) {
+        if (!read_vertex(list, length, cursor, &decoder, &raw)) {
             stat_skipped++;
             return;
         }

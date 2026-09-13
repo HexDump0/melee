@@ -98,6 +98,85 @@ static unsigned char* load_archive(const char* image, const char* path,
     return buffer;
 }
 
+static void* read_host_ptr(const unsigned char* p)
+{
+    void* value;
+    memcpy(&value, p, sizeof(value));
+    return value;
+}
+
+static uint32_t read_host_u32(const unsigned char* p)
+{
+    uint32_t value;
+    memcpy(&value, p, sizeof(value));
+    return value;
+}
+
+static float read_host_f32(const unsigned char* p)
+{
+    float value;
+    memcpy(&value, p, sizeof(value));
+    return value;
+}
+
+/* P-631: ftDataLink's cap chain copies packed 0x3C-byte solver parameters
+ * through lb_80011710.  The relocation table covers the pointer, but these
+ * numeric pointees also have to be converted. */
+static int check_link_dynamics(const char* image)
+{
+    char error[256];
+    size_t size = 0;
+    unsigned char* buffer = load_archive(image, "PlLk.dat", NULL, &size,
+                                         error, sizeof(error));
+    HsdConvertStats stats;
+    HSD_Archive archive;
+    unsigned char* ft_data;
+    unsigned char* dynamics;
+    unsigned char* bones;
+    unsigned char* params;
+    uint32_t dynamics_num;
+    uint32_t count;
+    float enabled;
+    float angle_limit;
+    int failed = 0;
+
+    if (buffer == NULL) {
+        fprintf(stderr, "decomp_assets: PlLk.dat: %s\n", error);
+        return 1;
+    }
+    if (!hsd_asset_convert(buffer, size, &stats) ||
+        HSD_ArchiveParse(&archive, buffer, size) != 0)
+    {
+        fprintf(stderr, "decomp_assets: PlLk.dat conversion failed\n");
+        free(buffer);
+        return 1;
+    }
+    ft_data = HSD_ArchiveGetPublicAddress(&archive, "ftDataLink");
+    dynamics = ft_data != NULL ? read_host_ptr(ft_data + 0x2C) : NULL;
+    dynamics_num = dynamics != NULL ? read_host_u32(dynamics) : 0;
+    bones = dynamics != NULL ? read_host_ptr(dynamics + 0x04) : NULL;
+    count = bones != NULL ? read_host_u32(bones + 0x08) : 0;
+    params = bones != NULL ? read_host_ptr(bones + 0x04) : NULL;
+    enabled = params != NULL ? read_host_f32(params + 0x00) : 0.0f;
+    angle_limit = params != NULL ? read_host_f32(params + 0x18) : 0.0f;
+
+    if (dynamics_num != 1 || count != 4 ||
+        !isfinite(enabled) || fabsf(enabled - 1.0f) > 1e-6f ||
+        !isfinite(angle_limit) || fabsf(angle_limit - 0.6981317f) > 1e-5f)
+    {
+        fprintf(stderr,
+                "decomp_assets: Link dynamics invalid: sets=%u count=%u "
+                "enabled=%g angle=%g\n",
+                dynamics_num, count, enabled, angle_limit);
+        failed = 1;
+    } else {
+        printf("decomp_assets: PlLk.dat dynamics=%u cap_nodes=%u params=ok\n",
+               dynamics_num, count);
+    }
+    free(buffer);
+    return failed;
+}
+
 /* Poses the joint tree and returns the number of HSD_JObj nodes. */
 static unsigned pose_tree(HSD_JObj* root, float* out_min, float* out_max)
 {
@@ -311,6 +390,7 @@ int main(int argc, char** argv)
                 models);
         failures++;
     }
+    failures += check_link_dynamics(image);
 
     /* One stage and the common archives. */
     {

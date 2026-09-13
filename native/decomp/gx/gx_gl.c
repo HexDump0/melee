@@ -23,6 +23,7 @@
 #include "gx/texture.h"
 
 #define MAX_GL_TEXTURES 256
+#define MAX_DYNAMIC_COPIES 8
 #define MAX_TEV_STAGES 8
 
 #ifndef GL_TEXTURE_MAX_ANISOTROPY_EXT
@@ -46,6 +47,14 @@ typedef struct {
     unsigned int last_used;
     GLuint name;
 } GlTextureCache;
+
+typedef struct {
+    const void* image;
+    unsigned short width;
+    unsigned short height;
+    GLuint name;
+    GLuint framebuffer;
+} GlDynamicCopy;
 
 static EGLDisplay egl_display = EGL_NO_DISPLAY;
 static EGLContext egl_context = EGL_NO_CONTEXT;
@@ -83,6 +92,7 @@ static GLint u_ztex_sampler;
 static GLint u_ztex_op_loc;
 static GLint u_ztex_bias_loc;
 static GLint u_tex_lod_bias;
+static GLint u_tex_dynamic_i4;
 static GLint u_dst_alpha_enable;
 static GLint u_dst_alpha;
 static GLint u_ch_enable;
@@ -100,14 +110,48 @@ static GLint u_light_dir;
 
 static GlTextureCache tex_cache[MAX_GL_TEXTURES];
 static size_t tex_cache_count;
+static GlDynamicCopy dynamic_copies[MAX_DYNAMIC_COPIES];
+static size_t dynamic_copy_count;
 static unsigned int tex_clock;
 static int aniso_supported;
+static int gpu_efb_copies;
 
 static GLuint vertex_vao;
 static GLuint vertex_vbo;
 static size_t vertex_vbo_capacity;
 
 static GxGlOptions gl_options = { 1, 1, -1, -1, 0, 0, 0 };
+
+static void configure_vertex_layout(void)
+{
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
+                          (const void*) offsetof(GxHleVertex, clip));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE,
+                          sizeof(GxHleVertex),
+                          (const void*) offsetof(GxHleVertex, color));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
+                          (const void*) offsetof(GxHleVertex, uv));
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
+                          (const void*) (offsetof(GxHleVertex, uv) +
+                                         2 * sizeof(float)));
+    glEnableVertexAttribArray(4);
+    glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
+                          (const void*) offsetof(GxHleVertex, nrm));
+    glEnableVertexAttribArray(5);
+    glVertexAttribPointer(5, 1, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
+                          (const void*) offsetof(GxHleVertex, has_color));
+    glEnableVertexAttribArray(6);
+    glVertexAttribPointer(6, 3, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
+                          (const void*) offsetof(GxHleVertex, view));
+    glEnableVertexAttribArray(7);
+    glVertexAttribPointer(7, 2, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
+                          (const void*) (offsetof(GxHleVertex, uv) +
+                                         4 * sizeof(float)));
+}
 
 /* --------------------------------------------------------------- shaders */
 
@@ -307,6 +351,7 @@ static const char* FRAGMENT_SRC =
     "uniform vec3 u_fog_color;\n"
     "uniform int u_tex_enable;\n"
     "uniform vec3 u_tex_lod_bias;\n"
+    "uniform ivec3 u_tex_dynamic_i4;\n"
     "uniform int u_dst_alpha_enable;\n"
     "uniform float u_dst_alpha;\n"
     "uniform int u_ras_flat;\n"
@@ -419,7 +464,13 @@ static const char* FRAGMENT_SRC =
     "            if (ord.y == 0) tex = texture(u_tex0, uv, u_tex_lod_bias.x);\n"
     "            else if (ord.y == 1) tex = texture(u_tex1, uv, u_tex_lod_bias.y);\n"
     "            else if (ord.y == 2) tex = texture(u_tex2, uv, u_tex_lod_bias.z);\n"
-
+    "            int dynamic_i4 = (ord.y == 0) ? u_tex_dynamic_i4.x :\n"
+    "                             (ord.y == 1) ? u_tex_dynamic_i4.y :\n"
+    "                             (ord.y == 2) ? u_tex_dynamic_i4.z : 0;\n"
+    "            if (dynamic_i4 != 0) {\n"
+    "                float intensity = floor(clamp(tex.r, 0.0, 1.0) * 255.0 / 16.0) / 15.0;\n"
+    "                tex = vec4(intensity, intensity, intensity, 1.0);\n"
+    "            }\n"
     "        }\n"
     "        ivec4 sel = u_tev_sel[i];\n"
     "        vec4 ras = (ord.z == 1 || ord.z == 5) ? v_ras1 : v_ras0;\n"
@@ -570,6 +621,7 @@ static int build_program(char* error, size_t error_size)
 
 
     u_tex_lod_bias = glGetUniformLocation(program, "u_tex_lod_bias");
+    u_tex_dynamic_i4 = glGetUniformLocation(program, "u_tex_dynamic_i4");
     u_dst_alpha_enable = glGetUniformLocation(program, "u_dst_alpha_enable");
     u_dst_alpha = glGetUniformLocation(program, "u_dst_alpha");
     u_ch_enable = glGetUniformLocation(program, "u_ch_enable");
@@ -634,6 +686,11 @@ static int gl_setup(char* error, size_t error_size)
     glBindVertexArray(vertex_vao);
     glGenBuffers(1, &vertex_vbo);
     glBindBuffer(GL_ARRAY_BUFFER, vertex_vbo);
+    /* The VBO object and GxHleVertex layout are permanent.  A VAO retains
+     * these attribute bindings across buffer-storage replacements, so doing
+     * this for every one of ~220 draws only burns thousands of GL calls per
+     * frame. */
+    configure_vertex_layout();
     glBindVertexArray(0);
     return 1;
 }
@@ -646,6 +703,7 @@ int gx_gl_attach(int width, int height, char* error, size_t error_size)
     if (height > 0) {
         gl_height = height;
     }
+    gpu_efb_copies = 1;
     return gl_setup(error, error_size);
 }
 
@@ -676,6 +734,16 @@ void gx_gl_clear_textures(void)
     }
     memset(tex_cache, 0, sizeof(tex_cache));
     tex_cache_count = 0;
+    for (i = 0; i < dynamic_copy_count; ++i) {
+        if (dynamic_copies[i].name != 0) {
+            glDeleteTextures(1, &dynamic_copies[i].name);
+        }
+        if (dynamic_copies[i].framebuffer != 0) {
+            glDeleteFramebuffers(1, &dynamic_copies[i].framebuffer);
+        }
+    }
+    memset(dynamic_copies, 0, sizeof(dynamic_copies));
+    dynamic_copy_count = 0;
 }
 
 int gx_gl_init(int width, int height, char* error, size_t error_size)
@@ -695,6 +763,7 @@ int gx_gl_init(int width, int height, char* error, size_t error_size)
     EGLint count = 0;
     EGLint major, minor;
 
+    gpu_efb_copies = 0;
     gl_width = width > 0 ? width : 640;
     gl_height = height > 0 ? height : 480;
 
@@ -844,6 +913,52 @@ static void gl_texture_cache_invalidate(const void* image)
     }
 }
 
+static GLuint dynamic_texture_for(const GxHleTexture* t)
+{
+    size_t i;
+
+    if (!gpu_efb_copies || t->format != GX_TF_I4) {
+        return 0;
+    }
+    for (i = 0; i < dynamic_copy_count; ++i) {
+        GlDynamicCopy* e = &dynamic_copies[i];
+        if (e->image != t->image || e->width != t->width ||
+            e->height != t->height)
+        {
+            continue;
+        }
+        glBindTexture(GL_TEXTURE_2D, e->name);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                        min_filter_to_gl(t->min_filt, 0, t->format));
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
+                        t->mag_filt == 0 ? GL_NEAREST : GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,
+                        wrap_to_gl(t->wrap_s));
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,
+                        wrap_to_gl(t->wrap_t));
+        return e->name;
+    }
+    return 0;
+}
+
+static int texture_is_dynamic_i4(const GxHleTexture* t)
+{
+    size_t i;
+
+    if (t == NULL || !gpu_efb_copies || t->format != GX_TF_I4) {
+        return 0;
+    }
+    for (i = 0; i < dynamic_copy_count; ++i) {
+        const GlDynamicCopy* e = &dynamic_copies[i];
+        if (e->image == t->image && e->width == t->width &&
+            e->height == t->height)
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static GLuint texture_for(const GxHleTexture* t)
 {
     size_t i;
@@ -852,12 +967,17 @@ static GLuint texture_for(const GxHleTexture* t)
     size_t bound;
     const void* image = t->image;
     const void* palette = t->palette;
+    GLuint dynamic;
 
     if (image == NULL) {
         fprintf(stderr,
                 "gx_gl: draw bound a texture with no image (%dx%d fmt=%u)\n",
                 t->width, t->height, (unsigned) t->format);
         return 0;
+    }
+    dynamic = dynamic_texture_for(t);
+    if (dynamic != 0) {
+        return dynamic;
     }
     for (i = 0; i < tex_cache_count; ++i) {
         GlTextureCache* e = &tex_cache[i];
@@ -1265,6 +1385,79 @@ static void upload_draw_uniforms(const GxHleDrawState* s)
     glUniform1f(u_dst_alpha, (GLfloat) s->dst_alpha / 255.0f);
 }
 
+/* The live viewer keeps R4 shadow copies on the GPU.  HSD only samples these
+ * buffers as textures, so materializing 32 KB of tiled I4 RAM and decoding it
+ * straight back into a GL texture was a synchronous GPU->CPU->GPU round trip
+ * twice per frame.  The headless EGL path retains that materialized fallback
+ * because decomp_efb verifies the emulated RAM bytes directly. */
+static int efb_copy_r4_gpu(const GxHleDraw* d, int src_x, int gl_y, int src_w,
+                           int src_h)
+{
+    GlDynamicCopy* e = NULL;
+    GLboolean scissor_enabled;
+    GLenum error;
+    size_t i;
+
+    for (i = 0; i < dynamic_copy_count; ++i) {
+        if (dynamic_copies[i].image == d->copy_dest) {
+            e = &dynamic_copies[i];
+            break;
+        }
+    }
+    if (e == NULL) {
+        if (dynamic_copy_count >= MAX_DYNAMIC_COPIES) {
+            return 0;
+        }
+        e = &dynamic_copies[dynamic_copy_count++];
+        memset(e, 0, sizeof(*e));
+        e->image = d->copy_dest;
+        glGenTextures(1, &e->name);
+        glGenFramebuffers(1, &e->framebuffer);
+    }
+    glBindTexture(GL_TEXTURE_2D, e->name);
+    if (e->width != d->copy_dst_w || e->height != d->copy_dst_h) {
+        e->width = d->copy_dst_w;
+        e->height = d->copy_dst_h;
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, e->width, e->height, 0,
+                     GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    }
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, e->framebuffer);
+    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                           GL_TEXTURE_2D, e->name, 0);
+    if (glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) !=
+        GL_FRAMEBUFFER_COMPLETE)
+    {
+        e->width = 0;
+        e->height = 0;
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return 0;
+    }
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    /* glBlitFramebuffer is clipped by the current scissor.  At this point it
+     * still describes the GX draw that produced the shadow map in the main
+     * EFB, not the small destination texture. */
+    scissor_enabled = glIsEnabled(GL_SCISSOR_TEST);
+    glDisable(GL_SCISSOR_TEST);
+    /* Reverse the source Y endpoints.  The CPU path changes GL bottom-up EFB
+     * rows into GX top-down I4 rows, then GL uploads those rows bottom-up;
+     * this flipped blit produces the same sampled orientation directly. */
+    glBlitFramebuffer(src_x, gl_y + src_h, src_x + src_w, gl_y, 0, 0,
+                      e->width, e->height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    if (scissor_enabled) {
+        glEnable(GL_SCISSOR_TEST);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    error = glGetError();
+    if (error != GL_NO_ERROR) {
+        /* Prevent texture_for() from selecting a partial/failed GPU copy;
+         * the caller will materialize the normal CPU I4 fallback. */
+        e->width = 0;
+        e->height = 0;
+        return 0;
+    }
+    return 1;
+}
+
 /* P-615: GXCopyTex.  Reads the EFB colour (scaled to the GL surface) and
  * re-encodes it into GX tiled texture memory so the existing CPU texture
  * decoder sees a normal texture. */
@@ -1300,12 +1493,19 @@ static void efb_copy_tex(const GxHleDraw* d)
     }
     dst_w = d->copy_dst_w;
     dst_h = d->copy_dst_h;
+    gl_y = gl_height - src_y - src_h; /* GL origin is bottom-left */
+
+    if (gpu_efb_copies && d->copy_fmt == GX_CTF_R4 &&
+        efb_copy_r4_gpu(d, src_x, gl_y, src_w, src_h))
+    {
+        gl_texture_cache_invalidate(dest);
+        return;
+    }
 
     rgba = (unsigned char*) malloc((size_t) src_w * src_h * 4);
     if (rgba == NULL) {
         return;
     }
-    gl_y = gl_height - src_y - src_h; /* GL origin is bottom-left */
     glReadPixels(src_x, gl_y, src_w, src_h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
 
     if (d->copy_fmt == GX_TF_RGB565) {
@@ -1503,7 +1703,11 @@ int gx_gl_render_frame(void)
             GLfloat bias[3] = { t0 != NULL ? t0->lod_bias : 0.0f,
                                 t1 != NULL ? t1->lod_bias : 0.0f,
                                 t2 != NULL ? t2->lod_bias : 0.0f };
+            GLint dynamic_i4[3] = { texture_is_dynamic_i4(t0),
+                                    texture_is_dynamic_i4(t1),
+                                    texture_is_dynamic_i4(t2) };
             glUniform3fv(u_tex_lod_bias, 1, bias);
+            glUniform3iv(u_tex_dynamic_i4, 1, dynamic_i4);
         }
 
         apply_viewport(s);
@@ -1526,34 +1730,6 @@ int gx_gl_render_frame(void)
             glEnable(GL_SCISSOR_TEST);
             glScissor(sc_x, gl_height - sc_y - sc_h, sc_w, sc_h);
         }
-
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
-                              (const void*) offsetof(GxHleVertex, clip));
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE,
-                              sizeof(GxHleVertex),
-                              (const void*) offsetof(GxHleVertex, color));
-        glEnableVertexAttribArray(2);
-        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
-                              (const void*) offsetof(GxHleVertex, uv));
-        glEnableVertexAttribArray(3);
-        glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
-                              (const void*) (offsetof(GxHleVertex, uv) +
-                                             2 * sizeof(float)));
-        glEnableVertexAttribArray(4);
-        glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
-                              (const void*) offsetof(GxHleVertex, nrm));
-        glEnableVertexAttribArray(5);
-        glVertexAttribPointer(5, 1, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
-                              (const void*) offsetof(GxHleVertex, has_color));
-        glEnableVertexAttribArray(6);
-        glVertexAttribPointer(6, 3, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
-                              (const void*) offsetof(GxHleVertex, view));
-        glEnableVertexAttribArray(7);
-        glVertexAttribPointer(7, 2, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
-                              (const void*) (offsetof(GxHleVertex, uv) +
-                                             4 * sizeof(float)));
 
         if (gl_options.wireframe) {
             size_t k;

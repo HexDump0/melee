@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 58u
+#define HSD_CONVERTER_VERSION 59u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -1541,6 +1541,42 @@ static void conv_yakumono_param(Conv* c, uint32_t off)
 #define ITHURTBONEDESC_SIZE 0x20
 #define ITMODELDESC_SIZE 0x10
 #define BONEDYNAMICSDESC_SIZE 0x18
+#define DYNAMICPARAM_SIZE 0x3C
+
+/* BoneDynamicsDesc { bone_id; DynamicsDesc { data, count, pos } }.  The
+ * source `data` is not a runtime DynamicsData linked list: lb_80011710 views
+ * it as `count` packed lb_00F9_UnkDesc1Inner records (15 f32 words each) and
+ * copies their solver parameters into the runtime list. */
+static void conv_bone_dynamics_desc(Conv* c, uint32_t off)
+{
+    uint32_t data;
+    int count;
+    int i;
+    int w;
+
+    if (!in_data(c, off, BONEDYNAMICSDESC_SIZE)) {
+        return;
+    }
+    conv_u32(c, off + 0x00); /* bone_id */
+    conv_u32(c, off + 0x08); /* dyn_desc.count */
+    conv_u32(c, off + 0x0C); /* dyn_desc.pos */
+    conv_u32(c, off + 0x10);
+    conv_u32(c, off + 0x14);
+
+    data = rd32(c, off + 0x04);
+    count = (int) rd32(c, off + 0x08);
+    if (data == 0 || count <= 0 || count > 64 ||
+        !in_data(c, data, (size_t) count * DYNAMICPARAM_SIZE))
+    {
+        return;
+    }
+    for (i = 0; i < count; i++) {
+        uint32_t param = data + (uint32_t) i * DYNAMICPARAM_SIZE;
+        for (w = 0; w < DYNAMICPARAM_SIZE; w += 4) {
+            conv_u32(c, param + (uint32_t) w);
+        }
+    }
+}
 
 /* ItemAttr: two bytes of bitfields, then a dense run of 4-byte fields from
  * +0x04 to +0x80 (floats, count/type ints, two itECBs and two Vec2s). */
@@ -1620,11 +1656,7 @@ static void conv_item_dynamics(Conv* c, uint32_t off)
             if (!in_data(c, d, BONEDYNAMICSDESC_SIZE)) {
                 break;
             }
-            conv_u32(c, d + 0x00);                       /* bone_id */
-            conv_u32(c, d + 0x08);                       /* count */
-            conv_u32(c, d + 0x0C);                       /* pos.x */
-            conv_u32(c, d + 0x10);
-            conv_u32(c, d + 0x14);
+            conv_bone_dynamics_desc(c, d);
         }
     }
 }
@@ -2065,13 +2097,10 @@ static void conv_ft_data(Conv* c, uint32_t off)
             if (bones != 0 && n > 0 && n <= 16) {
                 for (i = 0; i < n; i++) {
                     uint32_t e = bones + (uint32_t) i * 0x18;
-                    int w;
                     if (!in_data(c, e, 0x18)) {
                         break;
                     }
-                    for (w = 0; w < 0x18; w += 4) {
-                        conv_u32(c, e + (uint32_t) w);
-                    }
+                    conv_bone_dynamics_desc(c, e);
                 }
             }
             /* dyn->x8 is a second ftData_x38 array (ftColl_8007B320 walks

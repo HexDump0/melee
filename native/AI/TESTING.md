@@ -118,7 +118,8 @@ Rules for this track:
 ```sh
 ./build/native/test_decomp_render --width 1280 --height 800 --shot /tmp/c.bmp
 ./build/native/test_decomp_render --direct   # GXVert shim capture, no disc
-./build/native/melee_decomp_viewer --frames 1 --hidden --shot /tmp/v.bmp
+SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy \
+    ./build/native/melee_decomp_viewer --frames 1 --hidden --shot /tmp/v.bmp
 # /tmp/v.bmp must match /tmp/c.bmp (RMSE < 0.01); the windowed run is for the
 # owner: ./build/native/melee_decomp_viewer
 ```
@@ -135,7 +136,9 @@ ctest --test-dir build/native -R decomp_audio   # two matches, byte-identical PC
 A quality probe (no listening): the WAV should have spectral flatness < 0.05
 in loud windows, positive stereo correlation and no clipping.  The viewer's
 `--match` plays through SDL3 (`viewer: audio 32000 Hz stereo` when a device
-opens).  The owner listening check is TASKS.md P-637.
+opens).  **Automated/offscreen viewer runs must set `SDL_AUDIODRIVER=dummy`**
+so captures do not play through the user's speakers.  Only omit it for an
+explicit listening test.  The owner listening check is TASKS.md P-637.
 
 ## Sanitizer run (required for parser/memory changes)
 
