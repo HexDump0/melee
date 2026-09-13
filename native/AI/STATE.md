@@ -164,7 +164,11 @@ table's `AXPBADPCMLOOP` predictor contexts byte-swap so the seams are
 sample-continuous.  Converter v68 derives each article's variable-length item
 state array from the DAT layout instead of assuming eight entries; this stops
 the walk from corrupting adjacent model descriptors, and all 40 common-item
-models now load through `HSD_JObjLoadJoint` (P-643).  Open S6 follow-ups:
+models now load through `HSD_JObjLoadJoint` (P-643).  Converter v69 also
+byte-swaps the `ftData->x1C` part-animation descriptors' `u16` first-part and
+part-count fields (P-630/G-119).  Without it, landing animation commands turn
+part `0x29` into `0x2900` and index beyond `Fighter.parts`; Mario and Link's
+four serialized descriptors are covered by the asset regression.  Open S6 follow-ups:
 results names/models are wrong (P-645), match HUD stock icons show the wrong
 character (P-644), and
 save data is blocked by the game's hsd card filesystem pump (P-646; the host

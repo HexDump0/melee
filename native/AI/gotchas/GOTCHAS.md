@@ -1464,3 +1464,19 @@ converter runs.  Some articles also have more than eight states.
 `(article_offset - states_offset) / sizeof(ItemStateDesc)` and bounds-check it.
 Converter v68 plus `test_decomp_assets` now loads all 40 common-item model roots
 through `HSD_JObjLoadJoint`.
+
+## G-119: `ftData->x1C` descriptor indices are `u16`, not byte data
+
+**Symptom:** a fighter crashes when an action command applies a part animation;
+the observed Classic-mode landing reached `ftAnim_80070904` with
+`start=0x2900`, then indexed `Fighter.parts` into an invalid `HSD_JObj*`.
+Link had the same latent error (`x0=0x1700`, `x2=3072`).
+**Cause:** archive relocation converted the `ftData->x1C` table and descriptor
+pointers, but the descriptors' `u16 x0` first-part and `u16 x2` part-count
+payload remained big-endian.  The archive table is not five unconditional
+pointers merely because `Fighter.x8B0` has five runtime slots: only its leading
+relocation-backed entries are serialized, and adjacent words can resemble a
+pointer.
+**Fix:** converter v69 walks at most five entries while each slot is a real
+relocation, and converts descriptor offsets `+0/+2`.  `test_decomp_assets`
+checks all four serialized slots in both `PlMr.dat` and `PlLk.dat`.

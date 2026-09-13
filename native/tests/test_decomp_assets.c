@@ -112,11 +112,40 @@ static uint32_t read_host_u32(const unsigned char* p)
     return value;
 }
 
+static uint16_t read_host_u16(const unsigned char* p)
+{
+    uint16_t value;
+    memcpy(&value, p, sizeof(value));
+    return value;
+}
+
 static float read_host_f32(const unsigned char* p)
 {
     float value;
     memcpy(&value, p, sizeof(value));
     return value;
+}
+
+static int ptr_in_buffer(const void* p, const unsigned char* base, size_t size);
+
+static int archive_has_reloc(const HSD_Archive* archive,
+                             const unsigned char* field)
+{
+    uint32_t offset;
+    uint32_t i;
+
+    if (field < archive->data ||
+        field + sizeof(void*) > archive->data + archive->header.data_size)
+    {
+        return 0;
+    }
+    offset = (uint32_t) (field - archive->data);
+    for (i = 0; i < archive->header.nb_reloc; i++) {
+        if (archive->reloc_info[i].offset == offset) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 /* P-631: ftDataLink's cap chain copies packed 0x3C-byte solver parameters
@@ -172,6 +201,93 @@ static int check_link_dynamics(const char* image)
     } else {
         printf("decomp_assets: PlLk.dat dynamics=%u cap_nodes=%u params=ok\n",
                dynamics_num, count);
+    }
+    free(buffer);
+    return failed;
+}
+
+/* Fighter.x8B0 has five part-animation slots.  Each ftData->x1C pointer
+ * names a { u16 first_part, u16 part_count, u8*, AnimJoint** } descriptor;
+ * the two u16 fields are runtime indices/counts, not byte data. */
+static int check_ft_part_anims(const char* image, const char* path,
+                               const char* symbol)
+{
+    char error[256];
+    size_t size = 0;
+    unsigned char* buffer = load_archive(image, path, NULL, &size, error,
+                                         sizeof(error));
+    HsdConvertStats stats;
+    HSD_Archive archive;
+    unsigned char* ft_data;
+    unsigned char* table;
+    unsigned checked = 0;
+    int failed = 0;
+    int i;
+
+    if (buffer == NULL) {
+        fprintf(stderr, "decomp_assets: %s: %s\n", path, error);
+        return 1;
+    }
+    if (!hsd_asset_convert(buffer, size, &stats) ||
+        HSD_ArchiveParse(&archive, buffer, size) != 0)
+    {
+        fprintf(stderr, "decomp_assets: %s conversion failed\n", path);
+        free(buffer);
+        return 1;
+    }
+    ft_data = HSD_ArchiveGetPublicAddress(&archive, symbol);
+    table = ft_data != NULL ? read_host_ptr(ft_data + 0x1C) : NULL;
+    if (table == NULL || !ptr_in_buffer(table, buffer, size)) {
+        fprintf(stderr, "decomp_assets: %s part-animation table missing\n",
+                path);
+        free(buffer);
+        return 1;
+    }
+    for (i = 0; i < 5; i++) {
+        unsigned char* slot = table + i * sizeof(void*);
+        unsigned char* entry;
+        uint16_t first_part;
+        uint16_t part_count;
+        unsigned char* parts;
+
+        if (!archive_has_reloc(&archive, slot)) {
+            break;
+        }
+        entry = read_host_ptr(slot);
+        if (!ptr_in_buffer(entry, buffer, size) ||
+            !ptr_in_buffer(entry + 0x0B, buffer, size))
+        {
+            fprintf(stderr,
+                    "decomp_assets: %s part-animation slot %d is outside "
+                    "the archive\n",
+                    path, i);
+            failed = 1;
+            continue;
+        }
+        first_part = read_host_u16(entry + 0x00);
+        part_count = read_host_u16(entry + 0x02);
+        parts = read_host_ptr(entry + 0x04);
+        if (first_part > 109 || part_count > 109 ||
+            (part_count != 0 &&
+             (parts == NULL || !ptr_in_buffer(parts, buffer, size) ||
+              !ptr_in_buffer(parts + part_count - 1, buffer, size))))
+        {
+            fprintf(stderr,
+                    "decomp_assets: %s part-animation slot %d invalid: "
+                    "first=%u count=%u\n",
+                    path, i, first_part, part_count);
+            failed = 1;
+        } else {
+            checked++;
+        }
+    }
+    if (checked == 0) {
+        fprintf(stderr, "decomp_assets: %s has no part-animation slots\n",
+                path);
+        failed = 1;
+    } else {
+        printf("decomp_assets: %s part-animation slots=%u ok\n", path,
+               checked);
     }
     free(buffer);
     return failed;
@@ -596,6 +712,8 @@ int main(int argc, char** argv)
         failures++;
     }
     failures += check_link_dynamics(image);
+    failures += check_ft_part_anims(image, "PlMr.dat", "ftDataMario");
+    failures += check_ft_part_anims(image, "PlLk.dat", "ftDataLink");
     failures += check_item_models(image);
     failures += check_stage_matanims(image, "GrNBa.dat");
     failures += check_stage_matanims(image, "GrNLa.dat");

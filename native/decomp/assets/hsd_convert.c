@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 68u
+#define HSD_CONVERTER_VERSION 69u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -2052,6 +2052,30 @@ static void conv_ft_data(Conv* c, uint32_t off)
                         conv_u16(c, u);
                     }
                 }
+            }
+        }
+    }
+    /* ftData->x1C is a table of part-animation descriptor pointers.
+     * Fighter.x8B0 has five runtime slots, but fighter archives serialize
+     * only a relocation-backed leading run.  Each descriptor starts with two
+     * u16 numeric fields: the first Fighter_Part and the part-list count.  If
+     * left big-endian, landing's part-animation command turns part 0x29 into
+     * 0x2900 and indexes far beyond Fighter.parts. */
+    {
+        uint32_t table = rd32(c, off + 0x1C);
+        if (table != 0) {
+            for (i = 0; i < 5; i++) {
+                uint32_t slot = table + (uint32_t) i * 4;
+                uint32_t entry;
+                if (!in_data(c, slot, 4) || !c->reloc[slot]) {
+                    break;
+                }
+                entry = rd32(c, slot);
+                if (entry == 0 || !in_data(c, entry, 0x0C)) {
+                    break;
+                }
+                conv_u16(c, entry + 0x00);
+                conv_u16(c, entry + 0x02);
             }
         }
     }

@@ -70,7 +70,10 @@ the per-structure reference.  Key differences from the §7 recommendation:
   the raw BE floats reached `ft_80089B08` and made Link's leg IK NaN (P-627,
   G-096).  When adding or auditing a walk, enumerate every pointer field's
   numeric pointee; converter v58 adds `x58+4/0xC/0x18`.  `ftData->x1C` is the
-  next known omission (P-630).
+  same class: its relocation-backed, bounded pointer table leads to descriptors
+  whose `u16` first-part/count fields need conversion.  Converter v69 walks the
+  leading relocation entries (at most the five `Fighter.x8B0` slots) and stops
+  at the first non-relocation field (P-630/G-119).
 
 ### `.ssm` sound banks (S3 scope: make the compiled loader run)
 
