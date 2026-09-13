@@ -1123,6 +1123,90 @@ static int efb_test(void)
         }
     }
 
+    /* ---- pass 7: P-674 EFB copy formats ----
+     * A green screen copied to I8/IA8/IA4/I4/RGB5A3 must use the BT.601
+     * luma path (Aurora tex_copy_conv.cpp) and the tiling the decoders read:
+     * I8 byte 0x91, IA8 [0xFF,0x91], IA4 0xF9, I4 0x99, RGB5A3 0x83E0. */
+    {
+        unsigned char dst_i8[64];
+        unsigned char dst_ia8[64];
+        unsigned char dst_ia4[64];
+        unsigned char dst_i4[64];
+        unsigned char dst_5a3[64];
+        GXColor green = { 0x00, 0xFF, 0x00, 0xFF };
+
+        gx_hle_begin_frame();
+        gx_hle_reset_state();
+        GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
+        GXSetNumChans(1);
+        GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX,
+                      GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
+        GXSetNumTexGens(0);
+        GXSetNumTevStages(1);
+        GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL,
+                      GX_COLOR0A0);
+        GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+        GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
+        GXSetCullMode(GX_CULL_NONE);
+        GXClearVtxDesc();
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+        GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+        GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+        GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+        GXPosition3f32(-1.0f, -1.0f, 0.0f);
+        GXColor4u8(green.r, green.g, green.b, green.a);
+        GXPosition3f32(1.0f, -1.0f, 0.0f);
+        GXColor4u8(green.r, green.g, green.b, green.a);
+        GXPosition3f32(1.0f, 1.0f, 0.0f);
+        GXColor4u8(green.r, green.g, green.b, green.a);
+        GXPosition3f32(-1.0f, 1.0f, 0.0f);
+        GXColor4u8(green.r, green.g, green.b, green.a);
+
+        memset(dst_i8, 0x11, sizeof(dst_i8));
+        memset(dst_ia8, 0x11, sizeof(dst_ia8));
+        memset(dst_ia4, 0x11, sizeof(dst_ia4));
+        memset(dst_i4, 0x11, sizeof(dst_i4));
+        memset(dst_5a3, 0x11, sizeof(dst_5a3));
+        GXSetTexCopySrc(0, 0, 640, 480);
+        GXSetTexCopyDst(8, 4, GX_TF_I8, GX_FALSE);
+        GXCopyTex(dst_i8, GX_FALSE);
+        GXSetTexCopyDst(8, 4, GX_TF_IA8, GX_FALSE);
+        GXCopyTex(dst_ia8, GX_FALSE);
+        GXSetTexCopyDst(8, 4, GX_TF_IA4, GX_FALSE);
+        GXCopyTex(dst_ia4, GX_FALSE);
+        GXSetTexCopyDst(8, 4, GX_TF_I4, GX_FALSE);
+        GXCopyTex(dst_i4, GX_FALSE);
+        GXSetTexCopyDst(8, 4, GX_TF_RGB5A3, GX_FALSE);
+        GXCopyTex(dst_5a3, GX_FALSE);
+        if (gx_gl_render_frame() < 0) {
+            printf("efb: FAIL render_frame (copy formats)\n");
+            return 0;
+        }
+        if (dst_i8[0] != 0x91) {
+            printf("efb: FAIL I8 copy %02x (want 91)\n", dst_i8[0]);
+            fail = 1;
+        }
+        if (dst_ia8[0] != 0xFF || dst_ia8[1] != 0x91) {
+            printf("efb: FAIL IA8 copy %02x%02x (want ff91)\n", dst_ia8[0],
+                   dst_ia8[1]);
+            fail = 1;
+        }
+        if (dst_ia4[0] != 0xF9) {
+            printf("efb: FAIL IA4 copy %02x (want f9)\n", dst_ia4[0]);
+            fail = 1;
+        }
+        if (dst_i4[0] != 0x99) {
+            printf("efb: FAIL I4 copy %02x (want 99)\n", dst_i4[0]);
+            fail = 1;
+        }
+        if (dst_5a3[0] != 0x83 || dst_5a3[1] != 0xE0) {
+            printf("efb: FAIL RGB5A3 copy %02x%02x (want 83e0)\n", dst_5a3[0],
+                   dst_5a3[1]);
+            fail = 1;
+        }
+    }
+
     printf("efb: %s\n", fail ? "FAIL" : "PASS");
     return !fail;
 }

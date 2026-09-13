@@ -110,7 +110,7 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 | 5/6-bit color expansion | **APPROX (1 LSB)** | `expand5/expand6` `native/gx/texture.c:20-21`, `expand_palette` `gx_gl.c:824` use `v*255/31`, `v*255/63`; hardware/Aurora bit-replicate `(v<<3)|(v>>2)` | `ExpandTo8<5/6>` `texture_convert.cpp:113` | **P-675** (changes screenshot baselines by ≤1/255 per channel) |
 | TLUT palette formats (RGB565/RGB5A3/IA8), authored entry counts | EXACT | `gx_gl.c:expand_palette`, `model.c` tlut path | `tex_palette_conv.cpp` | entry counts are not PoT and must not be rounded |
 | Z8 image decode (z-texture erase, `displayfunc.c:541`) | EXACT (as I8) | `texture.c:228` | `tex_copy_conv.cpp:FragZ8` | — |
-| Z24X8 image decode (`sobjlib.c:299`, `gm_1832.c:804`) | **STUB** (no decoder branch) | absent in `texture.c` | `tex_copy_conv.cpp:FragZ8/Z16` | **P-674** |
+| Z24X8 image decode (`sobjlib.c:299`, `gm_1832.c:804`) | documented deviation (P-682) | absent in `texture.c` | depth snapshot path (`snapshot_depth`) | learning `gx_efb_copy.md`; P-682 |
 | Wrap modes CLAMP/REPEAT/MIRROR | EXACT | `gx_gl.c:wrap_to_gl` | `GXTexture.cpp` / `regs.cpp` | — |
 | Min/mag filters + CI mip downgrade | EXACT | `gx_gl.c:min_filter_to_gl` | `GXTexture.cpp:GXInitTexObjLOD` | — |
 | LOD bias (shader `texture(...,bias)`), min/max LOD, edge LOD, bias clamp | APPROX | `gx_gl.c:1077`, FS bias `:465` | `GXTexture.cpp` mode0/mode1 decode | **P-675**: `do_edge_lod` and `bias_clamp` are not distinguished |
@@ -127,12 +127,12 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 | `GXCopyTex` RGB565 | EXACT (truncating re-encode, tiled) | `gx_gl.c:1512` | `tex_copy_conv.cpp:FragRGB565` | — |
 | `GXCopyTex` R4 (shadow map, `shadow.c:108`) | EXACT (red channel, high nibble first) | `gx_gl.c:1529` (GPU blit `:1394`) | `FragR4` (`quantize4 = floor(v*16)/15`) | keep; add quantization regression in P-674 |
 | `GXCopyTex` RGBA8 | EXACT | `gx_gl.c:1553` | `FragPassthrough`/blit | — |
-| `GXCopyTex` I4/I8/IA4/IA8 | **APPROX (red only, not BT.601 intensity)** | `gx_gl.c` falls through formats it does not encode; shadow path only handles RGB565/R4/RGBA8 | `FragI4/I8/IA4/IA8` use `intensity(rgb)` (ITU-R BT.601) | **P-674** |
-| `GXCopyTex` RGB5A3 (`gm_1832.c:802`) | **STUB** (destination left untouched) | not encoded | GPU format conversion | **P-674** |
-| `GXCopyTex` Z24X8 (`gm_1832.c:804`) | **STUB** | not encoded | depth snapshot (`snapshot_depth`) | **P-674** |
-| Copy clear (`GXCopyTex(..., clear=GX_TRUE)`) | APPROX (dest zeroed, not clear colour) | `gx_gl.c:1513` | `Lib/Clear` + `GXSetCopyClear` | **P-674**: use the latched `GXSetCopyClear` colour/depth |
+| `GXCopyTex` I4/I8/IA4/IA8 | EXACT (closed by P-674): BT.601 `intensity()` + `quantize4()`, tiling matching the decoders | `gx_gl.c:copy_tex_encode` | `tex_copy_conv.cpp:FragI4/I8/IA4/IA8` | `ctest decomp_efb` pass 7 |
+| `GXCopyTex` RGB5A3 (`gm_1832.c:802`, `gm_1798.c` portraits) | EXACT (closed by P-674) | `gx_gl.c:copy_tex_encode` | GPU format conversion / `GX_TF_RGB5A3` decoder inverse | `ctest decomp_efb` pass 7 |
+| `GXCopyTex` Z24X8 (`gm_1832.c:804`) | documented deviation (P-682) | not encoded; `texture.c` has no Z24X8 decode | depth snapshot (`snapshot_depth`) | learning `gx_efb_copy.md`; P-682 |
+| Copy clear (`GXCopyTex(..., clear=GX_TRUE)`) | N/A | every destination texel is written from the scaled source, so the clear cannot show through | `Lib/Clear` + `GXSetCopyClear` | documented (P-674) |
 | `GXSetCopyClear` (`video.c` XFB clear) | N/A today (only feeds `GXCopyDisp`) | `gx_hle.c:2024` | `GXFrameBuffer.cpp` | becomes live with P-674 |
-| `GXSetZTexture` REPLACE/ADD, Z8/Z16/Z24X8 (4 sites) | APPROX | dedicated depth program `gx_gl.c:305`, `draw_ztex:1578` | `GXTev.cpp:GXSetZTexture` is a TODO in Aurora; decomp `GXTev.c:333` + `GXPixel` semantics | **P-674**: validate bias (24-bit fraction), Z8/Z16/Z24 source encoding, ADD operand order (dest vs texture) |
+| `GXSetZTexture` REPLACE/ADD, Z8/Z16/Z24X8 (4 sites) | APPROX (REPLACE/Z8 verified, pass 2) | dedicated depth program `gx_gl.c:305`, `draw_ztex:1578` | `GXTev.cpp:GXSetZTexture` is a TODO in Aurora; decomp `GXTev.c:333` + `GXPixel` semantics | bias/format/ADD edges need the Z24X8 source → P-682 |
 | `GXSetPixelFmt` | N/A | `gx_hle.c:2086` | `regs.cpp:decode_pixel_fmt` | EFB format is virtualized (always RGBA8); `GXNtsc480IntDf.aa==0` so RGB565_Z16 never applies |
 | `GXSetCopyFilter`/`GXSetDispCopyGamma`/`GXSetDispCopy*`/`GXCopyDisp` | N/A | stubs | `GXFrameBuffer.cpp`; Aurora `GXSetCopyFilter` is a no-op too | XFB presentation is the host present hook (`boot_platform_set_present_hook`); filter would only affect `GXCopyDisp` |
 | `GXPixModeSync` | N/A | empty | `GXPixel` | host ordering automatic |
@@ -168,7 +168,7 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 |---|---|---|
 | ~~**P-672** indirect + toon + projective texgen~~ **DONE** | §1/§3 | `ctest decomp_gx_direct` (texgen/capture) + `ctest decomp_efb` pass 5 (GPU indirect); learning `gx_indirect_toon.md` |
 | ~~**P-673** lighting/specular~~ **DONE** | §4 | `ctest decomp_gx_direct` light-object cases + `ctest decomp_efb` pass 6 (tinted spec); learning `gx_lighting_specular.md`. Follow-up: P-681 spot cones |
-| **P-674** EFB copy / Z-texture | I4/I8/IA4/IA8 copy intensity, RGB5A3 copy, Z24X8 copy + decode, copy clear colour, `GXSetZTexture` bias/format/op | extend `ctest decomp_efb` with a synthetic 2x2 EFB pattern per copy format and `GXSetZTexture` read-back; keep existing pass 1-3 |
+| ~~**P-674** EFB copy formats~~ **DONE** (Z24X8 → P-682) | §6 | `ctest decomp_efb` pass 7; learning `gx_efb_copy.md` |
 | **P-675** textures/samplers | expand5/expand6 bit replication, per-object texobj state (`GXGetTexObj*`), edge-lod/bias-clamp, TLUT bounds | `ctest decomp_stage`/`decomp_render` baselines + new unit assertions on decode of a synthetic 5/6-bit pattern; `sobjlib`/`lbspdisplay` object read-back |
 | **P-676** perf | state-change batching, redundant binds, uniform upload diffing, VBO stream | `[match] frame N ... render=Xms` before/after, frame-718 pixel parity |
 | **P-677** harness | cross-character/stage/effect parity artifacts | one command per slice producing a pass/fail artifact |

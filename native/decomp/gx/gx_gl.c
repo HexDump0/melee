@@ -1606,6 +1606,180 @@ static int efb_copy_r4_gpu(const GxHleDraw* d, int src_x, int gl_y, int src_w,
     return 1;
 }
 
+/* P-674: EFB colour -> GX tiled texture encoders.  The intensity/luma
+ * conversion is Aurora's `tex_copy_conv.cpp` preamble (ITU-R BT.601,
+ * `intensity()`) and `quantize4()`; the nibble/byte/word placement matches
+ * the matching decoder in native/gx/texture.c. */
+static unsigned copy_quantize4(float v)
+{
+    /* Aurora: floor(v * 16) / 15 clamped by the R8Unorm target; as a nibble
+     * that is floor(v * 16) clamped to 15. */
+    unsigned n;
+    if (v < 0.0f) {
+        v = 0.0f;
+    }
+    if (v > 1.0f) {
+        v = 1.0f;
+    }
+    n = (unsigned) (v * 16.0f);
+    return n > 15 ? 15 : n;
+}
+
+static unsigned char copy_intensity8(const unsigned char* p)
+{
+    /* BT.601 luma with the 16/255 pedestal. */
+    float v = (0.257f * (float) p[0] + 0.504f * (float) p[1] +
+               0.098f * (float) p[2]) +
+              16.0f;
+    if (v < 0.0f) {
+        v = 0.0f;
+    }
+    if (v > 255.0f) {
+        v = 255.0f;
+    }
+    return (unsigned char) (v + 0.5f);
+}
+
+static size_t copy_tex_dest_size(unsigned int fmt, int w, int h)
+{
+    switch (fmt) {
+    case GX_TF_I4:
+    case GX_CTF_R4:
+        return (size_t) ((w + 7) / 8) * ((h + 7) / 8) * 32;
+    case GX_TF_I8:
+    case GX_TF_IA4:
+        return (size_t) ((w + 7) / 8) * ((h + 3) / 4) * 32;
+    case GX_TF_IA8:
+    case GX_TF_RGB565:
+    case GX_TF_RGB5A3:
+        return (size_t) ((w + 3) / 4) * ((h + 3) / 4) * 32;
+    case GX_TF_RGBA8:
+        return (size_t) ((w + 3) / 4) * ((h + 3) / 4) * 64;
+    default:
+        return 0;
+    }
+}
+
+/* Encode the (bottom-up GL) RGBA source into the destination's GX tiling.
+ * Every destination texel is written from the scaled source, so the hardware
+ * clear colour only shows where a copy would not cover, which cannot happen
+ * here (GXCopyTex always writes the full destination). */
+static void copy_tex_encode(unsigned int fmt, unsigned char* dest,
+                            int dst_w, int dst_h,
+                            const unsigned char* rgba, int src_w, int src_h)
+{
+    int x, y;
+    if (dst_w <= 0 || dst_h <= 0) {
+        return;
+    }
+    for (y = 0; y < dst_h; ++y) {
+        int sy = y * src_h / dst_h;
+        for (x = 0; x < dst_w; ++x) {
+            int sx = x * src_w / dst_w;
+            /* GL row 0 is the bottom; GX rows are top-down. */
+            const unsigned char* p =
+                rgba + (((size_t) (src_h - 1 - sy)) * src_w + sx) * 4;
+            switch (fmt) {
+            case GX_TF_RGB565: {
+                unsigned short v = (unsigned short)
+                    (((p[0] >> 3) << 11) | ((p[1] >> 2) << 5) | (p[2] >> 3));
+                size_t off = ((size_t) (y / 4) * (dst_w / 4) + (x / 4)) * 32 +
+                             (size_t) (y % 4) * 8 + (size_t) (x % 4) * 2;
+                dest[off] = (unsigned char) (v >> 8);
+                dest[off + 1] = (unsigned char) (v & 0xFF);
+                break;
+            }
+            case GX_TF_RGB5A3: {
+                unsigned short v;
+                if (p[3] >= 0xE0) {
+                    v = (unsigned short) (0x8000 | ((p[0] >> 3) << 10) |
+                                          ((p[1] >> 3) << 5) | (p[2] >> 3));
+                } else {
+                    v = (unsigned short) (((p[3] >> 5) << 12) |
+                                          ((p[0] >> 4) << 8) |
+                                          ((p[1] >> 4) << 4) | (p[2] >> 4));
+                }
+                {
+                    size_t off =
+                        ((size_t) (y / 4) * (dst_w / 4) + (x / 4)) * 32 +
+                        (size_t) (y % 4) * 8 + (size_t) (x % 4) * 2;
+                    dest[off] = (unsigned char) (v >> 8);
+                    dest[off + 1] = (unsigned char) (v & 0xFF);
+                }
+                break;
+            }
+            case GX_TF_I4: {
+                unsigned n = copy_quantize4(
+                    (float) copy_intensity8(p) / 255.0f);
+                size_t off = ((size_t) (y / 8) * ((dst_w + 7) / 8) +
+                              (size_t) (x / 8)) *
+                                 32 +
+                             (size_t) (y % 8) * 4 + (size_t) (x % 8) / 2;
+                if ((x & 1) == 0) {
+                    dest[off] = (unsigned char) ((dest[off] & 0x0F) | (n << 4));
+                } else {
+                    dest[off] = (unsigned char) ((dest[off] & 0xF0) | n);
+                }
+                break;
+            }
+            case GX_TF_I8: {
+                size_t off = ((size_t) (y / 4) * ((dst_w + 7) / 8) +
+                              (size_t) (x / 8)) *
+                                 32 +
+                             (size_t) (y % 4) * 8 + (size_t) (x % 8);
+                dest[off] = copy_intensity8(p);
+                break;
+            }
+            case GX_TF_IA4: {
+                unsigned i = copy_quantize4(
+                    (float) copy_intensity8(p) / 255.0f);
+                unsigned a = copy_quantize4((float) p[3] / 255.0f);
+                size_t off = ((size_t) (y / 4) * ((dst_w + 7) / 8) +
+                              (size_t) (x / 8)) *
+                                 32 +
+                             (size_t) (y % 4) * 8 + (size_t) (x % 8);
+                /* decode_ia4: low nibble intensity, high nibble alpha. */
+                dest[off] = (unsigned char) ((a << 4) | i);
+                break;
+            }
+            case GX_TF_IA8: {
+                size_t off = ((size_t) (y / 4) * (dst_w / 4) + (x / 4)) * 32 +
+                             (size_t) (y % 4) * 8 + (size_t) (x % 4) * 2;
+                /* decode_ia8 reads alpha first, then intensity. */
+                dest[off] = p[3];
+                dest[off + 1] = copy_intensity8(p);
+                break;
+            }
+            case GX_TF_RGBA8: {
+                size_t tile = ((size_t) (y / 4) * ((dst_w + 3) / 4) + x / 4);
+                size_t ar = tile * 64 + (size_t) (y % 4) * 4 + (x % 4);
+                size_t gb = tile * 64 + 32 + (size_t) (y % 4) * 8 +
+                            (size_t) (x % 4) * 2;
+                dest[ar * 2 + 0] = p[3];
+                dest[ar * 2 + 1] = p[0];
+                dest[gb] = p[1];
+                dest[gb + 1] = p[2];
+                break;
+            }
+            case GX_CTF_R4: {
+                unsigned v = p[0] >> 4;
+                size_t off = ((size_t) (y / 8) * ((dst_w + 7) / 8) + x / 8) *
+                                 32 +
+                             (size_t) (y % 8) * 4 + (size_t) (x % 8) / 2;
+                if ((x & 1) == 0) {
+                    dest[off] = (unsigned char) ((dest[off] & 0x0F) | (v << 4));
+                } else {
+                    dest[off] = (unsigned char) ((dest[off] & 0xF0) | v);
+                }
+                break;
+            }
+            default:
+                break;
+            }
+        }
+    }
+}
+
 /* P-615: GXCopyTex.  Reads the EFB colour (scaled to the GL surface) and
  * re-encodes it into GX tiled texture memory so the existing CPU texture
  * decoder sees a normal texture. */
@@ -1620,8 +1794,6 @@ static void efb_copy_tex(const GxHleDraw* d)
     int gl_y;
     unsigned char* rgba;
     unsigned char* dest = (unsigned char*) d->copy_dest;
-    int x;
-    int y;
 
     if (dest == NULL || d->copy_dst_w == 0 || d->copy_dst_h == 0) {
         return;
@@ -1655,68 +1827,8 @@ static void efb_copy_tex(const GxHleDraw* d)
         return;
     }
     glReadPixels(src_x, gl_y, src_w, src_h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
-
-    if (d->copy_fmt == GX_TF_RGB565) {
-        memset(dest, d->copy_clear ? 0 : 0, (size_t) dst_w * dst_h * 2);
-        for (y = 0; y < dst_h; ++y) {
-            int sy = y * src_h / dst_h;
-            for (x = 0; x < dst_w; ++x) {
-                int sx = x * src_w / dst_w;
-                /* GL row 0 is the bottom of src_h; flip into GX top-down. */
-                const unsigned char* p =
-                    rgba + (((size_t) (src_h - 1 - sy)) * src_w + sx) * 4;
-                unsigned short v = (unsigned short)
-                    (((p[0] >> 3) << 11) | ((p[1] >> 2) << 5) | (p[2] >> 3));
-                size_t off = ((size_t) (y / 4) * (dst_w / 4) + (x / 4)) * 32 +
-                             (size_t) (y % 4) * 8 + (size_t) (x % 4) * 2;
-                dest[off] = (unsigned char) (v >> 8);
-                dest[off + 1] = (unsigned char) (v & 0xFF);
-            }
-        }
-    } else if (d->copy_fmt == GX_CTF_R4) {
-        /* HSD's dynamic shadow map (`shadow.c`): the EFB red channel copied
-         * to a 4-bit tiled intensity texture.  8x8 px per 32-byte tile, two
-         * pixels per byte, first pixel in the high nibble (matches
-         * gx/texture.c:decode_i4). */
-        size_t tiles = (size_t) ((dst_w + 7) / 8) * ((dst_h + 7) / 8);
-        memset(dest, 0, tiles * 32);
-        for (y = 0; y < dst_h; ++y) {
-            int sy = y * src_h / dst_h;
-            for (x = 0; x < dst_w; ++x) {
-                int sx = x * src_w / dst_w;
-                const unsigned char* p =
-                    rgba + (((size_t) (src_h - 1 - sy)) * src_w + sx) * 4;
-                unsigned v = p[0] >> 4;
-                size_t off = ((size_t) (y / 8) * ((dst_w + 7) / 8) + x / 8) *
-                                 32 +
-                             (size_t) (y % 8) * 4 + (size_t) (x % 8) / 2;
-                if ((x & 1) == 0) {
-                    dest[off] = (unsigned char) ((dest[off] & 0x0F) | (v << 4));
-                } else {
-                    dest[off] = (unsigned char) ((dest[off] & 0xF0) | v);
-                }
-            }
-        }
-    } else if (d->copy_fmt == GX_TF_RGBA8) {
-        size_t tiles = (size_t) ((dst_w + 3) / 4) * ((dst_h + 3) / 4);
-        memset(dest, 0, tiles * 64);
-        for (y = 0; y < dst_h; ++y) {
-            int sy = y * src_h / dst_h;
-            for (x = 0; x < dst_w; ++x) {
-                int sx = x * src_w / dst_w;
-                const unsigned char* p =
-                    rgba + (((size_t) (src_h - 1 - sy)) * src_w + sx) * 4;
-                size_t tile = ((size_t) (y / 4) * ((dst_w + 3) / 4) + x / 4);
-                size_t ar = tile * 64 + (size_t) (y % 4) * 4 + (x % 4);
-                size_t gb = tile * 64 + 32 + (size_t) (y % 4) * 8 +
-                            (size_t) (x % 4) * 2;
-                dest[ar * 2 + 0] = p[3];
-                dest[ar * 2 + 1] = p[0];
-                dest[gb] = p[1];
-                dest[gb + 1] = p[2];
-            }
-        }
-    }
+    memset(dest, 0, copy_tex_dest_size(d->copy_fmt, dst_w, dst_h));
+    copy_tex_encode(d->copy_fmt, dest, dst_w, dst_h, rgba, src_w, src_h);
     free(rgba);
     gl_texture_cache_invalidate(dest);
 }

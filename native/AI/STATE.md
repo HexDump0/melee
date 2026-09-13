@@ -237,6 +237,14 @@ screenshot is unchanged (its only light is white/infinite); regressions are
 the `decomp_gx_direct` light cases and `decomp_efb` pass 6.  Learnings:
 `gx_lighting_specular.md`; spot-light cones filed as P-681.
 
+**P-674 (2026-09-13):** `GXCopyTex` now encodes every format the game uses
+through one tiling table: I4/I8/IA4/IA8 with Aurora's ITU-R BT.601
+`intensity()` + `quantize4()` (the old port copied red only), and RGB5A3
+(result-screen portraits and menu snapshots, previously left untouched).
+RGB565/R4/RGBA8 bytes are unchanged.  `ctest decomp_efb` pass 7 covers the
+new formats with sensitivity flipped; Z24X8 depth snapshots and `GX_ZT_ADD`
+are documented in `learnings/gx_efb_copy.md` and filed as P-682.
+
 ## TL;DR
 
 A playable two-player sandbox runs natively on Linux, rendering real disc
