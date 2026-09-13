@@ -848,3 +848,46 @@ porting our tree costs more than re-integrating our platform, web path and
 regressions into their fork.
 
 **Status:** accepted by the owner (2026-09-13); S8.0 gates the mechanics.
+
+---
+
+## ADR-0016: Platform matrix — Aurora on Android/iOS too; browser is an emdawnwebgpu spike
+
+**Context.** ADR-0015 chose Aurora for desktop and framed the GLES backend as
+"the web backend".  That undersold the platform matrix and overstated the
+browser limit:
+
+- Aurora's own application layer lists **Windows, Linux, macOS, iOS, tvOS and
+  Android**; its GX backends are D3D12/Vulkan/Metal, so Android (Vulkan) and
+  iOS/tvOS (Metal) are first-class, 64-bit native targets.
+- For browsers, Aurora does not ship an Emscripten build, but its GX layer is
+  written against `webgpu.h` (WebGPU C API) on Dawn.  Dawn maintains
+  **`emdawnwebgpu`**, an Emscripten port of `webgpu.h` over the browser's
+  WebGPU (`emcc --use-port=emdawnwebgpu`, Emscripten 4.0.10+).  A web build of
+  Aurora would be a port (app/VI layer, dependency builds, wasm32) rather than
+  something that exists today, but it is a technical path, not a dead end.
+
+**Decision (amends ADR-0015 §1/§2).**
+
+1. **Aurora is the GX backend on every native target**: Linux/Windows
+   (Vulkan/D3D12), macOS/iOS/tvOS (Metal), Android (Vulkan + SDL3).  The
+   desktop 64-bit requirement applies to those targets; Android is already
+   64-bit (arm64-v8a/x86_64) and iOS is arm64.
+2. **The web target gets a spike first**: P-668 becomes "spike Aurora +
+   `emdawnwebgpu` for wasm32; if it cannot render Melee's GX surface with the
+   pinned Aurora, fall back to the existing GLES3/WebGL2 backend".  The GLES
+   backend stays maintained until that spike renders a real frame; it is the
+   guaranteed fallback, not deleted.
+3. **Android/iOS move into the platform task** (P-667): Aurora owns the app
+   window/events/PAD; our OS/DVD/ARQ/AX/audio/CARD remain; disc-image access
+   (SAF/document picker, no bundled assets) and SDL3 audio are mobile-specific
+   work items.
+4. wasm32 remains 32-bit; if Aurora-on-web lands, it may use either the
+   schema materializer (pointer-width neutral) or the in-place converter.
+
+**Consequences.** The target matrix is `Aurora everywhere native; Aurora-or-
+GLES on web`, so the GX-HLE freeze is now conditional on the P-668 spike
+result.  Mobile becomes a scheduled follow-up rather than an afterthought, and
+`archive.c:Locate`'s 32-bit assumption only constrains the web/in-place path.
+
+**Status:** accepted (2026-09-13); amends ADR-0015.
