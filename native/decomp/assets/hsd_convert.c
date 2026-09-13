@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 74u
+#define HSD_CONVERTER_VERSION 75u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -156,7 +156,12 @@ static uint32_t rd32(const Conv* c, uint32_t off)
 
 static int in_data(const Conv* c, uint32_t off, size_t need)
 {
-    return (size_t) off + need <= c->data_size;
+    /* `off + need` can wrap on the 32-bit product (e.g. a
+     * 0xFFFFFFE0 fogadjdesc offset passes `off + 0x44 <= data_size`), which
+     * then indexes c->num/c->reloc before the heap buffer.  Compare against
+     * the remaining size instead. */
+    return (size_t) off <= c->data_size &&
+           need <= c->data_size - (size_t) off;
 }
 
 static int mark(Conv* c, uint32_t off)
@@ -172,7 +177,9 @@ static int mark(Conv* c, uint32_t off)
  * order and are left alone. */
 static void conv_u32(Conv* c, uint32_t off)
 {
-    if (!in_data(c, off, 4) || c->reloc[off] || c->num[off]) {
+    /* Descriptor fields are 4-aligned; an unaligned offset means a walker
+     * misidentified data (and a write would cross pointer boundaries). */
+    if (!in_data(c, off, 4) || (off & 3u) || c->reloc[off] || c->num[off]) {
         return;
     }
     c->num[off] = 1;
@@ -181,7 +188,12 @@ static void conv_u32(Conv* c, uint32_t off)
 
 static void conv_u16(Conv* c, uint32_t off)
 {
-    if (!in_data(c, off, 2) || c->num[off]) {
+    /* A u16 field never shares a word with a relocation target: if the word
+     * is a pointer, this is a walk misinterpreting data, and writing would
+     * corrupt the pointer's halves.  Unaligned offsets are the same class. */
+    if (!in_data(c, off, 2) || (off & 1u) || c->num[off] ||
+        c->reloc[off & ~3u])
+    {
         return;
     }
     c->num[off] = 1;
@@ -1961,7 +1973,7 @@ static void conv_waitanim_flags(Conv* c, uint32_t off)
     uint32_t low = 0;
     int b;
 
-    if (!in_data(c, off, 4) || c->num[off]) {
+    if (!in_data(c, off, 4) || c->num[off] || c->reloc[off]) {
         return;
     }
     c->num[off] = 1;
@@ -2538,7 +2550,11 @@ static void conv_ef_dat(Conv* c, uint32_t off)
             uint32_t end = (uint32_t) c->data_size;
             int n;
             int i;
-            /* The desc array ends where the first bank blob starts. */
+            /* The desc array ends where the first bank blob starts, or at
+             * the first entry with no relocation-backed model pointer when
+             * neither bank is present (EfDk/EfPe/EfLk/EfNs: the rest of the
+             * archive is other data, and walking it as descriptors made
+             * conv_static_model_full treat unrelated words as joints). */
             if (cmd > descs && cmd < end) {
                 end = cmd;
             }
@@ -2551,6 +2567,12 @@ static void conv_ef_dat(Conv* c, uint32_t off)
             }
             for (i = 0; i < n; i++) {
                 uint32_t e = descs + (uint32_t) i * 0x14;
+                if (!c->reloc[e + 0x04] && !c->reloc[e + 0x08] &&
+                    !c->reloc[e + 0x0C] && !c->reloc[e + 0x10])
+                {
+                    break;
+                }
+                c->st.effect_descs++;
                 conv_u32(c, e);
                 conv_static_model_full(c, e + 4);
             }

@@ -47,6 +47,7 @@ typedef struct HsdConvertStats {
     unsigned stage_maps;
     unsigned stage_matanims;
     unsigned stage_shapeanims;
+    unsigned effect_descs;
     unsigned ground_params;
     unsigned yakumono_params;
     unsigned itemdata;

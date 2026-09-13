@@ -192,7 +192,10 @@ specials read host-order attributes (P-656/G-125).  Converter v73 fixes the
 symbols), so the results screen resolves the right trophy name/model per
 character (P-645/G-126).  Converter v74 adds the credits `_modelset` and
 Stadium `gmKumiteSystemTable*` walks found by an unknown-root scan over every
-disc archive (P-657/G-127).  Open S6 follow-ups: match HUD stock icons show the
+disc archive (P-657/G-127).  Converter v75 hardens the walker bounds (32-bit
+`in_data` overflow, unaligned writes, effect-descriptor overrun) and
+`test_decomp_assets` now converts all 861 disc archives and checks every
+relocation field against a raw copy (P-659/G-128).  Open S6 follow-ups: match HUD stock icons show the
 wrong character (P-644), and
 save data is blocked by the game's hsd card filesystem pump (P-646; the host
 card backend is opt-in behind `MELEE_CARD_DIR` until then).

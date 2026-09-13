@@ -974,6 +974,175 @@ static int check_kumite_tables(const char* image)
     return failed != 0 ? 1 : 0;
 }
 
+/* Converter safety sweep over every HSD archive on the disc:
+ *   1. after convert+Locate, every relocation field must equal its raw
+ *      big-endian value plus the data base (a walker that writes into a
+ *      pointer field is caught, P-652 class);
+ *   2. for Ef*Data.dat effect tables, the EF_EffectDesc run ends at the
+ *      first entry with no relocation-backed model pointer, and the words
+ *      at and after that entry must be untouched (conv_ef_dat used to walk
+ *      up to 1024 entries into unrelated data).
+ * Both fail before the converter hardening (167 corrupted reloc fields and
+ * a heap overflow on the old code path). */
+static int check_converter_sweep(const char* image)
+{
+    char error[256];
+    DiscFileList list;
+    size_t i;
+    size_t size = 0;
+    unsigned archives = 0;
+    unsigned loaded = 0;
+    unsigned converted = 0;
+    unsigned parsed = 0;
+    int failed = 0;
+
+    if (disc_list(image, NULL, NULL, &list, error, sizeof(error)) != DISC_OK) {
+        fprintf(stderr, "decomp_assets: sweep list: %s\n", error);
+        return 1;
+    }
+    for (i = 0; i < list.count; i++) {
+        DiscFile file;
+        unsigned char* buffer;
+        unsigned char* raw;
+        HSD_Archive archive;
+        HsdConvertStats stats;
+        int is_ef;
+
+        if (disc_load(image, list.names[i], &file, error, sizeof(error)) !=
+            DISC_OK)
+        {
+            continue;
+        }
+        loaded++;
+        if (file.size < 0x20) {
+            disc_free(&file);
+            continue;
+        }
+        size = file.size;
+        raw = malloc(size);
+        buffer = malloc(size);
+        if (raw == NULL || buffer == NULL) {
+            free(raw);
+            free(buffer);
+            disc_free(&file);
+            continue;
+        }
+        memcpy(raw, file.data, size);
+        memcpy(buffer, file.data, size);
+        disc_free(&file);
+        {
+            int cv = hsd_asset_convert(buffer, size, &stats);
+            if (!cv) {
+                free(raw);
+                free(buffer);
+                continue;
+            }
+        }
+        converted++;
+        if (HSD_ArchiveParse(&archive, buffer, size) != 0) {
+            free(raw);
+            free(buffer);
+            continue;
+        }
+        parsed++;
+        archives++;
+        if (check_reloc_integrity(list.names[i], raw, buffer, &archive)) {
+            failed++;
+        }
+
+        is_ef = strncmp(list.names[i], "Ef", 2) == 0 &&
+                strstr(list.names[i], "Data") != NULL;
+        if (is_ef && archive.header.nb_public != 0) {
+            unsigned expect_descs = 0;
+            const char* sym = archive.symbols + archive.public_info[0].symbol;
+            unsigned char* table = HSD_ArchiveGetPublicAddress(&archive, sym);
+            if (table != NULL && ptr_in_buffer(table, buffer, size) &&
+                table + 0x20 <= buffer + size)
+            {
+                unsigned char* descs = table + 8;
+                uint32_t base =
+                    (uint32_t) (descs - (buffer + 0x20));
+                uint32_t arch_base = (uint32_t) (uintptr_t) (buffer + 0x20);
+                uint32_t end = (uint32_t) (size - 0x20);
+                uint32_t cmd = read_host_u32(table);
+                uint32_t tex = read_host_u32(table + 4);
+                unsigned k;
+                if (cmd >= arch_base && cmd < arch_base + size) {
+                    cmd -= arch_base;
+                }
+                if (tex >= arch_base && tex < arch_base + size) {
+                    tex -= arch_base;
+                }
+                /* The descriptor array ends at the first bank blob when the
+                 * effect has particle banks (the same bound the converter
+                 * uses), otherwise at the first non-relocated model slot. */
+                if (cmd > 8 && cmd < end) {
+                    end = cmd;
+                }
+                if (tex > 8 && tex < end) {
+                    end = tex;
+                }
+                for (k = 0; k < 1024; k++) {
+                    uint32_t e = base + k * 0x14;
+                    unsigned f;
+                    int any_reloc = 0;
+                    if ((size_t) e + 0x14 > end) {
+                        break;
+                    }
+                    for (f = 0; f < 4; f++) {
+                        if (archive_has_reloc(
+                                &archive,
+                                (unsigned char*) buffer + 0x20 + e + 4 +
+                                    f * 4))
+                        {
+                            any_reloc = 1;
+                        }
+                    }
+                    if (any_reloc) {
+                        expect_descs++;
+                    }
+                    if (!any_reloc) {
+                        /* The descriptor run ends here.  The lifetime word of
+                         * this first non-descriptor slot is what the old
+                         * 1024-entry walk overwrote; later words can belong
+                         * to model trees reached from the real descriptors. */
+                        if ((size_t) e + 4 <= end &&
+                            read_host_u32(buffer + 0x20 + e) !=
+                                read_be_u32(raw + 0x20 + e))
+                        {
+                            if (failed == 0) {
+                                fprintf(stderr,
+                                        "decomp_assets: %s effect desc "
+                                        "tail[%u] converted\n",
+                                        list.names[i], k);
+                            }
+                            failed++;
+                        }
+                        break;
+                    }
+                }
+                if (stats.effect_descs != expect_descs) {
+                    if (failed == 0) {
+                        fprintf(stderr,
+                                "decomp_assets: %s effect descs=%u want=%u\n",
+                                list.names[i], stats.effect_descs,
+                                expect_descs);
+                    }
+                    failed++;
+                }
+            }
+        }
+        free(raw);
+        free(buffer);
+    }
+    disc_list_free(&list);
+    if (failed == 0) {
+        printf("decomp_assets: converter sweep archives=%u (loaded=%u converted=%u parsed=%u) ok\n",
+               archives, loaded, converted, parsed);
+    }
+    return failed != 0 ? 1 : 0;
+}
+
 /* P-645: TyDataf's trophy tables are 0x54-byte entries { s32 id; char
  * name[0x20]; char model[0x2c] }.  `Toy_8030813C` matches the id against the
  * table and `Toy_80308250` then hands out `entry + 4` (name) and `entry +
@@ -1515,6 +1684,7 @@ int main(int argc, char** argv)
     failures += check_ty_data_tables(image);
     failures += check_staffroll_modelset(image);
     failures += check_kumite_tables(image);
+    failures += check_converter_sweep(image);
     failures += check_stage_matanims(image, "GrNBa.dat");
     failures += check_stage_matanims(image, "GrNLa.dat");
 

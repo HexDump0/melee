@@ -78,6 +78,22 @@ the per-structure reference.  Key differences from the §7 recommendation:
   known unknowns: `sqEventInitDataLevelTbl` (event levels + `StartMeleeRules`
   bitfields), `gmIntroEasyTable`, `standScene`/`cut*Scene`, `dbLoadCommonData`,
   and the per-fighter `ftDemo*MotionFile*` strings (no walk needed).
+- **Sweep every archive for reloc integrity.**  `test_decomp_assets` converts
+  all 861 HSD archives on the disc and checks every relocation field against
+  the raw big-endian value plus the data base, and each `Ef*Data.dat`
+  descriptor count.  This found the effect-desc overrun and the unaligned
+  writes behind G-128; add the archive to the sweep before adding a bespoke
+  check.
+- **Bounds arithmetic must not wrap.**  `in_data` used `off + need`, which
+  wraps on 32-bit; all offsets come from archive data and can be arbitrary.
+  Compare `off <= data_size && need <= data_size - off` instead, and refuse
+  unaligned offsets in `conv_u32`/`conv_u16` (descriptor fields are aligned,
+  and an unaligned write cuts across adjacent pointer fields).
+- **Effect descriptor arrays have no stored count.**  `EF_EffectDesc[]` runs
+  from `DataTable + 8` to the first particle bank (`DataTable + 0`/`+4`); when
+  both banks are null it ends at the first entry with no relocation-backed
+  model pointer.  `stats.effect_descs` reports the walked count so the asset
+  sweep can pin it.
 - **Pointee walks need their own walker.**  A converted pointer field is not a
   converted payload.  Every `ftData` sub-table was walked except `x58`
   (`ftData_x58_t`: two `u8` leg-part indices plus three f32 IK lengths), so

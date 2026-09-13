@@ -1618,3 +1618,30 @@ Audit method: a one-off scan of `roots_unknown` over all 1,209 disc archives
 lists the remaining unwalked publics (event level table, intro-easy table,
 `standScene`/`cut*Scene`, debug tables); the per-fighter
 `ftDemo*MotionFile*` symbols are strings and need no walk.
+
+## G-128: converter bounds must not wrap, and walkers must respect relocation words
+
+**Symptom:** heap corruption while converting effect archives; 167 relocation
+fields across 22 `Ef*Data.dat` archives were rewritten with garbage (pointers
+split across unaligned writes), and ASan caught a 1-byte heap-buffer-overflow
+on the relocation map.
+**Cause:** three holes in the converter's defensive checks:
+1. `in_data(c, off, need)` was `(size_t) off + need <= data_size`, which wraps
+   on the 32-bit product: a `0xFFFFFFE0` fogadjdesc offset passes `off + 0x44`
+   and then indexes `c->num[]` before the allocation.
+2. `conv_u16` did not skip words that are relocation targets, and neither
+   `conv_u16` nor `conv_u32` rejected unaligned offsets.  A misidentified
+   `HSD_Joint` with a garbage `mtx` (7) wrote a u32 at data offset 11, cutting
+   across pointer fields.
+3. `conv_ef_dat` bounded the `EF_EffectDesc` array by the first particle bank,
+   but EfDk/EfPe/EfLk/EfNs have both bank pointers null, so it walked up to
+   1024 entries into unrelated data and treated arbitrary words as models.
+**Fix:** `in_data` compares against the remaining size; `conv_u32` rejects
+unaligned offsets and `conv_u16` unaligned offsets or pointer words (the
+`conv_u32` relocation check already existed); `conv_ef_dat` stops at the first
+descriptor with no relocation-backed model pointer and reports
+`stats.effect_descs`.  `test_decomp_assets` now converts every one of the 861
+HSD archives on the disc and checks every relocation field against a raw copy
+plus each effect table's descriptor count (EfCoData alone walks 50 entries
+for 47 descriptors, and the old code corrupted 167 pointers; ASan clean
+with the fixes).
