@@ -1,0 +1,22 @@
+diff --git a/src/melee/lb/lbanim.c b/src/melee/lb/lbanim.c
+index 5b80acc13..6b1988bf3 100644
+--- a/src/melee/lb/lbanim.c
++++ b/src/melee/lb/lbanim.c
+@@ -62,7 +62,17 @@ HSD_FObj* fn_8001E60C(FigaTrack* track, s8 frames)
+             track++;
+         }
+     }
++#ifdef PORT_PC
++    /* The loop above only advances `track` when it allocates, so a joint
++     * whose first track is obj_type 5/6/7 builds no FObj at all and `fobj`
++     * is uninitialized.  Writing fobj->next then touches stale stack on the
++     * console but faults on the host; skip the write and return NULL. */
++    if (first != NULL) {
++        fobj->next = NULL;
++    }
++#else
+     fobj->next = NULL;
++#endif
+     return first;
+ }
+ 

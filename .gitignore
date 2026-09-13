@@ -1,0 +1,15 @@
+# Local disc images (bring your own; never committed)
+/iso/
+
+# Native build outputs
+/build/
+
+# Local reference checkouts and scratch files
+/ACGC-PC-Port/
+/backup.zip
+/ctx.c
+
+# Object files and editor scratch
+*.o
+*.orig
+*.rej

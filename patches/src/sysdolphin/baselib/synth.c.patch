@@ -1,0 +1,204 @@
+diff --git a/src/sysdolphin/baselib/synth.c b/src/sysdolphin/baselib/synth.c
+index 6210fbc4f..4962b0663 100644
+--- a/src/sysdolphin/baselib/synth.c
++++ b/src/sysdolphin/baselib/synth.c
+@@ -104,9 +104,41 @@ static void HSD_SynthSFXSampleLoadCallback(int result, int length, void* addr,
+             n = *HSD_Synth_804D7734;
+             (void) n;
+             nbytes = SfxLoadStreamDataSize(n << 6);
++#ifdef PORT_PC
++            /* The group regions overlap for the retail .ssm layout (dst
++             * advances 8 bytes more per group than src); the MWCC memcpy
++             * tolerated that, the host libc's is undefined.  memmove is
++             * behavior-preserving: the copied fields are re-patched below. */
++            memmove((u8*) HSD_Synth_804D7730 + 8, HSD_Synth_804D7734, nbytes);
++#else
+             memcpy((u8*) HSD_Synth_804D7730 + 8, HSD_Synth_804D7734, nbytes);
++#endif
+             for (k = 0; k < n; k++) {
+                 u8* e = (u8*) HSD_Synth_804D7730 + k * 0x40;
++#ifdef PORT_PC
++                {
++                    u32 addr;
++                    if (e + 0x10 != NULL) {
++                        addr = MELEE_PORT_AX_GET_U16PAIR(*(u16*) (e + 0x14),
++                                                         *(u16*) (e + 0x16));
++                        addr += hsd_SynthSFXBank[bankID] * 2;
++                    } else {
++                        addr = HSD_Synth_804D7784;
++                    }
++                    MELEE_PORT_AX_SET_U16PAIR(*(u16*) (e + 0x14),
++                                              *(u16*) (e + 0x16), addr);
++                    addr = MELEE_PORT_AX_GET_U16PAIR(*(u16*) (e + 0x18),
++                                                     *(u16*) (e + 0x1A));
++                    addr += hsd_SynthSFXBank[bankID] * 2;
++                    MELEE_PORT_AX_SET_U16PAIR(*(u16*) (e + 0x18),
++                                              *(u16*) (e + 0x1A), addr);
++                    addr = MELEE_PORT_AX_GET_U16PAIR(*(u16*) (e + 0x1C),
++                                                     *(u16*) (e + 0x1E));
++                    addr += hsd_SynthSFXBank[bankID] * 2;
++                    MELEE_PORT_AX_SET_U16PAIR(*(u16*) (e + 0x1C),
++                                              *(u16*) (e + 0x1E), addr);
++                }
++#else
+                 if (e + 0x10 != NULL) {
+                     *(u32*) (e + 0x14) += hsd_SynthSFXBank[bankID] * 2;
+                 } else {
+@@ -116,6 +148,7 @@ static void HSD_SynthSFXSampleLoadCallback(int result, int length, void* addr,
+                     hsd_SynthSFXBank[bankID] * 2;
+                 *(u32*) ((u8*) HSD_Synth_804D7730 + k * 0x40 + 0x1C) +=
+                     hsd_SynthSFXBank[bankID] * 2;
++#endif
+             }
+             id = base + i;
+             HSD_Synth_804D7730->x4 = id;
+@@ -156,6 +189,31 @@ static void HSD_SynthSFXHeaderLoadCallback(int result, int length, void* addr,
+ 
+     if (HSD_Synth_804D7738 == 0) {
+         int bankID = HSD_Synth_804C2A60[0].bankID;
++#ifdef PORT_PC
++        /* Audio is stubbed (S5).  The ARAM bank regions are sized from
++         * lbAudioAx_8002785C's tables, which can be smaller than a group
++         * load in the port; drop the group instead of panicking, but still
++         * run the queue completion so HSD_SynthSFXWaitForLoadCompletion
++         * does not spin. */
++        if (hsd_SynthSFXBankHead[bankID + 1] - hsd_SynthSFXBank[bankID] <
++            hsd_SynthSFXLoadBuf[1])
++        {
++            BOOL intr;
++            s32 k;
++            if (HSD_Synth_804C2A60[0].x8 != NULL) {
++                HSD_Synth_804C2A60[0].x8(HSD_Synth_804C2A60[0].entrynum,
++                                         HSD_Synth_804C2A60[0].xC);
++            }
++            intr = OSDisableInterrupts();
++            HSD_Synth_804D772C -= 1;
++            for (k = 0; k < HSD_Synth_804D772C; k++) {
++                HSD_Synth_804C2A60[k] = HSD_Synth_804C2A60[k + 1];
++            }
++            HSD_SynthSFXLoadNewProc();
++            OSRestoreInterrupts(intr);
++            return;
++        }
++#endif
+ 
+         HSD_ASSERTREPORT(0xCD,
+                          hsd_SynthSFXBankHead[bankID + 1] -
+@@ -389,11 +447,34 @@ void HSD_SynthSFXGroupDataReaddress(AXVPB* arg0, void* callback)
+         count = *(int*) (p + 8);
+         q = p;
+         for (j = 0; j < count; j++) {
++#ifdef PORT_PC
++            {
++                u32 addr;
++                if (*(u16*) (q + 0x10) != 0) {
++                    addr = MELEE_PORT_AX_GET_U16PAIR(*(u16*) (q + 0x14),
++                                                     *(u16*) (q + 0x16));
++                    addr += delta;
++                    MELEE_PORT_AX_SET_U16PAIR(*(u16*) (q + 0x14),
++                                              *(u16*) (q + 0x16), addr);
++                }
++                addr = MELEE_PORT_AX_GET_U16PAIR(*(u16*) (q + 0x18),
++                                                 *(u16*) (q + 0x1A));
++                addr += delta;
++                MELEE_PORT_AX_SET_U16PAIR(*(u16*) (q + 0x18), *(u16*) (q + 0x1A),
++                                          addr);
++                addr = MELEE_PORT_AX_GET_U16PAIR(*(u16*) (q + 0x1C),
++                                                 *(u16*) (q + 0x1E));
++                addr += delta;
++                MELEE_PORT_AX_SET_U16PAIR(*(u16*) (q + 0x1C), *(u16*) (q + 0x1E),
++                                          addr);
++            }
++#else
+             if (*(u16*) (q + 0x10) != 0) {
+                 *(u32*) (q + 0x14) += delta;
+             }
+             *(u32*) (q + 0x18) += delta;
+             *(u32*) (q + 0x1C) += delta;
++#endif
+             q += 0x40;
+         }
+         p = (u8*) ((count << 6) + (uintptr_t) p);
+@@ -612,9 +693,16 @@ int HSD_Synth_80389334(int sfx_id, u8 vol, u8 vol2, u8 pan, int priority,
+             while (voice_idx < sfx_entry->unk8) {
+                 AXSetVoicePriority(voices[voice_idx], priority);
+                 AXSetVoiceVe(voices[voice_idx], &ve);
++#ifdef PORT_PC
++                MELEE_PORT_AX_SET_RATIO(
++                    HSD_Synth_80407FD8,
++                    65536.0F * (sfx_node->x18[1] *
++                                (sfx_node->x14 * sfx_node->x18[0])));
++#else
+                 *(u32*) &HSD_Synth_80407FD8.ratioHi =
+                     (65536.0F *
+                      (sfx_node->x18[1] * (sfx_node->x14 * sfx_node->x18[0])));
++#endif
+                 AXSetVoiceSrc(voices[voice_idx], &HSD_Synth_80407FD8);
+                 AXSetVoiceAddr(voices[voice_idx], &SFX_VOICE(voice_idx)->x10);
+                 AXSetVoiceAdpcm(voices[voice_idx], &SFX_VOICE(voice_idx)->x20);
+@@ -722,9 +810,14 @@ static inline void stopRange(size_t lo, size_t hi)
+     for (i = 0; i < 0x40; i++) {
+         struct HSD_SynthSFXNode* node = &hsd_SynthSFXNodes[i];
+         if (hsd_SynthSFXNodes[i].x0 > 0) {
++#ifdef PORT_PC
++            addr = MELEE_PORT_AX_GET_ADDR(
++                hsd_SynthSFXNodes[i].voice[0]->pb.addr);
++#else
+             addr = *(size_t*) &hsd_SynthSFXNodes[i]
+                         .voice[0]
+                         ->pb.addr.currentAddressHi;
++#endif
+             if (addr >= lo && addr < hi) {
+                 HSD_SynthSFXStopNode(&hsd_SynthSFXNodes[i]);
+             }
+@@ -1239,8 +1332,14 @@ void HSD_Synth_8038ADD0(void)
+     if (node->flags & 8) {
+         return;
+     }
++#ifdef PORT_PC
++    pos = (MELEE_PORT_AX_GET_ADDR(node->voice[0]->pb.addr) -
++           HSD_Synth_804D7780 * 2) >>
++          0x11;
++#else
+     pos = (*(u32*) ((u8*) node->voice[0] + 0x1B2) - HSD_Synth_804D7780 * 2) >>
+           0x11;
++#endif
+     if (pos != HSD_Synth_804D7774) {
+         HSD_Synth_804D7774 = pos;
+         for (i = 0; i < node->voice_count; i++) {
+@@ -1301,11 +1400,22 @@ void HSD_Synth_8038B120(void)
+         for (i = 0; i < node->voice_count; i++) {
+             AXSetVoiceVe(node->voice[i], &ve);
+             if (node->flags & 4) {
++#ifdef PORT_PC
++                MELEE_PORT_AX_SET_RATIO(HSD_Synth_80407FD8, 0);
++#else
+                 *(u32*) &HSD_Synth_80407FD8.ratioHi = 0;
++#endif
+             } else {
++#ifdef PORT_PC
++                MELEE_PORT_AX_SET_RATIO(
++                    HSD_Synth_80407FD8,
++                    (u32) (65536.0F *
++                           (node->x14 * node->x18[0] * node->x18[1])));
++#else
+                 *(u32*) &HSD_Synth_80407FD8.ratioHi =
+                     (u32) (65536.0F *
+                            (node->x14 * node->x18[0] * node->x18[1]));
++#endif
+             }
+             AXSetVoiceSrc(node->voice[i], &HSD_Synth_80407FD8);
+             AXSetVoiceCurrentAddr(
+@@ -1362,7 +1472,12 @@ void HSD_SynthPStreamHeaderCallback(int arg0, int arg1, void* arg2,
+         }
+         node->x14 = 0.00003125f * (f32) entry[2];
+         for (i = 0; i < node->voice_count; i++) {
++#ifdef PORT_PC
++            MELEE_PORT_AX_SET_RATIO(HSD_Synth_80407FD8,
++                                    (u32) (65536.0f * node->x14));
++#else
+             *(u32*) &HSD_Synth_80407FD8.ratioHi = (u32) (65536.0f * node->x14);
++#endif
+             AXSetVoiceAddr(node->voice[i], (AXPBADDR*) &entry[i * 14 + 4]);
+             AXSetVoiceAdpcm(node->voice[i], (AXPBADPCM*) &entry[i * 14 + 8]);
+         }

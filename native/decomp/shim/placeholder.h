@@ -9,7 +9,7 @@
  * with sqrt(x) diverges for ordinary world-space lengths and eventually
  * injects NaNs into fighter inverse kinematics.
  */
-#include "../../../src/placeholder.h"
+#include "../../../decomp/src/placeholder.h"
 
 #include <math.h>
 #undef __frsqrte

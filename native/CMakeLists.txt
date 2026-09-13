@@ -3,6 +3,23 @@ project(melee_native C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+# The decompilation lives in the `decomp/` git submodule (doldecomp/melee, see
+# README).  The port carries its #ifdef PORT_PC portability fixes as a patch
+# series under patches/ (ADR-0011: shim first, minimal patch second); apply
+# them to the submodule work tree so every build sees them.  Idempotent.
+find_program(MELEE_GIT_EXECUTABLE git REQUIRED)
+execute_process(
+    COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/apply_decomp_patches.sh"
+    RESULT_VARIABLE MELEE_PATCH_RESULT
+    OUTPUT_VARIABLE MELEE_PATCH_OUTPUT
+    ERROR_VARIABLE MELEE_PATCH_ERROR)
+if(NOT MELEE_PATCH_RESULT EQUAL 0)
+    message(FATAL_ERROR
+        "Failed to apply the decomp patch series.\n"
+        "${MELEE_PATCH_OUTPUT}${MELEE_PATCH_ERROR}"
+        "Run scripts/apply_decomp_patches.sh manually (is decomp/ initialized?)")
+endif()
+
 # The compiled game is 32-bit for original HSD structure layout.  GCC would
 # otherwise evaluate scalar floating point through x87 and retain 80-bit
 # intermediates, violating the source types at sequence points.  In
@@ -24,11 +41,11 @@ find_package(OpenGL REQUIRED)
 # link (--gc-sections), so the TU's asm-dependent allocator functions do not
 # need the unreachable SDK primitives.
 add_library(melee_decomp_math OBJECT
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/mtx.c)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/mtx.c)
 target_include_directories(melee_decomp_math BEFORE PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src
-    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/include)
 target_compile_options(melee_decomp_math PRIVATE
     -w -ffunction-sections -fdata-sections
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
@@ -38,16 +55,16 @@ target_compile_options(melee_decomp_math PRIVATE
 # native/audio/ax_hle.c.  Kept as a list so the audio unit test can link it
 # without the whole game library.
 set(MELEE_AX_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/ax/AX.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/ax/AXAlloc.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/ax/AXAux.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/ax/AXSPB.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/ax/AXVPB.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/ax/AXCL.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/src/dolphin/ax/AX.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/src/dolphin/ax/AXAlloc.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/src/dolphin/ax/AXAux.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/src/dolphin/ax/AXSPB.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/src/dolphin/ax/AXVPB.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/src/dolphin/ax/AXCL.c
     # AXFX: delay.c is portable C.  reverb_std/reverb_hi/chorus contain MWCC
     # asm in extern/ and are replaced by native/decomp/axfx/ (ADR-0011 rule 3).
-    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/axfx/axfx.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/axfx/delay.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/src/dolphin/axfx/axfx.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/src/dolphin/axfx/delay.c
     # reverb_std/reverb_hi/chorus are hybrid asm in extern/ (ADR-0011 rule 3);
     # this replacement TU ports reverb_std and stubs the two unused effects.
     ${CMAKE_CURRENT_SOURCE_DIR}/decomp/axfx/axfx_port.c)
@@ -105,28 +122,28 @@ add_executable(test_decomp_hsd
     decomp/assets/hsd_convert.c
     decomp/sdk_math.c
     decomp/hsd_port_stubs.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/archive.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/aobj.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/class.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/cobj.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/dobj.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/id.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/jobj.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/list.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/memory.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/mobj.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/mtx.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/object.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/objalloc.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/pobj.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/robj.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/spline.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/tobj.c)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/archive.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/aobj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/class.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/cobj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/dobj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/id.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/jobj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/list.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/memory.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/mobj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/mtx.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/object.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/objalloc.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/pobj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/robj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/spline.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/tobj.c)
 target_include_directories(test_decomp_hsd PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src
-    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/include)
 target_compile_options(test_decomp_hsd PRIVATE
     -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS}
     -w -ffunction-sections -fdata-sections -DPORT_PC=1
@@ -148,14 +165,14 @@ add_executable(test_audio
     platform/os.c
     platform/complete.c
     decomp/boot/boot_triage.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/os/OSArena.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/src/dolphin/os/OSArena.c
     ${MELEE_AX_SOURCES})
 set_source_files_properties(${MELEE_AX_SOURCES} PROPERTIES COMPILE_OPTIONS "-w")
 target_include_directories(test_audio BEFORE PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
     ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(test_audio SYSTEM PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/include)
 target_compile_options(test_audio PRIVATE
     -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS}
     -Wall -Wextra -Wpedantic -fgnu89-inline
@@ -178,28 +195,28 @@ add_executable(test_decomp_assets
     decomp/assets/hsd_convert.c
     decomp/sdk_math.c
     decomp/hsd_port_stubs.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/archive.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/aobj.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/class.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/cobj.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/dobj.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/id.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/jobj.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/list.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/memory.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/mobj.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/mtx.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/object.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/objalloc.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/pobj.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/robj.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/spline.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/tobj.c)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/archive.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/aobj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/class.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/cobj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/dobj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/id.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/jobj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/list.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/memory.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/mobj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/mtx.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/object.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/objalloc.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/pobj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/robj.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/spline.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/tobj.c)
 target_include_directories(test_decomp_assets PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src
-    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/include)
 target_compile_options(test_decomp_assets PRIVATE
     -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS}
     -w -ffunction-sections -fdata-sections -DPORT_PC=1
@@ -237,43 +254,43 @@ set_tests_properties(decomp_assets PROPERTIES
 # The real backends vs log-only stubs are listed in
 # native/AI/learnings/decomp_boot.md.
 file(GLOB_RECURSE MELEE_DECOMP_SOURCES CONFIGURE_DEPENDS
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/*.c)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/*.c)
 list(FILTER MELEE_DECOMP_SOURCES EXCLUDE REGEX
     "/src/(MSL|MetroTRK)/")
 list(REMOVE_ITEM MELEE_DECOMP_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/Runtime/__mem.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/debug.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/sislib_font.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/hsd_3915.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/hsd_3A76.c)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/Runtime/__mem.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/debug.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/sislib_font.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/hsd_3915.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/hsd_3A76.c)
 list(APPEND MELEE_DECOMP_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/os/OSArena.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/os/OSAlloc.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/mtx/mtx44.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/src/dolphin/os/OSArena.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/src/dolphin/os/OSAlloc.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/src/dolphin/mtx/mtx44.c
     # S3: the real DVDFS path/FST logic and the ARQ DMA queue; the drive and
     # ARAM hardware under them live in native/platform/{dvd,ar}.c.
-    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/dvd/dvdfs.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/src/dolphin/ar/arq.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/src/dolphin/dvd/dvdfs.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/src/dolphin/ar/arq.c
     ${MELEE_AX_SOURCES})
 
 add_library(melee_decomp_game OBJECT ${MELEE_DECOMP_SOURCES})
 target_include_directories(melee_decomp_game BEFORE PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src
-    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/include)
 target_compile_options(melee_decomp_game PRIVATE
     -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS}
     -w -fgnu89-inline -ffunction-sections -fdata-sections
     -Wno-error=incompatible-pointer-types -DPORT_PC=1
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
 set_source_files_properties(
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/melee/gm/gmmain.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/melee/gm/gmmain.c
     PROPERTIES COMPILE_DEFINITIONS "main=gm_main")
 
 # S3: archive.c defines the real HSD_ArchiveParse; the converter TU implements
 # the platform entry point.  Every other TU sees the shim's rename.
 set_source_files_properties(
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/sysdolphin/baselib/archive.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/archive.c
     ${CMAKE_CURRENT_SOURCE_DIR}/decomp/assets/hsd_convert.c
     PROPERTIES COMPILE_DEFINITIONS "MELEE_ARCHIVE_INTERNAL=1")
 
@@ -306,8 +323,8 @@ target_include_directories(melee_decomp_boot PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim)
 target_include_directories(melee_decomp_boot SYSTEM PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src
-    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/include)
 target_compile_options(melee_decomp_boot PRIVATE
     -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS}
     -Wall -Wextra -Wpedantic -fgnu89-inline
@@ -388,8 +405,8 @@ target_include_directories(test_decomp_render BEFORE PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
     ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(test_decomp_render SYSTEM PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src
-    ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/include)
 target_compile_options(test_decomp_render PRIVATE
     -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS}
     -Wall -Wextra -Wpedantic -Wno-overlength-strings -fgnu89-inline
@@ -481,8 +498,8 @@ if(MELEE_SDL3_LIB32)
       ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
       ${CMAKE_CURRENT_SOURCE_DIR})
   target_include_directories(melee_decomp_viewer SYSTEM PRIVATE
-      ${CMAKE_CURRENT_SOURCE_DIR}/../src
-      ${CMAKE_CURRENT_SOURCE_DIR}/../extern/dolphin/include)
+      ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src
+      ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/include)
   target_compile_options(melee_decomp_viewer PRIVATE
       -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS}
       -Wall -Wextra -Wpedantic -Wno-overlength-strings -fgnu89-inline

@@ -1,0 +1,45 @@
+diff --git a/src/melee/ft/ftdata.c b/src/melee/ft/ftdata.c
+index c3135ae97..fb5c886c6 100644
+--- a/src/melee/ft/ftdata.c
++++ b/src/melee/ft/ftdata.c
+@@ -168,19 +168,40 @@ void ft_8008521C(HSD_GObj* gobj)
+ 
+ static inline void ft_800852B0_Reset_ft_8045993C(ftData** list, int i)
+ {
++#ifdef PORT_PC
++    /* ADR-0011: the retail code reaches ft_8045993C by pointer arithmetic
++     * from gFtDataList because the linker places them adjacently; host BSS
++     * order differs, so address the symbol directly. */
++    (void) list;
++    ft_8045993C[i].pad_x0 = 0;
++    ft_8045993C[i].x6_b0 = 0;
++    ft_8045993C[i].x6_b1_b2 = 0;
++#else
+     /// @todo Bitfields seem off
+     ((ft_8045993C_t*) &list[Ft_Kind_Max])[i].pad_x0 = 0;
+     ((ft_8045993C_t*) &list[Ft_Kind_Max])[i].x6_b0 = 0;
+     ((ft_8045993C_t*) &list[Ft_Kind_Max])[i].x6_b1_b2 = 0;
++#endif
+ }
+ 
++#ifdef PORT_PC
++/* Defined below; referenced here by name instead of through the retail
++ * CostumeListsForeachCharacter adjacency trick. */
++extern ftData_UnkCountStruct ftData_Table_Unk0[Ft_Kind_Max];
++#endif
++
+ void ft_800852B0(void)
+ {
+     ftData** list;
++#ifdef PORT_PC
++    ftData_UnkCountStruct* unk0 = ftData_Table_Unk0;
++    ftData_UnkCountStruct* pairs = ftData_Table_Unk0;
++#else
+     ftData_UnkCountStruct* unk0 =
+         (ftData_UnkCountStruct*) &CostumeListsForeachCharacter[Ft_Kind_Max];
+     ftData_UnkCountStruct* pairs =
+         (ftData_UnkCountStruct*) ((u8*) CostumeListsForeachCharacter + 5940);
++#endif
+     int i;
+     int new_var = 0;
+ 

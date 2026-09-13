@@ -1,0 +1,21 @@
+diff --git a/src/sysdolphin/baselib/hsd_4D11.c b/src/sysdolphin/baselib/hsd_4D11.c
+index 076608769..9bce92a4e 100644
+--- a/src/sysdolphin/baselib/hsd_4D11.c
++++ b/src/sysdolphin/baselib/hsd_4D11.c
+@@ -9,7 +9,16 @@
+ 
+ /* 4D2348 */ u8 hsd_804D2348[0x300];
+ /* 4D1148 */ u32 hsd_804D1148[0x80][0x9];
++#ifdef PORT_PC
++/* hsd_3A94.c casts this symbol to CardContext (0x1510 bytes: four header
++ * words + CardCmd[128] + HsdCmdEntry[32]).  The console lays the three
++ * card/JPEG work-area symbols out contiguously (0x4D1138 + 0x1510 ==
++ * 0x4D2648 == hsd_804D2348 + 0x300); GCC may reorder them, so give the base
++ * its full size on the host instead of writing past it. */
++u8 hsd_804D1138[0x1510];
++#else
+ /* 4D1138 */ u8 hsd_804D1138[0x10];
++#endif
+ 
+ /* 4D799C */ s32 hsd_804D799C;
+ /* 4D7998 */ s32 hsd_804D7998;

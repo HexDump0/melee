@@ -1,0 +1,4 @@
+[submodule "decomp"]
+	path = decomp
+	url = https://github.com/doldecomp/melee.git
+	ignore = dirty

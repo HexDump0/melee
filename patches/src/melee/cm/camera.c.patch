@@ -1,0 +1,31 @@
+diff --git a/src/melee/cm/camera.c b/src/melee/cm/camera.c
+index 3449507c3..1ccda8141 100644
+--- a/src/melee/cm/camera.c
++++ b/src/melee/cm/camera.c
+@@ -939,6 +939,18 @@ void Camera_ApplyQuake(CameraBounds* bounds, CameraTransformState* state)
+     input_y *= game_camera.x2BC;
+     half_view_height =
+         bounds->z_pos * tanf(0.5f * (0.017453292f * state->fov));
++#ifdef PORT_PC
++    /* The cast above assumes cm_803BCB18/3C/50/64 are laid out adjacently in
++     * declaration order.  GCC reorders static objects, so the host reads
++     * unrelated data (garbage viewport/aspect); use the descriptor directly. */
++    viewport_x_scale =
++        cm_803BCB64.aspect *
++        (half_view_height /
++         (0.5f * (f32) (cm_803BCB64.viewport.xmax - cm_803BCB64.viewport.xmin)));
++    viewport_y_scale =
++        half_view_height /
++        (0.5f * (f32) (cm_803BCB64.viewport.ymax - cm_803BCB64.viewport.ymin));
++#else
+     viewport_x_scale =
+         data->desc.aspect *
+         (half_view_height /
+@@ -946,6 +958,7 @@ void Camera_ApplyQuake(CameraBounds* bounds, CameraTransformState* state)
+     viewport_y_scale =
+         half_view_height /
+         (0.5f * (f32) (data->desc.viewport.ymax - data->desc.viewport.ymin));
++#endif
+     depth_factor_y = Stage_GetCamZoomRate();
+     depth_factor_x = Stage_GetCamMaxDepth() - depth_factor_y;
+ 
