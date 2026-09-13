@@ -89,6 +89,13 @@ the per-structure reference.  Key differences from the §7 recommendation:
   Compare `off <= data_size && need <= data_size - off` instead, and refuse
   unaligned offsets in `conv_u32`/`conv_u16` (descriptor fields are aligned,
   and an unaligned write cuts across adjacent pointer fields).
+- **Stage `yakumono_param` layouts are per-stage.**  The converter's Zebes
+  path only handles `desc == off - 0x24`; GrYt (Yoshi's Story) is
+  `YorsterParams` (`{f32 x00..x0C; s32 x10..x1C}`, gryorster.c:61) and is now
+  selected by the archive's `GrdYorster*` publics (converter v76, G-130).
+  Every other stage that reads these parameters as numbers still needs its
+  own struct-to-layout mapping (P-662); do not convert the words generically
+  (several stages store sub-structure offsets/packed bytes there).
 - **Effect descriptor arrays have no stored count.**  `EF_EffectDesc[]` runs
   from `DataTable + 8` to the first particle bank (`DataTable + 0`/`+4`); when
   both banks are null it ends at the first entry with no relocation-backed

@@ -1143,6 +1143,77 @@ static int check_converter_sweep(const char* image)
     return failed != 0 ? 1 : 0;
 }
 
+/* GrYt.dat (Yoshi's Story) `yakumono_param` is YorsterParams: four f32 then
+ * four s32 read directly by grYorster_802024F0/grYorster_8020266C.  Left
+ * big-endian, the block bump threshold x00 is a huge negative float (always
+ * passes) and the bump velocity x10 is a denormal ~0, so hitting a Lucky
+ * Block from below stops the fighter mid-air. */
+static int check_yorster_param(const char* image)
+{
+    char error[256];
+    size_t size = 0;
+    unsigned char* buffer = load_archive(image, "GrYt.dat", NULL, &size,
+                                         error, sizeof(error));
+    unsigned char* raw = NULL;
+    HSD_Archive archive;
+    HsdConvertStats stats;
+    unsigned char* param;
+    uint32_t off;
+    unsigned i;
+    int failed = 0;
+
+    if (buffer == NULL) {
+        fprintf(stderr, "decomp_assets: GrYt.dat: %s\n", error);
+        return 1;
+    }
+    raw = malloc(size);
+    if (raw == NULL) {
+        free(buffer);
+        return 1;
+    }
+    memcpy(raw, buffer, size);
+    if (!hsd_asset_convert(buffer, size, &stats) ||
+        HSD_ArchiveParse(&archive, buffer, size) != 0)
+    {
+        fprintf(stderr, "decomp_assets: GrYt.dat conversion failed\n");
+        free(raw);
+        free(buffer);
+        return 1;
+    }
+    param = HSD_ArchiveGetPublicAddress(&archive, "yakumono_param");
+    if (param == NULL || !ptr_in_buffer(param, buffer, size)) {
+        fprintf(stderr, "decomp_assets: GrYt.dat yakumono_param missing\n");
+        free(raw);
+        free(buffer);
+        return 1;
+    }
+    off = (uint32_t) (param - (buffer + 0x20));
+    for (i = 0; i < 8; i++) {
+        uint32_t host = read_host_u32(buffer + 0x20 + off + i * 4);
+        uint32_t want = read_be_u32(raw + 0x20 + off + i * 4);
+        if (host != want) {
+            if (failed == 0) {
+                fprintf(stderr,
+                        "decomp_assets: GrYt yakumono_param[%u]=%u want=%u "
+                        "(not converted?)\n",
+                        i, host, want);
+            }
+            failed++;
+        }
+    }
+    if (failed == 0) {
+        printf("decomp_assets: GrYt.dat yakumono_param x00=%.3g x10=%d "
+               "x14=%d x1C=%d ok\n",
+               (double) read_host_f32(buffer + 0x20 + off),
+               (int) read_host_u32(buffer + 0x20 + off + 0x10),
+               (int) read_host_u32(buffer + 0x20 + off + 0x14),
+               (int) read_host_u32(buffer + 0x20 + off + 0x1C));
+    }
+    free(raw);
+    free(buffer);
+    return failed != 0 ? 1 : 0;
+}
+
 /* P-645: TyDataf's trophy tables are 0x54-byte entries { s32 id; char
  * name[0x20]; char model[0x2c] }.  `Toy_8030813C` matches the id against the
  * table and `Toy_80308250` then hands out `entry + 4` (name) and `entry +
@@ -1684,6 +1755,7 @@ int main(int argc, char** argv)
     failures += check_ty_data_tables(image);
     failures += check_staffroll_modelset(image);
     failures += check_kumite_tables(image);
+    failures += check_yorster_param(image);
     failures += check_converter_sweep(image);
     failures += check_stage_matanims(image, "GrNBa.dat");
     failures += check_stage_matanims(image, "GrNLa.dat");

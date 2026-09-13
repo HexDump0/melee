@@ -1666,3 +1666,20 @@ values in registers:
 the boot match) requires `gm_80168B34(CKind_Mario)=8`,
 `gm_80168B34(CKind_Donkey)=1` and different frames for the two live players;
 before the patch it prints `mario=14 dk=14 p0=0.0 p1=0.0 distinct=0`.
+
+## G-130: per-stage `yakumono_param` layouts are not interchangeable
+
+**Symptom:** on Yoshi's Story (GrYt.dat), hitting a Lucky Block from below
+stops the fighter dead in mid-air (CPU players too).
+**Cause:** `grYt_804D6A20.x0 = Ground_GetYakumonoParam()` is a `YorsterParams`
+(`gryorster.c:61`: four f32 then four s32).  The converter only understood the
+Zebes layout (`desc == off - 0x24`) and left every other stage's parameters
+big-endian.  `grYorster_802024F0` reads `x00` as the bump threshold, so the
+raw word `0x3F4CCCCD` (= 0.8f) read as `-4.3e8` and every contact passed the
+test, while `x10` (2) read as a denormal ~0 and `ftLib_80086A4C`/`ft_ITBump`
+zeroed the bump velocity: the fighter reached the block and stayed there.
+**Fix:** converter v76 selects the Yorster layout for the archive whose
+publics carry the `GrdYorster*` texture names and converts the eight fields.
+`test_decomp_assets` checks `x00=0.8, x10=2, x14=5, x1C=140` against the raw
+archive (the first word fails before the fix).  Other stages with their own
+`yakumono_param` structs still need their own field tables (P-662).

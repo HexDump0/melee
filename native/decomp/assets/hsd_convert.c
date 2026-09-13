@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 75u
+#define HSD_CONVERTER_VERSION 76u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -94,6 +94,7 @@ typedef struct Conv {
     unsigned char* num;   /* one byte per data offset: numeric field done */
     HsdConvertStats st;
     int depth;
+    int yorster; /* GrYt.dat (Yoshi's Story) yakumono layout */
 } Conv;
 
 static uint32_t be32(const unsigned char* p)
@@ -222,6 +223,7 @@ static void conv_stage_maphead(Conv* c, uint32_t off);
 static void conv_shapeanim_joint(Conv* c, uint32_t off);
 static void conv_dynamic_models(Conv* c, uint32_t off);
 static void conv_regclear_spawn_table(Conv* c, uint32_t off);
+static void conv_yorster_param(Conv* c, uint32_t off);
 
 static void conv_imagedesc(Conv* c, uint32_t off)
 {
@@ -1543,6 +1545,21 @@ static void conv_regclear_spawn_table(Conv* c, uint32_t off)
         if (kind == 0x3E7) {
             break;
         }
+    }
+}
+
+/* GrYt.dat (Yoshi's Story) `yakumono_param`: YorsterParams
+ * { f32 x00; f32 x04; f32 x08; f32 x0C; s32 x10; s32 x14; s32 x18; s32 x1C }
+ * (gryorster.c:61).  grYorster_802024F0 uses x00 as the bump threshold and
+ * x10 as the bump velocity; left big-endian, x00 reads as a huge negative
+ * float (every contact passes the test) and x10 as a denormal ~0, so a
+ * fighter hitting a Lucky Block from below is stopped and stuck in place. */
+static void conv_yorster_param(Conv* c, uint32_t off)
+{
+    int i;
+
+    for (i = 0; i < 8; i++) {
+        conv_u32(c, off + (uint32_t) i * 4);
     }
 }
 
@@ -2986,6 +3003,20 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
                           uint32_t symbols_off)
 {
     uint32_t i;
+
+    /* Per-stage parameter layouts are selected by the archive's own
+     * stage-named publics (GrYt.dat carries the GrdYorster* texture names).
+     * The scan runs first so the order of the public table does not
+     * matter. */
+    for (i = 0; i < nb_public; i++) {
+        uint32_t so = rd32_abs(c, public_off + i * 8 + 4);
+        if ((size_t) symbols_off + so < c->size &&
+            strstr((const char*) c->d + symbols_off + so, "Yorster") != NULL)
+        {
+            c->yorster = 1;
+            break;
+        }
+    }
     for (i = 0; i < nb_public; i++) {
         uint32_t data_off = rd32_abs(c, public_off + i * 8);
         uint32_t symbol_off = rd32_abs(c, public_off + i * 8 + 4);
@@ -3095,7 +3126,11 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
         } else if (name_ends_with(name, length, "grGroundParam")) {
             conv_ground_param(c, data_off);
         } else if (name_ends_with(name, length, "yakumono_param")) {
-            conv_yakumono_param(c, data_off);
+            if (c->yorster) {
+                conv_yorster_param(c, data_off);
+            } else {
+                conv_yakumono_param(c, data_off);
+            }
         } else if (length == 8 && memcmp(name, "itemdata", 8) == 0) {
             conv_itemdata(c, data_off);
         } else if (length > 19 &&
@@ -3137,6 +3172,7 @@ static int convert_archive(unsigned char* data, size_t size, Conv* c)
     c->data_size = data_size;
     c->st = (HsdConvertStats) { 0 };
     c->depth = 0;
+    c->yorster = 0;
     c->reloc = calloc(data_size ? data_size : 1, 1);
     c->seen = calloc(data_size ? data_size : 1, 1);
     c->num = calloc(data_size ? data_size : 1, 1);
