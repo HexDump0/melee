@@ -397,6 +397,30 @@ static void dump_draws(unsigned frame)
             fprintf(stderr, "    tex0: %p %ux%u fmt=%u pal=%p\n", t->image,
                     t->width, t->height, t->format, t->palette);
         }
+        if (d->state.blend_type != 0) {
+            int stage;
+            fprintf(stderr,
+                    "    alpha: tev C0=%.3f C1=%.3f C2=%.3f K0=%.3f "
+                    "ras0_amb=%.3f ras0_mat=%.3f chan=%u/%u\n",
+                    d->state.tev_color[1][3], d->state.tev_color[2][3],
+                    d->state.tev_color[3][3], d->state.tev_kcolor[0][3],
+                    d->state.ch_amb[2][3], d->state.ch_mat[2][3],
+                    d->state.ch_enable[2], d->state.ch_mat_src[2]);
+            for (stage = 0; stage < d->state.num_stages &&
+                            stage < GX_HLE_MAX_STAGES;
+                 ++stage)
+            {
+                const GxHleTevStage* s = &d->state.stages[stage];
+                fprintf(stderr,
+                        "    tev%d order=%u/%u/%u cin=%u,%u,%u,%u "
+                        "ain=%u,%u,%u,%u aop=%u/%u/%u/%u reg=%u/%u\n",
+                        stage, s->order_coord, s->order_map, s->order_chan,
+                        s->color_a, s->color_b, s->color_c, s->color_d,
+                        s->alpha_a, s->alpha_b, s->alpha_c, s->alpha_d,
+                        s->alpha_op, s->alpha_bias, s->alpha_scale,
+                        s->alpha_clamp, s->color_reg, s->alpha_reg);
+            }
+        }
     }
 }
 

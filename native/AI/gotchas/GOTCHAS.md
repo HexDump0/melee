@@ -1292,3 +1292,15 @@ blit is itself clipped if the previous GX draw's scissor remains enabled.
 **Fix:** the SDL-attached renderer keeps R4 copies in GPU textures, disables
 and restores scissoring around the blit, and marks dynamic I4 sampling in the
 TEV shader. The headless EGL test path still materializes bytes.
+
+## G-108: GX TEV register uniform slots include PREV at zero
+
+**Symptom:** Final Destination's rotating center effects blend with
+`SRC_ALPHA/INV_SRC_ALPHA` but still form opaque black slabs; their animated
+alpha never appears. **Cause:** `GXTevRegID` is `PREV=0, REG0=1, REG1=2,
+REG2=3`. The HLE correctly stored `GXSetTevColor(REG0, ...)` in slot 1, but
+the fragment shader initialized C0/C1/C2 from slots 0/1/2. Thus `GX_CA_A0`
+read PREV's default alpha 1 instead of the animated REG0 alpha (often 0).
+**Fix:** initialize C0/C1/C2 from uniform slots 1/2/3. The EFB regression
+renders a REG0 quarter-alpha red quad over the clear color and checks the
+blended pixel.

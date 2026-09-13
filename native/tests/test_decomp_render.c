@@ -528,6 +528,55 @@ static int efb_test(void)
         }
     }
 
+    /* ---- pass 4: GX REG0 alpha must address uniform slot 1, not PREV ----
+     * GXTevRegID is PREV=0, REG0=1, REG1=2, REG2=3.  Final Destination's
+     * animated XLU effects select GX_CA_A0; treating uniform slot 0 as C0
+     * makes their zero/partial alpha fully opaque. */
+    {
+        GXColor reg0 = { 0xFF, 0x00, 0x00, 0x40 };
+
+        gx_hle_begin_frame();
+        gx_hle_reset_state();
+        GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
+        GXSetNumChans(0);
+        GXSetNumTexGens(0);
+        GXSetNumTevStages(1);
+        GXSetTevColor(GX_TEVREG0, reg0);
+        GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL,
+                      GX_COLOR_NULL);
+        GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO,
+                        GX_CC_C0);
+        GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO,
+                        GX_CA_A0);
+        GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO,
+                        GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+        GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO,
+                        GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+        GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
+                       GX_LO_COPY);
+        GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
+        GXSetCullMode(GX_CULL_NONE);
+        GXClearVtxDesc();
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+        GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+        GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+        GXPosition3f32(-1.0f, -1.0f, 0.0f);
+        GXPosition3f32(1.0f, -1.0f, 0.0f);
+        GXPosition3f32(1.0f, 1.0f, 0.0f);
+        GXPosition3f32(-1.0f, 1.0f, 0.0f);
+        if (gx_gl_render_frame() < 0) {
+            printf("efb: FAIL render_frame (TEV REG0 alpha)\n");
+            return 0;
+        }
+        glReadPixels(320, 240, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+        if (pixel[0] < 65 || pixel[0] > 85 || pixel[1] > 20 ||
+            pixel[2] > 25) {
+            printf("efb: FAIL REG0 alpha pixel=%u,%u,%u (want ~73,11,17)\n",
+                   pixel[0], pixel[1], pixel[2]);
+            fail = 1;
+        }
+    }
+
     printf("efb: %s\n", fail ? "FAIL" : "PASS");
     return !fail;
 }
