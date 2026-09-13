@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 64u
+#define HSD_CONVERTER_VERSION 65u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -2773,6 +2773,12 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
         } else if (name_ends_with(name, length, "_figatree")) {
             c->st.roots_figatree++;
             conv_figatree(c, data_off);
+        } else if (length == 6 &&
+                   (memcmp(name, "pnlsce", 6) == 0 ||
+                    memcmp(name, "flmsce", 6) == 0)) {
+            /* GmRst: results panel/film SceneDesc (cameras/lights/models). */
+            c->st.roots_unknown++;
+            conv_scene_desc(c, data_off);
         } else if (name_ends_with(name, length, "_scene_data")) {
             c->st.roots_unknown++;
             conv_scene_desc(c, data_off);
