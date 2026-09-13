@@ -534,21 +534,23 @@ void render_scene_update_view(RenderScene* scene)
     HSD_CObjSetFar(scene->cobj, zfar);
     HSD_CObjSetPerspective(scene->cobj, 0.7f * 180.0f / (float) M_PI,
                            (float) scene->width / (float) scene->height);
+    /* The GX viewport/scissor are EFB (640x480) pixels on console; the GX HLE
+     * maps that authoring space onto the actual render target.  Feeding it the
+     * window's pixel size here would be scaled a second time and crop/zoom the
+     * scene, so keep the authoring rect.  The projection aspect above already
+     * accounts for the window's shape. */
     {
-        HSD_RectS16 vp = { 0, (s16) scene->width, 0, (s16) scene->height };
+        HSD_RectS16 vp = { 0, 640, 0, 480 };
         HSD_CObjSetViewport(scene->cobj, &vp);
-        HSD_CObjSetScissorx4(scene->cobj, 0, (u16) scene->width, 0,
-                             (u16) scene->height);
+        HSD_CObjSetScissorx4(scene->cobj, 0, 640, 0, 480);
     }
     HSD_CObjSetMtxDirty(scene->cobj);
-    /* The stage's own camera keeps its desc eye/interest, but its viewport and
-     * scissor come from the desc's 640x480 authoring size; map them to the
-     * render target so the viewer does not crop. */
+    /* The stage's own camera keeps its desc eye/interest; its viewport is the
+     * same 640x480 authoring rect as the viewer camera. */
     if (scene->hsd.stage_cobj != NULL) {
-        HSD_RectS16 vp = { 0, (s16) scene->width, 0, (s16) scene->height };
+        HSD_RectS16 vp = { 0, 640, 0, 480 };
         HSD_CObjSetViewport(scene->hsd.stage_cobj, &vp);
-        HSD_CObjSetScissorx4(scene->hsd.stage_cobj, 0, (u16) scene->width, 0,
-                             (u16) scene->height);
+        HSD_CObjSetScissorx4(scene->hsd.stage_cobj, 0, 640, 0, 480);
     }
     scene->need_view_update = 0;
 }

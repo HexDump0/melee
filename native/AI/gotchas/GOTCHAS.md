@@ -1332,3 +1332,16 @@ stop the AObj immediately). **Fix:** converter v61 walks all three arrays with
 the relocation table as the array bound (NULL slots are legal gaps, not the
 end) and `test_decomp_assets` verifies the converted AObjDesc durations for
 `GrNBa`/`GrNLa`.
+
+## G-111: viewer cameras must keep the GX 640x480 viewport space
+
+**Symptom:** the model/stage viewer looks zoomed in and shows only a slice of
+the scene (top-right or bottom, depending on the window), while the match
+viewer is fine. **Cause:** the GX HLE maps GX viewport/scissor rects from
+640x480 EFB pixels onto the real window. `render_scene_update_view` also wrote
+the window's pixel size into `HSD_CObjSetViewport`/`HSD_CObjSetScissorx4`, so
+the HLE scaled it a second time (2x at 1280x800) and cropped the scene.
+**Fix:** keep the viewer camera's viewport/scissor at the 640x480 authoring
+rect; `HSD_CObjSetPerspective` already carries the window aspect.  The viewer
+also polls `SDL_GetWindowSizeInPixels` every frame (not just on resize events)
+so a tiling WM mapping the window late or a live drag stays in step.
