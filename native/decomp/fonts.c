@@ -40,11 +40,11 @@ static const unsigned char* dol_range(const unsigned char* dol, size_t size,
         if (i < 7) {
             off = be32(dol + 4 * i);
             base = be32(dol + 0x48 + 4 * i);
-            section_size = be32(dol + 0x80 + 4 * i);
+            section_size = be32(dol + 0x90 + 4 * i);
         } else {
             off = be32(dol + 0x1C + 4 * (i - 7));
             base = be32(dol + 0x64 + 4 * (i - 7));
-            section_size = be32(dol + 0x9C + 4 * (i - 7));
+            section_size = be32(dol + 0xAC + 4 * (i - 7));
         }
         if (off == 0 || section_size == 0 || addr < base ||
             (uint64_t) addr + length > (uint64_t) base + section_size)

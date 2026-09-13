@@ -64,6 +64,12 @@ typedef struct DvdFile {
 
 static DiscImage* disc_image;
 static char disc_image_path[512];
+static uint32_t disc_dol_offset;
+
+/* The DOL is a raw region addressed by the disc header at 0x420, not an
+ * FST entry (G-112). */
+#define DOL_HEADER_SIZE 0x100u
+#define DOL_MAX_SIZE (32u * 1024u * 1024u)
 
 int melee_port_fonts_load(void);
 static unsigned char* fst;
@@ -172,12 +178,85 @@ static DvdFile* find_file(uint32_t offset)
     return NULL;
 }
 
+static int is_dol_path(const char* disc_path)
+{
+    return disc_path != NULL &&
+        (strcmp(disc_path, "sys/main.dol") == 0 ||
+         strcmp(disc_path, "main.dol") == 0 ||
+         strcmp(disc_path, "/sys/main.dol") == 0);
+}
+
+/* Reads the raw DOL at disc_dol_offset with disc_image_read(). The size
+ * comes from the 18 section headers: text offsets at 0x00 with sizes at
+ * 0x90, data offsets at 0x1C with sizes at 0xAC; the file is at least
+ * the 0x100-byte header. */
+static int load_raw_dol(void** data, size_t* size)
+{
+    unsigned char header[DOL_HEADER_SIZE];
+    uint64_t total = DOL_HEADER_SIZE;
+    unsigned char* dol;
+    int i;
+
+    if (disc_image == NULL || disc_dol_offset == 0 || data == NULL ||
+        size == NULL)
+    {
+        return -1;
+    }
+    if (disc_image_read(disc_image, disc_dol_offset, header, sizeof(header)) !=
+        DISC_OK)
+    {
+        return -1;
+    }
+    for (i = 0; i < 7; i++) {
+        uint32_t off = be32(header + 4 * (uint32_t) i);
+        uint32_t section_size = be32(header + 0x90 + 4 * (uint32_t) i);
+        if (off != 0 && section_size != 0 &&
+            (uint64_t) off + section_size > total)
+        {
+            total = (uint64_t) off + section_size;
+        }
+    }
+    for (i = 0; i < 11; i++) {
+        uint32_t off = be32(header + 0x1C + 4 * (uint32_t) i);
+        uint32_t section_size = be32(header + 0xAC + 4 * (uint32_t) i);
+        if (off != 0 && section_size != 0 &&
+            (uint64_t) off + section_size > total)
+        {
+            total = (uint64_t) off + section_size;
+        }
+    }
+    if (total < DOL_HEADER_SIZE || total > DOL_MAX_SIZE) {
+        return -1;
+    }
+    dol = malloc((size_t) total);
+    if (dol == NULL) {
+        return -1;
+    }
+    if (disc_image_read(disc_image, disc_dol_offset, dol, (size_t) total) !=
+        DISC_OK)
+    {
+        free(dol);
+        return -1;
+    }
+    *data = dol;
+    *size = (size_t) total;
+    return 0;
+}
+
 int platform_disc_load_file(const char* disc_path, void** data, size_t* size)
 {
     DiscFile file;
     char error[256];
     if (disc_image == NULL || disc_path == NULL || data == NULL || size == NULL) {
         return -1;
+    }
+    if (is_dol_path(disc_path)) {
+        if (load_raw_dol(data, size) != 0) {
+            boot_triage_note("[boot] cannot read '%s' from disc: raw DOL read failed\n",
+                             disc_path);
+            return -1;
+        }
+        return 0;
     }
     if (disc_load(disc_image_path, disc_path, &file, error, sizeof(error)) != DISC_OK) {
         boot_triage_note("[boot] cannot read '%s' from disc: %s\n", disc_path, error);
@@ -213,8 +292,10 @@ static int mount_disc(void)
         boot_triage_note("[boot] DVDInit: cannot read the disc header\n");
         disc_unmount(disc_image);
         disc_image = NULL;
+        disc_dol_offset = 0;
         return 0;
     }
+    disc_dol_offset = be32(bb2);
     fst_position = be32(bb2 + DISC_BB2_FST_POSITION);
     fst_length = be32(bb2 + DISC_BB2_FST_LENGTH);
     if (fst_length < 12 || fst_length > MAX_FST_SIZE) {
@@ -222,6 +303,7 @@ static int mount_disc(void)
                          fst_length);
         disc_unmount(disc_image);
         disc_image = NULL;
+        disc_dol_offset = 0;
         return 0;
     }
     fst = malloc(fst_length);
@@ -233,6 +315,7 @@ static int mount_disc(void)
         fst = NULL;
         disc_unmount(disc_image);
         disc_image = NULL;
+        disc_dol_offset = 0;
         return 0;
     }
     fst_size = fst_length;
@@ -244,6 +327,7 @@ static int mount_disc(void)
         fst = NULL;
         disc_unmount(disc_image);
         disc_image = NULL;
+        disc_dol_offset = 0;
         return 0;
     }
     swap_fst_entries(fst, fst_entries);
