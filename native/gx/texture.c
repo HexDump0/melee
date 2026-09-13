@@ -61,9 +61,9 @@ static void decode_i4(const uint8_t* src, uint8_t* dst, int w, int h)
                 for (x = 0; x < 8; x += 2) {
                     uint8_t p[4];
                     uint8_t v = *src++;
-                    p[0] = p[1] = p[2] = p[3] = (uint8_t) (v & 0xf0);
+                    p[0] = p[1] = p[2] = p[3] = expand4(v >> 4);
                     put(dst, w, h, bx * 8 + x, by * 8 + y, p);
-                    p[0] = p[1] = p[2] = p[3] = (uint8_t) ((v & 15) * 17);
+                    p[0] = p[1] = p[2] = p[3] = expand4(v & 15);
                     put(dst, w, h, bx * 8 + x + 1, by * 8 + y, p);
                 }
             }
