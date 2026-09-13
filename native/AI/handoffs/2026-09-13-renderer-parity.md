@@ -19,7 +19,7 @@ sensitivity-flipped regressions:
 | `2d4d714de` | P-673 | SDK `GXInitLightDistAttn`/`GXInitLightSpot` math; `GX_AF_SPEC` channel tinted with the hardware polynomial |
 | `447826c1d` | P-674 | BT.601 I4/I8/IA4/IA8 copies, RGB5A3 copies, shared tiling encoder |
 | `3bdf7945a` | P-675 | Bit-replication channel expansion (image+TLUT), per-object `GXTexObj` state |
-| (P-680, this commit) | P-680 | Topology runs so `GX_LINES`/`GX_LINESTRIP`/`GX_POINTS` render; line width/point size |
+| `3c4e4ec4b` | P-680 | Topology runs so `GX_LINES`/`GX_LINESTRIP`/`GX_POINTS` render; line width/point size |
 
 ## Coverage matrix delta
 
