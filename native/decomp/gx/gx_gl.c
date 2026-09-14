@@ -1208,6 +1208,23 @@ static GLuint texture_for(const GxHleTexture* t)
     if (t->format == 8 || t->format == 9) {
         unsigned char* pal = NULL;
         if (palette == NULL || t->palette_entries == 0) {
+            /* A CI texture with no TLUT bound.  This returned 0 silently,
+             * which makes the draw fall back to untextured -- a flat quad of
+             * the TEV register colour, with nothing on stderr to say why.
+             * That is indistinguishable from "the artist wanted a flat quad",
+             * and it is what the trophy viewer's yellow legends are.  Say it,
+             * rate-limited, because it recurs every frame. */
+            static unsigned ci_nopal_reported;
+            if (ci_nopal_reported < 8) {
+                const char* origin = melee_dvd_origin(image);
+                ci_nopal_reported++;
+                fprintf(stderr,
+                        "gx_gl: CI texture has no palette bound (%dx%d fmt=%u "
+                        "entries=%u from=%s) -- drawing untextured\n",
+                        t->width, t->height, (unsigned) t->format,
+                        (unsigned) t->palette_entries,
+                        origin != NULL ? origin : "?");
+            }
             return 0;
         }
         pal = expand_palette((const unsigned char*) palette,

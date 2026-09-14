@@ -67,6 +67,14 @@ typedef struct {
      * GXGetTexObj* long after initialization (sobjlib.c:220/287,
      * lbspdisplay.c:401/432), so a single "pending" object returned stale
      * values whenever another texture was initialized in between. */
+    /* TLUT objects are tracked per object for the same reason texture objects
+     * are: the game initialises one at asset-setup time and loads it much
+     * later at draw time, so a single "most recent" slot is wrong as soon as
+     * more than one exists. */
+    GXTlutObj* tlutobj_owner[GX_HLE_MAX_TEXOBJS];
+    GxHleTlut tlutobj_tlut[GX_HLE_MAX_TEXOBJS];
+    unsigned int tlutobj_used[GX_HLE_MAX_TEXOBJS];
+    unsigned int tlutobj_clock;
     GXTexObj* texobj_owner[GX_HLE_MAX_TEXOBJS];
     GxHleTexture texobj_tex[GX_HLE_MAX_TEXOBJS];
     int texobj_tlut[GX_HLE_MAX_TEXOBJS];
@@ -1997,6 +2005,46 @@ static int texobj_find(GXTexObj* obj)
     return -1;
 }
 
+static GxHleTlut* tlutobj_slot(GXTlutObj* obj, int create)
+{
+    int i;
+    if (obj == NULL) {
+        return NULL;
+    }
+    for (i = 0; i < GX_HLE_MAX_TEXOBJS; ++i) {
+        if (gx.tlutobj_owner[i] == obj) {
+            gx.tlutobj_used[i] = ++gx.tlutobj_clock;
+            return &gx.tlutobj_tlut[i];
+        }
+    }
+    if (!create) {
+        return NULL;
+    }
+    {
+        unsigned int oldest = (unsigned int) -1;
+        int victim = -1;
+        int free_slot = -1;
+        for (i = 0; i < GX_HLE_MAX_TEXOBJS; ++i) {
+            if (gx.tlutobj_owner[i] == NULL) {
+                free_slot = i;
+                break;
+            }
+            if (gx.tlutobj_used[i] < oldest) {
+                oldest = gx.tlutobj_used[i];
+                victim = i;
+            }
+        }
+        i = free_slot >= 0 ? free_slot : victim;
+        if (i < 0) {
+            return NULL;
+        }
+        gx.tlutobj_owner[i] = obj;
+        memset(&gx.tlutobj_tlut[i], 0, sizeof(gx.tlutobj_tlut[i]));
+        gx.tlutobj_used[i] = ++gx.tlutobj_clock;
+        return &gx.tlutobj_tlut[i];
+    }
+}
+
 static GxHleTexture* texobj_slot(GXTexObj* obj, int create)
 {
     int i;
@@ -2102,18 +2150,29 @@ void GXInitTexObjLOD(GXTexObj* obj, GXTexFilter min_filt,
 void GXInitTlutObj(GXTlutObj* tlut_obj, void* lut, GXTlutFmt fmt,
                    u16 n_entries)
 {
-    (void) tlut_obj;
+    GxHleTlut* slot = tlutobj_slot(tlut_obj, 1);
+
     gx.pending_tlut.lut = lut;
     gx.pending_tlut.fmt = (u32) fmt;
     gx.pending_tlut.n_entries = n_entries;
     gx.pending_tlut.used = 1;
+    if (slot != NULL) {
+        *slot = gx.pending_tlut;
+    }
 }
 
 void GXLoadTlut(GXTlutObj* tlut_obj, u32 tlut_name)
 {
     int name = (int) (tlut_name % GX_HLE_MAX_TLUTS);
-    (void) tlut_obj;
-    gx.tluts[name] = gx.pending_tlut;
+    GxHleTlut* slot = tlutobj_slot(tlut_obj, 0);
+
+    /* Take the palette this object was initialised with, not whichever one
+     * was initialised most recently.  sobjlib builds a sprite's TLUT object
+     * when the sprite is created (sobjlib.c:176) and loads it when the sprite
+     * is drawn (sobjlib.c:322); every sprite on a screen is created before
+     * any of them draws, so a single "pending" slot handed all of them the
+     * last-created palette -- one wrong colour across a whole UI layer. */
+    gx.tluts[name] = slot != NULL ? *slot : gx.pending_tlut;
 }
 
 void GXLoadTexObj(GXTexObj* obj, GXTexMapID id)
