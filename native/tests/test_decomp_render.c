@@ -1470,49 +1470,57 @@ static int efb_test(void)
         }
     }
 
-    /* ---- pass 9: P-679 hardware fog coordinates ----
-     * A green quad spans z = 0.3 (left) .. 0.8 (right) under the identity
-     * projection; linear and EXP2 fog must match the SDK coefficient math
-     * evaluated against gl_FragCoord.z, and enabling range adjustment must
-     * visibly change the edge pixel. */
+    /* ---- pass 9: P-679/P-690 hardware fog coordinates ----
+     * A green quad spans GX screen depth 0.3 (left) .. 0.8 (right).  GX clip
+     * z/w is [-1,0] and the hardware evaluates fog against the viewport
+     * screen depth `far + z/w * (far - near)` (SDK GXProject), which is
+     * `z/w + 1` for the usual [0,1] depth range; GL instead reports
+     * `(z/w + 1) / 2`.  The shader must undo GL's mapping or every fog is
+     * half strength.  LIN and EXP2 must match the SDK coefficient math, and
+     * range adjustment must darken the far pixel by the SDK table. */
     {
         GXColor fog_red = { 0xFF, 0x00, 0x00, 0xFF };
         GXColor green = { 0x00, 0xFF, 0x00, 0xFF };
         const float nearz = 0.1f;
         const float farz = 1.0f;
-        const float startz = 0.2f;
-        const float endz = 0.6f;
+        const float startz = 0.1f;
+        const float endz = 0.5f;
         const float a =
             (farz * nearz) / ((farz - nearz) * (endz - startz));
         const float b = farz / (farz - nearz);
         const float c = startz / (endz - startz);
+        GXFogAdjTable tbl;
         int frame;
 
         for (frame = 0; frame < 3; ++frame) {
-            /* The quad's depth runs 0.3..0.8 across NDC x; the identity
-             * projection makes clip z = z, and GL maps NDC z to the [0,1]
-             * depth the hardware fog reads. */
-            const float x_ndc = 2.0f * 608.0f / 640.0f - 1.0f;
-            const float t = (x_ndc + 1.0f) * 0.5f;
-            const float z_ndc = 0.3f + 0.5f * t;
-            const float d = (z_ndc + 1.0f) * 0.5f;
-            float fog_f = (a / (b - d)) - c;
-            float fogz;
+            /* Identity leaves clip z/w at -0.7..-0.2, which the GX viewport
+             * maps to screen depth 0.3..0.8.  GL reports 0.15..0.4 instead. */
+            const float far_x_ndc = 2.0f * 608.0f / 640.0f - 1.0f;
+            const float near_x_ndc = 2.0f * 64.0f / 640.0f - 1.0f;
+            const float d_far = 0.3f + 0.5f * (far_x_ndc + 1.0f) * 0.5f;
+            const float d_near = 0.3f + 0.5f * (near_x_ndc + 1.0f) * 0.5f;
+            const float base = a / (b - d_far);
+            float fog_far = base - c;
+            float fog_near = (a / (b - d_near)) - c;
             GXColor expect;
+            GXColor expect_near;
 
-            if (fog_f < 0.0f) fog_f = 0.0f;
-            if (fog_f > 1.0f) fog_f = 1.0f;
+            if (fog_far < 0.0f) fog_far = 0.0f;
+            if (fog_far > 1.0f) fog_far = 1.0f;
+            if (fog_near < 0.0f) fog_near = 0.0f;
+            if (fog_near > 1.0f) fog_near = 1.0f;
             if (frame == 1) {
-                fogz = 1.0f - exp2f(-8.0f * fog_f * fog_f);
-            } else {
-                fogz = fog_f;
+                fog_far = 1.0f - exp2f(-8.0f * fog_far * fog_far);
             }
-            expect.r = (unsigned char) (fogz * 255.0f + 0.5f);
-            expect.g = (unsigned char) ((1.0f - fogz) * 255.0f + 0.5f);
+            expect.r = (unsigned char) (fog_far * 255.0f + 0.5f);
+            expect.g = (unsigned char) ((1.0f - fog_far) * 255.0f + 0.5f);
+            expect_near.r = (unsigned char) (fog_near * 255.0f + 0.5f);
+            expect_near.g =
+                (unsigned char) ((1.0f - fog_near) * 255.0f + 0.5f);
 
             gx_hle_begin_frame();
             gx_hle_reset_state();
-            GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
+            GXSetProjection((f32(*)[4]) identity, GX_ORTHOGRAPHIC);
             GXSetNumChans(1);
             GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX,
                           GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
@@ -1531,11 +1539,26 @@ static int efb_test(void)
                                        { 0.0f, 2.0f, 0.0f, 0.0f },
                                        { 0.0f, 0.0f, -1.0f, -0.1f },
                                        { 0.0f, 0.0f, -1.0f, 0.0f } };
-                GXFogAdjTable* tbl =
-                    (GXFogAdjTable*) malloc(sizeof(GXFogAdjTable));
-                GXInitFogAdjTable(tbl, 640, adj_proj);
-                GXSetFogRangeAdj(GX_TRUE, 320, tbl);
-                free(tbl);
+                const float offset = (608.0f - 320.0f) * 2.0f / 640.0f;
+                const float fi = 9.0f - fabsf(offset) * 9.0f;
+                const int ilo = (int) fi;
+                const int ihi = ilo < 9 ? ilo + 1 : 9;
+                float k;
+
+                GXInitFogAdjTable(&tbl, 640, adj_proj);
+                GXSetFogRangeAdj(GX_TRUE, 320, &tbl);
+                /* Same adjustment the shader applies: k interpolated from the
+                 * SDK table for x=608 (0.9 of the way to the right edge from
+                 * the 320-pixel center), then base *= sqrt(offset^2+k^2)/k. */
+                k = ((float) (tbl.r[ilo] & 0xFFFu) / 256.0f) +
+                    (((float) (tbl.r[ihi] & 0xFFFu) / 256.0f) -
+                     ((float) (tbl.r[ilo] & 0xFFFu) / 256.0f)) *
+                        (fi - (float) ilo);
+                fog_far = base * sqrtf(offset * offset + k * k) / k - c;
+                if (fog_far < 0.0f) fog_far = 0.0f;
+                if (fog_far > 1.0f) fog_far = 1.0f;
+                expect.r = (unsigned char) (fog_far * 255.0f + 0.5f);
+                expect.g = (unsigned char) ((1.0f - fog_far) * 255.0f + 0.5f);
             }
             GXClearVtxDesc();
             GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
@@ -1544,13 +1567,13 @@ static int efb_test(void)
             GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
             GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
             GXBegin(GX_QUADS, GX_VTXFMT0, 4);
-            GXPosition3f32(-1.0f, -1.0f, 0.3f);
+            GXPosition3f32(-1.0f, -1.0f, -0.7f);
             GXColor4u8(green.r, green.g, green.b, green.a);
-            GXPosition3f32(1.0f, -1.0f, 0.8f);
+            GXPosition3f32(1.0f, -1.0f, -0.2f);
             GXColor4u8(green.r, green.g, green.b, green.a);
-            GXPosition3f32(1.0f, 1.0f, 0.8f);
+            GXPosition3f32(1.0f, 1.0f, -0.2f);
             GXColor4u8(green.r, green.g, green.b, green.a);
-            GXPosition3f32(-1.0f, 1.0f, 0.3f);
+            GXPosition3f32(-1.0f, 1.0f, -0.7f);
             GXColor4u8(green.r, green.g, green.b, green.a);
             if (gx_gl_render_frame() < 0) {
                 printf("efb: FAIL render_frame (fog)\n");
@@ -1566,9 +1589,11 @@ static int efb_test(void)
                 }
                 glReadPixels(64, 240, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE,
                              pixel);
-                if (abs((int) pixel[0] - 35) > 6) {
-                    printf("efb: FAIL fog near pixel=%u,%u,%u (want "
-                           "~35,220,0)\n", pixel[0], pixel[1], pixel[2]);
+                if (abs((int) pixel[0] - expect_near.r) > 6 ||
+                    abs((int) pixel[1] - expect_near.g) > 6) {
+                    printf("efb: FAIL fog near pixel=%u,%u,%u want ~%u,%u\n",
+                           pixel[0], pixel[1], pixel[2], expect_near.r,
+                           expect_near.g);
                     fail = 1;
                 }
             } else if (frame == 1) {
@@ -1579,9 +1604,11 @@ static int efb_test(void)
                     fail = 1;
                 }
             } else {
-                if (!(pixel[0] > 240 && pixel[1] < 20)) {
-                    printf("efb: FAIL fog range adj pixel=%u,%u,%u (want "
-                           "full fog)\n", pixel[0], pixel[1], pixel[2]);
+                if (abs((int) pixel[0] - expect.r) > 6 ||
+                    abs((int) pixel[1] - expect.g) > 6) {
+                    printf("efb: FAIL fog range adj pixel=%u,%u,%u want "
+                           "~%u,%u\n", pixel[0], pixel[1], pixel[2], expect.r,
+                           expect.g);
                     fail = 1;
                 }
             }

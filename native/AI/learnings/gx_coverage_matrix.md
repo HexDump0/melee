@@ -166,7 +166,7 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 | `GXSetDstAlpha` | EXACT | `gx_hle.c:911`, FS `:553` | `GXPixel.cpp` | — |
 | `GXSetColorUpdate`/`GXSetAlphaUpdate` (via color mask) | EXACT | `gx_gl.c:1227` | `GXPixel.cpp` | — |
 | `GXSetDither` | N/A | `gx_hle.c:953` | Aurora shader ignores it too | 8-bit host framebuffer; no visible banding in captures |
-| Fog color/type linear | EXACT (closed by P-679): SDK `A/(B−z_ndc)−C` on `gl_FragCoord.z` | `gx_hle.c:GXSetFog`, FS fog block `gx_gl.c` | `GXPixel.cpp:GXSetFog` + `shader.cpp:1537` | `ctest decomp_efb` pass 9; learning `gx_fog.md` |
+| Fog color/type linear | EXACT (P-679 + P-690): SDK `A/(B−z)−C` on the GX screen depth `2·gl_FragCoord.z − near` (GX `far + z_ndc·(far−near)`, not GL's `(z_ndc+1)/2`) | `gx_hle.c:GXSetFog`, FS fog block `gx_gl.c` | `GXPixel.cpp:GXSetFog` + `shader.cpp:1537` | `ctest decomp_efb` pass 9; learning `gx_fog.md` |
 | Fog exp/exp2/rev variants | EXACT (closed by P-679): `1−exp2(−8f)`, `1−exp2(−8f²)`, `exp2(−8(1−f))`, `1−exp2(−8(1−f)²)` | FS fog block | `shader.cpp:1537` | `ctest decomp_efb` pass 9 EXP2 |
 | `GXSetFogRangeAdj`/`GXInitFogAdjTable` (`fog.c:51/80`) | Implemented (closed by P-679); unreachable until the converter converts `fogadjdesc` | `gx_hle.c:GXInitFogAdjTable/GXSetFogRangeAdj`, FS range block | `GXPixel.cpp` (SDK table math), `shader.cpp` `fog_range_base` indexed by `in.pos.x` | `ctest decomp_efb` pass 9 adj frame; Dolphin's extra 4x table scale not copied (documented); converter follow-up with P-658/P-662 |
 

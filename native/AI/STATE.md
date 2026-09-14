@@ -318,14 +318,24 @@ pass 10 proves on/off-axis points.  Learning `gx_lighting_specular.md`.
 
 **P-679 (2026-09-13):** fog now follows the hardware again: `GXSetFog`
 stores the SDK's `A = f·n/((f−n)(e−s))`, `B = f/(f−n)`, `C = s/(e−s)` and
-the shader evaluates `A/(B − gl_FragCoord.z) − C` with all five
-`GX_FOG_*` families, replacing the eye-distance linear/exp approximations.
+the shader evaluates `A/(B − z) − C` with all five `GX_FOG_*` families,
+replacing the eye-distance linear/exp approximations.
 `GXInitFogAdjTable`/`GXSetFogRangeAdj` are implemented (SDK 12-bit table +
 Dolphin's per-pixel `sqrt(offset²+k²)/k` adjustment); the converter still
 nulls `HSD_FogDesc.fogadjdesc`, so no retail scene reaches the range path
 yet.  `decomp_gx_direct` checks the coefficients/table and `decomp_efb` pass
 9 checks LIN/EXP2/range pixels; the character-select screenshot is
 unchanged (its fog is far beyond the model).  Learning `gx_fog.md`.
+
+**P-690 (2026-09-14):** P-679 fed the shader `gl_FragCoord.z`, but the GX TEU
+evaluates fog on the viewport screen depth `far + z_ndc·(far−near)` (SDK
+`GXProject`), which is `z_ndc + 1` for the usual `[0,1]` range — GL's
+`(z_ndc+1)/2` made every retail fog half strength.  The shader now uses
+`2·gl_FragCoord.z − u_depth_near` (`u_depth_near` = `GXSetViewport`'s
+`nearz`), and `decomp_efb` pass 9 was rewritten so both sampled ends sit in
+the fog ramp and the range-adjusted frame compares against the interpolated
+SDK table `k`; reverting to `gl_FragCoord.z` fails all four pixels.  `ctest`
+21/21.  Learning `gx_fog.md` (P-690 correction).
 
 **P-680 (2026-09-13):** `GX_LINES`/`GX_LINESTRIP`/`GX_POINTS` now render.
 `GxHleDraw` carries topology runs (consecutive same-mode groups merge, so

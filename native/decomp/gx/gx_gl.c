@@ -90,6 +90,7 @@ static GLint u_fog_adj_enable;
 static GLint u_fog_adj_center;
 static GLint u_fog_adj;
 static GLint u_fog_width;
+static GLint u_depth_near;
 static GLint u_tex_enable;
 static GLint u_ras_flat;
 static GLuint ztex_program;
@@ -409,6 +410,7 @@ static const char* FRAGMENT_SRC =
     "uniform float u_fog_adj_center;\n"
     "uniform float u_fog_adj[10];\n"
     "uniform float u_fog_width;\n"
+    "uniform float u_depth_near;\n"
     "uniform int u_tex_enable;\n"
     "uniform vec3 u_tex_lod_bias;\n"
     "uniform ivec3 u_tex_dynamic_i4;\n"
@@ -667,7 +669,12 @@ static const char* FRAGMENT_SRC =
     "        /* P-679: hardware fog coordinate from the screen depth:\n"
     "         * base = A/(B - z_ndc), fog = clamp(base - C, 0, 1), then the\n"
     "         * GX_FOG_* family (Aurora shader.cpp:1537). */\n"
-    "        float d = gl_FragCoord.z;\n"
+    "        /* GX projection matrices produce z/w in [-1,0], and the GX\n"
+    "         * viewport maps that to far + z/w * (far-near).  GL instead\n"
+    "         * maps the same clip coordinate as near + (z/w+1)/2 *\n"
+    "         * (far-near), so recover the GX screen depth before applying\n"
+    "         * the hardware fog coefficients. */\n"
+    "        float d = 2.0 * gl_FragCoord.z - u_depth_near;\n"
     "        float base = u_fog_a / max(u_fog_b - d, 1e-9);\n"
     "        if (u_fog_adj_enable != 0) {\n"
     "            float offset = (gl_FragCoord.x - u_fog_adj_center) * 2.0 /\n"
@@ -762,6 +769,7 @@ static int build_program(char* error, size_t error_size)
     u_fog_adj_center = glGetUniformLocation(program, "u_fog_adj_center");
     u_fog_adj = glGetUniformLocation(program, "u_fog_adj");
     u_fog_width = glGetUniformLocation(program, "u_fog_width");
+    u_depth_near = glGetUniformLocation(program, "u_depth_near");
     u_tex_enable = glGetUniformLocation(program, "u_tex_enable");
     u_ras_flat = glGetUniformLocation(program, "u_ras_flat");
 
@@ -1579,6 +1587,7 @@ static void upload_draw_uniforms(const GxHleDrawState* s)
                 (GLfloat) s->fog_adj_center * (GLfloat) gl_width / 640.0f);
     glUniform1fv(u_fog_adj, 10, s->fog_adj_k);
     glUniform1f(u_fog_width, (GLfloat) gl_width);
+    glUniform1f(u_depth_near, s->depth_range[0]);
     /* P-680: GXSetPointSize drives gl_PointSize in the shared VS. */
     glUniform1f(u_point_size, (GLfloat) (s->point_size ? s->point_size : 1));
     glUniform1i(u_tex_enable, gl_options.textures);

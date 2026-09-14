@@ -44,10 +44,22 @@ perspective `c_proj_fsel` bit 0, so HSD/Melee never uses orthographic fog):
 
 `color = mix(color, fogColor, clamp(fogZ, 0, 1))`.
 
-The shader reads `gl_FragCoord.z` for `z_ndc`.  That is the post-viewport
-screen depth, matching Dolphin (`rawpos.z`) and the hardware.  (GL maps NDC
-[-1,1] to [0,1] exactly like the GX TEU, so a real GX projection matrix gives
-the correct screen depth without extra work.)
+The shader must evaluate `A/(B - z) - C` against the **GX screen depth**, not
+GL's `gl_FragCoord.z`.  The SDK's `GXProject` performs the viewport transform
+as `z_screen = far + z_ndc * (far - near)`; with the usual `[0,1]` depth range
+that is `z_ndc + 1`, so the perspective `z_ndc ∈ [-1,0]` lands the visible
+range on `[0,1]`.  GL maps the same `z_ndc` as `near + (z_ndc+1)/2 *
+(far-near)`, i.e. `[0, 0.5]` — half the GX value.  Recovering the hardware
+depth needs only the viewport near plane:
+
+```
+d = 2 * gl_FragCoord.z - near
+```
+
+(`u_depth_near` is `GXSetViewport`'s `nearz`, always 0 in HSD.)  This was
+P-679's one real error and the reason every retail fog was under-applied by
+half; see **P-690** below.  Aurora's reversed-Z form (`1.0 - in.pos.z`) is
+the same quantity for `near = 0`, `far = 1`.
 
 ## Range adjustment
 
@@ -78,6 +90,24 @@ ctest --test-dir build/native -R decomp_gx_direct
 ctest --test-dir build/native -R decomp_efb
 ```
 
-Flips: using `v_dist` instead of `gl_FragCoord.z` fails
-`fog LIN pixel=0,255,0 want ~189,66`; stubbing the coefficients to `A=0,B=.5,C=0`
-fails `fog abc=(0,0.5,0) want (0.204082,1.020408,1.0)`.
+Flips: stubbing the coefficients to `A=0,B=.5,C=0` fails
+`fog abc=(0,0.5,0) want (0.204082,1.020408,1.0)`; P-690's flip reverts the
+shader to `float d = gl_FragCoord.z;` and pass 9 fails all four pixels with
+the half-strength values (`fog LIN pixel=34,221,0 want ~147,108`,
+`fog near pixel=12,243,0 want ~29,226`,
+`fog EXP2 pixel=24,231,0 want ~215,40`,
+`fog range adj pixel=68,187,0 want ~219,36`).
+
+## P-690 correction (2026-09-14)
+
+The P-679 shader read `gl_FragCoord.z` directly, on the false premise that GL
+and the GX TEU map `z_ndc` identically.  They do not; see the formula above.
+The fix adds the `u_depth_near` uniform and evaluates
+`d = 2.0 * gl_FragCoord.z - u_depth_near`.  Pass 9 now spans GX screen depth
+0.3..0.8 (`z = -0.7..-0.2` under the identity projection) with
+`start/end = 0.1/0.5`, so both sampled ends are inside the fog ramp and a
+half-depth mapping fails every check; the range-adjusted frame compares
+against the SDK table's interpolated `k` instead of a saturated pixel.
+`ctest` 21/21.  Effect in retail frames is small (the title's
+`ScTitle_fog` only ramps above `z ≈ 0.99`), but the parity gap was real for
+every stage whose fog volume the camera enters.
