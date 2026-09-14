@@ -2745,3 +2745,24 @@ be the default for any flat data table.
 a stale entry from an earlier build silently served converted bytes while the
 converter itself never ran — which cost most of the time spent finding this.
 `MELEE_NO_ASSET_CACHE=1` is the reliable way to force conversion.
+
+## G-171: GX state setters must flush pending geometry, without exception
+
+`GXSetTevColor` and `GXSetTevColorS10` wrote `gx.cur.tev_color[]` without
+calling `flush_direct()`.  Every other TEV setter in `gx_hle.c` flushes --
+`GXSetTevColorIn`, `GXSetTevAlphaIn`, `GXSetTevColorOp`, `GXSetTevAlphaOp`,
+`GXSetTevOp`, `GXSetTevOrder`, `GXSetTevSwapMode`, `GXSetNumTevStages`,
+`GXSetTevKColorSel`, and `GXSetTevKColor`.  These two were the exceptions.
+
+The consequence is not a wrong colour on one draw; it is a *run* of draws
+collapsing onto one colour, because geometry queued before the register
+changed is emitted afterwards with the new value.  It shows up wherever the
+game alternates state and geometry in a tight sequence, which is exactly what
+text does: the SIS renderer sets TEVREG0 to the panel colour, draws the panel,
+then draws each glyph.
+
+**Rule:** in the GX HLE, any function that mutates draw state must flush
+first.  The batching is only valid while the state is constant.  When
+auditing, compare against the neighbours -- a setter that does not flush while
+every sibling does is the bug, and that asymmetry is the cheapest way to find
+these.

@@ -1410,8 +1410,17 @@ void GXSetTevAlphaOp(GXTevStageID stage, GXTevOp op, GXTevBias bias,
     s->alpha_reg = (u8) out_reg;
 }
 
+/* The TEV colour registers are part of the draw state, so pending geometry
+ * has to be emitted before they change -- otherwise vertices already queued
+ * are drawn with the register value of a later draw.  Every other TEV setter
+ * here flushes (GXSetTevColorIn/AlphaIn/Op/Order/SwapMode, GXSetTevKColor);
+ * these two did not, which collapses a run of differently coloured draws onto
+ * whichever colour was set last.  Text is where it shows worst: the SIS
+ * renderer sets TEVREG0 to the background colour, draws the panel, then draws
+ * every glyph, so the panel and the glyphs ended up sharing one colour. */
 void GXSetTevColor(GXTevRegID id, GXColor color)
 {
+    flush_direct();
     int idx = (int) id;
     if (idx < 0 || idx >= 4) {
         return;
@@ -1424,6 +1433,7 @@ void GXSetTevColor(GXTevRegID id, GXColor color)
 
 void GXSetTevColorS10(GXTevRegID id, GXColorS10 color)
 {
+    flush_direct();
     int idx = (int) id;
     if (idx < 0 || idx >= 4) {
         return;
