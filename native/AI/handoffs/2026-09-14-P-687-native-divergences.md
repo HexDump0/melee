@@ -119,6 +119,13 @@ per session per `TASKS.md`.
    Metrowerks asm" list in `learnings/decomp_port.md`; the same TU already has
    two S6 `PORT_PC` patches (`gm_80168B34`/`gm_80168BF8`).
 
+   **Correction (2026-09-14, cross-port review): the "float store" reading
+   above is wrong.** `init_spr_unk` (`gmmain.c:107-120`) sets GQR3 =
+   0x00050005 (type 5 = U16, scale 0), so `psq_st` writes a clamped halfword
+   and the caller's `*(u16*)&sp48_x` reads it.  The landed patch stores a
+   float, so `MatchPlayerData.xE` gets mantissa bits.  See G-158 and
+   `handoffs/2026-09-14-P-709-gqr3-u16-store.md`.
+
 3. **`__cvt_dbl_usll`** (`decomp/src/Runtime/runtime.c:544`). Port-only; add
 
    ```c

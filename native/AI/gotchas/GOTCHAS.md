@@ -2347,3 +2347,44 @@ the sound no longer glitches.
 
 **Class:** every `Gr*.dat` whose `gr*.c` reads a `yakumono_param` public needs
 its own descriptor; the unconverted VS-legal stages are tracked as P-708.
+
+## G-158: GQR3 = 0x00050005 means `psq_st` stores a quantized u16, not a float
+
+**Symptom (latent):** the P-687 fallback for `fn_80166A8C` writes a 4-byte
+float, but every caller reads a u16 back (`gm_80166378` does
+`player_standings[i].xE = *(u16*) &sp48_x`), so `MatchPlayerData.xE` receives
+float mantissa bits instead of the joystick-activity score.  `xE` feeds
+`gm_801688AC`/`gm_80168940` -> `gm_8016247C` high-score accumulation.
+
+**Cause:** `init_spr_unk` (`decomp/src/melee/gm/gmmain.c:107-120`) sets
+GQR2..GQR5 to `0x00040004/0x00050005/0x00060006/0x00070007` (`li` + `oris`
+with the same immediate).  GQR store type 5 is U16 with scale 0, so
+`asm { psq_st x, Vec3.x(dst), 1, qr3 }` writes a clamped 0..65535 halfword
+and leaves the float in `f1`.  Upstream `doldecomp/melee#3456` and its fork
+branch describe this `psq_st` as "a single-element float store" — that is
+wrong, and the P-687 patch inherited the error.
+
+**Fix:** in `patches/src/melee/gm/gm_1601_ml_fallback.patch`, clamp and store
+a u16 (`*(u16*) dst = (u16) (x < 0.0f ? 0.0f : (x > 65535.0f ? 65535.0f : x));`)
+and still return the float.  Reference implementation at the same upstream pin:
+`999sian/melee-pc` `src/melee/gm/gm_1601.c:3094-3106`.  Tracked as P-709.
+
+## G-159: `ftAnim_8006F3DC` falls off the end on the not-found path
+
+**Symptom (latent):** `fp->cur_anim_frame = ftAnim_8006F3DC(gobj)`
+(`decomp/src/melee/ft/ftanim.c:371-376`) receives whatever `eax`/`xmm0` holds
+when `x8A4_animBlendFrames == 0` and no part matches the flag test, or a
+matching part has no `HSD_AObj`.
+
+**Cause:** the loop over `ftPartsTable[fp->kind]->parts_num` exits without a
+`return`.  Retail writes nothing to `f1` either (it returns the caller's
+`f1`), which is why the P-695 census classified it "left alone — never
+observed"; but the host value is indeterminate rather than inherited, and
+`999sian/melee-pc` fixed the same function in its
+"functions that fell off the end returning garbage on x86-64" commit
+(`21da73a09`) to return `0.0f`.
+
+**Fix:** add a `PORT_PC` `return 0.0f;` after the loop in
+`patches/src/melee/ft/ftanim.c.patch` (same file already patches
+`ftAnim_8006F994`).  Deterministic beats indeterminate even where retail is
+indeterminate.  Tracked as P-709.

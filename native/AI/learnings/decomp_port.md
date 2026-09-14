@@ -327,6 +327,13 @@ reports `build/GALE01/main.dol: OK` (100.00% matched, 1130/1130 linked).
 | `src/Runtime/runtime.c` (`__cvt_dbl_usll`) | under `PORT_PC`, `return (u64) x;` after the asm block | Empty non-void body compiled to a bare `ret`; `gm_1884.c:784` passes the result to `lb_80019880` (training-mode speed).  Mirrors the in-file `__cvt_fp2unsigned` fallback directly above. |
 
 
+**Correction (P-709, G-158):** the `fn_80166A8C` entry above is wrong about the
+store width.  `init_spr_unk` (`gmmain.c:107-120`) sets GQR3 = `0x00050005`
+(type 5 = U16, scale 0), so the `psq_st` writes a clamped halfword and the
+caller's `*(u16*)&sp48_x` reads it.  The landed patch stores a float instead;
+the fix (clamp + u16 store) is tracked as P-709 and the reference is
+`999sian/melee-pc` `src/melee/gm/gm_1601.c:3094-3106` (same upstream pin).
+
 ## P-695 missing-`return` census (2026-09-14)
 
 Owner report: every 1P stage segfaulted one frame after the "GAME!!"
@@ -414,7 +421,7 @@ faithful to port.  The interesting ones, with the reason:
 
 | Site | Function | Why it is left |
 |---|---|---|
-| `ft/ftanim.c:571` | `ftAnim_8006F3DC` | `f1` is **never written** on the not-found path (`0x8006f468`), so retail returns the caller's `f1`.  Needs every fighter part to lack an `HSD_AObj`; never observed |
+| `ft/ftanim.c:571` | `ftAnim_8006F3DC` | `f1` is **never written** on the not-found path (`0x8006f468`), so retail returns the caller's `f1`.  Needs every fighter part to lack an `HSD_AObj`; never observed.  P-709/G-159: `999sian/melee-pc` returns a defined `0.0f` on this path |
 | `it/kinds/itsscope.c:137` | `it_80291DAC` | `r3` still holds the incoming `gobj` pointer at `0x80291f04`; retail returns a pointer as a charge level.  Needs `xD4C > 0` but smaller than level 1's cost |
 | `mn/mnmain.c:1761` / `:1713` | `mn_8022C010` / `mn_8022BFBC` | the `switch` covers `MENU_KIND_MAIN..MULTI_VS` (0..33); only `MENU_KIND_34` is missing and no code ever assigns it.  `mn_8022BFBC` only ever sees `mn_8022C010`'s 0..4 |
 | `mn/mnstagesw.c:227` | `mnStageSw_80235C58` | the final `for (i = 1; found; i++)` never clears `found`, so the end is unreachable by construction (it spins instead) |

@@ -67,6 +67,7 @@ something the next agent must know, or finish a task that changes interfaces.
 | 2026-09-14 | P-704 fixed: US name-width table read one past `lbl_803B75F8`; VS splash names draw again (0 -> 2457 white pixels) | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-704-classic-vs-names.md`](handoffs/2026-09-14-P-704-classic-vs-names.md) |
 | 2026-09-14 | P-706 opt-in `MELEE_SFX_DEBUG` recorder for the intermittent loud SFX burst; waiting on the owner's capture | Codex | [`2026-09-14-P-706-sfx-capture.md`](handoffs/2026-09-14-P-706-sfx-capture.md) |
 | 2026-09-14 | P-707 fixed: `GrCs.dat` `yakumono_param` stayed big-endian so the Castle intro countdown never ran and the `0x53025` ambient looped for the whole match; owner confirmed the sound no longer glitches | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-706-sfx-capture.md`](handoffs/2026-09-14-P-706-sfx-capture.md) |
+| 2026-09-14 | P-709 filed: GQR3 is a quantized-u16 store (corrects the P-687 `fn_80166A8C` float store) + `ftAnim_8006F3DC` return fix, both from the `999sian/melee-pc` cross-port review | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-709-gqr3-u16-store.md`](handoffs/2026-09-14-P-709-gqr3-u16-store.md) |
 
 ## Template
 
