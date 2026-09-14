@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-14 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709 and P-710 fixed, P-699/P-702/P-711 open)
+Last updated: 2026-09-14 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710 and P-712 fixed, P-699/P-702/P-711/P-713 open)
 
 > **Direction (2026-09-13/14): ADR-0017 — keep the GLES renderer, reach Aurora parity.**
 > The 32-bit product, in-place converter and GLES3/WebGL2 renderer stay; the
@@ -828,3 +828,20 @@ If those numbers move, say why in the commit and update this file.
 - The offscreen SDL driver + Mesa `radeonsi`/llvmpipe renders correctly (Mesa
   26.1.6 reports a 4.6 core context); there is no X11 server available to
   agents on this machine.
+
+**P-712 (2026-09-14, strict aliasing vs. the decompilation's type puns):** the
+`999sian/melee-pc` review's most transferable contribution was a *method*, not
+a patch — a tree-wide `-Wuninitialized`/`-Wmaybe-uninitialized` compile, which
+we had never run.  It reports three **definite** uninitialised reads
+(`particle.c:539` `abs_z`, `gmresultplayer.c:609` `abs_stick_y`,
+`ft_0892.c:44` `spC`), and none of them is a missing assignment: all three
+clear a float's sign bit through an `int` lvalue, so the `f32` object is
+written and the `s32` object GCC reads is not.  At `-O2` that entitles GCC to
+drop the mask.  There are 72 punning sites tree-wide and `src/` is read-only,
+so the fix is the flag, not the sites: ADR-0019 adds `-fno-strict-aliasing` to
+every decomp-compiling target via `MELEE_DECOMP_UB_OPTIONS`.  It also makes
+P-709's `*(u16*)` store/read pair safe rather than technically UB.  `ctest`
+28/28; the GameCube build has no `src/` change to notice.  G-162.  The same
+sweep leaves 181 `-Wmaybe-uninitialized` sites — a different class, genuinely
+lost assignments, and the class melee-pc's Venom crash came from — triaged as
+P-713.

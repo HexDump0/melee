@@ -1013,3 +1013,67 @@ GameCube build is untouched (`PORT_PC` gating).  The port now mixes MSL
 its own decision.
 
 **Status:** accepted (2026-09-14, owner); amends ADR-0011's MSL exclusion.
+
+## ADR-0019: Compile the decompilation with `-fno-strict-aliasing`
+
+**Date:** 2026-09-14 (P-712)
+
+**Context.** A tree-wide `-Wuninitialized -Wmaybe-uninitialized` sweep of the
+993 compiled TUs — the sweep `999sian/melee-pc` used to find its Venom crash,
+which we had never run — reports three **definite** uninitialised reads:
+
+```
+decomp/src/sysdolphin/baselib/particle.c:539  'abs_z' is used uninitialized
+decomp/src/melee/gm/gmresultplayer.c:609      'abs_stick_y' is used uninitialized
+decomp/src/melee/ft/ft_0892.c:44              'spC' is used uninitialized
+```
+
+None of them is an uninitialised variable.  All three are type puns:
+
+```c
+f32 abs_z = vz;                      /* the float object is written */
+*(s32*) &abs_z &= 0x7FFFFFFF;        /* the int object never was */
+if (abs_z < 1.1754944e-38F) { ... }
+```
+
+Under `-O2` GCC's strict-aliasing model is entitled to assume the `s32` lvalue
+and the `f32` object are distinct, so the masked value comes from an object
+that was never written — which is exactly what the warning says, and it means
+the sign-bit clear may be folded away entirely.  `particle.c` is the particle
+system; `gmresultplayer.c` is results-screen stick input; `ft_0892.c` is
+fighter damage state.
+
+This is not three sites.  The tree has **72** `*(s32*)&` / `*(u32*)&` /
+`*(int*)&` punning sites, five of them this `& 0x7FFFFFFF` fabs idiom, plus the
+HSD object graph, which is walked through casts at every level, plus the
+results-screen read `*(u16*) &sp48_x` that P-709's quantised store feeds.  MWCC
+compiled all of it literally; the decompilation is written against that
+compiler.
+
+**Decision.** Add `-fno-strict-aliasing` to every target that compiles
+decompiled sources or their headers, as `MELEE_DECOMP_UB_OPTIONS` next to
+`MELEE_32BIT_FP_OPTIONS` in `native/CMakeLists.txt` (both are interpolated by
+the same eight option lines).
+
+**Alternatives rejected.**
+
+- *Patch each site to use `fabsf`/`memcpy`.* `src/` is read-only by default
+  (AGENTS.md §0) and each patch is ADR-0011 overhead.  72 known sites is
+  whack-a-mole, the census has to be re-run after every re-pin, and a pun that
+  GCC does **not** warn about is silently miscompiled in the meantime.  The
+  flag fixes the class, including the sites no warning names.
+- *Leave it and rely on the warnings.* `-Wuninitialized` catches only the puns
+  GCC can prove read an unwritten object.  It says nothing about the ones where
+  both objects are written and it simply reorders the accesses.
+
+**Consequences.** A small, unmeasured optimisation cost — the right trade for a
+port whose problem is stability, not frame rate.  No `src/` change, so the
+GameCube build is untouched by construction.  It also retroactively makes
+P-709's `*(u16*) dst` store and its caller's `*(u16*) &sp48_x` read safe rather
+than technically-UB-but-working.  `ctest` 28/28 with the flag.
+
+**Follow-up.** The same sweep leaves **181 unique `-Wmaybe-uninitialized`
+sites**, which the flag does not address and which are a different class
+(genuinely uninitialised locals the decompiler lost, like melee-pc's Venom
+`jobj`).  Triage is P-713.  melee-pc reported 153 of these and had not triaged
+them either.

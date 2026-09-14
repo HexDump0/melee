@@ -2450,3 +2450,38 @@ incoming `arg0`.  Both paths are therefore fully determined, not garbage.
 check whether it writes `r3` at all; a small leaf function often does not, and
 then the *caller's* argument is the return value.  This is how the P-710 sites
 turned out to be outcome 1 rather than outcome 3.
+
+## G-162: "`x` is used uninitialized" in `src/` usually means a type pun, not a missing assignment
+
+**Symptom:** a `-Wuninitialized` sweep of the decompilation names three
+variables that are plainly assigned one line earlier:
+
+```
+particle.c:539       'abs_z' is used uninitialized
+gmresultplayer.c:609 'abs_stick_y' is used uninitialized
+ft_0892.c:44         'spC' is used uninitialized
+```
+
+**Cause:** the idiom is a sign-bit clear done through an `int` lvalue —
+
+```c
+f32 abs_z = vz;
+*(s32*) &abs_z &= 0x7FFFFFFF;
+```
+
+— so the `f32` object is written and the `s32` object is not.  With strict
+aliasing on, GCC treats them as distinct objects, and the read of the `s32` one
+really is a read of something never written.  The practical consequence is
+worse than the warning sounds: the mask can be optimised away.
+
+**Fix:** ADR-0019 compiles every decomp target with `-fno-strict-aliasing`
+(`MELEE_DECOMP_UB_OPTIONS` in `native/CMakeLists.txt`).  Do **not** "fix" these
+by rewriting the puns — there are 72 of them, `src/` is read-only, and the
+sites GCC does not warn about are the dangerous ones.
+
+**Read the warning text carefully.** `is used uninitialized` (3 sites) and
+`may be used uninitialized` (181 sites) are different problems: the first is
+this aliasing class, the second is genuinely lost assignments (P-713).  A
+filter that greps for only one of the two strings returns a confident wrong
+answer — melee-pc hit exactly this trap from the other direction on its Venom
+crash, where the assert macro demoted a real bug to "may be used".

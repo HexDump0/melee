@@ -28,6 +28,20 @@ endif()
 # by sin(0).  SSE2 keeps float/double evaluation at their declared widths and
 # is also the faster scalar backend on supported PC hosts.
 set(MELEE_32BIT_FP_OPTIONS -msse2 -mfpmath=sse)
+
+# The decompilation reaches through type-punned pointers constantly: 72 sites
+# mask a float's sign bit with `*(s32*) &f &= 0x7FFFFFFF`, the results screen
+# reads a quantised store back with `*(u16*) &sp48_x` (P-709), and the HSD
+# structures are walked through casts at every level.  MWCC compiled all of
+# that literally; GCC's -O2 strict-aliasing model is entitled to assume the
+# int lvalue and the float object are distinct, and it does -- a tree-wide
+# -Wuninitialized sweep reports the sign-bit sites as reading an
+# *uninitialised* int (particle.c:539 `abs_z`, gmresultplayer.c:609
+# `abs_stick_y`, ft_0892.c:44 `spC`), which means the mask can be folded away
+# entirely.  Turning strict aliasing off is the only fix that scales: the
+# alternative is rewriting every pun in a read-only tree.  Costs a little
+# optimisation and nothing else; the GameCube build is unaffected.
+set(MELEE_DECOMP_UB_OPTIONS -fno-strict-aliasing)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
 find_package(OpenGL REQUIRED)
@@ -146,7 +160,7 @@ target_include_directories(test_decomp_hsd PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/include)
 target_compile_options(test_decomp_hsd PRIVATE
-    -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS}
+    -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS} ${MELEE_DECOMP_UB_OPTIONS}
     -w -ffunction-sections -fdata-sections -DPORT_PC=1
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
 target_link_libraries(test_decomp_hsd PRIVATE m)
@@ -175,7 +189,7 @@ target_include_directories(test_audio BEFORE PRIVATE
 target_include_directories(test_audio SYSTEM PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/include)
 target_compile_options(test_audio PRIVATE
-    -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS}
+    -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS} ${MELEE_DECOMP_UB_OPTIONS}
     -Wall -Wextra -Wpedantic -fgnu89-inline
     -ffunction-sections -fdata-sections -DPORT_PC=1 -D_GNU_SOURCE
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
@@ -219,7 +233,7 @@ target_include_directories(test_decomp_assets PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/include)
 target_compile_options(test_decomp_assets PRIVATE
-    -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS}
+    -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS} ${MELEE_DECOMP_UB_OPTIONS}
     -w -ffunction-sections -fdata-sections -DPORT_PC=1
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
 target_link_libraries(test_decomp_assets PRIVATE m)
@@ -244,7 +258,7 @@ target_include_directories(test_decomp_trig PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/include)
 target_compile_options(test_decomp_trig PRIVATE
-    -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS}
+    -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS} ${MELEE_DECOMP_UB_OPTIONS}
     -w -ffunction-sections -fdata-sections -DPORT_PC=1
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
 target_link_libraries(test_decomp_trig PRIVATE m)
@@ -321,7 +335,7 @@ target_include_directories(melee_decomp_game BEFORE PRIVATE
 # same execution charset; Shift-JIS is ASCII-compatible, so plain literals
 # are unchanged.
 target_compile_options(melee_decomp_game PRIVATE
-    -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS}
+    -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS} ${MELEE_DECOMP_UB_OPTIONS}
     -w -fgnu89-inline -ffunction-sections -fdata-sections
     -fexec-charset=CP932
     -Wno-error=incompatible-pointer-types -DPORT_PC=1
@@ -369,7 +383,7 @@ target_include_directories(melee_decomp_boot SYSTEM PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/include)
 target_compile_options(melee_decomp_boot PRIVATE
-    -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS}
+    -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS} ${MELEE_DECOMP_UB_OPTIONS}
     -Wall -Wextra -Wpedantic -fgnu89-inline
     -ffunction-sections -fdata-sections -rdynamic -D_GNU_SOURCE
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
@@ -492,7 +506,7 @@ target_include_directories(test_decomp_render SYSTEM PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/include)
 target_compile_options(test_decomp_render PRIVATE
-    -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS}
+    -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS} ${MELEE_DECOMP_UB_OPTIONS}
     -Wall -Wextra -Wpedantic -Wno-overlength-strings -fgnu89-inline
     -ffunction-sections -fdata-sections -rdynamic -D_GNU_SOURCE
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
@@ -595,7 +609,7 @@ if(MELEE_SDL3_LIB32)
       ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src
       ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/include)
   target_compile_options(melee PRIVATE
-      -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS}
+      -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS} ${MELEE_DECOMP_UB_OPTIONS}
       -Wall -Wextra -Wpedantic -Wno-overlength-strings -fgnu89-inline
       -ffunction-sections -fdata-sections -rdynamic -D_GNU_SOURCE
       -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
