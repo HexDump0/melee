@@ -2330,6 +2330,50 @@ static void write_u32le(FILE* f, unsigned int v)
     fputc((int) ((v >> 24) & 0xFF), f);
 }
 
+/* P-698 regression probe: count the pixels inside a 640x480-space rectangle
+ * that are not (near-)black.  The 1P clear screen's "STAGE CLEAR" banner sits
+ * on a deliberately black backdrop, so a collapsed shape-anim mesh reads as a
+ * uniformly black band and this returns 0 (G-147). */
+unsigned gx_gl_probe_nonblack(int gx_x, int gx_y, int gx_w, int gx_h)
+{
+    unsigned char* rgba;
+    unsigned count = 0;
+    int x0, y0, x1, y1, w, h, i;
+
+    if (program == 0 || gl_width <= 0 || gl_height <= 0) {
+        return 0;
+    }
+    x0 = gx_x * gl_width / 640;
+    x1 = (gx_x + gx_w) * gl_width / 640;
+    /* GX rows are top-down, GL rows bottom-up. */
+    y0 = gl_height - (gx_y + gx_h) * gl_height / 480;
+    y1 = gl_height - gx_y * gl_height / 480;
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > gl_width) x1 = gl_width;
+    if (y1 > gl_height) y1 = gl_height;
+    w = x1 - x0;
+    h = y1 - y0;
+    if (w <= 0 || h <= 0) {
+        return 0;
+    }
+    rgba = (unsigned char*) malloc((size_t) w * h * 4);
+    if (rgba == NULL) {
+        return 0;
+    }
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glFinish();
+    glReadPixels(x0, y0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    for (i = 0; i < w * h; ++i) {
+        const unsigned char* p = rgba + (size_t) i * 4;
+        if (p[0] > 24 || p[1] > 24 || p[2] > 24) {
+            count++;
+        }
+    }
+    free(rgba);
+    return count;
+}
+
 int gx_gl_save_bmp(const char* path)
 {
     unsigned char* pixels;

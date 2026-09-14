@@ -334,6 +334,7 @@ typedef struct MatchView {
     int frontend;
     int live_input;
     int no_items;
+    int banner_probed;
     PadInputFrame live[4];
     unsigned last_mode;
     unsigned last_scene;
@@ -840,6 +841,18 @@ static void match_present(void)
         }
         draws = gx_gl_render_frame();
         match_view.last_render_ns = SDL_GetTicksNS() - frame_start;
+        /* P-698: the 1P clear banner ("STAGE CLEAR") is a POBJ_SHAPEANIM mesh
+         * blended on the CPU from big-endian pools.  When that read is wrong
+         * the mesh collapses and the band over its black backdrop is
+         * uniformly black, which is exactly what the owner saw (G-147). */
+        if (!match_view.banner_probed && match_boot_gameover_active()) {
+            static unsigned settle;
+            if (++settle > 30) {
+                match_view.banner_probed = 1;
+                fprintf(stderr, "[gameover] banner nonblack=%u\n",
+                        gx_gl_probe_nonblack(64, 16, 512, 88));
+            }
+        }
         {
             size_t vc = 0;
             gx_hle_get_frame(NULL, &vc, NULL, NULL, NULL, NULL);
@@ -956,6 +969,7 @@ static int run_match(SDL_Window* window, SDL_GLContext context,
     match_view.frontend = frontend;
     match_view.live_input = frontend && input_path == NULL;
     match_view.no_items = no_items;
+    match_view.banner_probed = 0;
     match_view.last_mode = 0xFFFFFFFFu;
     match_view.last_scene = 0xFFFFFFFFu;
 

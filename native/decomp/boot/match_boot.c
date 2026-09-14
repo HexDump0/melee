@@ -296,6 +296,11 @@ static void match_boot_frame(void)
     }
 }
 
+int match_boot_gameover_active(void)
+{
+    return gameover_test && gameover_stage >= 2;
+}
+
 void match_boot_init(unsigned frame_in)
 {
     start_frame = frame_in;

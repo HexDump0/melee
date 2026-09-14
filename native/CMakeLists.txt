@@ -614,6 +614,21 @@ if(MELEE_SDL3_LIB32)
   # the logo animation past its opaque frame-0 reveal card, looping from
   # frame 400.  The frontend flow drives the boot with a card so the memory
   # card scene completes; the probe logs once the title logo is animating.
+  # P-698: the 1P clear screen's "STAGE CLEAR" banner is a POBJ_SHAPEANIM
+  # mesh whose morph targets HSD blends on the CPU (pobj.c drawShapeAnim).
+  # Those pools are the one vertex arrays the GX display-list decoder never
+  # reads, so they stay big-endian and the CPU reader has to swap; without
+  # that every component decodes as a denormal, the mesh collapses to a point
+  # and the band over its black backdrop reads as a solid black box -- the
+  # owner's report.  The probe counts non-black pixels inside the banner.
+  add_test(NAME decomp_clear_banner COMMAND melee
+      --match --frames 360 --no-hud
+      --shot ${CMAKE_CURRENT_BINARY_DIR}/decomp_clear_banner.bmp)
+  set_tests_properties(decomp_clear_banner PROPERTIES
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
+      PASS_REGULAR_EXPRESSION "\\[gameover\\] banner nonblack=[1-9][0-9][0-9][0-9]+"
+      TIMEOUT 600
+      ENVIRONMENT "SDL_VIDEODRIVER=offscreen;SDL_AUDIODRIVER=dummy;MELEE_NO_CARD=1;MELEE_GAMEOVER_TEST=1")
   add_test(NAME decomp_title COMMAND melee
       --frontend --no-items
       --input ${CMAKE_CURRENT_SOURCE_DIR}/tests/frontend_vs.txt

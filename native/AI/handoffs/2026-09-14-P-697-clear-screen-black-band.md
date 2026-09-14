@@ -2,8 +2,17 @@
 
 **Date:** 2026-09-14
 **Agent:** claude (opus-5)
-**Commit:** follows `37acc1442` (P-696); P-697 itself is **unfixed**, analysis only
+**Commit:** follows `37acc1442` (P-696)
 **Tree state:** builds clean, `ctest` 23/23, `ninja` in `decomp/` 100.00% matched
+
+> **RESOLVED the same day as P-698.** The owner supplied the Dolphin capture
+> this note asks for, and it answered the question in the first line of "Exact
+> next action": retail *does* show a black band there — it is the backdrop for
+> the "STAGE CLEAR" banner, and the banner itself was what the port was
+> missing.  The banner is a `POBJ_SHAPEANIM` mesh whose morph targets
+> `drawShapeAnim` blends on the CPU from big-endian pools, so it collapsed to
+> a point (G-147).  Everything below is still accurate as the rule-out record;
+> read it for the method, not for an open bug.
 
 ## What I did
 

@@ -18,17 +18,22 @@ Status meanings:
 
 | # | What you see | Where | What would settle it |
 |---|---|---|---|
-| B-20 | A black box covers the top quarter of the 1P clear ("GAME!!" results) screen | `MELEE_GAMEOVER_TEST=1 ./build/native/melee --match --frames 300 --no-hud --shot /tmp/clear.bmp`, or just finish a Classic stage | Pinned down to one draw (a solid opaque black quad, GX rows 0..115) but **I need a Dolphin capture of the same screen**: is there a translucent dark band across the top in retail?  Yes -> the quad is real and only its blending is wrong; no -> its geometry is wrong.  Full analysis and both next steps in `handoffs/2026-09-14-P-697-clear-screen-black-band.md`; tracked as P-697. |
+| B-21 | On the 1P clear screen the black banner backdrop leaves a ~13 px sliver at the far left (and overhangs the right edge) | the same command as B-20 below, or finish a Classic stage | **Needs an uncropped Dolphin frame**: your capture is cropped (aspect 1.37 vs 4:3) so a 13 px left gap would not show. Measured in the port: the backdrop quad covers GX x 12.8..794. Tracked as P-699. |
+| B-22 | CSS CPU level reads `normar.a.` instead of `Normal`; the VERSUS splash is missing the squiggle across the top and the player name at the bottom | `./build/native/melee --frontend`, walk to the character select | Not investigated yet. Tracked as P-700 — first re-check whether P-698 (shape-anim) already fixed the squiggle. |
 | B-1 | Bowser's hair/mohawk looks mangled during `Wait1` (fine in T-pose) | `--model PlKpNr.dat --view --animate --clip Wait1` | H-5: capture the same frame/angle in Dolphin. Match -> the hunched pose is authored; mismatch -> a real animation gap (P-207/blending). **Owner has no Dolphin access right now and will compare later — do not change Bowser before then.** Investigation notes: `learnings/hsd_animation.md` §7. |
 
 Resolved 2026-09-11 (owner): the face texture artifact is gone (was B-2), and
 the viewer at 180 Hz is confirmed correct (H-4).
 
 Resolved 2026-09-14: the crash one frame after the "GAME!!" announcer at the
-end of every 1P stage (`lb_800138EC` had no `return`; G-145, P-695), and the
+end of every 1P stage (`lb_800138EC` had no `return`; G-145, P-695); the
 ~2.5 fps stall whenever a fighter left the camera (the magnifier's
 `HSD_ImageDesc` was never byte-swapped, so it asked for a 0x4000 x 0x4000 EFB
-copy; G-146, P-696).
+copy; G-146, P-696); and the black box over the top of the clear screen, which
+was the "STAGE CLEAR" banner collapsed to a point because its shape-anim
+morph targets were read little-endian (G-147, P-698).  Thanks for the Dolphin
+capture — it is what turned that one from "is the band even supposed to be
+there?" into a one-line answer.
 
 ## Confirmed gaps (BROKEN / BLOCKED)
 
@@ -39,7 +44,7 @@ copy; G-146, P-696).
 | B-5 | Textures/materials do not scroll, fade or swap during clips | BROKEN | `HSD_MatAnimJoint` evaluation | P-209 |
 | B-6 | Some actions play at the wrong speed (rate fixed at 1.0) | BROKEN | per-action `frame_speed_mul` table | P-210 |
 | B-7 | Clip changes snap instead of cross-fading | BLOCKED | animation blending (`ftAnim_8006FE9C`) | M5 |
-| B-8 | Shape-set and spline-joint models do not deform | BLOCKED | `POBJ_SHAPEANIM` data, `HSD_A_J_PATH` | M5 |
+| B-8 | Spline-joint models do not deform (shape-set meshes now blend correctly, P-698/G-147) | BLOCKED | `HSD_A_J_PATH` | M5 |
 | B-9 | Game & Watch renders as a flat silhouette; no face outline; a few thin slivers remain | BLOCKED | runtime outline TEV (`ftmaterial.c`, M3) + part visibility | G&W note in `TASKS.md`, P-412 |
 | B-10 | Metal, invisibility and damage-flash material states missing | BLOCKED | Fighter state / runtime MObj swap (M3) | `learnings/hsd_tev_materials.md` |
 | B-11 | Exact lighting/specular differ in matches | BLOCKED | stage `HSD_LObj` light lists (M4) | P-204 |

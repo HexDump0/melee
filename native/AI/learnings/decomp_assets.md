@@ -798,3 +798,33 @@ three.
 
 **Bump `HSD_CONVERTER_VERSION` whenever the walk changes** — it is the disk
 cache key, and without it a stale `~/.cache/melee/assets` entry hides the fix.
+
+
+## Shape-set pools are read by the CPU, not the decoder (P-698)
+
+The port's rule is that **vertex arrays stay big-endian**: the GX display-list
+decoder reads them that way, so the converter only byte-swaps descriptors
+(`conv_vtxdesc`), never the arrays themselves.  `POBJ_SHAPEANIM` is the one
+exception to who reads them.
+
+`HSD_PObjDisp` -> `PObjDispShapeAnim` -> `drawShapeAnim` (`pobj.c`) blends the
+morph targets **on the CPU** and only then pushes vertices through
+`GXPosition3f32`.  The three readers it uses —
+`get_shape_vertex_xyz`, `get_shape_normal_xyz`, `get_shape_nbt_xyz` — do a
+plain `memcpy` for `GX_F32` and native casts for `GX_U16`/`GX_S16`.  On a
+little-endian host every component comes back as a denormal near zero and the
+mesh collapses to a point (G-147).
+
+The fix is a `PORT_PC` swap **inside those readers**, not in the converter.
+The converter route is tempting and it does fix the mesh, but the same arrays
+are shared with sibling PObjs that the GX HLE decodes big-endian, so swapping
+the pool in place corrupts them — observed as the clear screen's SPECIAL BONUS
+frame and TIME REMAINING/DAMAGE fills disappearing while the banner appeared.
+
+The index lists (`vertex_idx_list[shape]`) need nothing: HSD already assembles
+`GX_INDEX16` entries big-endian by hand, which is the tell that these arrays
+are disc-order data.
+
+Regression: `ctest decomp_clear_banner` renders the 1P clear screen through
+`MELEE_GAMEOVER_TEST` and counts non-black pixels inside the "STAGE CLEAR"
+banner (0 before the patch, 30690 after).

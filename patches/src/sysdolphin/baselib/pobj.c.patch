@@ -1,0 +1,135 @@
+diff --git a/src/sysdolphin/baselib/pobj.c b/src/sysdolphin/baselib/pobj.c
+index 8b16a28c8..11d57f6ea 100644
+--- a/src/sysdolphin/baselib/pobj.c
++++ b/src/sysdolphin/baselib/pobj.c
+@@ -530,6 +530,38 @@ static void setupShapeAnimVtxDesc(HSD_PObj* pobj)
+     prev_vtxdesc = NULL;
+ }
+ 
++#ifdef PORT_PC
++/* G-147: a POBJ_SHAPEANIM shape set is the one vertex pool HSD reads with the
++ * CPU instead of handing to the GX display-list decoder, so the port cannot
++ * byte-swap it in the converter (other PObjs share the same arrays, and the
++ * decoder needs them big-endian -- learnings/decomp_assets.md).  Swap on read
++ * here instead, exactly as the GX_INDEX16 index reads below already do by
++ * hand.  Without this every component decodes as a denormal near zero and the
++ * mesh collapses to a point. */
++static inline u16 shape_be16(void const* p)
++{
++    u8 const* b = p;
++    return (u16) ((b[0] << 8) | b[1]);
++}
++
++static inline f32 shape_be32f(void const* p)
++{
++    u8 const* b = p;
++    u32 v = ((u32) b[0] << 24) | ((u32) b[1] << 16) | ((u32) b[2] << 8) | b[3];
++    f32 f;
++    memcpy(&f, &v, sizeof(f));
++    return f;
++}
++
++static inline void shape_be32f_copy(void const* src, f32* dst, int n)
++{
++    int i;
++    for (i = 0; i < n; i++) {
++        dst[i] = shape_be32f((u8 const*) src + i * 4);
++    }
++}
++#endif
++
+ static inline void decode_u8_xyz(void* src_base, f32 dst[3], int scale)
+ {
+     u8* src = src_base;
+@@ -548,18 +580,32 @@ static inline void decode_s8_xyz(void* src_base, f32 dst[3], int scale)
+ 
+ static inline void decode_u16_xyz(void* src_base, f32 dst[3], int scale)
+ {
++#ifdef PORT_PC
++    u8* src = src_base;
++    dst[0] = (f32) shape_be16(src + 0) / scale;
++    dst[1] = (f32) shape_be16(src + 2) / scale;
++    dst[2] = (f32) shape_be16(src + 4) / scale;
++#else
+     u16* src = src_base;
+     dst[0] = (f32) src[0] / scale;
+     dst[1] = (f32) src[1] / scale;
+     dst[2] = (f32) src[2] / scale;
++#endif
+ }
+ 
+ static inline void decode_s16_xyz(void* src_base, f32 dst[3], int scale)
+ {
++#ifdef PORT_PC
++    u8* src = src_base;
++    dst[0] = (f32) (s16) shape_be16(src + 0) / scale;
++    dst[1] = (f32) (s16) shape_be16(src + 2) / scale;
++    dst[2] = (f32) (s16) shape_be16(src + 4) / scale;
++#else
+     s16* src = src_base;
+     dst[0] = (f32) src[0] / scale;
+     dst[1] = (f32) src[1] / scale;
+     dst[2] = (f32) src[2] / scale;
++#endif
+ }
+ 
+ static void get_shape_vertex_xyz(HSD_ShapeSet* shape_set, int shape_id,
+@@ -581,7 +627,11 @@ static void get_shape_vertex_xyz(HSD_ShapeSet* shape_set, int shape_id,
+                idx * shape_set->vertex_desc->stride;
+ 
+     if (shape_set->vertex_desc->comp_type == GX_F32) {
++#ifdef PORT_PC
++        shape_be32f_copy(src_base, dst, 3);
++#else
+         memcpy(dst, src_base, sizeof(f32[3]));
++#endif
+     } else {
+         int decimal_point = 1 << shape_set->vertex_desc->frac;
+         switch (shape_set->vertex_desc->comp_type) {
+@@ -626,7 +676,11 @@ static void get_shape_normal_xyz(HSD_ShapeSet* shape_set, int shape_id,
+                idx * shape_set->normal_desc->stride;
+ 
+     if (shape_set->normal_desc->comp_type == GX_F32) {
++#ifdef PORT_PC
++        shape_be32f_copy(src_base, dst, 3);
++#else
+         memcpy(dst, src_base, sizeof(f32[3]));
++#endif
+     } else {
+         int decimal_point = 1 << shape_set->normal_desc->frac;
+         switch (shape_set->normal_desc->comp_type) {
+@@ -671,7 +725,11 @@ static void get_shape_nbt_xyz(HSD_ShapeSet* shape_set, int shape_id,
+                idx * shape_set->normal_desc->stride;
+ 
+     if (shape_set->normal_desc->comp_type == GX_F32) {
++#ifdef PORT_PC
++        shape_be32f_copy(src_base, dst, 9);
++#else
+         memcpy(dst, src_base, sizeof(f32[9]));
++#endif
+     } else {
+         int decimal_point = 1 << shape_set->normal_desc->frac;
+         switch (shape_set->normal_desc->comp_type) {
+@@ -687,12 +745,22 @@ static void get_shape_nbt_xyz(HSD_ShapeSet* shape_set, int shape_id,
+             break;
+         case GX_U16:
+             for (i = 0; i < 9; i++) {
++#ifdef PORT_PC
++                dst[i] = (float) shape_be16((u8*) src_base + i * 2) /
++                         decimal_point;
++#else
+                 dst[i] = (float) ((u16*) src_base)[i] / decimal_point;
++#endif
+             }
+             break;
+         case GX_S16:
+             for (i = 0; i < 9; i++) {
++#ifdef PORT_PC
++                dst[i] = (float) (s16) shape_be16((u8*) src_base + i * 2) /
++                         decimal_point;
++#else
+                 dst[i] = (float) ((s16*) src_base)[i] / decimal_point;
++#endif
+             }
+             break;
+         default:

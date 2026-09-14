@@ -2041,3 +2041,39 @@ ones nothing claims.  Beware near-miss names: the rule is
 `name_ends_with(..., "scemdls")` and `Stc_rarwmdls` ends in `mdls`.
 Full method and the remaining unhandled-root list in
 `learnings/decomp_assets.md`.
+
+## G-147: shape-set pools are the one vertex arrays HSD reads with the CPU
+
+**Symptom:** the 1P clear screen's "STAGE CLEAR" banner is missing and its
+black backdrop reads as a solid black box over the top quarter of the screen.
+`--dump-draws` shows the banner's 536x58 texture bound and its UV slices
+correct, but every quad degenerate: `ndc x[0.00,0.00]`.
+
+**Cause:** the banner is a `POBJ_SHAPEANIM` mesh.  Ordinary vertex arrays stay
+big-endian in the port because the GX display-list decoder reads them that way
+(`learnings/decomp_assets.md`), but `drawShapeAnim` blends morph targets on the
+CPU: `get_shape_vertex_xyz`/`get_shape_normal_xyz`/`get_shape_nbt_xyz`
+(`pobj.c`) `memcpy` the `GX_F32` case straight into an `f32[3]` and cast the
+`GX_U16`/`GX_S16` cases natively, then push the result through
+`GXPosition3f32`.  A big-endian float read little-endian is a denormal near
+zero, so the whole mesh collapses to a point.  `gdb` on
+`interpretShapeAnimDisplayList` showed `vertex_buffer` full of `1.157e-41`.
+
+**Fix:** swap on read, under `PORT_PC`, in those three readers
+(`patches/src/sysdolphin/baselib/pobj.c.patch`) — the same thing the function's
+own `GX_INDEX16` index reads a few lines above already do by hand
+(`idx = (index_array[i*2] << 8) + index_array[i*2+1]`), which is the clue that
+these arrays are meant to be read big-endian.  `ctest decomp_clear_banner`
+counts non-black pixels inside the banner: **0** before the patch, **30690**
+after.
+
+**Do not fix this in the converter.** Byte-swapping the pool in
+`conv_shapesetdesc` also works for the banner, but other PObjs in the same
+model share those arrays and *are* decoded by the GX HLE, so it silently broke
+the SPECIAL BONUS panel frame and the TIME REMAINING/DAMAGE fills on the same
+screen.  The swap belongs at the one CPU reader, not in the shared data.
+
+**Also worth remembering:** while trying the converter route, the array base
+read back as `0` and an `if (base == 0) return;` guard rejected it — that is
+G-002 (a base pointer of 0 is data offset 0, not NULL).  Ask
+`c->reloc[field]` whether a field is a pointer; never test the value for zero.

@@ -385,6 +385,24 @@ now writes the vertex (raster) colour when the draw updates colour; the
 title's `(320,60)` readback is `36,36,36` instead of `0,0,0`, `ctest` 21/21.
 Gotcha G-138.
 
+**P-698 (2026-09-14, "STAGE CLEAR" banner):** with P-695 the owner could
+finally see the 1P clear screen, and reported a black box over its top
+quarter.  A Dolphin capture settled what the port could not: the black band is
+the banner's backdrop and is correct — what was missing is the "STAGE CLEAR"
+artwork on it.  That banner is a `POBJ_SHAPEANIM` mesh, and `drawShapeAnim`
+blends morph targets on the CPU (`get_shape_vertex_xyz` and friends `memcpy`
+the `GX_F32` case and cast the 16-bit cases natively) from pools the port
+deliberately leaves big-endian for the GX display-list decoder, so every
+component decoded as a denormal and the mesh collapsed to `ndc x[0,0]`.  The
+swap now happens in those three readers under `PORT_PC`, mirroring the
+big-endian index reads HSD already does by hand a few lines above.  Fixing it
+in the converter instead is wrong and was tried: the pools are shared with
+sibling PObjs the HLE decodes big-endian, and swapping them in place removed
+the SPECIAL BONUS frame and the TIME REMAINING/DAMAGE fills.  New `ctest
+decomp_clear_banner` counts non-black pixels inside the banner (**0 -> 30690**);
+`ctest` 24/24; `ninja` still 100.00% matched.  This also retires the shape-set
+half of B-8.  Gotcha G-147.
+
 **P-696 (2026-09-14, magnifier 400 ms frames):** the owner reported the match
 dropping to ~2.5 fps whenever any part of their fighter left the camera, and
 recovering the instant it came back (`render=405ms` with `draws` barely moving).

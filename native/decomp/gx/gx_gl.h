@@ -47,6 +47,7 @@ void gx_gl_invalidate_texture(const void* image);
 int gx_gl_render_frame(void);
 
 /* Reads the pbuffer back and writes a 24-bit BMP. */
+unsigned gx_gl_probe_nonblack(int gx_x, int gx_y, int gx_w, int gx_h);
 int gx_gl_save_bmp(const char* path);
 
 /* Reads the pbuffer back and appends one binary PPM (P6) frame to `f`.
