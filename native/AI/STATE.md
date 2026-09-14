@@ -980,3 +980,21 @@ before running `for (i = 0; i < file_blocks; i++) block_map[i] = -1;` over a
 outcome retail reaches anyway — as an inline under `PORT_PC` and a macro
 expanding to the original expression otherwise, so the GameCube build is
 byte-identical.  G-167; this is the sign-of-a-pointer cousin of G-164.
+
+**Cross-symbol overlays are now a named, recurring class (P-721 open).**  Four
+instances have been fixed — the name-width tables (G-154/P-704), the card work
+area (P-646, via `.set` symbol aliases), `soundtest.c` (G-166/P-718) and the
+card declaration plus `file_sizes[9]` (P-719/P-720).  The pattern is always the
+same: the console linker placed symbols back to back and the game addresses
+several of them from one base, while `-fdata-sections` gives each its own
+section here and lets the linker place them anywhere.
+
+The P-716 sweep leaves 718 `-Warray-bounds` sites that are candidates for the
+same thing, inventoried in `logs/2026-09-14-P721-overlay-candidates.txt`.  The
+largest is `ty/toy.c`: `_Toy_804A26B8` is a 12-byte static, and the code casts
+its address to `Toy26B8*` (0x196 bytes) reaching through two devtext buffers
+into `Toy_804A284C[302]` — which `tylist.c` in turn overlays as `TyModeState*`.
+**That one is deliberately not attempted yet:** the overlays interlock across
+TUs and two of the four symbols are non-`static`, so it needs the `hsd_4D11.c`
+alias treatment rather than a quick rebase, and getting it wrong would corrupt
+the trophy gallery rather than fix it.
