@@ -1,8 +1,41 @@
 diff --git a/src/melee/if/soundtest.c b/src/melee/if/soundtest.c
-index e2ceb9eb3..0c10516d3 100644
+index e2ceb9eb3..6b87a1918 100644
 --- a/src/melee/if/soundtest.c
 +++ b/src/melee/if/soundtest.c
-@@ -808,7 +808,16 @@ bool un_802FF88C(enum soundtest_callback_arg0 arg0)
+@@ -258,6 +258,32 @@ struct un_803FA258_t {
+ /* 803F9FA4 */
+ /* 803FA128 */ extern int un_803FA128[76];
+ /* 803FA258 */ extern struct un_803FA258_t un_803FA258;
++
++#ifdef PORT_PC
++/* The un_803FA128_t overlay above is a single base covering two separate
++ * symbols, because the console linker placed un_803FA258 immediately after
++ * un_803FA128 (which is exactly 0x130 bytes).  Everything the overlay is
++ * actually used for lives past that boundary -- x130, x220 and x224..x227 are
++ * all inside un_803FA258 -- and the port builds with -fdata-sections, so GCC
++ * gives each object its own section and the linker may place them anywhere.
++ * Indexing off un_803FA128 therefore writes into whatever happens to follow a
++ * 304-byte array.  Same failure as the name-width tables in gm_1601.c (G-154).
++ *
++ * PORT_FA128_BASE rebases the overlay onto the symbol that really holds those
++ * fields, so every `->x130`, `->x220` and `->x224` below resolves correctly
++ * without touching the field syntax.  The assertions pin the mapping. */
++#define PORT_FA128_BASE                                                       \
++    ((struct un_803FA128_t*) ((u8*) &un_803FA258 -                            \
++                              offsetof(struct un_803FA128_t, x130)))
++STATIC_ASSERT(offsetof(struct un_803FA128_t, x220) -
++                  offsetof(struct un_803FA128_t, x130) ==
++              offsetof(struct un_803FA258_t, xF0));
++STATIC_ASSERT(offsetof(struct un_803FA128_t, x224) -
++                  offsetof(struct un_803FA128_t, x130) ==
++              offsetof(struct un_803FA258_t, xF4));
++STATIC_ASSERT(offsetof(struct un_803FA128_t, x130) == sizeof(un_803FA128));
++STATIC_ASSERT(sizeof(struct un_803FA128_x130_t) <= sizeof(struct un_803FA258_t));
++#endif
+ /* 803FA3E8 */ extern char* un_803FA3E8[3];
+ /* 803FA3F4 */ extern char un_803FA3F4[];
+ /* 803FA404 */ extern char un_803FA404[];
+@@ -808,7 +834,16 @@ bool un_802FF88C(enum soundtest_callback_arg0 arg0)
  
  bool un_802FF934(enum soundtest_callback_arg0 arg0)
  {
@@ -19,7 +52,67 @@ index e2ceb9eb3..0c10516d3 100644
  }
  
  bool un_802FF958(enum soundtest_callback_arg0 arg0)
-@@ -1258,16 +1267,46 @@ bool un_80300724(enum soundtest_callback_arg0 arg0)
+@@ -985,7 +1020,11 @@ void un_802FFEE0(struct UnkSoundTestData0* arg0)
+ void un_802FFF2C(StartMeleeData* arg0)
+ {
+     StartMeleeRules* r = &arg0->rules;
++    #ifdef PORT_PC
++    struct un_803FA128_t* s = PORT_FA128_BASE;
++#else
+     struct un_803FA128_t* s = (struct un_803FA128_t*) un_803FA128;
++#endif
+     struct un_803FA128_x130_t* sp;
+     s32 i;
+     u16 timer;
+@@ -1098,7 +1137,11 @@ bool un_803002FC(enum soundtest_callback_arg0 update_scene)
+ 
+ bool un_80300338(enum soundtest_callback_arg0 arg0)
+ {
++    #ifdef PORT_PC
++    struct un_803FA128_t* data = PORT_FA128_BASE;
++#else
+     struct un_803FA128_t* data = (struct un_803FA128_t*) un_803FA128;
++#endif
+     u8* src;
+ 
+     src = gmMainLib_8045A6C0;
+@@ -1113,7 +1156,11 @@ bool un_80300338(enum soundtest_callback_arg0 arg0)
+ 
+ bool un_80300378(enum soundtest_callback_arg0 arg0)
+ {
++    #ifdef PORT_PC
++    struct un_803FA128_t* data = PORT_FA128_BASE;
++#else
+     struct un_803FA128_t* data = (struct un_803FA128_t*) un_803FA128;
++#endif
+     u8* ptr;
+ 
+     data->x220 &= 0xFFFE;
+@@ -1131,7 +1178,11 @@ bool un_80300378(enum soundtest_callback_arg0 arg0)
+ 
+ bool un_803003C4(enum soundtest_callback_arg0 arg0)
+ {
++    #ifdef PORT_PC
++    struct un_803FA128_t* data = PORT_FA128_BASE;
++#else
+     struct un_803FA128_t* data = (struct un_803FA128_t*) un_803FA128;
++#endif
+     u8* ptr;
+ 
+     data->x220 &= 0xFFFC;
+@@ -1149,7 +1200,11 @@ bool un_803003C4(enum soundtest_callback_arg0 arg0)
+ 
+ bool un_80300410(enum soundtest_callback_arg0 arg0)
+ {
++    #ifdef PORT_PC
++    struct un_803FA128_t* data = PORT_FA128_BASE;
++#else
+     struct un_803FA128_t* data = (struct un_803FA128_t*) un_803FA128;
++#endif
+ 
+     if (arg0 == 1) {
+         u8* dst;
+@@ -1258,16 +1313,46 @@ bool un_80300724(enum soundtest_callback_arg0 arg0)
  
  bool un_80300758(enum soundtest_callback_arg0 arg0)
  {

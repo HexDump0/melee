@@ -2561,3 +2561,61 @@ struct" further down.  **Measure offsets with `offsetof`, and pin the result
 with a `STATIC_ASSERT`** so a re-pin breaks the build instead of the game —
 arithmetic done from the comments put this fix on the wrong field first, and
 the assertion is what caught it.
+
+## G-165: narrow type-puns in the decomp are self-consistent — checked, not a bug class
+
+**Context:** after G-164 (a stray read that landed on half of a neighbouring
+`u16` and so flipped meaning with endianness), the obvious follow-up is that
+*deliberate* narrow puns might do the same.  They do not.  Recorded so the
+sweep is not repeated.
+
+The tree has 24 `*(u8|s8|u16|s16*) &field` sites.  Every one checked resolves
+to one of three harmless shapes:
+
+- **The field is really a buffer head.**  `*(u8*) &toy->x194` looks like a byte
+  write into an `s32`, but `x194` is the first 4 bytes of a byte-addressed
+  region (`memzero(&userData->x194, 0x25A)` right above it, and `(u16*)(base +
+  0x194)` indexing below).  Byte 0 is byte 0 on either endianness.
+- **Same address, same width, both ways.**  `game_camera.x368` is a `Vec3`
+  whose `.x` doubles as a 16-bit distance slot in camera mode 2:
+  `camera.c:3428` writes `*(s16*) &x368` and `camera.c:2968` reads it back.
+  The console puts that `s16` over the float's sign/exponent bytes and the
+  host over its low mantissa bytes, so the *bit pattern* of `x368.x` differs —
+  but nothing reads `.x` as a float in that mode (`.y`/`.z` are the angles),
+  so the two never meet.  `grzebes.c` `zebes5.xF8` and `grcastle.c`
+  `castle2.xC4` are the same shape.
+- **The target is already that width**, so the cast is a no-op.
+
+**The rule that separates this from G-164:** a pun is safe when *every* access
+to those bytes uses the same address and the same width.  It is a bug when the
+same storage is reached at two different widths — a narrow write and a wide
+read, or a stray access landing on part of a wider neighbour.  Check for the
+*mix*, not for the cast.
+
+## G-166: `-fdata-sections` breaks every "one base, two symbols" overlay
+
+**Symptom:** `soundtest.c` reaches `un_803FA258` by indexing off
+`un_803FA128`, a 304-byte array, at offsets up to `0x227` — 244 bytes past its
+end, into whatever the linker happened to place next.  `-Wstringop-overflow`
+is what surfaced it ("writing 4 bytes into a region of size 0").
+
+**Cause:** the console linker placed `un_803FA258` immediately after
+`un_803FA128` (which is exactly `0x130` bytes), and the original code addresses
+both blocks from one base — the decomp says so in a comment on
+`struct un_803FA128_t`.  The port builds with `-fdata-sections`, so GCC gives
+each object its own section and the linker may order them however it likes.
+
+**This is the second instance of the same class.**  The first was G-154: the
+four name-width tables at `803B75F8/767C/7700/7784`, which retail indexes as
+`lbl_803B75F8[ckind + 0x21]`, and which P-704 fixed by naming the real arrays.
+The fix here is the same idea — `PORT_FA128_BASE` rebases the overlay onto the
+symbol that actually holds the fields — with `STATIC_ASSERT`s pinning the
+mapping (`x220` == `un_803FA258.xF0`, `x224` == `.xF4`, and
+`offsetof(x130) == sizeof(un_803FA128)`).
+
+**Go looking for the rest.**  Any decomp comment mentioning that one symbol is
+addressed from another, and any `(struct X*) some_other_symbol` cast, is a
+candidate.  The tell at compile time is `-Wstringop-overflow` /
+`-Warray-bounds` reporting a "region of size 0" or a size that matches one
+symbol while the access offset clearly belongs to the next.  Adjacency that the
+console's linker guaranteed is never guaranteed here.

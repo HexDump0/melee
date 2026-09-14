@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-14 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714 and P-716 fixed, P-699/P-702/P-711/P-715/P-717 open)
+Last updated: 2026-09-14 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716 and P-718 fixed, P-699/P-702/P-711/P-715/P-717 open)
 
 > **Direction (2026-09-13/14): ADR-0017 — keep the GLES renderer, reach Aurora parity.**
 > The 32-bit product, in-place converter and GLES3/WebGL2 renderer stay; the
@@ -924,3 +924,24 @@ GC build still `main.dol: OK` (100.00% matched); `ctest` 28/28.  The rest of
 the sweep is banked in `logs/` and triaged as P-717, with the classes already
 judged (benign sequence points, a retail dead branch, and a `Mtx` prototype
 artifact) written down so nobody redoes them.
+
+**P-718 (2026-09-14, a second console-adjacency overlay):** the P-716 sweep's
+`-Wstringop-overflow` reports led to `soundtest.c`, which reaches
+`un_803FA258` by indexing off `un_803FA128` — a 304-byte array — at offsets up
+to `0x227`.  The console linker placed the two symbols back to back and the
+original code addresses both from one base; the port builds with
+`-fdata-sections`, so GCC gives each object its own section and the write
+lands 244 bytes past the array in whatever follows.  All five overlay users
+touch only fields beyond `0x130`, i.e. every one of them is really reaching
+the second symbol, and `un_802FFF2C` is the debug-menu match start
+(`gmdebugmode.c:323`) that builds the entire `StartMeleeData` — rules, stage,
+stocks, CPU kinds and levels — out of it.  `PORT_FA128_BASE` now rebases the
+overlay onto the symbol that holds the fields, leaving every field access
+unchanged, with `STATIC_ASSERT`s pinning the mapping.  The menu table at
+`soundtest.c:2432` reaches the same field directly as `&un_803FA258.xF0`,
+which confirms it independently.
+
+This is the **second** instance of the class: G-154/P-704 was the same bug in
+the four name-width tables `gm_1601.c` indexes past `lbl_803B75F8`.  Recorded
+as G-166 with the tells to find the rest — console-linker adjacency is never
+guaranteed here.
