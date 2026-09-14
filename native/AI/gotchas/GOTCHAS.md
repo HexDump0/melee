@@ -1758,3 +1758,32 @@ NULL.  `test_decomp_assets` diffs every listed field against the raw archive,
 requires `GrNBa`/`GrFs`/`GrFz` (packed layouts) to stay raw, and pins the
 three Castle dynamics counts 3/4/6.  Remaining unknown layouts (target-test
 stages, adventure routes, GrBb/GrGb/GrKr/...) stay raw by design.
+
+## G-134: the last unwalked public roots
+
+**Symptom:** the unknown-root scan still listed a handful of public symbols
+whose numeric fields stayed big-endian: trophy/cutscene scenes read garbage
+camera transforms, Classic-mode intro placement was wrong, and event levels
+would read their rule floats as denormals.
+**Cause/fix (converter v80):**
+- `GmRgStnd.dat` `standScene` and `GmRegEnd.dat` `cut{1,2,3}CanimScene` /
+  `cut3BgScene` are `SceneDesc`s (models/cameras/lights/fogs) like the
+  `pnlsce`/`flmsce` cases, but the dispatch only matched `_scene_data`; they
+  now go through `conv_scene_desc`.  A length check must count the real symbol
+  (`standScene` is 10 characters, not 9).
+- `GmIntEz.dat` `gmIntroEasyTable` is the Classic-mode intro layout table
+  (gm_1832.c:119): f32 slot rows, `ClassicCharLayout`/`ClassicTeamEntry`/
+  `ClassicSplashRow` rows with unnamed pad runs.  `conv_intro_easy_table`
+  swaps exactly the f32 fields (0x9B8-byte table) and leaves the pads.
+- `GmEvent.dat` `sqEventInitDataLevelTbl` is 51 relocation-backed pointers to
+  `gm_804D6900_t` levels; `conv_event_level_table` walks each level's evinit,
+  evbonus, stage table and five player-init blocks.  `gm_evinit`'s first word
+  is MWCC MSB-first bitfields (`x0_0:3 ... x1_5:3`), so
+  `conv_event_init_flags` repacks the two bytes to GCC's LSB-first layout
+  (0x2b800102 -> host bytes 0xD1/0x01) instead of a byte swap; the level
+  `+0x04` pointer is dual-use (level-0 timer numerics vs a character-kind
+  byte list) and is deliberately left raw.
+- `DbCo.dat` `dbLoadCommonData` is three `char**` name tables with no numeric
+  fields; the branch is explicit but only the relocation pass acts.
+`test_decomp_assets` compares each walked field against the raw archive
+(missing the branch fails on the first value) and ASan stays clean.

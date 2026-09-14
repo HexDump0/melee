@@ -1537,6 +1537,215 @@ static int check_castle_dynamics(const char* image)
     return failed != 0 ? 1 : 0;
 }
 
+/* P-658: the remaining unwalked public roots.  Each check loads the archive,
+ * converts it, parses it and compares a numeric field inside the walked data
+ * against the raw archive, so a missing branch fails on the first value. */
+static int check_scene_root(const char* image, const char* path,
+                            const char* symbol)
+{
+    char error[256];
+    size_t size = 0;
+    unsigned char* buffer =
+        load_archive(image, path, NULL, &size, error, sizeof(error));
+    unsigned char* raw;
+    HSD_Archive archive;
+    HsdConvertStats stats;
+    unsigned char* scene;
+    unsigned char* cameras;
+    unsigned char* desc;
+    uint32_t off;
+    int failed = 0;
+
+    if (buffer == NULL) {
+        printf("decomp_assets: %s SKIP (%s)\n", path, error);
+        return 0;
+    }
+    raw = malloc(size);
+    if (raw == NULL) {
+        free(buffer);
+        return 1;
+    }
+    memcpy(raw, buffer, size);
+    if (!hsd_asset_convert(buffer, size, &stats) ||
+        HSD_ArchiveParse(&archive, buffer, size) != 0)
+    {
+        printf("decomp_assets: %s conversion failed\n", path);
+        free(raw);
+        free(buffer);
+        return 1;
+    }
+    scene = HSD_ArchiveGetPublicAddress(&archive, symbol);
+    if (scene == NULL || !ptr_in_buffer(scene, buffer, size)) {
+        printf("decomp_assets: %s %s missing\n", path, symbol);
+        free(raw);
+        free(buffer);
+        return 1;
+    }
+    cameras = read_host_ptr(scene + 0x04);
+    desc = cameras != NULL && ptr_in_buffer(cameras, buffer, size)
+               ? read_host_ptr(cameras)
+               : NULL;
+    if (desc == NULL || !ptr_in_buffer(desc, buffer, size)) {
+        printf("decomp_assets: %s %s camera desc missing\n", path, symbol);
+        free(raw);
+        free(buffer);
+        return 1;
+    }
+    off = (uint32_t) (desc - (buffer + 0x20));
+    /* HSD_CameraDescCommon: nnear at +0x28, ffar at +0x2C. */
+    if (read_host_u32(desc + 0x28) != read_be_u32(raw + 0x20 + off + 0x28) ||
+        read_host_u32(desc + 0x2C) != read_be_u32(raw + 0x20 + off + 0x2C))
+    {
+        printf("decomp_assets: %s %s camera near/far not converted\n", path,
+               symbol);
+        failed = 1;
+    } else if (read_host_f32(desc + 0x28) <= 0.0f) {
+        printf("decomp_assets: %s %s camera near=%.3g is not sane\n", path,
+               symbol, (double) read_host_f32(desc + 0x28));
+        failed = 1;
+    } else {
+        printf("decomp_assets: %s %s near=%.3g ok\n", path, symbol,
+               (double) read_host_f32(desc + 0x28));
+    }
+    free(raw);
+    free(buffer);
+    return failed;
+}
+
+static int check_intro_easy(const char* image)
+{
+    char error[256];
+    size_t size = 0;
+    unsigned char* buffer =
+        load_archive(image, "GmIntEz.dat", NULL, &size, error, sizeof(error));
+    unsigned char* raw;
+    HSD_Archive archive;
+    HsdConvertStats stats;
+    unsigned char* table;
+    uint32_t off;
+    int failed = 0;
+
+    if (buffer == NULL) {
+        printf("decomp_assets: GmIntEz.dat SKIP (%s)\n", error);
+        return 0;
+    }
+    raw = malloc(size);
+    if (raw == NULL) {
+        free(buffer);
+        return 1;
+    }
+    memcpy(raw, buffer, size);
+    if (!hsd_asset_convert(buffer, size, &stats) ||
+        HSD_ArchiveParse(&archive, buffer, size) != 0)
+    {
+        printf("decomp_assets: GmIntEz.dat conversion failed\n");
+        free(raw);
+        free(buffer);
+        return 1;
+    }
+    table = HSD_ArchiveGetPublicAddress(&archive, "gmIntroEasyTable");
+    if (table == NULL || !ptr_in_buffer(table, buffer, size)) {
+        printf("decomp_assets: GmIntEz.dat gmIntroEasyTable missing\n");
+        free(raw);
+        free(buffer);
+        return 1;
+    }
+    off = (uint32_t) (table - (buffer + 0x20));
+    /* x00[0].vals = {0.0, 99.0, 99.0}; x6C[0] layout starts at -2.0. */
+    if (read_host_f32(table + 0x00) != 0.0f ||
+        read_host_f32(table + 0x04) != 99.0f ||
+        read_host_f32(table + 0x08) != 99.0f ||
+        read_host_u32(table + 0x6C) != read_be_u32(raw + 0x20 + off + 0x6C))
+    {
+        printf("decomp_assets: GmIntEz.dat gmIntroEasyTable not converted "
+               "(x00=%.3g x04=%.3g x08=%.3g x6C=%u want=%u)\n",
+               (double) read_host_f32(table + 0x00),
+               (double) read_host_f32(table + 0x04),
+               (double) read_host_f32(table + 0x08),
+               read_host_u32(table + 0x6C),
+               read_be_u32(raw + 0x20 + off + 0x6C));
+        failed = 1;
+    } else {
+        printf("decomp_assets: GmIntEz.dat gmIntroEasyTable x00={%.3g,%.3g,"
+               "%.3g} ok\n",
+               (double) read_host_f32(table + 0x00),
+               (double) read_host_f32(table + 0x04),
+               (double) read_host_f32(table + 0x08));
+    }
+    free(raw);
+    free(buffer);
+    return failed;
+}
+
+static int check_event_levels(const char* image)
+{
+    char error[256];
+    size_t size = 0;
+    unsigned char* buffer =
+        load_archive(image, "GmEvent.dat", NULL, &size, error, sizeof(error));
+    unsigned char* raw;
+    HSD_Archive archive;
+    HsdConvertStats stats;
+    unsigned char** table;
+    unsigned char* entry;
+    unsigned char* evinit;
+    int failed = 0;
+
+    if (buffer == NULL) {
+        printf("decomp_assets: GmEvent.dat SKIP (%s)\n", error);
+        return 0;
+    }
+    raw = malloc(size);
+    if (raw == NULL) {
+        free(buffer);
+        return 1;
+    }
+    memcpy(raw, buffer, size);
+    if (!hsd_asset_convert(buffer, size, &stats) ||
+        HSD_ArchiveParse(&archive, buffer, size) != 0)
+    {
+        printf("decomp_assets: GmEvent.dat conversion failed\n");
+        free(raw);
+        free(buffer);
+        return 1;
+    }
+    table = HSD_ArchiveGetPublicAddress(&archive, "sqEventInitDataLevelTbl");
+    if (table == NULL || !ptr_in_buffer(table, buffer, size)) {
+        printf("decomp_assets: GmEvent.dat sqEventInitDataLevelTbl missing\n");
+        free(raw);
+        free(buffer);
+        return 1;
+    }
+    entry = read_host_ptr((const unsigned char*) table);
+    evinit = entry != NULL && ptr_in_buffer(entry, buffer, size)
+                 ? read_host_ptr(entry + 0x08)
+                 : NULL;
+    if (evinit == NULL || !ptr_in_buffer(evinit, buffer, size)) {
+        printf("decomp_assets: GmEvent.dat level 0 evinit missing\n");
+        free(raw);
+        free(buffer);
+        return 1;
+    }
+    /* Level 0 flags are the console word 0x2b800102: after the MSB-first to
+     * LSB-first repack the host bytes are 0xD1 (x0_0=1, x0_3=2, x0_6=1,
+     * x0_7=1) and 0x01 (x1_0=1); unk24 stays 1.0f. */
+    if (evinit[0x00] != 0xD1 || evinit[0x01] != 0x01 ||
+        read_host_f32(evinit + 0x24) != 1.0f)
+    {
+        printf("decomp_assets: GmEvent.dat evinit flags=%02x/%02x unk24=%.3g "
+               "(not repacked?)\n",
+               evinit[0x00], evinit[0x01],
+               (double) read_host_f32(evinit + 0x24));
+        failed = 1;
+    } else {
+        printf("decomp_assets: GmEvent.dat level 0 flags=%02x/%02x ok\n",
+               evinit[0x00], evinit[0x01]);
+    }
+    free(raw);
+    free(buffer);
+    return failed;
+}
+
 /* P-645: TyDataf's trophy tables are 0x54-byte entries { s32 id; char
  * name[0x20]; char model[0x2c] }.  `Toy_8030813C` matches the id against the
  * table and `Toy_80308250` then hands out `entry + 4` (name) and `entry +
@@ -2081,6 +2290,10 @@ int main(int argc, char** argv)
     failures += check_yorster_param(image);
     failures += check_stage_params(image);
     failures += check_castle_dynamics(image);
+    failures += check_scene_root(image, "GmRgStnd.dat", "standScene");
+    failures += check_scene_root(image, "GmRegEnd.dat", "cut1CanimScene");
+    failures += check_intro_easy(image);
+    failures += check_event_levels(image);
     failures += check_converter_sweep(image);
     failures += check_stage_matanims(image, "GrNBa.dat");
     failures += check_stage_matanims(image, "GrNLa.dat");

@@ -13,9 +13,11 @@ runs end to end (title → menu → VS CSS → stage select → match → result
 the product binary `build/native/melee`, with `ctest decomp_frontend` as the
 headless regression.  Memory-card save data now creates and reloads through
 the game's own card filesystem (P-646/G-132, `ctest decomp_frontend_card`);
-the title enters in the retail state (P-624/G-090, `ctest decomp_title`) and
-the remaining S6 polish is converter coverage for stage/event content
-(P-658/P-662).  Item models are fixed and enabled by default (P-643).**
+the title enters in the retail state (P-624/G-090, `ctest decomp_title`), and
+converter coverage now includes the per-stage `yakumono_param` layouts, the
+remaining public roots (event levels, intro-easy, trophy/cutscene scenes),
+items and fighters (P-658/P-662/G-133/G-134).  Item models are fixed and
+enabled by default (P-643).**
 
 ---
 

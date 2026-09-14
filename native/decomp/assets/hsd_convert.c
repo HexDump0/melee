@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 78u
+#define HSD_CONVERTER_VERSION 80u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -1806,6 +1806,171 @@ static void conv_stage_yakumono(Conv* c, uint32_t off)
     }
 }
 
+/* GmEvent.dat `sqEventInitDataLevelTbl`: 51 pointers to per-event-level
+ * `gm_804D6900_t` (gmevent.c:116).  Each level carries four descriptor
+ * pointers; the descriptor numerics are big-endian and the evinit rule block
+ * packs its flags MSB-first the way MWCC does.  The table length is derived
+ * from the relocation run (the entry past the last level is not a pointer). */
+#define EV_MAX_LEVELS 64
+
+static void conv_event_init_flags(Conv* c, uint32_t off)
+{
+    u8 a;
+    u8 b;
+
+    /* gm_evinit's u32 flags: console byte A = x0_0:3, x0_3:3, x0_6, x0_7
+     * MSB-first; console byte B = x1_0..x1_4, x1_5:3.  GCC allocates the
+     * same declarations LSB-first, so repack each byte (G-082's transform,
+     * not a byte swap). */
+    if (!in_data(c, off, 4) || (off & 3u) || c->reloc[off] || c->num[off]) {
+        return;
+    }
+    c->num[off] = 1;
+    a = c->data[off];
+    b = c->data[off + 1];
+    c->data[off] =
+        (u8) ((a >> 5) | (((a >> 2) & 7u) << 3) | (((a >> 1) & 1u) << 6) |
+              ((a & 1u) << 7));
+    c->data[off + 1] =
+        (u8) (((b >> 7) & 1u) | (((b >> 6) & 1u) << 1) |
+              (((b >> 5) & 1u) << 2) | (((b >> 4) & 1u) << 3) |
+              (((b >> 3) & 1u) << 4) | ((b & 7u) << 5));
+}
+
+static void conv_event_evinit(Conv* c, uint32_t off)
+{
+    if (!in_data(c, off, 0x28) || !mark(c, off)) {
+        return;
+    }
+    conv_event_init_flags(c, off + 0x00);
+    conv_u16(c, off + 0x06); /* stkind */
+    conv_u32(c, off + 0x08); /* time_limit */
+    conv_u32(c, off + 0x10); /* x10: u64 */
+    conv_u32(c, off + 0x14);
+    conv_u32(c, off + 0x18); /* x18: s32 */
+    conv_u32(c, off + 0x1C); /* f32 */
+    conv_u32(c, off + 0x20); /* game_speed */
+    conv_u32(c, off + 0x24); /* f32 */
+}
+
+static void conv_event_evbonus(Conv* c, uint32_t off)
+{
+    if (!in_data(c, off, 0x18) || !mark(c, off)) {
+        return;
+    }
+    conv_u32(c, off + 0x08);
+    conv_u32(c, off + 0x0C);
+    conv_u32(c, off + 0x10);
+}
+
+static void conv_event_stage_table(Conv* c, uint32_t off)
+{
+    int i;
+
+    if (!in_data(c, off, 0x28) || !mark(c, off)) {
+        return;
+    }
+    for (i = 0; i < 7; i++) {
+        conv_u16(c, off + 0x02 + (uint32_t) i * 2); /* stage ids */
+    }
+    /* entries[6] are relocation-backed pointers and stay host order. */
+}
+
+static void conv_event_player_init(Conv* c, uint32_t off)
+{
+    if (!in_data(c, off, 0x1C) || !mark(c, off)) {
+        return;
+    }
+    conv_u16(c, off + 0x0C);
+    conv_u16(c, off + 0x0E);
+    conv_u32(c, off + 0x10);
+    conv_u32(c, off + 0x14);
+    conv_u32(c, off + 0x18);
+}
+
+static void conv_event_level(Conv* c, uint32_t off)
+{
+    int i;
+
+    if (!in_data(c, off, 0x28) || !mark(c, off)) {
+        return;
+    }
+    c->st.roots_unknown++;
+    /* +0x04 x4 is a dual-use pointer: numeric {x0,x4} for the level-0 timer
+     * and a character-kind byte list for multi-opponent levels, so its
+     * target is left as-is. */
+    conv_event_evinit(c, rd32(c, off + 0x08));
+    conv_event_evbonus(c, rd32(c, off + 0x0C));
+    conv_event_stage_table(c, rd32(c, off + 0x10));
+    for (i = 0; i < 5; i++) {
+        conv_event_player_init(c, rd32(c, off + 0x14 + (uint32_t) i * 4));
+    }
+}
+
+static void conv_event_level_table(Conv* c, uint32_t off)
+{
+    int i;
+
+    for (i = 0; i < EV_MAX_LEVELS; i++) {
+        uint32_t field = off + (uint32_t) i * 4;
+        if (!in_data(c, field, 4) || !c->reloc[field]) {
+            break;
+        }
+        conv_event_level(c, rd32(c, field));
+    }
+}
+
+/* GmIntEz.dat `gmIntroEasyTable` (gm_1832.c:119): the Classic-mode intro
+ * layout table.  Every field is f32; the two pad runs and the u8 fields
+ * between the rows stay as-is. */
+static void conv_intro_easy_table(Conv* c, uint32_t off)
+{
+    int i;
+    int j;
+
+    if (!in_data(c, off, 0x9B8) || !mark(c, off)) {
+        return;
+    }
+    c->st.roots_unknown++;
+    for (i = 0; i < 3; i++) { /* x00[2], x18[3], x3C[4] slot rows */
+        int count = i == 0 ? 2 : (i == 1 ? 3 : 4);
+        for (j = 0; j < count; j++) {
+            conv_u32_range(c, off + (i == 0 ? 0x00
+                                            : (i == 1 ? 0x18 : 0x3C)) +
+                                   (uint32_t) j * 0xC,
+                           3);
+        }
+    }
+    for (j = 0; j < 28; j++) { /* x6C ClassicCharLayout */
+        uint32_t p = off + 0x6C + (uint32_t) j * 0x1C;
+        conv_u32(c, p + 0x00);
+        conv_u32(c, p + 0x04);
+        conv_u32_range(c, p + 0x08, 3);
+    }
+    for (j = 0; j < 25; j++) { /* x37C ClassicTeamEntry */
+        uint32_t p = off + 0x37C + (uint32_t) j * 0x14;
+        conv_u32_range(c, p, 3);
+    }
+    for (j = 0; j < 3; j++) { /* x57C ClassicSplashRow */
+        conv_u32_range(c, off + 0x57C + (uint32_t) j * 0x30, 12);
+    }
+    for (i = 0; i < 3; i++) { /* x630/x654/x678 */
+        int count = i == 0 ? 3 : (i == 1 ? 3 : 4);
+        for (j = 0; j < count; j++) {
+            conv_u32_range(c, off + (i == 0 ? 0x630
+                                            : (i == 1 ? 0x654 : 0x678)) +
+                                   (uint32_t) j * 0xC,
+                           3);
+        }
+    }
+    for (j = 0; j < 28; j++) { /* x6A8 ClassicCharLayout */
+        uint32_t p = off + 0x6A8 + (uint32_t) j * 0x1C;
+        conv_u32(c, p + 0x00);
+        conv_u32(c, p + 0x04);
+        conv_u32_range(c, p + 0x08, 3);
+    }
+}
+
 /* Article targets in ItCo.dat: attributes, hurtbones, model desc, dynamics
  * and the per-state joint tables.  All counts/floats are big-endian; the
  * Article itself is six pointers (relocation targets, already host order). */
@@ -3290,6 +3455,28 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
         } else if (name_ends_with(name, length, "_scene_data")) {
             c->st.roots_unknown++;
             conv_scene_desc(c, data_off);
+        } else if (length == 10 && memcmp(name, "standScene", 10) == 0) {
+            /* GmRgStnd: trophy-stand scene desc (vi1201/v2, gmregtyfall). */
+            c->st.roots_unknown++;
+            conv_scene_desc(c, data_off);
+        } else if (length > 7 && memcmp(name, "cut", 3) == 0 &&
+                   name_ends_with(name, length, "Scene")) {
+            /* GmRegEnd: cutscene camera/model descs. */
+            c->st.roots_unknown++;
+            conv_scene_desc(c, data_off);
+        } else if (length == 23 &&
+                   memcmp(name, "sqEventInitDataLevelTbl", 23) == 0) {
+            /* GmEvent.dat event level table (gmevent.c:207). */
+            conv_event_level_table(c, data_off);
+        } else if (length == 16 &&
+                   memcmp(name, "gmIntroEasyTable", 16) == 0) {
+            /* GmIntEz.dat Classic-mode intro layout. */
+            conv_intro_easy_table(c, data_off);
+        } else if (length == 16 &&
+                   memcmp(name, "dbLoadCommonData", 16) == 0) {
+            /* DbCo.dat: three char** name tables; the relocation pass and the
+             * string data are already host-usable. */
+            c->st.roots_unknown++;
         } else if (name_ends_with(name, length, "_scene_models")) {
             /* Scene/HUD sections are DynamicModelDesc** arrays
              * (lbArchive_LoadSections + x[0]->joint), not StaticModelDesc. */

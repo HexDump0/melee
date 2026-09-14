@@ -215,7 +215,12 @@ the fighter in mid-air (P-661/G-130).  Converter v78 selects the
 converts GrCn/GrIz/GrKg/GrSt/GrVe/GrOt/GrI1 exactly (P-662/G-133; the packed
 target-test layouts stay raw), and walks the `dynamicsdata_*` source
 `DynamicsDesc` blocks in GrCs/GrRc, so Princess Peach's Castle enters the
-match without draining the dynamics pool.  Memory-card save data works: the
+match without draining the dynamics pool.  Converter v80 also covers the last
+unwalked public roots: trophy/cutscene `SceneDesc`s (`standScene`,
+`cut*CanimScene`), the Classic intro layout (`gmIntroEasyTable`), the 51 event
+levels (`sqEventInitDataLevelTbl`, including the MWCC MSB-first evinit flags
+repack), and documents `dbLoadCommonData` as pointer-only (P-658/G-134).
+Memory-card save data works: the
 console's card work-area symbols overlap inside `hsd_804D1138` (command ring
 at +0x10, dispatch queue at +0x1210) and the host allocated them separately,
 so the first file command was never dispatched; the `hsd_4D11.c` `PORT_PC`
