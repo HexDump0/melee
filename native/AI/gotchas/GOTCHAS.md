@@ -2766,3 +2766,36 @@ first.  The batching is only valid while the state is constant.  When
 auditing, compare against the neighbours -- a setter that does not flush while
 every sibling does is the bug, and that asymmetry is the cheapest way to find
 these.
+
+## G-172: never conclude from the first hit of a deduplicated trace
+
+Hunting P-732 I twice published a wrong root cause, and both times the error
+was the same shape.
+
+I instrumented the text renderer with a trace that deduplicated its output, so
+each interesting combination printed once. I then read the first line that
+appeared and treated it as the steady state. It was not:
+
+- "The entire render pass runs twice per frame" — the counter that grouped the
+  calls (`boot_triage_frames()`) ticks inside `VIWaitForRetrace`, which does
+  not tick on loading frames, so two real frames merged into one key. Printing
+  passes-per-retrace raw showed `passes=1` everywhere but startup.
+- "Each text object renders twice per frame" — same cause. The raw trace showed
+  frame 60 twice and frames 61..82 once each.
+
+Both claims survived only because the dedupe hid the distribution. The moment
+the same data was printed raw, both died immediately.
+
+**Rules.**
+
+1. **Print raw first, dedupe second.** Deduping is for reducing volume once you
+   know the shape. Use it to confirm a distribution, never to discover one.
+2. **A dedupe key must cover every field you might care about.** Mine keyed on
+   `(object, glyph count, x88)` and would silently have swallowed a change in
+   scale, font size or line height — exactly the values being compared.
+3. **Check what your grouping key actually counts.** A "frame" counter that
+   only advances when the game waits for retrace is not a frame counter during
+   loading.
+4. Corollary to G-168: an instrument that can lie is worse than none, because
+   it produces confident wrong answers. Verify the instrument against a case
+   whose answer is already known before trusting it on the case that is not.
