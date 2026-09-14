@@ -1919,3 +1919,19 @@ returns zero for `GX_COLOR_ZERO`/`GX_COLOR_NULL`.
 **Fix:** select rast1 for channels 1/3/5 and black for 6/255 (P-694).
 `ctest decomp_efb` checks an ALPHA1 stage against the COLOR1A1 material
 (green; red before the fix) and a NULL-channel stage (black; red before).
+
+## G-142: PlCo `pData[8]` is a `{joint, animation}` pair, not a joint
+
+**Symptom:** the respawn/rebirth platform is invisible while the entry/trophy
+platform (slot 16) is fine.  Before/after match frames are byte-identical
+except during the rebirth windows (470–520 and 580–600 in the scripted match).
+**Cause:** `Fighter_804D6534 = pData[8]` (`fighter.c:196`) points at a
+two-slot table: `[0]` is the joint for `ftCommon_SetAccessory`, `[1]` the
+animation for `ftCommon_8007E690` (`ft_0D4D.c:139,148`).  Slots 16/20 are
+direct joints, so `conv_ft_common_data` walked them but skipped 8; the slot-8
+joint's flags and nine rot/scale/translate floats stayed big-endian and the
+`1.0f` scales read back as `4.6e-41` denormals.
+**Fix:** convert the pair with `conv_joint` + `conv_anim_joint` (converter
+v82, P-689).  `ctest decomp_assets` compares the slot-8 joint flags/floats
+against the raw archive and keeps slot 16 as the converted control; it fails
+before the fix (`flags 08000030 want 30000008`, `scale 4.6e-41 want 1`).

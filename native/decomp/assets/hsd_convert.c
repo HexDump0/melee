@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 81u
+#define HSD_CONVERTER_VERSION 82u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -2264,6 +2264,24 @@ static void conv_ft_common_data(Conv* c, uint32_t off)
             }
             if (in_data(c, table, 12)) {
                 conv_u32(c, table + 0x08); /* parts_num */
+            }
+        }
+    }
+    /* pData[8] (`Fighter_804D6534`, fighter.c:196) is the respawn/rebirth
+     * platform pair: slot 0 is the joint passed to ftCommon_SetAccessory and
+     * slot 1 the animation passed to ftCommon_8007E690 (ft_0D4D.c:139,148).
+     * Both halves are HSD trees in PlCo.dat and stay big-endian without this
+     * walk, so the platform loses its scale/rotation (P-689). */
+    {
+        uint32_t pair = rd32(c, off + 8 * 4);
+        if (pair != 0 && in_data(c, pair, 8)) {
+            uint32_t joint = rd32(c, pair + 0x00);
+            uint32_t anim = rd32(c, pair + 0x04);
+            if (joint != 0 && in_data(c, joint, HSD_JOINT_SIZE)) {
+                conv_joint(c, joint);
+            }
+            if (anim != 0) {
+                conv_anim_joint(c, anim);
             }
         }
     }

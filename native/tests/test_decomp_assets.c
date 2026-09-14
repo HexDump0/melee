@@ -2100,6 +2100,164 @@ static unsigned pose_tree(HSD_JObj* root, float* out_min, float* out_max)
     return count;
 }
 
+/* P-689: a joint the converter walked must have host-order flags and nine
+ * finite rot/scale/translate floats and a host-base-relative pointer in its
+ * `field_off` slot.  A missed walk leaves the big-endian words in place; the
+ * 1.0f scales then read back as denormals and the platform collapses. */
+static int check_converted_joint(const char* tag, const unsigned char* rdata,
+                                 const unsigned char* cdata,
+                                 uint32_t host_base, uint32_t field_off,
+                                 uint32_t raw_joint)
+{
+    uint32_t host_joint = read_host_u32(cdata + field_off);
+    uint32_t raw_flags;
+    uint32_t host_flags;
+    int i;
+    int failed = 0;
+
+    if (host_joint != raw_joint + host_base) {
+        fprintf(stderr, "decomp_assets: %s joint pointer %08x want %08x\n",
+                tag, host_joint, raw_joint + host_base);
+        return 1;
+    }
+    raw_flags = read_be_u32(rdata + raw_joint + 0x04);
+    host_flags = read_host_u32(cdata + raw_joint + 0x04);
+    if (host_flags != raw_flags) {
+        fprintf(stderr, "decomp_assets: %s joint flags %08x want %08x\n", tag,
+                host_flags, raw_flags);
+        failed = 1;
+    }
+    for (i = 0; i < 9; i++) {
+        uint32_t off = raw_joint + 0x14 + (uint32_t) i * 4;
+        float want = read_be_f32(rdata + off);
+        float got = read_host_f32(cdata + off);
+        if (!isfinite(want) || got != want) {
+            fprintf(stderr, "decomp_assets: %s joint +%02x %g want %g\n", tag,
+                    0x14 + i * 4, (double) got, (double) want);
+            failed = 1;
+        }
+    }
+    for (i = 0; i < 3; i++) {
+        float scale = read_host_f32(cdata + raw_joint + 0x20 + i * 4);
+        if (!isfinite(scale) || !(fabsf(scale) > 1e-6f)) {
+            fprintf(stderr,
+                    "decomp_assets: %s scale[%d]=%g is denormal/zero "
+                    "(unconverted?)\n",
+                    tag, i, (double) scale);
+            failed = 1;
+        }
+    }
+    return failed;
+}
+
+/* PlCo.dat pData[8] (`Fighter_804D6534`) is the respawn-platform
+ * {joint, anim} pair read by ft_0D4D.c:139/148; pData[16] is the entry/trophy
+ * platform (ft_0C31.c:101) the converter already walks, so it is the control
+ * that the mechanics work. */
+static int check_respawn_platform(const char* image)
+{
+    char error[256];
+    size_t size = 0;
+    unsigned char* buffer = load_archive(image, "PlCo.dat", NULL, &size, error,
+                                         sizeof(error));
+    unsigned char* raw = NULL;
+    HSD_Archive archive;
+    HsdConvertStats stats;
+    unsigned char* ft_data;
+    uint32_t ft_off;
+    const unsigned char* rdata;
+    unsigned char* cdata;
+    uint32_t host_base;
+    int failed = 0;
+
+    if (buffer == NULL) {
+        fprintf(stderr, "decomp_assets: PlCo.dat: %s\n", error);
+        return 1;
+    }
+    raw = malloc(size);
+    if (raw == NULL) {
+        free(buffer);
+        return 1;
+    }
+    memcpy(raw, buffer, size);
+    if (!hsd_asset_convert(buffer, size, &stats) ||
+        HSD_ArchiveParse(&archive, buffer, size) != 0)
+    {
+        fprintf(stderr, "decomp_assets: PlCo.dat conversion failed\n");
+        free(raw);
+        free(buffer);
+        return 1;
+    }
+    if (check_reloc_integrity("PlCo.dat", raw, buffer, &archive)) {
+        failed = 1;
+    }
+    ft_data = HSD_ArchiveGetPublicAddress(&archive, "ftLoadCommonData");
+    if (ft_data == NULL || !ptr_in_buffer(ft_data, buffer, size)) {
+        fprintf(stderr, "decomp_assets: PlCo.dat missing ftLoadCommonData\n");
+        free(raw);
+        free(buffer);
+        return 1;
+    }
+    ft_off = (uint32_t) (ft_data - (buffer + 0x20));
+    rdata = raw + 0x20;
+    cdata = buffer + 0x20;
+    host_base = (uint32_t) (uintptr_t) (buffer + 0x20);
+
+    /* Control: pData[16] is a direct joint and must stay converted. */
+    failed += check_converted_joint("PlCo.dat pData[16]", rdata, cdata,
+                                    host_base, ft_off + 16 * 4,
+                                    read_be_u32(rdata + ft_off + 16 * 4));
+
+    {
+        uint32_t pair_field = ft_off + 8 * 4;
+        uint32_t raw_pair = read_be_u32(rdata + pair_field);
+        uint32_t host_pair = read_host_u32(cdata + pair_field);
+        uint32_t raw_anim;
+
+        if (raw_pair == 0 || host_pair != raw_pair + host_base ||
+            raw_pair + 8 > size - 0x20)
+        {
+            fprintf(stderr,
+                    "decomp_assets: PlCo.dat pData[8] pair missing/misplaced "
+                    "(host=%08x raw=%08x)\n",
+                    host_pair, raw_pair);
+            free(raw);
+            free(buffer);
+            return 1;
+        }
+        failed += check_converted_joint("PlCo.dat pData[8] joint", rdata,
+                                        cdata, host_base, raw_pair,
+                                        read_be_u32(rdata + raw_pair));
+
+        raw_anim = read_be_u32(rdata + raw_pair + 4);
+        if (raw_anim == 0 || raw_anim + 0x14 > size - 0x20 ||
+            read_host_u32(cdata + raw_pair + 4) != raw_anim + host_base)
+        {
+            fprintf(stderr,
+                    "decomp_assets: PlCo.dat pData[8] anim pointer invalid "
+                    "(raw=%08x host=%08x)\n",
+                    raw_anim, read_host_u32(cdata + raw_pair + 4));
+            failed = 1;
+        } else if (read_host_u32(cdata + raw_anim + 0x10) !=
+                       read_be_u32(rdata + raw_anim + 0x10) ||
+                   read_host_u32(cdata + raw_anim + 0x10) == 0)
+        {
+            fprintf(stderr,
+                    "decomp_assets: PlCo.dat pData[8] anim not converted "
+                    "(raw=%08x flags=%08x want %08x)\n",
+                    raw_anim, read_host_u32(cdata + raw_anim + 0x10),
+                    read_be_u32(rdata + raw_anim + 0x10));
+            failed = 1;
+        }
+        if (failed == 0) {
+            printf("decomp_assets: PlCo.dat respawn platform joint+anim ok\n");
+        }
+    }
+    free(raw);
+    free(buffer);
+    return failed;
+}
+
 static int check_archive(const char* image, const char* path,
                          ModelResult* result, int require_public)
 {
@@ -2290,6 +2448,7 @@ int main(int argc, char** argv)
         failures++;
     }
     failures += check_link_dynamics(image);
+    failures += check_respawn_platform(image);
     failures += check_ft_part_anims(image, "PlMr.dat", "ftDataMario");
     failures += check_ft_part_anims(image, "PlLk.dat", "ftDataLink");
     failures += check_ft_part_anims(image, "PlFx.dat", "ftDataFox");

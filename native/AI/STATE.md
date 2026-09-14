@@ -252,6 +252,18 @@ upstream's const-correct declarations.  The existing `player.c` and
 `gmclassic.c` adjacency patches now leave their original non-`PORT_PC` source
 expressions intact, restoring the reference DOL checksum.
 
+**P-689 (2026-09-14):** the respawn/rebirth platform renders.  `PlCo.dat`'s
+`pData[8]` (`Fighter_804D6534`) is a `{joint, animation}` pair
+(`ft_0D4D.c:139,148`) but the converter only walked pData 0/4/5/16/20, so the
+joint's `1.0f` scales stayed big-endian and read back as ~4.6e-41 denormals —
+the platform collapsed to a point.  Converter v82 walks both halves
+(`conv_joint` + `conv_anim_joint`); `ctest decomp_assets` diffs the slot-8
+joint flags/floats against the raw archive and keeps the entry platform
+(slot 16, already converted) as the control.  Headless before/after frames of
+the scripted match differ only in the rebirth windows (470–520, 580–600;
+every other frame byte-identical) and frame 480 shows Link standing on the
+restored platform (G-142).
+
 **P-671/P-678/P-672 (2026-09-13):** the renderer-parity program (ADR-0017)
 produced `learnings/gx_coverage_matrix.md` (the 100-function GX surface with
 Aurora references and P-672..P-680 gap list).  `GXGetProjectionv` now returns
