@@ -1,5 +1,5 @@
 diff --git a/src/sysdolphin/baselib/sislib.h b/src/sysdolphin/baselib/sislib.h
-index 153b907c1..4695497d8 100644
+index 153b907c1..88a9e2c32 100644
 --- a/src/sysdolphin/baselib/sislib.h
 +++ b/src/sysdolphin/baselib/sislib.h
 @@ -27,6 +27,40 @@ typedef struct SIS {
@@ -43,3 +43,11 @@ index 153b907c1..4695497d8 100644
  struct SisBlock {
      SisBlock* next;
      HSD_Text* data;
+@@ -153,4 +187,7 @@ void fn_803A60EC(void*);
+ u8* fn_803A6FEC(u8*, s32, s32*);
+ /// void *HSD_SisLib_803A84BC(HSD_GObj *, s32);
+ 
++STATIC_ASSERT(sizeof(struct HSD_Text) == 160);
++STATIC_ASSERT(sizeof(struct SisBlock) == 12);
++
+ #endif

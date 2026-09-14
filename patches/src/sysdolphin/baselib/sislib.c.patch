@@ -1,0 +1,30 @@
+diff --git a/src/sysdolphin/baselib/sislib.c b/src/sysdolphin/baselib/sislib.c
+index 4710af3d7..ad4818965 100644
+--- a/src/sysdolphin/baselib/sislib.c
++++ b/src/sysdolphin/baselib/sislib.c
+@@ -422,6 +422,25 @@ void HSD_SisLib_803A5E70(void)
+     }
+ 
+     HSD_SisLib_804D797C = NULL;
++#ifdef PORT_PC
++    /* The block below resets the SIS heap wholesale, so every HSD_Text that
++     * lived in it is gone.  804D7978 is the head of the text list and was
++     * left pointing into that memory, and HSD_SisLib_803A5ACC walks the list
++     * from it to find the tail before allocating the next text.
++     *
++     * The console survives that because the first allocation after a reset
++     * lands back on the old head's address, so the stale node is overwritten
++     * by the very text the walk is about to append to -- the list repairs
++     * itself by coincidence.  It only holds while the allocation sequence is
++     * identical; texts and their 0x10 string buffers interleave, so any
++     * divergence leaves the head aliasing a string buffer and the walk
++     * following freed memory.
++     *
++     * Clearing it is equivalent on the console path -- 803A5ACC assigns the
++     * head from the first text it allocates when the head is NULL -- and it
++     * removes the coincidence. */
++    HSD_SisLib_804D7978 = NULL;
++#endif
+     free_head = HSD_SisLib_804D796C;
+     used_head = NULL;
+     free_head->next = NULL;
