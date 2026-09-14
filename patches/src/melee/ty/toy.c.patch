@@ -1,5 +1,5 @@
 diff --git a/src/melee/ty/toy.c b/src/melee/ty/toy.c
-index 1e5fd2f52..ceecc356c 100644
+index 1e5fd2f52..4fb8b2dd9 100644
 --- a/src/melee/ty/toy.c
 +++ b/src/melee/ty/toy.c
 @@ -241,11 +241,52 @@ bool un_80304780(void)
@@ -119,3 +119,44 @@ index 1e5fd2f52..ceecc356c 100644
              OSReport("*** Can not Load Light Label(%s)\n", sym);
              HSD_ASSERT(2253, 0);
          }
+@@ -2335,8 +2411,20 @@ void Toy_80307470(s32 arg0)
+         tg->x0 = NULL;
+     }
+ 
++#ifdef PORT_PC
++    /* 803FDD18 (_Toy_str_TyLight_dat) + 0x188 is 803FDEA0 on the console, so
++     * this walk just names _Toy_803FDEA0.  With -fdata-sections the filename
++     * string and that table are separate objects the linker may place apart,
++     * and the walk then loads a pointer out of unrelated memory.  Both callers
++     * pass 0, which is also the only index the console table holds (803FDEA4
++     * is the string itself, not a second pointer). */
++    (void) data;
++    label = &_Toy_803FDEA0[arg0];
++    joint[0] = HSD_ArchiveGetPublicAddress(tg->x50, *label);
++#else
+     label = &data->ptrs[arg0];
+     joint[0] = HSD_ArchiveGetPublicAddress(tg->x50, *(label += 0x188 / 4));
++#endif
+ 
+     if (joint[0] != NULL) {
+         tg->x0 = GObj_Create(9, 9, 0);
+@@ -2399,8 +2487,19 @@ void _Toy_803075E8(s32 arg0)
+         Toy_sbss_804D6ED8->x8->x28->x4->x4->x40 = 9;
+     }
+ 
++#ifdef PORT_PC
++    /* Same overlay as Toy_80307470 above: 803FDD18 + 0x69 * 4 == 803FDEBC,
++     * which is _Toy_803FDEBC, the six back-panel joint names.  Under
++     * -fdata-sections the two objects are no longer adjacent, so the walk
++     * loaded a garbage pointer and HSD_ArchiveGetPublicAddress strcmp'd it --
++     * this is the Trophy Gallery crash (P-722). */
++    (void) data;
++    ptr = &_Toy_803FDEBC[arg0];
++    if (*ptr != NULL) {
++#else
+     ptr = (char**) (data + arg0 * 4);
+     if (*(ptr += 0x69) != NULL) {
++#endif
+         joint = HSD_ArchiveGetPublicAddress(td->archive, *ptr);
+         if (joint != NULL) {
+             td->gobj = GObj_Create(4, 7, 0);
