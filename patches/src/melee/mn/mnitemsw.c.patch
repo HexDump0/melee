@@ -1,0 +1,23 @@
+diff --git a/src/melee/mn/mnitemsw.c b/src/melee/mn/mnitemsw.c
+index ee30bd107..d17dd9e68 100644
+--- a/src/melee/mn/mnitemsw.c
++++ b/src/melee/mn/mnitemsw.c
+@@ -470,7 +470,18 @@ void mnItemSw_8023453C(HSD_GObj* gobj, u8 arg1, u8 arg2)
+ 
+     if (arg1_ != 0) {
+         f32 y_spacing;
++#ifdef PORT_PC
++        /* anim_val carries the highlight jobj's current animation frame from
++         * the item the cursor is leaving to the one it lands on.  Coming from
++         * a frequency row (0x1F/0x20) the first branch below never sets it,
++         * and the second branch requests it anyway -- so a wild float reached
++         * HSD_JObjReqAnimAll.  x30[3] is what mnItemSw_80235020 requests on
++         * the same joint (lb_80011E24 index 8) when it first shows a hovered
++         * item's highlight, i.e. the start of that loop. */
++        f32 anim_val = tbl->x30[3];
++#else
+         f32 anim_val;
++#endif
+         u8 old_cursor = data->cursor;
+ 
+         if (old_cursor == 0x1F || old_cursor == 0x20) {

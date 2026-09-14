@@ -1,0 +1,22 @@
+diff --git a/src/melee/it/kinds/itnessyoyo.c b/src/melee/it/kinds/itnessyoyo.c
+index 23355d618..828900b2c 100644
+--- a/src/melee/it/kinds/itnessyoyo.c
++++ b/src/melee/it/kinds/itnessyoyo.c
+@@ -74,6 +74,17 @@ HSD_GObj* it_802BE65C(Item* ip, HSD_JObj* bone_jobj)
+     HSD_JObj* jobj;
+     int i;
+ 
++#ifdef PORT_PC
++    /* The GObj_Create failure path below frees the links already built by
++     * walking prev_link, but the decompilation lost the assignment, so on
++     * i == 0 it called HSD_GObjFree through an uninitialised local.  The
++     * three other copies of this same chain builder in the tree --
++     * it_802B75FC (itsamusgrapple.c:369), it_802BAF2C (itseakchain.c:83) and
++     * it_802A2568 (itlinkhookshot.c:219) -- all clear it before the loop;
++     * only this one and its twin in itclimbersstring.c warn. */
++    prev_link = NULL;
++#endif
++
+     for (i = 0; i < attrs->x0_CHARGE_SPAWN_POS; i++) {
+         link_gobj = GObj_Create(7, 0xA, 0);
+         if (link_gobj == NULL) {

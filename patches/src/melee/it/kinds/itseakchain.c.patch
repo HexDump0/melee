@@ -1,0 +1,20 @@
+diff --git a/src/melee/it/kinds/itseakchain.c b/src/melee/it/kinds/itseakchain.c
+index 8f24d9960..07db64a45 100644
+--- a/src/melee/it/kinds/itseakchain.c
++++ b/src/melee/it/kinds/itseakchain.c
+@@ -550,7 +550,15 @@ void it_802BC080(ItemLink* link, Vec3* target, Item* ip)
+     itSeakChain_Attrs* attrs = ip->xC4_article_data->x4_specialAttributes;
+     s32 last_idx = (s32) (0.5f * attrs->x0 - 1.0f);
+     Fighter* fp;
++#ifdef PORT_PC
++    /* When only the tail link is anchored, `iter` is already NULL and the
++     * link loop below never runs -- yet its result is latched into
++     * seakchain.x10 regardless.  0 is both the loop's own no-collision value
++     * and the value it_802BAF2C gives x10 at spawn. */
++    s32 env_flags = 0;
++#else
+     s32 env_flags;
++#endif
+     s32 use_arg = 0;
+     s32 counter;
+     s32 coll_arg;

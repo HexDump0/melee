@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-14 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710 and P-712 fixed, P-699/P-702/P-711/P-713 open)
+Last updated: 2026-09-14 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712 and P-713 fixed, P-699/P-702/P-711 open)
 
 > **Direction (2026-09-13/14): ADR-0017 — keep the GLES renderer, reach Aurora parity.**
 > The 32-bit product, in-place converter and GLES3/WebGL2 renderer stay; the
@@ -845,3 +845,28 @@ P-709's `*(u16*)` store/read pair safe rather than technically UB.  `ctest`
 sweep leaves 181 `-Wmaybe-uninitialized` sites — a different class, genuinely
 lost assignments, and the class melee-pc's Venom crash came from — triaged as
 P-713.
+
+**P-713 (2026-09-14, seven uninitialised reads):** triage of the 181
+`-Wmaybe-uninitialized` sites ADR-0019's sweep left behind, cross-checked
+against `999sian/melee-pc` `05919cf` — which triaged the same class with two
+agents and confirmed the same seven.  All seven exist at our pin; each verdict
+was re-derived here rather than transcribed, and one of theirs did not hold
+(their `gmevent.c` fix cites sibling count loops our pin does not have, and
+additionally removes a stale carry that is real retail behaviour rather than
+undefined behaviour).  The reachable one is `ftCo_800AC5A0`: a CPU's DI/SDI
+stick is read uninitialised whenever hitlag opens the window at ~0 knockback —
+**every match with a CPU** — and retail is indeterminate there too
+(`0x800ac6d0` reaches the `CpuCmd_SetLstickX` call with nothing having written
+`r5`/`r30`), so the port now sends the neutral value the function's own
+else-branch sends.  The rest: `HSD_GObjFree` through an uninitialised
+`prev_link` on the Popo-string and yo-yo allocation-failure paths (three
+sibling chain builders in the tree clear it; these two lost the assignment), a
+wild float into `HSD_JObjReqAnimAll` on the Item Switch screen, an Event Match
+CLEARED count decided by a stale register, and two latched-garbage values.  GC
+build still `main.dol: OK` (100.00% matched); `ctest` 28/28.  Owner check
+queued as H-7.  Full verdict table in `learnings/decomp_port.md`.
+
+**Correction:** an earlier P-713 note in this session called the class
+low-yield after three sampled sites turned out to be false positives.  That was
+a bad generalisation from a sample of three; the real hit rate was seven, and
+the pointer-ranked shortlist in `logs/` contained all of them.

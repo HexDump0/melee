@@ -1,0 +1,20 @@
+diff --git a/src/melee/it/kinds/itlinkarrow.c b/src/melee/it/kinds/itlinkarrow.c
+index dcf388146..0cdb9504f 100644
+--- a/src/melee/it/kinds/itlinkarrow.c
++++ b/src/melee/it/kinds/itlinkarrow.c
+@@ -215,7 +215,15 @@ HSD_GObj* it_802A83E0(f32 facing_dir, Fighter_GObj* arg1, Vec3* arg2,
+ 
+ static inline HSD_JObj* itLinkArrow_802A850C_inline(HSD_Joint* joint)
+ {
++#ifdef PORT_PC
++    /* The guard admits a NULL joint, but the decompilation dropped whatever
++     * the function yields on that path and the result is stored into
++     * linkarrow.xB4[].  A jobj loaded from no joint is no jobj, and NULL is
++     * what every consumer of xB4[] already tests for. */
++    HSD_JObj* jobj = NULL;
++#else
+     HSD_JObj* jobj;
++#endif
+     if (joint != NULL) {
+         jobj = HSD_JObjLoadJoint(joint);
+     }

@@ -578,3 +578,39 @@ Only the US branch uses the out-of-bounds offsets; the JP path reads
 while the owner's US save did not.  Regression test: `ctest
 decomp_intro_names` with `MELEE_INTRO_US=1` (`[intro] names white=`; 0 broken,
 2457 fixed).  G-155 covers why the probe counts white rather than non-black.
+
+## P-713 uninitialised reads: seven fixed (2026-09-14)
+
+Triage of the 181 `-Wmaybe-uninitialized` sites from the ADR-0019 sweep,
+cross-checked against `999sian/melee-pc`'s `05919cf`, which triaged the same
+class with two agents and confirmed seven.  All seven exist at our pin.  Each
+verdict below was re-derived from our own tree or the retail DOL — melee-pc's
+stated justification failed to hold in one case (see `gmevent.c`), which is why
+they are not copied verbatim.
+
+| Site | Why it fires | Value, and where it comes from |
+|---|---|---|
+| `ft/kinds/ftCommon/ftCo_0A01.c` `ftCo_800AC5A0` | `stick_x`/`stick_y` are written only when `!ftCo_IsNearlyZero(kb_mag)`, then sent as `CpuCmd_SetLstick{X,Y}` regardless.  Upstream marks it `/// @bug`.  **Runs for every CPU whose hitlag window opens at ~0 knockback, i.e. constantly** | `0` (neutral).  Retail is indeterminate too — at `0x800ac6d0` the near-zero branch jumps straight to the `ftCo_800B46B8` call with nothing having written `r5` or `r30`, so the console sends the caller's leftovers.  Neutral is what the function's own else-branch (`ftCo_CpuSetNeutralStick`) sends |
+| `gm/gmevent.c` `gm_801BD46C` | `var_r30` is assigned only under `if (p != NULL)`; a character with no second entity — most of them — skips it.  The count decides whether an Event Match is **CLEARED** | `0` at the declaration **only**.  Retail keeps it in `r30` (`0x801bd4b0`), saved at entry but never initialised, so i == 1 tests the caller's leftover and i == 2 carries i == 1's value.  See the note below |
+| `it/kinds/itclimbersstring.c` `it_802C248C`, `it/kinds/itnessyoyo.c` `it_802BE65C` | the `GObj_Create` failure path frees the chain so far by walking `prev_link`, so on `i == 0` it called `HSD_GObjFree` through an uninitialised local | `NULL`.  Structural: the three other copies of this chain builder — `itsamusgrapple.c:369`, `itseakchain.c:83`, `itlinkhookshot.c:219` — all clear it before the loop.  Only these two lost it, and only these two warn |
+| `it/kinds/itlinkarrow.c` `itLinkArrow_802A850C_inline` | the guard admits a `NULL` joint but the decomp dropped the value yielded on that path; the result is stored into `linkarrow.xB4[]` | `NULL` — a jobj loaded from no joint is no jobj, and NULL is what the consumers of `xB4[]` test for |
+| `it/kinds/itseakchain.c` `it_802BC080` | when only the tail link is anchored, `iter` is already NULL and the link loop never runs, yet its result is latched into `seakchain.x10` | `0` — the loop's own no-collision value, and `x10`'s spawn value in `it_802BAF2C` |
+| `mn/mnitemsw.c` `mnItemSw_8023453C` | `anim_val` carries the highlight jobj's animation frame from the item the cursor leaves to the one it lands on.  Coming from a frequency row (`0x1F`/`0x20`) it is never set, and a wild float reached `HSD_JObjReqAnimAll` | `tbl->x30[3]` — verified in our tree: `mnItemSw_80235020` requests exactly that on the same joint (`lb_80011E24` index 8) when it first shows a hovered item's highlight |
+
+**The `gmevent.c` divergence from melee-pc.**  They rewrote the loop body to
+`if (p != NULL && ftLib_8008731C(p) != 0)`, citing "the two sibling count loops
+in the same file" as precedent.  **Our pin has no such siblings** —
+`ftLib_8008731C` is called exactly once in `gmevent.c`.  Their form also kills
+retail's stale carry from i == 1 to i == 2, which is real behaviour rather than
+undefined behaviour: the retail branch layout shows the NULL path falling into
+the compare at `0x801bd4b0`, not past the counter.  We initialise the
+declaration and nothing else, so only the indeterminate part changes.  This is
+the second time copying `58cf731`/`05919cf` verbatim would have been wrong (the
+first was `un_80300758`, P-710) — **re-derive, do not transcribe.**
+
+**Hit rate.**  Seven actionable out of 181, and the pointer-ranked shortlist in
+`logs/2026-09-14-P713-maybe-uninit-pointers.txt` contained all seven.  An
+earlier note in this file called the class low-yield on the strength of three
+sampled false positives; that was wrong, and the three verdicts it recorded
+(`lbspdisplay.c:165`, `lbanim.c:34`, `itfreeze.c:69`) still stand as
+not-actionable.

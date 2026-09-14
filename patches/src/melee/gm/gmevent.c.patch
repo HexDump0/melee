@@ -1,0 +1,31 @@
+diff --git a/src/melee/gm/gmevent.c b/src/melee/gm/gmevent.c
+index 9c66d3cc3..f9ac23675 100644
+--- a/src/melee/gm/gmevent.c
++++ b/src/melee/gm/gmevent.c
+@@ -1674,7 +1674,26 @@ void gm_801BD46C(HSD_GObj* gobj)
+     VsSceneController* temp_r3;
+     s32 var_r0;
+     struct EventData* temp_r31;
++#ifdef PORT_PC
++    /* A slot whose second entity is absent (any character without a
++     * sub-fighter, which is most of them) skips the assignment below and then
++     * tests this anyway.  Retail keeps it in r30 (0x801bd4b0), saved at entry
++     * but never initialised, so iteration 1 tests the caller's leftover and
++     * iteration 2 carries iteration 1's value.  The count decides whether the
++     * Event Match is CLEARED.
++     *
++     * Initialise only -- do NOT also fold the NULL test into the `if` below.
++     * That would additionally kill retail's stale carry from i == 1 to i == 2,
++     * which is real behaviour rather than undefined behaviour; the carry is
++     * visible in the retail branch layout (the NULL path branches to the
++     * compare at 0x801bd4b0, not past the counter).  This changes exactly the
++     * indeterminate part and nothing else.  `999sian/melee-pc` folds the test
++     * in and cites two sibling count loops in this file as precedent; our pin
++     * has no such siblings -- ftLib_8008731C is called exactly once here. */
++    s32 var_r30 = 0;
++#else
+     s32 var_r30;
++#endif
+     int i;
+     int count;
+     HSD_GObj* p;

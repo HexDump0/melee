@@ -1,0 +1,29 @@
+diff --git a/src/melee/ft/kinds/ftCommon/ftCo_0A01.c b/src/melee/ft/kinds/ftCommon/ftCo_0A01.c
+index d88b2b6c7..2a1dfb6d5 100644
+--- a/src/melee/ft/kinds/ftCommon/ftCo_0A01.c
++++ b/src/melee/ft/kinds/ftCommon/ftCo_0A01.c
+@@ -5635,8 +5635,24 @@ void ftCo_800AC5A0(Fighter* fp)
+ {
+     struct CpuFighter* data;
+     bool var_r0;
++#ifdef PORT_PC
++    /* Neutral.  When ftCo_IsNearlyZero(kb_mag) holds there is no DI
++     * direction, and the decompilation leaves both of these unwritten before
++     * the ftCo_800B46B8 calls below -- upstream's own @bug note says so.
++     * Retail is indeterminate too, not merely unwritten: at 0x800ac6d0 the
++     * near-zero branch jumps straight to the CpuCmd_SetLstickX call with
++     * nothing having written r5 or r30, so the console sends whatever the
++     * caller left in them.  We cannot reproduce that, and this runs for every
++     * CPU whose hitlag window opens at ~0 knockback -- i.e. constantly -- so
++     * pick the value the function itself uses when it has no input to send:
++     * ftCo_CpuSetNeutralStick in the else-branch is CpuCmd_SetLstick{X,Y}
++     * with 0. */
++    s8 stick_x = 0;
++    s8 stick_y = 0;
++#else
+     s8 stick_x;
+     s8 stick_y;
++#endif
+ 
+     data = &fp->cpu;
+     if (!fp->x221A_b3) {
