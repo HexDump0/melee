@@ -264,6 +264,19 @@ the scripted match differ only in the rebirth windows (470–520, 580–600;
 every other frame byte-identical) and frame 480 shows Link standing on the
 restored platform (G-142).
 
+**P-688 (2026-09-14):** host math now follows the console where upstream
+diverges.  The MSL `sinf`/`cosf`/`tanf` tables and wrappers compile
+(`src/MSL/trigf.c` + `math_data.c`; the one ADR-0011 MSL exception, ADR-0018,
+owner decision) with `native/decomp/msl_port.c` supplying `fabsf__Ff` and
+running `__sinit_trigf_c` from a constructor; the decompiled `atanf` body
+compiles behind a `PORT_PC` fallback (`__fnmsubs = -fmaf(a, c, -b)`) instead
+of silently linking glibc's (3.8% of 54,590,184 sampled inputs differed);
+`__fabs` maps to `fabs` in the shim (G-143).  `ctest decomp_trig` proves the
+atanf result bit-identical to an explicitly-rounded transcription; the
+2400-frame frontend target changes on 0.17% of pixels (RMSE 0.20/255), all
+deterministic tests pass and match game time is unchanged (1.81 ms vs
+1.82 ms at frame 600).
+
 **P-671/P-678/P-672 (2026-09-13):** the renderer-parity program (ADR-0017)
 produced `learnings/gx_coverage_matrix.md` (the 100-function GX surface with
 Aurora references and P-672..P-680 gap list).  `GXGetProjectionv` now returns

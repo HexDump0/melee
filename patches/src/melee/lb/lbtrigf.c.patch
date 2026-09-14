@@ -1,0 +1,22 @@
+diff --git a/src/melee/lb/lbtrigf.c b/src/melee/lb/lbtrigf.c
+index d2759ffe3..277f424ba 100644
+--- a/src/melee/lb/lbtrigf.c
++++ b/src/melee/lb/lbtrigf.c
+@@ -144,7 +144,16 @@ static const float atanf_lookup[] = {
+     0.0,
+ };
+ 
+-#ifdef __MWERKS__
++#if defined(__MWERKS__) || defined(PORT_PC)
++#ifdef PORT_PC
++/* PowerPC fnmsubs FRT = -((FRA * FRC) - FRB) with a single rounding, including
++ * the sign of an exact zero.  `-fmaf(a, c, -b)` is exactly that; the port has
++ * no FMA hardware, so this is the correctly-rounded libm call.  The Horner
++ * chain below is only bit-identical to the retail DOL when the host compiler
++ * contracts a*b+c the way MWCC did; the port's `-msse2 -mfpmath=sse` build
++ * has no FMA to contract with, and the explicit fmaf stays a libm call. */
++#define __fnmsubs(a, c, b) (-fmaf((a), (c), -(b)))
++#endif
+ float atanf(float x)
+ {
+     float const silver_ratio = 2.4142136573791504f;

@@ -950,3 +950,57 @@ accuracy the Aurora migration was meant to provide, so P-663..P-670 stay
 parked permanently unless the owner revisits the 64-bit/mobile question.
 The owner also confirmed the full S6 frontend flow, save data and the game's
 music on the same date.
+
+---
+
+## ADR-0018: Host math parity — compile MSL trig, fall back for atanf (amends ADR-0011)
+
+**Context.** Upstream `doldecomp/melee#3456` documents that non-Metrowerks
+builds silently diverge in four places.  Two are math:
+
+- `src/melee/lb/lbtrigf.c`'s `atanf` body is `#ifdef __MWERKS__` with no
+  fallback, so hosts link glibc's `atanf`; `atan2f`/`acosf`/`asinf` in the
+  same TU call it.
+- The `.nix` native target omits `src/MSL/trigf.c`, so `sinf`/`cosf`/`tanf`
+  bind to host libm at 363 call sites.
+
+Measured on the reference machine (2026-09-14), X=sampled float encodings:
+
+| Comparison | Result |
+|---|---|
+| Patched `atanf` vs independent, explicitly-rounded transcription (54,590,184 inputs) | 0 mismatches (`ctest decomp_trig`) |
+| glibc `atanf` vs the same reference | 2,091,032 / 54,590,184 differ (3.8%), 1-ulp polynomial region |
+| MSL `sinf` vs glibc over 101,854,860 inputs in [-100,100] | 41.9% differ (typically 1-4 ulp) |
+| MSL `cosf` vs glibc (same sweep) | 2.2% differ |
+| MSL `tanf` vs glibc (same sweep) | 44.0% differ |
+| Exhaustive `|x| < 0.01` | `sinf` 42.1% (<=4 ulp), `cosf` 0.09% (1 ulp), `tanf` 42.4% (<=4 ulp) |
+
+The console tables are the specification, so the port follows them.
+
+**Decision (owner, 2026-09-14).**
+
+1. Compile `src/MSL/trigf.c` + `src/MSL/math_data.c` into the product.  This
+   is the single ADR-0011 exception to the `src/MSL/` exclusion; every other
+   MSL file stays host libc/libm.  A host glue TU (`native/decomp/msl_port.c`)
+   supplies `fabsf__Ff` (from `MSL/math_1.c`) and runs `__sinit_trigf_c` from
+   a constructor, because the console's `.ctors` route is unavailable
+   (`SECTION_CTORS` is empty off-Metrowerks) and the reduction table
+   `__four_over_pi_m1` would otherwise stay zeroed.
+2. Apply the upstream `atanf` fallback as a `PORT_PC`-gated patch
+   (`patches/src/melee/lb/lbtrigf.c.patch`): `__fnmsubs(a, c, b) =
+   -fmaf(a, c, -b)`.  The port has no FMA hardware, so this is the
+   correctly-rounded libm call; the evidence above shows the build is
+   bit-identical to the explicitly-rounded source semantics.
+3. Map `__fabs` to `fabs` in `native/decomp/shim/placeholder.h` (the upstream
+   fallback narrows the double result to `fabsf`; `generator.c:884` relies on
+   the double comparison).
+
+**Consequences.** Port trig now matches the console tables instead of
+glibc's.  Visible effect is small but real: the 2400-frame frontend target
+changes on 0.17% of pixels (RMSE 0.20/255), all deterministic tests pass, and
+match-path game time is unchanged (1.81 ms vs 1.82 ms at frame 600).  The
+GameCube build is untouched (`PORT_PC` gating).  The port now mixes MSL
+(sin/cos/tan) with glibc (exp/log/pow) math; adopting any further MSL TU needs
+its own decision.
+
+**Status:** accepted (2026-09-14, owner); amends ADR-0011's MSL exclusion.

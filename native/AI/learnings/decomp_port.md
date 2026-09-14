@@ -294,3 +294,20 @@ The tasks and exact fix specs are in
 | PlCo `pData[8]` respawn-platform joint+anim pair never converted (port-only) | `hsd_convert.c:2233` walks 0/4/5/16/20, not 8; `ft_0D4D.c:139,148` reads the pair | P-689 |
 | `.nix` native target omits `src/MSL/trigf.c`, so `sinf`/`cosf`/`tanf` bind to host libm | port excludes all of `src/MSL/` per ADR-0011; 363 `sinf`/`cosf`/`tanf` call sites in game code | P-688 |
 
+## P-688 math patches (2026-09-14)
+
+Owner decisions and differential evidence are in ADR-0018.  All patches are
+`PORT_PC`-gated; the GameCube build and output are unchanged.
+
+| File | Patch | Reason |
+|---|---|---|
+| `src/melee/lb/lbtrigf.c` (`atanf`) | compile the body under `PORT_PC` and define `__fnmsubs(a, c, b) = -fmaf((a), (c), -(b))` | The body was `#ifdef __MWERKS__` with no fallback, so the host silently linked glibc's `atanf` (`atan2f`/`acosf`/`asinf` call it): 3.8% of 54.6M sampled inputs differ.  `ctest decomp_trig` compares the compiled function against an explicitly-rounded transcription and fails on glibc (`FAIL 2091032/54590184`). |
+
+The rest of P-688 needs no `src/` edit: `native/decomp/shim/placeholder.h`
+now maps `__fabs` to `fabs` (upstream's `fabsf` narrows the double at
+`generator.c:884`), and the owner adopted upstream item 4 for the port by
+compiling `src/MSL/trigf.c` + `src/MSL/math_data.c` with
+`native/decomp/msl_port.c` (`fabsf__Ff` plus a constructor that runs
+`__sinit_trigf_c`, because `SECTION_CTORS` is empty off-Metrowerks — G-143).
+Full evidence table in ADR-0018.
+

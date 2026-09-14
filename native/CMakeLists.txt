@@ -230,6 +230,29 @@ set_tests_properties(decomp_assets PROPERTIES
     ENVIRONMENT "MELEE_ASSET_CACHE=${CMAKE_CURRENT_BINARY_DIR}/asset-cache")
 
 # ---------------------------------------------------------------------------
+# P-688: the decompiled atanf fallback (src/melee/lb/lbtrigf.c) must be
+# bit-identical to an independent, explicitly-rounded transcription over a
+# deterministic sweep of the float encoding space.  Without the fallback the
+# link silently picks glibc's atanf and the test fails on the divergent inputs.
+add_executable(test_decomp_trig
+    tests/test_decomp_trig.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/melee/lb/lbtrigf.c)
+target_include_directories(test_decomp_trig PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/include)
+target_compile_options(test_decomp_trig PRIVATE
+    -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS}
+    -w -ffunction-sections -fdata-sections -DPORT_PC=1
+    -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
+target_link_libraries(test_decomp_trig PRIVATE m)
+target_link_options(test_decomp_trig PRIVATE -m32 "LINKER:--gc-sections")
+add_test(NAME decomp_trig COMMAND test_decomp_trig)
+set_tests_properties(decomp_trig PROPERTIES
+    PASS_REGULAR_EXPRESSION "decomp_trig: PASS")
+
+# ---------------------------------------------------------------------------
 # S1 (P-604): boot skeleton.  Compile the decompilation's own main()
 # (src/melee/gm/gmmain.c, renamed gm_main) for the host with the platform
 # layer stubbed, and stop in a controlled way with a triage log.
@@ -274,6 +297,14 @@ list(APPEND MELEE_DECOMP_SOURCES
 list(APPEND MELEE_DECOMP_SOURCES
     # P-685: host THP movie decoder replacing the MWCC-only extern THPDec.c.
     ${CMAKE_CURRENT_SOURCE_DIR}/decomp/thp_dec.c)
+
+list(APPEND MELEE_DECOMP_SOURCES
+    # P-688 (owner decision 2026-09-14): compile the console MSL trig TU
+    # despite the src/MSL/ exclusion, so sinf/cosf/tanf match the retail
+    # tables.  msl_port.c supplies fabsf__Ff and runs the table init.
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/MSL/trigf.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/MSL/math_data.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/decomp/msl_port.c)
 add_library(melee_decomp_game OBJECT ${MELEE_DECOMP_SOURCES})
 target_include_directories(melee_decomp_game BEFORE PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim

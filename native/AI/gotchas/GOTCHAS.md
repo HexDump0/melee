@@ -1935,3 +1935,16 @@ joint's flags and nine rot/scale/translate floats stayed big-endian and the
 v82, P-689).  `ctest decomp_assets` compares the slot-8 joint flags/floats
 against the raw archive and keeps slot 16 as the converted control; it fails
 before the fix (`flags 08000030 want 30000008`, `scale 4.6e-41 want 1`).
+
+## G-143: `SECTION_CTORS` is empty off-Metrowerks
+
+**Symptom:** an MSL TU that relies on a `.ctors` initializer silently uses
+zeroed tables.  Compiling `src/MSL/trigf.c` without running
+`__sinit_trigf_c` leaves `__four_over_pi_m1` all-zero, so `sinf`/`cosf` take
+the cruder argument reduction.
+**Cause:** `src/Runtime/platform.h` defines `SECTION_CTORS` as the Metrowerks
+`__declspec(section ".ctors")` only under `__MWERKS__`; on the host it expands
+to nothing and `__sinit_trigf_c_reference` is an ordinary unused pointer.
+**Fix:** run the initializer from a port `__attribute__((constructor))` TU
+(`native/decomp/msl_port.c`, P-688).  Treat any `#ifdef __MWERKS__`-only
+side effect as absent on the host until proven otherwise.
