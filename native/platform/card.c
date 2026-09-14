@@ -15,11 +15,10 @@
  * directory.  Cards are "inserted" by default; MELEE_NO_CARD=1 simulates an
  * empty slot (used by the S6 boot test).
  *
- * Async calls complete inline: the SDK completes from the EXI interrupt, and
- * the game's card task loop (`lb_8001B760`) is a tight spin that never pumps
- * the platform completion queue, so a deferred callback would deadlock it.
- * The game's pending-operation accounting nets out around an inline callback
- * (see lb_8001A184).
+ * Async calls complete from the platform completion queue, which the game's
+ * card pump reaches through OSRestoreInterrupts (see the comment above
+ * card_callback); an inline completion would run before the game has set its
+ * pending-operation flag and deadlock the pump.
  */
 #include <dolphin/card.h>
 
@@ -157,16 +156,11 @@ static int card_present(s32 chan)
     if (chan < 0 || chan >= CARD_CHANNELS) {
         return 0;
     }
-    /*
-     * Save data is experimental: the game's own card filesystem (hsd_3A94)
-     * still deadlocks in its command pump, so cards are opt-in until that is
-     * fixed.  Set MELEE_CARD_DIR or MELEE_CARD=1 to enable.
-     */
-    if (getenv("MELEE_CARD_DIR") != NULL) {
-        return 1;
-    }
-    none = getenv("MELEE_CARD");
-    return none != NULL && none[0] != '\0' && none[0] != '0';
+    /* A card is inserted by default, like a console with a card in slot A.
+     * MELEE_NO_CARD=1 simulates an empty slot, which the headless frontend
+     * test uses to skip the save-data flow. */
+    none = getenv("MELEE_NO_CARD");
+    return none == NULL || none[0] == '\0' || none[0] == '0';
 }
 
 static int card_read_header(const char* path, CardFileHeader* header)

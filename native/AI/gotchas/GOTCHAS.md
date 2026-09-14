@@ -1700,3 +1700,25 @@ returns them, and `GXSetProjectionv` is implemented (P-678).  `ctest
 decomp_gx_direct` now asserts both layouts and the pointer-fed round trip;
 flipping the getter back to the diagonal form fails with
 `GXGetProjectionv type=2 want 0`.
+
+## G-132: the card work-area symbols overlap; separate arrays deadlock the pump
+
+**Symptom:** with a card inserted (`MELEE_CARD_DIR`/`MELEE_CARD=1`), the boot
+freezes on "Do not touch the Memory Card or POWER Button! Creating new Game
+Data.": `hsd_804D799C == 2`, the dispatch queue reads empty
+(`hsd_804D7990 == hsd_804D7994`) and `lb_8001BC18` spins because `x8AC == 1`.
+Mount and check succeed; the first file command never runs.
+**Cause:** G-085 gave `hsd_804D1138` its full 0x1510 bytes but left
+`hsd_804D1148` and `hsd_804D2348` as separate arrays.  On the console those
+symbols are *inside* the `CardContext`: the command ring is at
+`hsd_804D1138 + 0x10` (`hsd_804D1148`) and the dispatch queue at
+`hsd_804D1138 + 0x1210` (`hsd_804D2348`).  The queue writers in `hsd_3B27.c`
+(`hsd_803B2550`, `hsd_803B286C`, ...) write into the context, but
+`fn_803AA790` pops from the standalone `hsd_804D2348`, so the command is never
+dispatched; `x8AC` (the game's pending-operation count) keeps waiting for a
+completion that will never be posted.
+**Fix:** under `PORT_PC`, `hsd_4D11.c` defines only `hsd_804D1138[0x1510]` and
+aliases the other two symbols onto it (`__asm__(".set hsd_804D1148,
+hsd_804D1138 + 0x10")`, `hsd_804D2348 + 0x1210`), which is the console layout.
+`ctest decomp_frontend_card` runs the frontend twice over one card directory
+(create then load) and requires the save file to exist after both.

@@ -1,19 +1,27 @@
 diff --git a/src/sysdolphin/baselib/hsd_4D11.c b/src/sysdolphin/baselib/hsd_4D11.c
-index 076608769..9bce92a4e 100644
+index 076608769..b5057961c 100644
 --- a/src/sysdolphin/baselib/hsd_4D11.c
 +++ b/src/sysdolphin/baselib/hsd_4D11.c
-@@ -9,7 +9,16 @@
+@@ -7,9 +7,24 @@
  
+ #include <Runtime/platform.h>
+ 
++#ifdef PORT_PC
++/* hsd_3A94.c casts hsd_804D1138 to CardContext (0x1510 bytes: four header
++ * words + CardCmd[128] + HsdCmdEntry[32]).  The console's symbols overlap:
++ * hsd_804D1148 is the command ring at +0x10 and hsd_804D2348 is the dispatch
++ * queue at +0x1210 (0x4D1138 + 0x1510 == 0x4D2648 == 0x4D2348 + 0x300).
++ * GCC will not overlap distinct arrays, so make the two sub-arrays symbol
++ * aliases into the base; allocating them separately splits the queue between
++ * its writers and the pump, which deadlocks the first file command (P-646). */
++u8 hsd_804D1138[0x1510];
++__asm__(".globl hsd_804D1148\n"
++        ".set hsd_804D1148, hsd_804D1138 + 0x10");
++__asm__(".globl hsd_804D2348\n"
++        ".set hsd_804D2348, hsd_804D1138 + 0x1210");
++#else
  /* 4D2348 */ u8 hsd_804D2348[0x300];
  /* 4D1148 */ u32 hsd_804D1148[0x80][0x9];
-+#ifdef PORT_PC
-+/* hsd_3A94.c casts this symbol to CardContext (0x1510 bytes: four header
-+ * words + CardCmd[128] + HsdCmdEntry[32]).  The console lays the three
-+ * card/JPEG work-area symbols out contiguously (0x4D1138 + 0x1510 ==
-+ * 0x4D2648 == hsd_804D2348 + 0x300); GCC may reorder them, so give the base
-+ * its full size on the host instead of writing past it. */
-+u8 hsd_804D1138[0x1510];
-+#else
  /* 4D1138 */ u8 hsd_804D1138[0x10];
 +#endif
  

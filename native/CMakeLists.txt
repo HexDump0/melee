@@ -336,6 +336,7 @@ add_test(NAME decomp_boot
     COMMAND melee_decomp_boot --boot-frames 5 --boot-timeout 5)
 set_tests_properties(decomp_boot PROPERTIES
     PASS_REGULAR_EXPRESSION "\\[boot\\] summary"
+    ENVIRONMENT "MELEE_NO_CARD=1"
     TIMEOUT 30)
 # S4: the deterministic scripted match (GM_DEBUG_VS, Link/Mario on Final
 # Destination, built-in 900-frame input script).  The position at the 600-frame
@@ -351,10 +352,12 @@ add_test(NAME decomp_audio
 set_tests_properties(decomp_audio PROPERTIES
     PASS_REGULAR_EXPRESSION "audio_determinism: PASS"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    ENVIRONMENT "MELEE_NO_CARD=1"
     TIMEOUT 240)
 set_tests_properties(decomp_match PROPERTIES
     PASS_REGULAR_EXPRESSION "slot 0 stocks=3 dmg=0 pos=\\(14\\.20,41\\.04,0\\.00\\)"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    ENVIRONMENT "MELEE_NO_CARD=1"
     TIMEOUT 240)
 # Combat smoke test: MELEE_HIT_TEST makes p0 jab while p1 walks into it, so a
 # hitbox command must spawn a capsule, collide, and apply damage.  Guards the
@@ -363,7 +366,7 @@ set_tests_properties(decomp_match PROPERTIES
 add_test(NAME decomp_hit
     COMMAND melee_decomp_boot --boot-frames 600 --boot-timeout 90 --boot-match 20)
 set_tests_properties(decomp_hit PROPERTIES
-    ENVIRONMENT "MELEE_HIT_TEST=1"
+    ENVIRONMENT "MELEE_HIT_TEST=1;MELEE_NO_CARD=1"
     PASS_REGULAR_EXPRESSION "\\[match\\] hit: slot [01] damage=[1-9]"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
     TIMEOUT 240)
@@ -375,7 +378,7 @@ set_tests_properties(decomp_hit PROPERTIES
 add_test(NAME decomp_icons
     COMMAND melee_decomp_boot --boot-frames 600 --boot-timeout 90 --boot-match 20)
 set_tests_properties(decomp_icons PROPERTIES
-    ENVIRONMENT "MELEE_ICON_TEST=1"
+    ENVIRONMENT "MELEE_ICON_TEST=1;MELEE_NO_CARD=1"
     PASS_REGULAR_EXPRESSION "\\[icons\\] .*distinct=1"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
     TIMEOUT 240)
@@ -560,6 +563,18 @@ if(MELEE_SDL3_LIB32)
       PASS_REGULAR_EXPRESSION "scene=2"
       TIMEOUT 600
       ENVIRONMENT "SDL_VIDEODRIVER=offscreen;SDL_AUDIODRIVER=dummy;MELEE_NO_CARD=1")
+  # P-646: the game's own card filesystem (hsd_3A94 pump) must create save
+  # data on an empty card and reload it; two short frontend runs so the
+  # card image stays inside the build directory.
+  add_test(NAME decomp_frontend_card
+      COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/tests/frontend_card.sh
+              $<TARGET_FILE:melee>
+              ${CMAKE_CURRENT_SOURCE_DIR}/tests/frontend_vs.txt
+              ${CMAKE_CURRENT_BINARY_DIR}/frontend-card)
+  set_tests_properties(decomp_frontend_card PROPERTIES
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
+      PASS_REGULAR_EXPRESSION "frontend_card: PASS"
+      TIMEOUT 300)
 else()
   message(STATUS "32-bit SDL3 not found; skipping the product melee target")
 endif()

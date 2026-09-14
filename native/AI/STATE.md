@@ -210,9 +210,13 @@ correct again: `gm_80168B34`/`gm_80168BF8` relied on MWCC register leftovers
 atlas frame 0 = Captain Falcon; the `PORT_PC` fix plus `ctest decomp_icons`
 is P-644/G-129.  Converter v76 converts Yoshi's Story's (`GrYt.dat`)
 `yakumono_param` `YorsterParams`, so Lucky-Block head bumps no longer stop
-the fighter in mid-air (P-661/G-130).  Open S6 follow-up: save data is
-blocked by the game's hsd card filesystem pump (P-646; the host card backend
-is opt-in behind `MELEE_CARD_DIR` until then).
+the fighter in mid-air (P-661/G-130).  Memory-card save data works: the
+console's card work-area symbols overlap inside `hsd_804D1138` (command ring
+at +0x10, dispatch queue at +0x1210) and the host allocated them separately,
+so the first file command was never dispatched; the `hsd_4D11.c` `PORT_PC`
+patch now aliases them onto the base, cards are inserted by default
+(`MELEE_NO_CARD=1` = empty slot), and `ctest decomp_frontend_card` creates
+and reloads a save over one card directory (P-646/G-132).
 
 **P-671/P-678/P-672 (2026-09-13):** the renderer-parity program (ADR-0017)
 produced `learnings/gx_coverage_matrix.md` (the 100-function GX surface with

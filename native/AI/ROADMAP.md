@@ -11,10 +11,11 @@ prototype to a decompilation-based full-game port (ADR-0010). S0–S5 are done
 (see `STATE.md`), and S6 is in progress (2026-09-13): the retail frontend flow
 runs end to end (title → menu → VS CSS → stage select → match → results) from
 the product binary `build/native/melee`, with `ctest decomp_frontend` as the
-headless regression.  The remaining S6 work is save data (the game's hsd card
-filesystem pump deadlocks with the host card backend, P-646), the results/HUD
-visual bugs (P-644/P-645).  Item models are fixed and enabled by default
-(P-643).**
+headless regression.  Memory-card save data now creates and reloads through
+the game's own card filesystem (P-646/G-132, `ctest decomp_frontend_card`);
+the remaining S6 polish is converter coverage for stage/event content
+(P-658/P-662) and the title-mode ordering (P-624/G-090).  Item models are
+fixed and enabled by default (P-643).**
 
 ---
 
