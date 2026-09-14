@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 87u
+#define HSD_CONVERTER_VERSION 88u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -3274,6 +3274,87 @@ static void conv_toy_model_file_table(Conv* c, uint32_t off, int count)
     }
 }
 
+/* TyDatai trophy tables (toy.c:6824, one lbArchive_LoadSymbols call pulling
+ * seven symbols).  None of these are HSD descriptors, so no branch of the name
+ * dispatch claimed them and they stayed big-endian -- silently, because every
+ * field is a small integer and a byte-swapped small integer is another
+ * plausible small integer.
+ *
+ * `tyModelSortTbl` is the one that bites.  It is ToyNameData[293]: six s16 per
+ * entry, x0 being the trophy id (which equals the entry index in the retail
+ * data).  `_Toy_803064B8` reads x0 and `Toy_8030813C` looks it up in TyDataf's
+ * `tyModelFileTbl`, whose ids were already converted by P-645.  Trophy 268 is
+ * 0x010C; read the wrong way round that is 0x0C01 = 3073, which is in no
+ * table, so the Trophy Gallery panicked building its list:
+ *
+ *     **** Not Found Toy Model!(3073)
+ *
+ * Verified against the raw archive: entry 0 reads (0, 0, 224, 272, 224, 272)
+ * big-endian and entry 1 reads (1, 60, 175, 229, 175, 229), i.e. x0 is the
+ * index and x2 the sort key -- both nonsense byte-swapped. */
+
+/* ToyNameData: six s16 (id, sort key, and per-language name indices). */
+static void conv_toy_name_sort_table(Conv* c, uint32_t off, uint32_t limit)
+{
+    uint32_t e;
+
+    for (e = off; e + 0x0C <= limit; e += 0x0C) {
+        if (!in_data(c, e, 0x0C)) {
+            break;
+        }
+        conv_u16_range(c, e, 6);
+    }
+}
+
+/* TrophyData (0x24): two s32, six f32 for the stand transform, four s8. */
+static void conv_toy_trophy_data_table(Conv* c, uint32_t off, uint32_t limit)
+{
+    uint32_t e;
+
+    for (e = off; e + 0x24 <= limit; e += 0x24) {
+        if (!in_data(c, e, 0x24)) {
+            break;
+        }
+        conv_u32_range(c, e, 8);
+    }
+}
+
+/* TyDspEntry (0x10): s32 id, two u8 and two pad bytes, then two f32.  Walked
+ * until an id of -1, which reads the same in either byte order
+ * (tyDisplay_8031B9DC scans for that terminator rather than a count). */
+static void conv_toy_display_table(Conv* c, uint32_t off)
+{
+    uint32_t e = off;
+
+    while (in_data(c, e, 0x10)) {
+        uint32_t id = rd32(c, e + 0x00);
+
+        conv_u32(c, e + 0x00);
+        conv_u32(c, e + 0x08);
+        conv_u32(c, e + 0x0C);
+        if (id == 0xFFFFFFFFu) {
+            break;
+        }
+        e += 0x10;
+    }
+}
+
+/* Bare s16 lists, likewise terminated by -1 (0xFFFF either way round). */
+static void conv_toy_s16_list(Conv* c, uint32_t off)
+{
+    uint32_t e = off;
+
+    while (in_data(c, e, 2)) {
+        uint16_t v = rd16(c, e);
+
+        conv_u16(c, e);
+        if (v == 0xFFFFu) {
+            break;
+        }
+        e += 2;
+    }
+}
+
 static void conv_mn_select_chr_table(Conv* c, uint32_t off)
 {
     uint32_t cam;
@@ -3538,6 +3619,28 @@ static void convert_relocs(Conv* c, uint32_t reloc_off, uint32_t nb_reloc)
     }
 }
 
+/* The end of a public symbol's data: the next public that starts after it, or
+ * the end of the data section.  TyDatai's trophy tables are flat arrays with
+ * no length anywhere in the file, and their real entry counts are not the ones
+ * the game's own TY_TROPHY_COUNT would suggest -- tyInitModelDTbl holds six
+ * entries, not 293 -- so converting a guessed count walks straight through the
+ * neighbouring tables and byte-swaps them a second time at the wrong
+ * granularity.  Clamp to the next symbol instead of trusting a count. */
+static uint32_t next_public_after(Conv* c, uint32_t public_off,
+                                  uint32_t nb_public, uint32_t off)
+{
+    uint32_t limit = c->data_size;
+    uint32_t i;
+
+    for (i = 0; i < nb_public; i++) {
+        uint32_t o = rd32_abs(c, public_off + i * 8);
+        if (o > off && o < limit) {
+            limit = o;
+        }
+    }
+    return limit;
+}
+
 static int name_ends_with(const char* name, size_t length, const char* suffix)
 {
     size_t n = strlen(suffix);
@@ -3582,6 +3685,7 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
         const char* name;
         size_t remaining;
         size_t length;
+        uint32_t limit;
 
         if ((size_t) symbols_off + symbol_off >= c->size) {
             continue;
@@ -3593,6 +3697,9 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
             length++;
         }
         c->st.public_symbols++;
+        /* Only the flat trophy tables below use this; computing it per symbol
+         * keeps the cost proportional to nb_public^2 on one small archive. */
+        limit = data_off;
 
         /* data offset 0 is a valid target (see G-023); the name dispatch
          * below decides whether it is a descriptor class we walk. */
@@ -3620,6 +3727,37 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
             /* TyDataf: US trophy name/model overrides (5 entries). */
             c->st.roots_unknown++;
             conv_toy_model_file_table(c, data_off, 5);
+        } else if (length == 14 && memcmp(name, "tyModelSortTbl", 14) == 0) {
+            /* TyDatai: ToyNameData[293], the trophy id/sort-key table. */
+            c->st.roots_unknown++;
+            limit = next_public_after(c, public_off, nb_public, data_off);
+            conv_toy_name_sort_table(c, data_off, limit);
+        } else if (length == 14 && memcmp(name, "tyInitModelTbl", 14) == 0) {
+            /* TyDatai: TrophyData[293] (default stand transforms). */
+            c->st.roots_unknown++;
+            limit = next_public_after(c, public_off, nb_public, data_off);
+            conv_toy_trophy_data_table(c, data_off, limit);
+        } else if (length == 15 &&
+                   memcmp(name, "tyInitModelDTbl", 15) == 0) {
+            /* TyDatai: TrophyData[293] (JP variant). */
+            c->st.roots_unknown++;
+            limit = next_public_after(c, public_off, nb_public, data_off);
+            conv_toy_trophy_data_table(c, data_off, limit);
+        } else if (length == 17 &&
+                   memcmp(name, "tyDisplayModelTbl", 17) == 0) {
+            c->st.roots_unknown++;
+            conv_toy_display_table(c, data_off);
+        } else if (length == 19 &&
+                   memcmp(name, "tyDisplayModelUsTbl", 19) == 0) {
+            c->st.roots_unknown++;
+            conv_toy_display_table(c, data_off);
+        } else if (length == 17 &&
+                   memcmp(name, "tyExpDifferentTbl", 17) == 0) {
+            c->st.roots_unknown++;
+            conv_toy_s16_list(c, data_off);
+        } else if (length == 12 && memcmp(name, "tyNoGetUsTbl", 12) == 0) {
+            c->st.roots_unknown++;
+            conv_toy_s16_list(c, data_off);
         } else if (length == 6 &&
                    (memcmp(name, "pnlsce", 6) == 0 ||
                     memcmp(name, "flmsce", 6) == 0)) {

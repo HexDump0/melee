@@ -120,6 +120,11 @@ static uint16_t read_host_u16(const unsigned char* p)
     return value;
 }
 
+static uint16_t read_be_u16(const unsigned char* p)
+{
+    return (uint16_t) (((uint16_t) p[0] << 8) | p[1]);
+}
+
 static uint32_t read_be_u32(const unsigned char* p)
 {
     return ((uint32_t) p[0] << 24) | ((uint32_t) p[1] << 16) |
@@ -1939,6 +1944,96 @@ static int check_event_levels(const char* image)
     return failed;
 }
 
+/* P-727: TyDatai's trophy tables are raw arrays of small integers, so no
+ * branch of the converter's name dispatch claimed them and they stayed
+ * big-endian -- silently, because a byte-swapped small integer is another
+ * plausible small integer.
+ *
+ * `tyModelSortTbl` is ToyNameData[293]; `_Toy_803064B8` reads entry.x0 as the
+ * trophy id and `Toy_8030813C` looks it up in TyDataf's `tyModelFileTbl`.
+ * Trophy 268 (0x010C) read the wrong way round is 0x0C01 = 3073, which is in
+ * no table, so the Trophy Gallery panicked building its list.  Assert the
+ * invariant that actually broke: every sort-table id resolves in the
+ * model-file table. */
+static int check_ty_datai_tables(const char* image)
+{
+    char error[256];
+    size_t isize = 0;
+    unsigned char* ibuf = NULL;
+    unsigned char* raw = NULL;
+    unsigned char* sort = NULL;
+    HSD_Archive iarch;
+    HsdConvertStats stats;
+    unsigned i;
+    unsigned checked = 0;
+    int failed = 0;
+
+    ibuf = load_archive(image, "TyDatai.usd", NULL, &isize, error,
+                        sizeof(error));
+    if (ibuf == NULL) {
+        ibuf = load_archive(image, "TyDatai.dat", NULL, &isize, error,
+                            sizeof(error));
+    }
+    if (ibuf == NULL) {
+        fprintf(stderr, "decomp_assets: TyDatai: %s\n", error);
+        return 1;
+    }
+    raw = malloc(isize);
+    if (raw == NULL) {
+        free(ibuf);
+        return 1;
+    }
+    memcpy(raw, ibuf, isize);
+    if (!hsd_asset_convert(ibuf, isize, &stats) ||
+        HSD_ArchiveParse(&iarch, ibuf, isize) != 0)
+    {
+        fprintf(stderr, "decomp_assets: TyDatai conversion failed\n");
+        free(raw);
+        free(ibuf);
+        return 1;
+    }
+    sort = HSD_ArchiveGetPublicAddress(&iarch, "tyModelSortTbl");
+    if (sort == NULL || !ptr_in_buffer(sort, ibuf, isize)) {
+        fprintf(stderr, "decomp_assets: TyDatai missing tyModelSortTbl\n");
+        free(raw);
+        free(ibuf);
+        return 1;
+    }
+    /* Every field is an s16, so each one must read back as the big-endian
+     * value the console sees.  Comparing against the raw bytes catches both
+     * failure modes: a table left unconverted, and a table converted at u32
+     * granularity by a neighbour that overran it (which transposes each pair
+     * and is invisible to a plausibility check, since both halves are small
+     * integers either way). */
+    for (i = 0; i < 293 * 6; i++) {
+        size_t off = (size_t) (sort - ibuf) + (size_t) i * 2;
+        uint16_t host;
+        uint16_t want;
+
+        if (off + 2 > isize) {
+            break;
+        }
+        host = read_host_u16(ibuf + off);
+        want = read_be_u16(raw + off);
+        if (host != want) {
+            if (failed == 0) {
+                fprintf(stderr,
+                        "decomp_assets: tyModelSortTbl u16[%u] = %u, want %u "
+                        "(byte order / wrong granularity)\n",
+                        i, host, want);
+            }
+            failed++;
+        }
+        checked++;
+    }
+    if (failed == 0) {
+        printf("decomp_assets: TyDatai.dat sort fields=%u ok\n", checked);
+    }
+    free(raw);
+    free(ibuf);
+    return failed != 0 ? 1 : 0;
+}
+
 /* P-645: TyDataf's trophy tables are 0x54-byte entries { s32 id; char
  * name[0x20]; char model[0x2c] }.  `Toy_8030813C` matches the id against the
  * table and `Toy_80308250` then hands out `entry + 4` (name) and `entry +
@@ -2822,6 +2917,7 @@ int main(int argc, char** argv)
     failures += check_ft_data_tables(image, "PlYs.dat", "ftDataYoshi");
     failures += check_item_models(image);
     failures += check_ty_data_tables(image);
+    failures += check_ty_datai_tables(image);
     failures += check_staffroll_modelset(image);
     failures += check_ifall_hud_modelsets(image);
     failures += check_kumite_tables(image);

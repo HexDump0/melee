@@ -2708,3 +2708,40 @@ pedantry: the console frame made that address mean something, and here it
 means something else.  Look for `arr + N` and `&arr[N]` where `N >=` the
 declared extent, the same way the `-Warray-bounds` sweep looks for the `.data`
 version.
+
+## G-170: a byte-swapped small integer is another plausible small integer
+
+`TyDatai`'s seven trophy tables were never converted — no branch of the
+converter's name dispatch claimed them — and nothing looked wrong until the
+Trophy Gallery panicked with `**** Not Found Toy Model!(3073)`.  3073 is
+`0x0C01`; the real trophy id was 268, `0x010C`.
+
+That is the whole hazard.  Descriptor structures fail loudly when they stay
+big-endian (absurd dimensions, garbage pointers, G-146).  A table of small
+integers fails *quietly*: every field still reads as a small integer, indices
+still land inside arrays, loops still terminate.  It surfaces much later as
+"that menu is empty" or "that lookup missed".
+
+Two rules follow.
+
+**Do not guess entry counts.** My first fix used `TY_TROPHY_COUNT` (293) for
+all three fixed-size tables.  The real extents are the gaps between the
+archive's public symbols: `tyInitModelDTbl` holds **six** entries, not 293.
+Sweeping 293 ran straight through its neighbours and converted them a second
+time at `u32` granularity — which *transposes each `u16` pair* rather than
+corrupting it, so the values stay small and plausible and every
+sanity check still passes.  Clamp to the next public symbol
+(`next_public_after`), or use the table's own `-1` terminator.
+
+**Test against the raw bytes, not against plausibility.** A check like "every
+id resolves in the other table" passed in all three states: correct,
+unconverted, and transposed.  The only check that distinguishes them compares
+each converted field with a big-endian read of the original buffer, which is
+by definition what the console sees.  That is the P-645 pattern, and it should
+be the default for any flat data table.
+
+**And clear the right cache when testing this.** `decomp_assets` sets
+`MELEE_ASSET_CACHE` to `<build>/asset-cache`, not `~/.cache/melee/assets`, so
+a stale entry from an earlier build silently served converted bytes while the
+converter itself never ran — which cost most of the time spent finding this.
+`MELEE_NO_ASSET_CACHE=1` is the reliable way to force conversion.
