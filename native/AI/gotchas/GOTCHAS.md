@@ -1877,3 +1877,45 @@ Z-texture draws use `GX_SRC_VTX` material with a passthrough TEV, so the
 vertex colour is the TEV result there.  `decomp_efb` stays green (the shadow
 paths still write no colour) and the title's `(320,60)` readback is now
 `36,36,36` instead of `0,0,0`.
+
+## G-139: vertex integer channels expand by bit replication, and RGBX8 ignores X
+
+**Symptom:** nothing theatrical -- a one-LSB colour error on every RGB565 /
+RGBA6 vertex colour, and a wrong (often zero) vertex alpha for RGBX8 meshes.
+The GUI debug viewer and the compiled path could also disagree if only one
+decoder is fixed.
+**Cause:** the HLE's `decode_color` (and the prototype's `model.c` copy) kept
+the old `v * 255 / 31` / `v * 255 / 63` rounding while `native/gx/texture.c`
+had already moved to bit replication (`ExpandTo8`), and it read the fourth
+byte of `GX_RGBX8` as alpha although the reference ignores it
+(`fetch_rgbx8` returns alpha 255).
+**Fix:** bit-replicate 5/6-bit channels (`(v << 3) | (v >> 2)`,
+`(v << 2) | (v >> 4)`) in both decoders and force RGBX8 alpha to 255.
+`ctest decomp_gx_direct` asserts RGB565 (13,17,7) -> 107,69,57 and RGBX8
+(10,20,30,0) -> alpha 255; both failed before the fix.
+
+## G-140: a texture-coordinate texgen source is `(u, v, 1)` (q rows)
+
+**Symptom:** subtle projection errors in reflection-style `GX_TG_MTX3x4`
+texgens whenever the matrix's third row has a z coefficient or a translation:
+the texture lands offset/scaled because q is wrong.  Everything with an
+identity post matrix (including `GX_TG_MTX2x4`, which forces z=1 anyway)
+looks fine, so it hides easily.
+**Cause:** `texgen_coord` fed `(u, v, 0)` for TEX sources; Aurora builds
+`vec4f(uv, 1.0, 1.0)`, so q = `m8·u + m9·v + m10·1 + m11`.
+**Fix:** feed 1.0 (P-693).  The `decomp_gx_direct` MTX3x4 case now uses a
+q row `{2,0,2,1}` where z matters and asserts `(0.0714, 0.1786)`; the old
+z=0 code reads `(0.1667, 0.4167)`.
+
+## G-141: the TEV raster channel is not always rast0
+
+**Symptom:** stages ordering `GX_ALPHA1` as their raster channel read the
+COLOR0A0 material instead of COLOR1A1, and stages ordering `GX_COLOR_NULL` /
+`GX_COLOR_ZERO` read the lit raster instead of black.  TEV graphs that blend
+specular/alpha channels can therefore invert or over-brighten.
+**Cause:** the fragment shader selected `v_ras1` only for channels 1 and 5;
+Aurora `color_channel()` maps `GX_ALPHA1` to rast1, and `color_arg_reg`
+returns zero for `GX_COLOR_ZERO`/`GX_COLOR_NULL`.
+**Fix:** select rast1 for channels 1/3/5 and black for 6/255 (P-694).
+`ctest decomp_efb` checks an ALPHA1 stage against the COLOR1A1 material
+(green; red before the fix) and a NULL-channel stage (black; red before).

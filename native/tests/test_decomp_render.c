@@ -417,7 +417,11 @@ static int direct_test(void)
     GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
     GXSetNumTexGens(1);
     {
-        f32 post[3][4] = { { 1, 0, 0, 0 }, { 0, 1, 0, 0 }, { 2, 0, 0, 0 } };
+        /* P-693: the q row carries a z coefficient (2) plus translation (1)
+         * so the source's third component matters: a TEX source must be
+         * (u, v, 1) (Aurora shader.cpp `vec4f(uv, 1.0, 1.0)`), or q comes
+         * out 1.5 instead of 3.5. */
+        f32 post[3][4] = { { 1, 0, 0, 0 }, { 0, 1, 0, 0 }, { 2, 0, 2, 1 } };
         GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX3x4, GX_TG_TEX0, GX_IDENTITY,
                           GX_FALSE, GX_PTTEXMTX0);
         GXLoadTexMtxImm(post, GX_PTTEXMTX0, GX_MTX3x4);
@@ -454,11 +458,13 @@ static int direct_test(void)
         return 0;
     }
     {
-        /* q-row {2,0,0,0}: x'=0.25, y'=0.625, q=0.5 -> (0.5, 1.25). */
+        /* q-row {2,0,2,1}: x'=0.25, y'=0.625, q=2*0.25+2*1+1=3.5 ->
+         * (0.07143, 0.17857).  q=1.5 (0.16667, 0.41667) means the source z
+         * was fed as 0 instead of 1. */
         const GxHleVertex* v = &verts[draws[0].first_vertex];
-        if (fabsf(v->uv[0][0] - 0.5f) > 1e-6f ||
-            fabsf(v->uv[0][1] - 1.25f) > 1e-6f) {
-            printf("direct: FAIL MTX3x4 uv=(%.4f,%.4f) want (0.5000,1.2500)\n",
+        if (fabsf(v->uv[0][0] - 0.0714286f) > 1e-5f ||
+            fabsf(v->uv[0][1] - 0.1785714f) > 1e-5f) {
+            printf("direct: FAIL MTX3x4 uv=(%.4f,%.4f) want (0.0714,0.1786)\n",
                    (double) v->uv[0][0], (double) v->uv[0][1]);
             fail = 1;
         }
@@ -823,6 +829,63 @@ static int direct_test(void)
                 fail = 1;
             }
             free(rgba);
+        }
+    }
+
+    /* P-692: vertex colours use the same bit-replication expansions as the
+     * texture decoder (Aurora ExpandTo8), and RGBX8's X byte is ignored.
+     * RGB565 (13,17,7): 5-bit 13 -> 107 (old v*255/31 gave 106). */
+    {
+        static const unsigned char want565[4] = { 107, 69, 57, 255 };
+        static const unsigned char want_rgbx[4] = { 10, 20, 30, 255 };
+        unsigned v = (13u << 11) | (17u << 5) | 7u;
+
+        gx_hle_begin_frame();
+        gx_hle_reset_state();
+        GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
+        GXClearVtxDesc();
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGB, GX_RGB565, 0);
+        GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+        GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+        GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+        {
+            int i;
+            for (i = 0; i < 3; ++i) {
+                GXPosition3f32((float) i, 0.0f, 0.0f);
+                GXColor1u16((u16) v);
+            }
+        }
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGB, GX_RGBX8, 0);
+        GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+        {
+            int i;
+            for (i = 0; i < 3; ++i) {
+                GXPosition3f32((float) i + 4.0f, 0.0f, 0.0f);
+                GXColor4u8(10, 20, 30, 0);
+            }
+        }
+        gx_hle_get_frame(&verts, &vc, &draws, &dc, NULL, NULL);
+        if (dc != 2 || vc != 6) {
+            printf("direct: FAIL colour-fmt draws=%zu verts=%zu (want 2/6)\n",
+                   dc, vc);
+            fail = 1;
+        } else {
+            int a;
+            for (a = 0; a < 4; ++a) {
+                if (verts[draws[0].first_vertex].color[a] != want565[a]) {
+                    printf("direct: FAIL RGB565 clr[%d]=%u want %u\n", a,
+                           verts[draws[0].first_vertex].color[a],
+                           want565[a]);
+                    fail = 1;
+                }
+                if (verts[draws[1].first_vertex].color[a] != want_rgbx[a]) {
+                    printf("direct: FAIL RGBX8 clr[%d]=%u want %u\n", a,
+                           verts[draws[1].first_vertex].color[a],
+                           want_rgbx[a]);
+                    fail = 1;
+                }
+            }
         }
     }
 
@@ -1952,6 +2015,74 @@ static int efb_test(void)
             printf("efb: FAIL ZT_REPLACE bias pixel=%u,%u,%u (want blue)\n",
                    pixel[0], pixel[1], pixel[2]);
             fail = 1;
+        }
+    }
+
+    /* P-694: the TEV raster channel selects rast1 for COLOR1/ALPHA1/COLOR1A1
+     * and black for GX_COLOR_NULL/GX_COLOR_ZERO (Aurora attr_fmt.cpp
+     * color_channel + shader.cpp color_arg_reg).  A stage ordering ALPHA1
+     * must see the COLOR1A1 material, not the COLOR0A0 one. */
+    {
+        GXColor red = { 0xFF, 0x00, 0x00, 0xFF };
+        GXColor green = { 0x00, 0xFF, 0x00, 0xFF };
+        int pass;
+
+        for (pass = 0; pass < 2; ++pass) {
+            gx_hle_begin_frame();
+            gx_hle_reset_state();
+            GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
+            GXSetNumChans(2);
+            GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_REG, GX_SRC_REG,
+                          GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
+            GXSetChanCtrl(GX_COLOR1A1, GX_FALSE, GX_SRC_REG, GX_SRC_REG,
+                          GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
+            GXSetChanMatColor(GX_COLOR0A0, red);
+            GXSetChanMatColor(GX_COLOR1A1, green);
+            GXSetNumTexGens(0);
+            GXSetNumTevStages(1);
+            GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL,
+                          pass == 0 ? GX_ALPHA1 : GX_COLOR_NULL);
+            GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO,
+                            GX_CC_RASC);
+            GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO,
+                            GX_CA_RASA);
+            GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO,
+                            GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+            GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO,
+                            GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+            GXSetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_COPY);
+            GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
+            GXSetCullMode(GX_CULL_NONE);
+            GXClearVtxDesc();
+            GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+            GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+            GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+            GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+            GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+            GXPosition3f32(-1.0f, -1.0f, 0.0f);
+            GXColor4u8(255, 255, 255, 255);
+            GXPosition3f32(1.0f, -1.0f, 0.0f);
+            GXColor4u8(255, 255, 255, 255);
+            GXPosition3f32(1.0f, 1.0f, 0.0f);
+            GXColor4u8(255, 255, 255, 255);
+            GXPosition3f32(-1.0f, 1.0f, 0.0f);
+            GXColor4u8(255, 255, 255, 255);
+            if (gx_gl_render_frame() < 0) {
+                printf("efb: FAIL render_frame (raster channel)\n");
+                return 0;
+            }
+            glReadPixels(320, 240, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+            if (pass == 0) {
+                if (!(pixel[1] > 200 && pixel[0] < 60 && pixel[2] < 60)) {
+                    printf("efb: FAIL ALPHA1 channel pixel=%u,%u,%u (want "
+                           "green rast1)\n", pixel[0], pixel[1], pixel[2]);
+                    fail = 1;
+                }
+            } else if (pixel[0] > 20 || pixel[1] > 20 || pixel[2] > 20) {
+                printf("efb: FAIL NULL channel pixel=%u,%u,%u (want black)\n",
+                       pixel[0], pixel[1], pixel[2]);
+                fail = 1;
+            }
         }
     }
 

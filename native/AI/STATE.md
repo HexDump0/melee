@@ -347,6 +347,17 @@ now writes the vertex (raster) colour when the draw updates colour; the
 title's `(320,60)` readback is `36,36,36` instead of `0,0,0`, `ctest` 21/21.
 Gotcha G-138.
 
+**P-692..P-694 (2026-09-14, GX HLE audit):** an audit of the HLE against the
+Aurora reference closed three more silent gaps: vertex colours now expand by
+bit replication (the HLE still had the old round-by-scaling formula;
+`RGBX8` ignores its X byte as the reference does), a texture-coordinate
+texgen source feeds `(u, v, 1)` so `GX_TG_MTX3x4` q rows see z, and the TEV
+raster channel maps `COLOR1/ALPHA1/COLOR1A1` to rast1 and `ZERO/NULL` to
+black.  Each has a regression (RGB565/RGBX8 decode, an MTX3x4 q row with a z
+coefficient, an ALPHA1/NULL channel pixel) that fails before the fix.  The
+title frame is byte-identical to P-691 (RMSE 0) and `ctest` is 21/21.
+Gotchas G-139/G-140/G-141.
+
 **P-680 (2026-09-13):** `GX_LINES`/`GX_LINESTRIP`/`GX_POINTS` now render.
 `GxHleDraw` carries topology runs (consecutive same-mode groups merge, so
 triangle-only draws keep one run and are byte-identical: `decomp_render`

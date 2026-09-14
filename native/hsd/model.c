@@ -470,9 +470,11 @@ static size_t ctype_size(uint32_t ctype)
     return 4;
 }
 
+/* Bit replication, matching native/gx/texture.c and the reference
+ * (Aurora ExpandTo8); round-by-scaling is off by one LSB for some values. */
 static uint8_t model_expand4(unsigned int v) { return (uint8_t) ((v << 4) | v); }
-static uint8_t model_expand5(unsigned int v) { return (uint8_t) ((v * 255u) / 31u); }
-static uint8_t model_expand6(unsigned int v) { return (uint8_t) ((v * 255u) / 63u); }
+static uint8_t model_expand5(unsigned int v) { return (uint8_t) ((v << 3) | (v >> 2)); }
+static uint8_t model_expand6(unsigned int v) { return (uint8_t) ((v << 2) | (v >> 4)); }
 
 /*
  * For GX_VA_CLR0/CLR1 the comp_type field uses the color encoding enum
@@ -514,11 +516,11 @@ static void decode_color(uint32_t ctype, const uint8_t *p, size_t n, size_t o,
         out[2] = p[o + 2];
         out[3] = 255;
         break;
-    case 2: /* RGBX8 */
+    case 2: /* RGBX8 (the X byte is ignored; alpha = 255) */
         out[0] = p[o];
         out[1] = p[o + 1];
         out[2] = p[o + 2];
-        out[3] = p[o + 3];
+        out[3] = 255;
         break;
     case 3: { /* RGBA4 */
         uint16_t v = rb16(p, n, o);
@@ -529,10 +531,10 @@ static void decode_color(uint32_t ctype, const uint8_t *p, size_t n, size_t o,
         break;
     }
     case 4: /* RGBA6, 18 bits packed big-endian */
-        out[0] = (uint8_t) ((p[o] >> 2) * 255 / 63);
-        out[1] = (uint8_t) ((((p[o] & 3) << 4) | (p[o + 1] >> 4)) * 255 / 63);
-        out[2] = (uint8_t) ((((p[o + 1] & 15) << 2) | (p[o + 2] >> 6)) * 255 / 63);
-        out[3] = (uint8_t) ((p[o + 2] & 63) * 255 / 63);
+        out[0] = model_expand6((p[o] >> 2) & 63);
+        out[1] = model_expand6((((p[o] & 3) << 4) | (p[o + 1] >> 4)) & 63);
+        out[2] = model_expand6((((p[o + 1] & 15) << 2) | (p[o + 2] >> 6)) & 63);
+        out[3] = model_expand6(p[o + 2] & 63);
         break;
     case 5: /* RGBA8 */
     default:

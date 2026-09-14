@@ -58,7 +58,7 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 | `GXBegin`/`GXEnd`/direct writers (`GXPosition*`/`GXColor*`/`GXNormal*`/`GXTexCoord*`, 82 sites) | EXACT | `GXVert.h` shim → `GXPortWGFifo*`; `GXBegin` snapshot `gx_hle.c:1580` | `lib/dolphin/gx/GXVert.cpp`, `lib/gx/command_processor.cpp` | P-677 broadens coverage |
 | `GXCallDisplayList` (PObj streams) | EXACT | `gx_hle.c:1592` | `lib/gx/dl.cpp` (`run_display_list`) | — |
 | `GXClearVtxDesc`/`GXSetVtxDesc(v)` | EXACT | `gx_hle.c:1385/1395/1409` | `lib/dolphin/gx/GXAttr.cpp` | — |
-| `GXSetVtxAttrFmt(v)` incl. color enum, NBT=9, frac | EXACT | `gx_hle.c:1417`; `read_vertex` `:325` | `lib/gx/attr_fmt.cpp`, `shader.cpp:attr_load` | — |
+| `GXSetVtxAttrFmt(v)` incl. color enum, NBT=9, frac | EXACT (P-692: bit-replication expansions; RGBX8's X byte ignored) | `gx_hle.c:1417`; `read_vertex` `:325` | `lib/gx/attr_fmt.cpp`, `shader.cpp:attr_load` (`fetch_rgbx8` alpha 255) | `ctest decomp_gx_direct` RGB565/RGBX8 case |
 | `GXSetArray` (indexed attrs) | EXACT | `gx_hle.c:1439` | `lib/dolphin/gx/GXAttr.cpp` | — |
 | Attribute byte order | EXACT for HSD streams (differential 17,724 verts, 0 mismatch) | `desc_order` capture | fixed CP order in `attr_fmt.cpp` | note: order is taken from `GXSetVtxDesc` call order; HSD authors the same order. Revisit only if a desync appears (G-062 class) |
 | `GX_VA_NBT` binormal/tangent | EXACT | `read_vertex` `:355` (9 comps) | `attr_load_nbt_slice` | Melee never uses `GX_NRM_NBT3` |
@@ -74,7 +74,7 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 |---|---|---|---|---|
 | `GXLoadPosMtxImm`/`GXLoadNrmMtxImm`(+3x3)/`GXLoadTexMtxImm`, `GXSetCurrentMtx` | EXACT | `gx_hle.c:1320-1383` | `GXTransform.cpp` | — |
 | Position/normal transform | EXACT | `transform_vertex` `gx_hle.c:621` | `lib/gx/shader.cpp` vtx XFR | — |
-| Texcoord generator: MTX2x4 (z=1 before post), MTX3x4, bump, SRTG, mtx/postmtx chain, normalize | EXACT (closed by P-672) | `texgen_coord` `gx_hle.c:496`; SRTG lit source in FS `gx_gl.c:gx_coord_uv` | `shader.cpp:1210-1295` (Aurora sets `z=1` for MTX2x4, normalizes between the matrices) | learning `gx_indirect_toon.md`; `ctest decomp_gx_direct` |
+| Texcoord generator: MTX2x4 (z=1 before post), MTX3x4, bump, SRTG, mtx/postmtx chain, normalize | EXACT (P-672 + P-693: a TEX source is `(u,v,1)`, so MTX3x4 q rows see z) | `texgen_coord` `gx_hle.c:496`; SRTG lit source in FS `gx_gl.c:gx_coord_uv` | `shader.cpp:1210-1295` (Aurora builds `vec4f(uv, 1.0, 1.0)` and sets `z=1` for MTX2x4) | learning `gx_indirect_toon.md`; `ctest decomp_gx_direct` MTX3x4 q case |
 | `GX_TG_MTX3x4` projective divide incl. q==0 quirk | EXACT (closed by P-672) | `texgen_coord` | `shader.cpp` `tex_uvw` + `/w`; Dolphin q==0 clamp | `ctest decomp_gx_direct` MTX3x4 fixture |
 | `GXSetProjection` (perspective + ortho) | EXACT | `gx_hle.c:852` | `GXTransform.cpp` | — |
 | `GXProject` | EXACT (SDK formula) | `gx_hle.c:817` | `GXTransform.cpp` | — |
@@ -90,7 +90,7 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 
 | GX item | Status | Our location | Aurora reference | Action |
 |---|---|---|---|---|
-| `GXSetNumTevStages`/`GXSetTevOrder` (8 stages) | EXACT | `gx_hle.c:1092/1098`; `gx_gl.c:452` | `GXTev.cpp`, `regs.cpp:bp_tev_*`, `shader_info.cpp` | — |
+| `GXSetNumTevStages`/`GXSetTevOrder` (8 stages), raster channel select (COLOR1/ALPHA1/COLOR1A1 -> rast1, ZERO/NULL -> black) | EXACT (P-694) | `gx_hle.c:1092/1098`; `gx_gl.c` FS channel select | `GXTev.cpp`, `regs.cpp:bp_tev_*`, `attr_fmt.cpp:color_channel`, `shader.cpp:color_arg_reg` | `ctest decomp_efb` ALPHA1/NULL pass |
 | Color/alpha in/op (ADD/SUB, bias, scale, clamp, out_reg) | EXACT | `gx_gl.c:492-525` | `shader.cpp` TEV expr | — |
 | `GX_TEV_COMP_*` compare ops | N/A | treated as ADD | `shader.cpp:375` | Melee never passes one (`rg GX_TEV_COMP decomp/src` empty) |
 | TEV color/K registers, S10 | EXACT | `gx_hle.c:1174/1186/1198` | `regs.cpp:bp_tev_reg` (sext11/255) | — |

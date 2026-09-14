@@ -289,9 +289,13 @@ static float read_comp(u32 type, u8 frac, const u8* p)
     }
 }
 
+/* Integer channels expand by bit replication (Aurora ExpandTo8 /
+ * texture_convert.cpp, matching native/gx/texture.c): round-by-scaling is off
+ * by one LSB for some values (5-bit 13 -> 106 instead of 107, 6-bit 17 -> 68
+ * instead of 69). */
 static u8 expand4(unsigned v) { return (u8) ((v << 4) | v); }
-static u8 expand5(unsigned v) { return (u8) ((v * 255u) / 31u); }
-static u8 expand6(unsigned v) { return (u8) ((v * 255u) / 63u); }
+static u8 expand5(unsigned v) { return (u8) ((v << 3) | (v >> 2)); }
+static u8 expand6(unsigned v) { return (u8) ((v << 2) | (v >> 4)); }
 
 /* Mirrors native/hsd/model.c:decode_color (verified on the assets). */
 static void decode_color(u32 type, const u8* p, u8 out[4])
@@ -315,7 +319,7 @@ static void decode_color(u32 type, const u8* p, u8 out[4])
         out[0] = p[0];
         out[1] = p[1];
         out[2] = p[2];
-        out[3] = p[3];
+        out[3] = 255; /* the X byte is ignored (Aurora fetch_rgbx8) */
         break;
     case GX_RGBA4: {
         u16 v = be16(p);
@@ -326,10 +330,10 @@ static void decode_color(u32 type, const u8* p, u8 out[4])
         break;
     }
     case GX_RGBA6:
-        out[0] = (u8) ((p[0] >> 2) * 255 / 63);
-        out[1] = (u8) ((((p[0] & 3) << 4) | (p[1] >> 4)) * 255 / 63);
-        out[2] = (u8) ((((p[1] & 15) << 2) | (p[2] >> 6)) * 255 / 63);
-        out[3] = (u8) ((p[2] & 63) * 255 / 63);
+        out[0] = expand6(p[0] >> 2);
+        out[1] = expand6((((p[0] & 3) << 4) | (p[1] >> 4)) & 63);
+        out[2] = expand6((((p[1] & 15) << 2) | (p[2] >> 6)) & 63);
+        out[3] = expand6(p[2] & 63);
         break;
     case GX_RGBA8:
     default:
@@ -594,16 +598,20 @@ static void texgen_coord(int coord, const GxRawVertex* raw, const float pos[3],
     case GX_TG_TEX5:
     case GX_TG_TEX6:
     case GX_TG_TEX7: {
+        /* A texture-coordinate source is (u, v, 1): the third component
+         * feeds a GX_TG_MTX3x4 q row (Aurora shader.cpp builds
+         * `vec4f(uv, 1.0, 1.0)`).  Feeding 0 changes q whenever the matrix
+         * has a z coefficient. */
         int t = tg->src - GX_TG_TEX0;
         in[0] = raw->uv[t][0];
         in[1] = raw->uv[t][1];
-        in[2] = 0.0f;
+        in[2] = 1.0f;
         break;
     }
     default:
         in[0] = raw->uv[0][0];
         in[1] = raw->uv[0][1];
-        in[2] = 0.0f;
+        in[2] = 1.0f;
         break;
     }
 
