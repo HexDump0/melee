@@ -1,0 +1,59 @@
+# P-713 triage input: -Wmaybe-uninitialized sites at pin 40012f51f
+# Generated 2026-09-14 by the sweep in learnings/decomp_port.md (P-712/ADR-0019).
+# 181 unique sites; the 40 below are the ones whose variable is a POINTER,
+# i.e. the ones that can crash rather than just compute a wrong number.
+# Columns: site, variable, declaration.
+#
+# Verdicts reached so far (do not redo these three):
+#   lbspdisplay.c:165  jobj    FALSE POSITIVE - prev is -1 on the first
+#                              iteration, so the assigning branch always runs.
+#   lbanim.c:34        fobj    FALSE POSITIVE - the only caller
+#                              (lbAnim_8001E6D8:105) guards frames != 0.
+#   itfreeze.c:69      ip      REAL but UNREACHABLE - ip is assigned only under
+#                              if (ref_gobj != NULL), then tested and
+#                              dereferenced unconditionally. Retail keeps it in
+#                              r5 (0x8028eb88), which is NOT a parameter on that
+#                              path, so retail is indeterminate too. The sole
+#                              caller (itoldottosea.c:161) always passes a
+#                              non-NULL gobj, so census outcome 3: leave it.
+#
+decomp/src/melee/ft/ft_081B.c:1274	var_r25	int* var_r25;
+decomp/src/melee/ft/ftafterimage.c:237	params	itSword_UnkBytes* params;
+decomp/src/melee/ft/ftafterimage.c:446	attrs	struct SwordAttrs* attrs;
+decomp/src/melee/gm/gm_1601.c:998	best_player	MatchPlayerData* best_player;
+decomp/src/melee/gm/gmevent.c:1041	event_levels	struct gm_804D6900_t** event_levels;
+decomp/src/melee/it/kinds/itclimbersstring.c:123	tail_link	ItemLink* tail_link;
+decomp/src/melee/it/kinds/itclimbersstring.c:124	head_link	ItemLink* head_link;
+decomp/src/melee/it/kinds/itclimbersstring.c:71	prev_link	ItemLink* prev_link;
+decomp/src/melee/it/kinds/itfreeze.c:69	ip	Item* ip;
+decomp/src/melee/it/kinds/itlinkarrow.c:295	jobj	HSD_JObj* jobj = gobj->hsd_obj;
+decomp/src/melee/it/kinds/itlinkarrow.c:298	jobj	HSD_JObj* jobj = gobj->hsd_obj;
+decomp/src/melee/it/kinds/itlinkhookshot.c:278	last_link	ItemLink* last_link;
+decomp/src/melee/it/kinds/itlinkhookshot.c:279	first_link	ItemLink* first_link;
+decomp/src/melee/it/kinds/itnessyoyo.c:140	tail_link	ItemLink* tail_link;
+decomp/src/melee/it/kinds/itnessyoyo.c:141	head_link	ItemLink* head_link;
+decomp/src/melee/it/kinds/itnessyoyo.c:80	prev_link	ItemLink* prev_link;
+decomp/src/melee/it/kinds/itsamusgrapple.c:413	tail_link	ItemLink* tail_link;
+decomp/src/melee/it/kinds/itsamusgrapple.c:414	head_link	ItemLink* head_link;
+decomp/src/melee/it/kinds/itseakchain.c:143	tail_link	ItemLink* tail_link;
+decomp/src/melee/it/kinds/itseakchain.c:144	head_link	ItemLink* head_link;
+decomp/src/melee/it/kinds/itseakchain.c:145	result	HSD_JObj* result;
+decomp/src/melee/lb/lbanim.c:34	fobj	HSD_FObj* fobj;
+decomp/src/melee/lb/lbspdisplay.c:165	jobj	HSD_JObj* jobj;
+decomp/src/melee/lb/lbspdisplay.c:237	jobj	HSD_JObj* jobj;
+decomp/src/melee/mn/mndiagram3.c:227	value_text	HSD_Text* value_text;
+decomp/src/melee/mn/mnitemsw.c:622	anims	f32* anims;
+decomp/src/melee/mn/mnmain.c:1178	anim_loop	AnimLoopSettings* anim_loop;
+decomp/src/melee/mn/mnmainrule.c:1130	als	AnimLoopSettings* als;
+decomp/src/melee/mn/mnmainrule.c:950	anim	AnimLoopSettings* anim;
+decomp/src/melee/mn/mnname.c:1040	anim	AnimLoopSettings* anim;
+decomp/src/melee/mn/mnnamenew.c:477	str_table	char** str_table;
+decomp/src/melee/mn/mnruleplus.c:731	anim_settings	AnimLoopSettings* anim_settings;
+decomp/src/melee/mn/mnruleplus.c:889	als	AnimLoopSettings* als;
+decomp/src/melee/mn/mnstagesw.c:609	anims	AnimLoopSettings* anims;
+decomp/src/melee/mp/mplib.c:943	joint	CollJoint* joint;      // r26
+decomp/src/melee/ty/tydisplay.c:1746	lobj	HSD_LObj* lobj;
+decomp/src/sysdolphin/baselib/hsd_3A76.c:385	glyph_tex	TextGlyphTexture* glyph_tex;
+decomp/src/sysdolphin/baselib/particle.c:210	base	s32* base;
+decomp/src/sysdolphin/baselib/tobj.c:755	konst_rgb	HSD_TExp* konst_rgb;
+decomp/src/sysdolphin/baselib/tobj.c:861	konst_r	HSD_TExp* konst_r;
