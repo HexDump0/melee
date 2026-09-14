@@ -26,8 +26,9 @@ Learnings: `gx_indirect_toon.md`, `gx_lighting_specular.md`,
 Also closed: **P-680** lines/points via per-draw topology runs.
 Also closed: **P-679** fog coefficients, screen-depth evaluation and range
 adjustment (the converter follow-up on `fogadjdesc` remains).
-Also closed: **P-681** spot-light cones, **P-682** Z24X8 depth snapshots and
-**P-676** match-path batching.  Only **P-677** (harness breadth) remains.
+Also closed: **P-681** spot-light cones, **P-682** Z24X8 depth snapshots,
+**P-676** match-path batching and **P-677** (the parity-matrix harness).
+Every row above is now EXACT, N/A or a documented deviation.
 Session handoff: `handoffs/2026-09-13-renderer-parity.md`.
 
 ## Method
@@ -188,7 +189,7 @@ Legend: **EXACT** = behavior matches the SDK/Aurora semantics;
 | ~~**P-674** EFB copy formats~~ **DONE** (Z24X8 closed by P-682) | §6 | `ctest decomp_efb` pass 7; learning `gx_efb_copy.md` |
 | ~~**P-675** textures/samplers~~ **DONE** (edge-lod/bias-clamp documented) | §5 | `ctest decomp_gx_direct` expansion + texobj cases; learning `gx_texture_parity.md` |
 | ~~**P-676** perf~~ **DONE** | draw-state batching (-2.0% cycles, 19.4% hit rate); profile in `gx_match_perf.md`; match frames 600/718 byte-identical |
-| **P-677** harness | cross-character/stage/effect parity artifacts | one command per slice producing a pass/fail artifact |
+| ~~**P-677** harness~~ **DONE** | `native/tests/parity_matrix.sh` + `ctest decomp_parity`: 13 cases, hash/scalar report; learning `gx_parity_harness.md` |
 | ~~**P-678** `GXGetProjectionv` packed layout~~ **DONE** | §2 | `ctest decomp_gx_direct` asserts both layouts + `GXSetProjectionv` round trip; G-131 |
 | ~~**P-679** fog math + range adj~~ **DONE** (converter follow-up remains) | §7 | shader vs `shader.cpp` formula comparison on a synthetic depth ramp; range table read |
 | ~~**P-680** lines/points primitives~~ **DONE** | §1 | `test_decomp_render --direct` line/point fixture asserting emitted geometry; `psdisp` HUD capture |

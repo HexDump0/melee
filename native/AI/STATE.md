@@ -245,6 +245,14 @@ RGB565/R4/RGBA8 bytes are unchanged.  `ctest decomp_efb` pass 7 covers the
 new formats with sensitivity flipped; Z24X8 depth snapshots and `GX_ZT_ADD`
 are documented in `learnings/gx_efb_copy.md` (closed by P-682).
 
+**P-677 (2026-09-13):** the parity harness is one command:
+`native/tests/parity_matrix.sh [binary] [report]` renders 13 cases (7
+characters, 4 stages including the toon stage `GrPu`, the `--direct`/`--efb`
+fixtures) and writes a markdown pass/fail artifact with screenshot hashes.
+`ctest decomp_parity` is the 18th test and skips cleanly without a disc.
+Learning `gx_parity_harness.md`.  With P-677 closed, every row of
+`learnings/gx_coverage_matrix.md` is EXACT, N/A or a documented deviation.
+
 **P-676 (2026-09-13):** match-path batching: `gx_gl` remembers the last
 applied draw state and skips the uniform/state/scissor calls when the next
 draw's captured state is identical (19.4% of draws in a 900-frame match;

@@ -1,4 +1,4 @@
-# Handoff: renderer parity session (P-671..P-678, P-672..P-675)
+# Handoff: renderer parity session (all of P-671..P-682)
 
 **Date:** 2026-09-13
 **Agent:** opencode (deepseek-v4.1-flash)
@@ -8,8 +8,8 @@
 ## Mission and result
 
 ADR-0017 keeps the 32-bit GLES renderer and ports Aurora's algorithms into it.
-This session produced the coverage matrix and closed five rows with
-sensitivity-flipped regressions:
+This session produced the coverage matrix and closed every open renderer
+row (P-671..P-682) with sensitivity-flipped regressions:
 
 | Commit | Task | What changed |
 |---|---|---|
@@ -23,7 +23,8 @@ sensitivity-flipped regressions:
 | `76448c9c5` | P-679 | SDK fog coefficients + `gl_FragCoord.z` evaluation, all five families, range adjustment |
 | `7e901f241` | P-681 | Per-channel `GX_AF_*` attenuation; SPOT cosine/distance polynomials |
 | `863ac3174` | P-682 | Z24X8 depth snapshots (blit + tiling), ADD/REPLACE/bias |
-| (P-676, this commit) | P-676 | Draw-state batching: -2.0% cycles, frames 600/718 byte-identical |
+| `58c7661ca` | P-676 | Draw-state batching: -2.0% cycles, frames 600/718 byte-identical |
+| (P-677, this commit) | P-677 | Parity-matrix harness: 13 cases + `decomp_parity` ctest + report |
 
 ## Coverage matrix delta
 
@@ -34,10 +35,17 @@ Closed (now EXACT or documented):
 - §4 `GXInitLightDistAttn`, `GXInitLightSpot`, `GX_AF_SPEC` specular
   (P-673).  `GXInitLightDir` stays a documented sign convention.
 - §5 3/4/5/6-bit expansion, per-object `GXTexObj` (P-675).
-- §6 `GXCopyTex` I4/I8/IA4/IA8/RGB5A3, copy clear (P-674).
+- §6 `GXCopyTex` I4/I8/IA4/IA8/RGB5A3 (P-674) and Z24X8 depth snapshots +
+  `GX_ZT_ADD`/bias (P-682); copy clear N/A (full-surface writes).
+- §7 fog: SDK `A/(B-z)-C` on `gl_FragCoord.z`, all five families, range
+  adjustment (P-679; the converter `fogadjdesc` follow-up remains).
+- §4 `GX_AF_SPOT` cosine cones and `GX_AF_NONE` (P-681).
+- §1 lines/points topology runs (P-680).
+- P-676 profile + draw-state batching; P-677 parity-matrix harness.
 
-Still red (each has a task):
-- **P-677** parity harness breadth.
+No red rows remain; `learnings/gx_coverage_matrix.md` records EXACT/N-A or a
+documented deviation for every item Melee calls.  **P-677** (parity-matrix harness) closed this session
+with `native/tests/parity_matrix.sh` / `ctest decomp_parity`.
 
 Documented deviations (no task): EFB always RGBA8 (`GXSetPixelFmt`),
 XFB/VI copies and logic ops, texture residency, generated mips, edge-lod
@@ -46,7 +54,7 @@ and bias-clamp, `GXInitLightDir` sign, `GXSetCopyClear`.
 ## Evidence / exact commands
 
 ```sh
-ctest --test-dir build/native --output-on-failure          # 17/17
+ctest --test-dir build/native --output-on-failure          # 18/18
 MELEE_NO_ASSET_CACHE=1 ./build/native/test_decomp_assets   # PASS
 ./build/native/test_decomp_render --direct                 # texgen/indirect/light/texobj
 ./build/native/test_decomp_render --efb                    # 11 passes (5-11 added)
@@ -58,16 +66,21 @@ Screenshot deltas (1280x800, `test_decomp_render --shot`):
 - P-672 vs P-671: RMSE 0.00091, 19 px — Mario's reflection map now honors
   `MTX3x4`/normalize.
 - P-675 vs P-674: RMSE 0.00056, 82 px — 1-LSB texture rounding.
-- P-673 and P-674: pixel-identical to their parents on this scene.
+- P-673, P-674, P-679, P-680, P-681, P-682, P-676: pixel-identical to their
+  parents on this scene; P-676's match frames 600/718 are also
+  byte-identical against the pre-batching binary.
 
 Every regression was flipped once to prove sensitivity; the exact failing
 outputs are in each learning under `native/AI/learnings/`
 (`gx_indirect_toon.md`, `gx_lighting_specular.md`, `gx_efb_copy.md`,
-`gx_texture_parity.md`, G-131 in `gotchas/GOTCHAS.md`).
+`gx_texture_parity.md`, `gx_fog.md`, `gx_primitive_runs.md`,
+`gx_match_perf.md`, `gx_parity_harness.md`, G-131 in `gotchas/GOTCHAS.md`).
 
 ## Suggested next slice
 
-1. **P-677 harness** breadth (the last red row).
+Nothing mandatory remains; the optional follow-ups are the P-676
+opportunities (`learnings/gx_match_perf.md`) and the converter `fogadjdesc`
+follow-up (P-658/P-662) that would make fog range adjustment reachable.
 
 ## Notes for the next agent
 

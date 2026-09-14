@@ -464,6 +464,16 @@ add_test(NAME decomp_stage_cam COMMAND test_decomp_render
 set_tests_properties(decomp_stage_cam PROPERTIES
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
     PASS_REGULAR_EXPRESSION "decomp_render: PASS")
+# P-677: render the parity matrix (characters, stages, GX fixtures) and write
+# a pass/fail markdown report; SKIPs cleanly without the disc image.
+add_test(NAME decomp_parity
+    COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/tests/parity_matrix.sh
+            $<TARGET_FILE:test_decomp_render>
+            ${CMAKE_CURRENT_BINARY_DIR}/parity-report.md)
+set_tests_properties(decomp_parity PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
+    PASS_REGULAR_EXPRESSION "parity: (PASS|SKIP)"
+    TIMEOUT 300)
 # P-619 regression: stage -> model mode switch (viewer M key) must reload the
 # remembered model, not the first archive in the list.
 add_test(NAME decomp_stage_toggle COMMAND test_decomp_render
