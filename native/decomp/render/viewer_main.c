@@ -1178,7 +1178,8 @@ int main(int argc, char** argv)
                 "melee: retail frontend (live input; ESC quits).  Use "
                 "--help for the development viewer options.\n");
     }
-    if (match_mode && record_path != NULL && strcmp(record_path, "-") == 0) {
+    if ((match_mode || frontend_mode) && record_path != NULL &&
+        strcmp(record_path, "-") == 0) {
         /* Keep stdout clean for the PPM pipe: move logs to /dev/null and
          * hand the original fd to the recorder before anything prints. */
         int fd;
@@ -1192,7 +1193,7 @@ int main(int argc, char** argv)
             fprintf(stderr, "viewer: cannot open record stdout\n");
             return 1;
         }
-    } else if (match_mode && record_path != NULL) {
+    } else if ((match_mode || frontend_mode) && record_path != NULL) {
         record = fopen(record_path, "wb");
         if (record == NULL) {
             fprintf(stderr, "viewer: cannot open record output %s\n",
