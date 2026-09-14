@@ -261,7 +261,8 @@ set_tests_properties(decomp_trig PROPERTIES
 # upstream warnings are suppressed because src/ must not be modified.  Three
 # pure-C SDK TUs are compiled from extern/dolphin (never edited): the real SDN
 # heap/arena and the Mtx44 projection helpers.  Files excluded on the host:
-#   src/MSL/            glibc provides libc/math (ADR-0011)
+#   src/MSL/            glibc provides libc/math (ADR-0011); trigf.c and
+#                       math_data.c are the P-688 exception (ADR-0018)
 #   src/MetroTRK/       GameCube debugger transport
 #   Runtime/__mem.c     MSL memcpys; glibc provides them
 #   baselib/debug.c     MSL FILE internals; replaced by decomp/debug_port.c

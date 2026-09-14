@@ -41,7 +41,9 @@ Scratch probe: every `src/*.c` compiled with
 Result: **1021 / 1034 files compile with zero errors.** The 13 excluded files:
 
 - 12 `src/MSL/*.c` — the decomp's own GameCube libc; not compiled on PC (glibc
-  provides the symbols), per ADR-0011.
+  provides the symbols), per ADR-0011.  P-688/ADR-0018 added the one
+  exception: `MSL/trigf.c` + `MSL/math_data.c` compile so `sinf`/`cosf`/`tanf`
+  match the console tables.
 - `src/sysdolphin/baselib/debug.c` — uses MSL `FILE` internals (`__io_proc`,
   `__idle_proc`, `__file_handle`); replaced by the port's OS/log layer.
 
