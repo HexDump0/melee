@@ -1141,3 +1141,47 @@ noise there.  ADR-0012 is precisely what makes them signal here.
 future submodule re-pin or a struct edit that breaks console layout fails to
 compile instead of corrupting memory at runtime.  `ctest` 28/28 with the flag;
 no `src/` change, so the GameCube build is untouched.
+
+## ADR-0021: Sweep the decompilation for UB classes rather than enabling warnings in the build
+
+**Date:** 2026-09-14 (P-716)
+
+**Context.** `src/` compiles with `-w` (ADR-0011 keeps the tree read-only, and
+upstream's warnings are not ours to fix), so the port sees no diagnostics from
+993 TUs at all.  Three sweeps have now each found real bugs there: missing
+`return` (P-695/P-709/P-710), uninitialised reads (P-712/P-713), and this one.
+
+**Decision.** Keep `-w` in the build, and run periodic **targeted sweeps** by
+re-compiling the `melee_decomp_game` entries of `compile_commands.json` with
+`-w` removed and a specific warning set added.  Bank the output under
+`native/AI/logs/` and file the triage as its own task.
+
+Sweep set used for P-716 (bounds and UB, not style):
+
+```
+-Warray-bounds=2 -Wstringop-overflow=4 -Wstringop-truncation
+-Wsequence-point -Wshift-count-overflow -Wshift-overflow=2
+-Wint-in-bool-context -Wlogical-not-parentheses -Wbool-compare
+-Wtautological-compare -Wmemset-elt-size -Wmemset-transposed-args
+-Wsizeof-pointer-memaccess -Wsizeof-array-argument -Wnonnull
+-Wfree-nonheap-object -Wdiv-by-zero -Wduplicated-cond
+```
+
+**Why not just turn warnings on in the build.** The decompilation is not
+written to be warning-clean and never will be: this sweep alone produced 62331
+`-Wscalar-storage-order` hits, which are the `DISC_BE` attribute working
+exactly as designed, and 869 unique `-Warray-bounds=2` sites that are mostly
+the tree's `[1]`-declared variable-length arrays.  A build that shouts cannot
+be read, and suppressing classes one by one in the build file drifts out of
+date.  A sweep that is run deliberately, banked, and triaged in a task keeps
+the signal.
+
+**Highest-value class, for whoever runs the next one.**
+`-Waggressive-loop-optimizations` is not a style warning: it means GCC has
+**proved** a loop reaches undefined behaviour and is entitled to transform it.
+Both of its hits here were real, and one of them was also masking an
+endianness divergence (G-164).  Read those first.
+
+**Re-run after every submodule re-pin.**  The recipe is in
+`learnings/decomp_port.md` under the missing-`return` census; substitute the
+warning set above.

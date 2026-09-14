@@ -2529,3 +2529,35 @@ failures — correctly, for a 64-bit target where pointer-bearing structs cannot
 match PowerPC sizes.  Being 32-bit (ADR-0012) is exactly what turns their dead
 lever into our live one.  See also G-160/G-161, where copying that port's
 conclusions would have been wrong for different reasons.
+
+## G-164: a byte read past an array can change meaning with endianness
+
+**Symptom:** in `gm_1601.c`, `team_count` was incremented for a player who had
+any self-destructs at all.  Retail increments it essentially never.
+
+**Cause:** the loop is `for (i = 0; i < 6; i++)` over
+`team_standings[GM_MAX_TEAMS]`, and `GM_MAX_TEAMS` is 5.  The sixth iteration
+reads one byte past the array.  That byte is not padding — it is
+`player_standings[0].self_destructs`, a **u16** of natively-stored runtime
+data, at `MatchEnd+0x62`.
+
+On the console's big-endian layout the byte at that address is the u16's
+**high** half, so the branch needs 256+ self-destructs.  On a little-endian
+host the same address is the **low** half, so it fires on the first one.  Same
+address, same C, opposite behaviour.  `team_count` is then added into
+`is_big_loser`/`is_small_loser`, so it reaches the results screen.
+
+**Rule:** when porting an out-of-bounds read that lands on a live neighbour,
+the byte offset is not enough — work out which *half* of the neighbouring
+field the console was reading.  A stray read of a `u8` neighbour ports
+directly; a stray read into a `u16`/`u32` neighbour does not.  This applies to
+runtime data; disc data is already handled by the converter.
+
+**Related trap:** the decomp's `/* 0xNN */` offset comments are commentary, not
+contract.  `team_standings` is commented `/* 0x1B */` and actually sits at
+`0x1C` (the preceding `u8[5]` ends at 0x1B and `MatchTeamData` needs 4-byte
+alignment); `gm/types.h` even notes "offset by 1 because of the previous
+struct" further down.  **Measure offsets with `offsetof`, and pin the result
+with a `STATIC_ASSERT`** so a re-pin breaks the build instead of the game —
+arithmetic done from the comments put this fix on the wrong field first, and
+the assertion is what caught it.

@@ -1,0 +1,52 @@
+diff --git a/src/melee/gm/gm_1601.c b/src/melee/gm/gm_1601.c
+index 85d056f3a..294b1aae3 100644
+--- a/src/melee/gm/gm_1601.c
++++ b/src/melee/gm/gm_1601.c
+@@ -3214,11 +3247,47 @@ void gm_80166CCC(MatchEnd* arg0, MatchEnd* arg1)
+         }
+     }
+ 
++#ifdef PORT_PC
++    /* Retail loops 6 times over a 5-entry array (GM_MAX_TEAMS), so the sixth
++     * iteration reads one byte past team_standings[].  That byte is not
++     * padding: team_standings[5].active and player_standings[0].self_destructs
++     * are both MatchEnd+0x62, and team_count is added into is_big_loser and
++     * is_small_loser below.  It is a real console bug, faithfully decompiled,
++     * and the port has to keep it -- but it cannot keep it two ways:
++     *
++     * 1. It is undefined behaviour.  -Waggressive-loop-optimizations reports
++     *    "iteration 5 invokes undefined behavior", i.e. GCC may assume the
++     *    loop never gets there and transform it, silently changing team_count.
++     * 2. self_destructs is a u16 of *runtime* (natively stored) data, so the
++     *    byte at +0x62 is its HIGH half on the console's big-endian layout and
++     *    its LOW half on a little-endian host.  Retail therefore takes this
++     *    branch only when a player has 256 or more self-destructs -- in
++     *    practice never -- while the port was taking it whenever player 1 had
++     *    any at all.
++     *
++     * So read the byte retail reads, explicitly.  The assertion pins the
++     * aliasing: if a re-pin moves either field the build fails here instead of
++     * quietly changing behaviour (layout is enforced since ADR-0020). */
++    STATIC_ASSERT(offsetof(struct MatchEnd, team_standings) +
++                      GM_MAX_TEAMS * sizeof(struct MatchTeamData) +
++                      offsetof(struct MatchTeamData, active) ==
++                  offsetof(struct MatchEnd, player_standings) +
++                      offsetof(struct MatchPlayerData, self_destructs));
++    for (i = 0; i < GM_MAX_TEAMS; i++) {
++        if (arg1->team_standings[i].active != 0) {
++            team_count += 1;
++        }
++    }
++    if (((arg1->player_standings[0].self_destructs >> 8) & 0xFF) != 0) {
++        team_count += 1;
++    }
++#else
+     for (i = 0; i < 6; i++) {
+         if (arg1->team_standings[i].active != 0) {
+             team_count += 1;
+         }
+     }
++#endif
+     if (arg0->n_team_winners > 1) {
+         for (i = 0; i < 5; i++) {
+             if (arg0->team_standings[i].active != 0) {

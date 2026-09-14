@@ -1,0 +1,30 @@
+diff --git a/src/melee/gm/gm_1884.c b/src/melee/gm/gm_1884.c
+index d5a4a162a..ae73f49de 100644
+--- a/src/melee/gm/gm_1884.c
++++ b/src/melee/gm/gm_1884.c
+@@ -895,9 +895,25 @@ void gm_80189CDC(StartMeleeData* arg0)
+     state->mode = (s32) (arg0->players[0].slot - 1);
+     state->count = 1;
+ 
++#ifdef PORT_PC
++    /* Retail clears 0x1B entries of a 25-entry array.  The two extra writes
++     * land on TrainingModeState::pad_6C[0..1], which follows char_data[] and
++     * runs exactly to players[] (0x008 + 0x1B*4 == 0x074), so nothing outside
++     * the struct is touched and this is byte-for-byte what the console does.
++     * It is still an out-of-bounds access on the declared array, though, and
++     * GCC says so: -Waggressive-loop-optimizations reports "iteration 25
++     * invokes undefined behavior", which means it is entitled to assume the
++     * loop stops there and transform it.  Spell the same stores out instead. */
++    for (i = 0; i < 25; i++) {
++        state->char_data[i] = 0;
++    }
++    state->pad_6C[0] = 0;
++    state->pad_6C[1] = 0;
++#else
+     for (i = 0; 0x1B > i; i++) {
+         state->char_data[i] = 0;
+     }
++#endif
+ }
+ 
+ static inline void resetText(HSD_Text* text)

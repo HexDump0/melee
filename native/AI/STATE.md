@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-14 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713 and P-714 fixed, P-699/P-702/P-711/P-715 open)
+Last updated: 2026-09-14 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714 and P-716 fixed, P-699/P-702/P-711/P-715/P-717 open)
 
 > **Direction (2026-09-13/14): ADR-0017 — keep the GLES renderer, reach Aurora parity.**
 > The 32-bit product, in-place converter and GLES3/WebGL2 renderer stay; the
@@ -897,3 +897,30 @@ its white-quad/`GX_TEXMAP_NULL` TEV work.  **Treat that port as a source of
 leads, not patches:** three of its conclusions have now turned out wrong for us
 on re-derivation (`un_80300758`, `gmevent.c`, and the ASSERT_SIZE retraction),
 each time because its 64-bit architecture changes the reasoning.
+
+**P-716 (2026-09-14, the UB/bounds classes `-w` was hiding):** `src/` compiles
+with `-w`, so the port only ever sees the warning classes it explicitly sweeps
+for.  After the return-value (P-709/P-710) and uninitialised-read
+(P-712/P-713) sweeps, this one covered the bounds and UB families.  Two sites
+came back as `-Waggressive-loop-optimizations`, which is GCC saying it has
+**proved** a loop runs out of bounds and is entitled to transform it:
+`gm_1884.c:899` clears 27 entries of a 25-entry array (the two extra land on
+the sibling `pad_6C[2]`, so nothing outside the struct is touched) and
+`gm_1601.c:3251` reads one byte past `team_standings[5]`.
+
+The second turned out to be more than UB.  That byte is
+`player_standings[0].self_destructs`, a u16 of natively-stored runtime data at
+`MatchEnd+0x62`: on the console's big-endian layout retail reads its **high**
+half, so the branch needs 256+ self-destructs and effectively never fires,
+while on a little-endian host the same address is the **low** half and it
+fired on the first one — inflating `team_count`, which is added into
+`is_big_loser`/`is_small_loser` on the results screen (G-164).  The aliasing is
+now pinned with a `STATIC_ASSERT`, live since ADR-0020, and it earned its keep
+immediately: offsets computed from the decomp's `/* 0xNN */` comments put the
+fix on the wrong field, and the assertion caught it (`team_standings` is
+commented `0x1B` but really sits at `0x1C`).
+
+GC build still `main.dol: OK` (100.00% matched); `ctest` 28/28.  The rest of
+the sweep is banked in `logs/` and triaged as P-717, with the classes already
+judged (benign sequence points, a retail dead branch, and a `Mtx` prototype
+artifact) written down so nobody redoes them.
