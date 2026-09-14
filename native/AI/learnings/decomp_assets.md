@@ -828,3 +828,41 @@ are disc-order data.
 Regression: `ctest decomp_clear_banner` renders the 1P clear screen through
 `MELEE_GAMEOVER_TEST` and counts non-black pixels inside the "STAGE CLEAR"
 banner (0 before the patch, 30690 after).
+
+
+## Walk pointer arrays with the relocation table (P-701, version 84)
+
+`conv_scene_desc` walked `SceneDesc.cameras` / `.lights` / `.fogs` as
+"read a word, stop at 0 or at an out-of-range offset".  That is not enough.
+The word after the last entry is not guaranteed to be a terminator; it can be
+unrelated archive data that still looks like a plausible offset, and the walk
+then converts whatever it points at.
+
+In GmIntEz.dat the fog walk ran one slot too far and called `conv_fogdesc` on
+an `HSD_PEDesc`, byte-swapping its first word: `flags = 0x29` became `0x00`.
+`HSD_SetupPEMode` feeds `pe->flags & 1` to `HSD_StateSetColorUpdate`, so every
+draw using that material ran with colour writes disabled and rendered nothing
+(G-148).
+
+Every real entry in these arrays is a **relocated pointer**, so the fix is to
+gate on `c->reloc[p]` before reading the slot.  That is strictly more correct
+than a zero test and it also handles G-002 — a genuine pointer to data offset
+0 reads back as `0` and a `!= 0` test would wrongly stop (or, worse, a zero
+word that is *not* a pointer would wrongly continue).
+
+The same `!= 0` idiom is still used by other walkers in `hsd_convert.c`; they
+are candidates for the same treatment whenever something downstream turns out
+to be corrupted by a few bytes.
+
+### Debugging recipe that found it
+
+1. `--dump-draws N` showed the marker draws present with correct screen
+   extents, so it was not geometry.
+2. The dump's `colup=` column (added for this) showed `color_update = 0` on
+   the invisible draws and `1` on a visible neighbour.
+3. A backtrace on `GXSetColorUpdate` pointed at `HSD_SetupPEMode`, i.e. the
+   material's `HSD_PEDesc`.
+4. `HSD_PEDesc` is all `u8`, so a byte-swap there is always a converter bug.
+   Scanning the converted archive for the descriptor's tail bytes found it at
+   one offset with `c->num[]` set — proof that `conv_u32` had written there.
+5. A backtrace in `conv_u32` on that offset named `conv_scene_desc`.

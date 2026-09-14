@@ -51,6 +51,8 @@ static int title_seen;
 static int gameover_test;
 static int gameover_stage;
 static int classic_test;
+static int intro_test;
+static int intro_stage;
 static PadInputFrame match_input[MATCH_INPUT_FRAMES][MATCH_INPUT_CHANNELS];
 
 /* MELEE_HIT_TEST: p0 jabs in place while p1 walks into it.  The default
@@ -223,6 +225,34 @@ static void match_boot_frame(void)
         return;
     }
 
+    /* MELEE_INTRO_TEST: GS_INTRO_EASY is the Classic "STAGE n" splash (the
+     * stage-marker chain, the big VS, the fighter names).  The 1P menus are
+     * the only in-game route to it, but gm_Mode_Debug_States carries the same
+     * scene at state id 6, so force GM_DEBUG and step the state machine onto
+     * it.  gm_SetNextGameModeStateId(n) lands on state id n (it stores n + 1
+     * and gm_801A4014 takes next_state_id - 1), so 6 (P-700). */
+    if (intro_test) {
+        /* gm_GetCurrentSceneIndex returns the state machine's current state
+         * id, not the GS_* scene kind, so match the debug table's id 6. */
+        unsigned scene = (unsigned) gm_GetCurrentSceneIndex();
+        if (gm_GetCurrentGameMode() == GM_DEBUG && scene == 6) {
+            intro_stage = 1;
+            return;
+        }
+        if (frame == start_frame || ((frame - start_frame) % 30) == 0) {
+            boot_triage_note("[intro] frame %u: mode %u scene %u stage %d\n",
+                             frame, (unsigned) gm_GetCurrentGameMode(), scene,
+                             intro_stage);
+            if (gm_GetCurrentGameMode() != GM_DEBUG) {
+                match_boot_force(GM_DEBUG);
+            } else {
+                gm_SetNextGameModeStateId(6);
+                gm_801A4B60();
+            }
+        }
+        return;
+    }
+
     /* MELEE_CLASSIC_TEST: drive 1P Classic instead of the debug VS scene, so
      * the Classic approach screen (stage-marker chain, the big "VS", the
      * fighter names) and the clear screen after it can be rendered headlessly
@@ -313,6 +343,11 @@ static void match_boot_frame(void)
     }
 }
 
+int match_boot_intro_active(void)
+{
+    return intro_test && intro_stage != 0;
+}
+
 int match_boot_gameover_active(void)
 {
     return gameover_test && gameover_stage >= 2;
@@ -341,6 +376,9 @@ void match_boot_init(unsigned frame_in)
         }
         if (getenv("MELEE_CLASSIC_TEST") != NULL) {
             classic_test = 1;
+        }
+        if (getenv("MELEE_INTRO_TEST") != NULL) {
+            intro_test = 1;
         }
         boot_platform_set_frame_hook(match_boot_frame);
     }

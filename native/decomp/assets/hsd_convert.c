@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 83u
+#define HSD_CONVERTER_VERSION 84u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -3036,10 +3036,23 @@ static void conv_scene_desc(Conv* c, uint32_t off)
     if (models != 0) {
         conv_dynamic_models(c, models);
     }
+    /* P-701: these arrays are NUL-terminated, but a terminator is not the
+     * only thing that can follow them -- the word after the last entry may be
+     * unrelated archive data that still looks like a plausible offset, and
+     * walking into it converts whatever it hits.  `SceneDesc.fogs` in
+     * GmIntEz.dat overran into an HSD_PEDesc and byte-swapped its first word,
+     * turning `flags = 0x29` into 0: HSD_SetupPEMode then called
+     * GXSetColorUpdate(0) and the Classic splash screen's stage-marker chain
+     * drew nothing at all (G-148).  Every real entry is a relocated pointer,
+     * so ask the relocation table instead of only testing for zero. */
     if (cameras != 0) {
         uint32_t p = cameras;
         for (guard = 0; guard < 64; guard++) {
-            uint32_t desc = rd32(c, p);
+            uint32_t desc;
+            if (!in_data(c, p, 4) || !c->reloc[p]) {
+                break;
+            }
+            desc = rd32(c, p);
             if (desc == 0 || !in_data(c, desc, 0x30)) {
                 break;
             }
@@ -3050,7 +3063,11 @@ static void conv_scene_desc(Conv* c, uint32_t off)
     if (lights != 0) {
         uint32_t p = lights;
         for (guard = 0; guard < 64; guard++) {
-            uint32_t list = rd32(c, p);
+            uint32_t list;
+            if (!in_data(c, p, 4) || !c->reloc[p]) {
+                break;
+            }
+            list = rd32(c, p);
             if (list == 0 || !in_data(c, list, 8)) {
                 break;
             }
@@ -3061,7 +3078,11 @@ static void conv_scene_desc(Conv* c, uint32_t off)
     if (fogs != 0) {
         uint32_t p = fogs;
         for (guard = 0; guard < 64; guard++) {
-            uint32_t desc = rd32(c, p);
+            uint32_t desc;
+            if (!in_data(c, p, 4) || !c->reloc[p]) {
+                break;
+            }
+            desc = rd32(c, p);
             if (desc == 0 || !in_data(c, desc, 0x14)) {
                 break;
             }

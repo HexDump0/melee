@@ -629,6 +629,21 @@ if(MELEE_SDL3_LIB32)
       PASS_REGULAR_EXPRESSION "\\[gameover\\] banner nonblack=[1-9][0-9][0-9][0-9]+"
       TIMEOUT 600
       ENVIRONMENT "SDL_VIDEODRIVER=offscreen;SDL_AUDIODRIVER=dummy;MELEE_NO_CARD=1;MELEE_GAMEOVER_TEST=1")
+  # P-701: the Classic splash screen's stage-marker chain is a lit-only
+  # material (no texture sampled; colour is entirely the two lit raster
+  # channels).  conv_scene_desc's fog-array walk ran past the end of the
+  # array and byte-swapped an HSD_PEDesc's first word, clearing its
+  # colour-update bit, so HSD_SetupPEMode called GXSetColorUpdate(0) and the
+  # whole chain drew nothing.  The probe counts non-black pixels across the
+  # marker row.
+  add_test(NAME decomp_intro_markers COMMAND melee
+      --match --frames 420 --no-hud
+      --shot ${CMAKE_CURRENT_BINARY_DIR}/decomp_intro_markers.bmp)
+  set_tests_properties(decomp_intro_markers PROPERTIES
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
+      PASS_REGULAR_EXPRESSION "\\[intro\\] markers nonblack=[1-9][0-9][0-9][0-9][0-9]+"
+      TIMEOUT 600
+      ENVIRONMENT "SDL_VIDEODRIVER=offscreen;SDL_AUDIODRIVER=dummy;MELEE_NO_CARD=1;MELEE_INTRO_TEST=1")
   add_test(NAME decomp_title COMMAND melee
       --frontend --no-items
       --input ${CMAKE_CURRENT_SOURCE_DIR}/tests/frontend_vs.txt

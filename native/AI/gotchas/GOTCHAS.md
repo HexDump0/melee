@@ -2077,3 +2077,37 @@ screen.  The swap belongs at the one CPU reader, not in the shared data.
 read back as `0` and an `if (base == 0) return;` guard rejected it — that is
 G-002 (a base pointer of 0 is data offset 0, not NULL).  Ask
 `c->reloc[field]` whether a field is a pointer; never test the value for zero.
+
+## G-148: a NUL-terminated array walk needs the relocation table, not just != 0
+
+**Symptom:** on the Classic splash screen (`GS_INTRO_EASY`) the row of
+stage-marker models draws nothing — only the thin chain between them survives,
+so the top of the screen reads as a bare zigzag line on black — and the big
+red "VS" between the fighters is a few dark streaks instead of a solid glyph.
+
+**Cause:** `conv_scene_desc` walked `SceneDesc.fogs` (and `.cameras`,
+`.lights`) with `for (;;) { desc = rd32(p); if (desc == 0 || !in_data(...))
+break; ... }`.  A NUL terminator is not the only thing that can follow such an
+array: the next word may be unrelated archive data that still looks like a
+plausible data offset, and the walk then converts whatever it lands on.  In
+GmIntEz.dat it landed on an `HSD_PEDesc` and byte-swapped its first word, so
+`flags = 0x29` read back as `0x00`.  `HSD_SetupPEMode` does
+`HSD_StateSetColorUpdate(pe->flags & 1)`, so every draw with that material ran
+with `GXSetColorUpdate(GX_FALSE)` and wrote no colour at all.
+
+**Fix:** gate each slot on `c->reloc[p]` — every real entry in these arrays is
+a relocated pointer, and the relocation table is the authority on which words
+are pointers (converter version 84).  `ctest decomp_intro_markers` counts
+non-black pixels across the marker row: **553** (just the chain) before the
+fix, **14411** after.
+
+**How to recognise this class:** the geometry is present and correctly
+positioned in `--dump-draws` but nothing reaches the framebuffer.  Check
+`colup=` in the dump before suspecting lighting or culling — a draw with
+`color_update = 0` is invisible no matter how well lit it is.  Chasing it as
+"collapsed geometry" (G-147's signature) wastes a lot of time; the draws here
+had perfectly good vertex positions all along.
+
+**Generalisation:** the same `!= 0` idiom appears in several other walkers.
+Any array of pointers in an HSD archive should be walked with the reloc bit,
+which also handles G-002 (a legitimate pointer to data offset 0 reads as 0).

@@ -11,6 +11,10 @@ void match_boot_init(unsigned start_frame);
  * overlay, so the viewer can probe the finished frame (P-698). */
 int match_boot_gameover_active(void);
 
+/* Non-zero once MELEE_INTRO_TEST has reached the Classic splash screen
+ * (GS_INTRO_EASY), so the viewer can probe the finished frame (P-701). */
+int match_boot_intro_active(void);
+
 /* Switch modes immediately from a frame hook/current scene context. */
 void match_boot_force(unsigned char mode);
 

@@ -335,6 +335,7 @@ typedef struct MatchView {
     int live_input;
     int no_items;
     int banner_probed;
+    int markers_probed;
     PadInputFrame live[4];
     unsigned last_mode;
     unsigned last_scene;
@@ -670,6 +671,63 @@ static void dump_draws(unsigned frame)
             }
         }
         fprintf(stderr, "\n");
+        {
+            int ch;
+            fprintf(stderr, "    chan:");
+            for (ch = 0; ch < 2; ++ch) {
+                fprintf(stderr, " ch%d[en=%d attn=%d diff=%d mask=0x%x]", ch,
+                        (int) d->state.ch_enable[ch],
+                        (int) d->state.ch_attn_fn[ch],
+                        (int) d->state.ch_diff_fn[ch],
+                        (unsigned) d->state.ch_light_mask[ch]);
+            }
+            fprintf(stderr, "\n");
+            /* colup=0 makes a draw invisible however well lit it is; that is
+             * what G-148 looked like from the outside. */
+            fprintf(stderr,
+                    "    state: ztex_op=%u cull=%u colup=%u "
+                    "scissor=%u,%u,%ux%u vp=%.0f,%.0f,%.0fx%.0f\n",
+                    (unsigned) d->state.ztex_op,
+                    (unsigned) d->state.cull_mode,
+                    (unsigned) d->state.color_update,
+                    (unsigned) d->state.scissor_x,
+                    (unsigned) d->state.scissor_y,
+                    (unsigned) d->state.scissor_w,
+                    (unsigned) d->state.scissor_h, d->state.viewport[0],
+                    d->state.viewport[1], d->state.viewport[2],
+                    d->state.viewport[3]);
+            for (ch = 0; ch < 8; ++ch) {
+                unsigned m = d->state.ch_light_mask[0] |
+                             d->state.ch_light_mask[1];
+                const GxHleLight* l = &d->state.lights[ch];
+                if ((m & (1u << ch)) == 0) {
+                    continue;
+                }
+                fprintf(stderr,
+                        "    light%d: col=%u,%u,%u a=%.2f,%.2f,%.2f "
+                        "k=%.2f,%.2f,%.2f pos=%.0f,%.0f,%.0f "
+                        "dir=%.2f,%.2f,%.2f\n",
+                        ch, l->color.r, l->color.g, l->color.b, l->a[0],
+                        l->a[1], l->a[2], l->k[0], l->k[1], l->k[2],
+                        l->pos[0], l->pos[1], l->pos[2], l->dir[0], l->dir[1],
+                        l->dir[2]);
+            }
+            {
+                size_t vv;
+                fprintf(stderr, "    pos:");
+                for (vv = d->first_vertex;
+                     vv < d->first_vertex + d->vertex_count &&
+                     vv < d->first_vertex + 9;
+                     ++vv)
+                {
+                    const GxHleVertex* p = &vertices[vv];
+                    float w = p->clip[3] != 0.0f ? p->clip[3] : 1.0f;
+                    fprintf(stderr, " (%.3f,%.3f)", p->clip[0] / w,
+                            p->clip[1] / w);
+                }
+                fprintf(stderr, "\n");
+            }
+        }
         if (d->state.texmap[0] >= 0 &&
             (size_t) d->state.texmap[0] < texture_count)
         {
@@ -845,6 +903,17 @@ static void match_present(void)
          * blended on the CPU from big-endian pools.  When that read is wrong
          * the mesh collapses and the band over its black backdrop is
          * uniformly black, which is exactly what the owner saw (G-147). */
+        /* P-701: the Classic splash's stage-marker chain is a lit-only
+         * material whose HSD_PEDesc the converter used to corrupt, so it drew
+         * nothing and the row read as bare background (G-148). */
+        if (!match_view.markers_probed && match_boot_intro_active()) {
+            static unsigned settle2;
+            if (++settle2 > 30) {
+                match_view.markers_probed = 1;
+                fprintf(stderr, "[intro] markers nonblack=%u\n",
+                        gx_gl_probe_nonblack(48, 28, 544, 40));
+            }
+        }
         if (!match_view.banner_probed && match_boot_gameover_active()) {
             static unsigned settle;
             if (++settle > 30) {
@@ -970,6 +1039,7 @@ static int run_match(SDL_Window* window, SDL_GLContext context,
     match_view.live_input = frontend && input_path == NULL;
     match_view.no_items = no_items;
     match_view.banner_probed = 0;
+    match_view.markers_probed = 0;
     match_view.last_mode = 0xFFFFFFFFu;
     match_view.last_scene = 0xFFFFFFFFu;
 

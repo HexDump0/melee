@@ -161,6 +161,22 @@ Classic character-select screen.  Keep the branch **before** the debug-VS
 stock/logging code in `match_boot_frame`: `log_match_state` walks
 `Player_GetEntity`, which is stale once the VS scene is gone and segfaults.
 
+## Classic splash screen (GS_INTRO_EASY)
+
+```sh
+SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy MELEE_INTRO_TEST=1 \
+    MELEE_NO_CARD=1 ./build/native/melee --match --frames 420 --no-hud \
+    --shot /tmp/intro.bmp
+```
+
+`MELEE_INTRO_TEST` forces `GM_DEBUG` and steps its state machine onto state
+id 6, which carries the same `GS_INTRO_EASY` scene the 1P modes use.
+`gm_SetNextGameModeStateId(n)` lands on state id `n` (it stores `n + 1` and
+`gm_801A4014` takes `next_state_id - 1`), and `gm_GetCurrentSceneIndex()`
+returns the **state id**, not the `GS_*` kind — both are easy to get wrong.
+Expect `[intro] markers nonblack=` well over 10000; ~553 means the
+stage-marker chain is not drawing (G-148).
+
 ## Missing-`return` census
 
 `src/` is compiled with `-w`, so `-Wreturn-type` never fires in a normal

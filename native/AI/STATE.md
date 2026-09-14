@@ -385,6 +385,25 @@ now writes the vertex (raster) colour when the draw updates colour; the
 title's `(320,60)` readback is `36,36,36` instead of `0,0,0`, `ctest` 21/21.
 Gotcha G-138.
 
+**P-701 (2026-09-14, Classic splash decorations):** the owner's Dolphin
+comparison showed the Classic "STAGE n" splash missing its row of stage-marker
+models (only the thin chain between them survived, reading as a bare zigzag on
+black) and the big red "VS" reduced to a few dark streaks.  It looked like the
+collapsed geometry of G-147, and it is not: `--dump-draws` shows every marker
+draw present with correct screen extents.  They were rendering with colour
+writes disabled.  `conv_scene_desc` walked `SceneDesc.fogs` (and `.cameras`,
+`.lights`) as "stop at 0 or out of range", which is not enough — the word
+after the last entry can be unrelated archive data that still looks like an
+offset.  In GmIntEz.dat it landed on an `HSD_PEDesc` and byte-swapped its
+first word, so `flags = 0x29` read back as `0`, and `HSD_SetupPEMode` fed
+`pe->flags & 1` to `GXSetColorUpdate`.  All three walks now gate each slot on
+the relocation table (converter version 84), which is also G-002-correct.
+New `MELEE_INTRO_TEST` reaches `GS_INTRO_EASY` through `gm_Mode_Debug_States`
+state 6 — the 1P menus are otherwise the only route — and `ctest
+decomp_intro_markers` counts non-black pixels across the marker row
+(**553 -> 14411**).  `ctest` 25/25; `ninja` still 100.00% matched.  The text
+glitches on those screens are a separate bug (P-700).  Gotcha G-148.
+
 **P-698 (2026-09-14, "STAGE CLEAR" banner):** with P-695 the owner could
 finally see the 1P clear screen, and reported a black box over its top
 quarter.  A Dolphin capture settled what the port could not: the black band is
