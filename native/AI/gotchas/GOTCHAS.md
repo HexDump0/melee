@@ -1838,3 +1838,21 @@ to have real pixels (flipping the invalidation off fails it).
 - `ftData->x54` is a relocation-backed pointer to a five-int per-costume part
   table (`ftCo_8009F834` reads it for bone id 0x8D); the converter has to
   walk the pointee or the entries stay byte-reversed.
+
+## G-137: a new translation unit can expose DOL-only data adjacency
+
+**Symptom:** after the opening-movie decoder landed, both `melee --match` and
+normal frontend VS matches stopped just after the Ready sequence, before the
+fighters appeared.  The viewer exited cleanly because its triage log is hidden;
+the headless boot showed `texp.c:1048 "clist->type == HSD_TE_CNST"`.
+**Cause:** `ftmaterial.c` declares `ftMObj` as an `HSD_MObjInfo` but casts its
+address to a larger private `struct ft_MObjInfo` to read a TEV descriptor and
+TExp constant after it.  Those are actually separate globals whose DOL order
+is `ftMObj`, `ftMaterial_803C69D0`, `ftMaterial_803C6A44`.  Adding the THP
+translation unit changed host link layout; the cast then read unrelated data
+and produced TExp type 0 instead of `HSD_TE_CNST` (4).
+**Fix:** under `PORT_PC`, copy the two named template globals directly.  Keep
+the adjacency expression for the GameCube build.  `decomp_match` retains its
+exact frame-600 position, and `decomp_hit` plus a 240-frame live viewer match
+exercise the fighter material path.  Do not treat link-layout-sensitive
+failures as timing bugs until a backtrace checks for adjacent-data casts.

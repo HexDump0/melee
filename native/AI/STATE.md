@@ -237,6 +237,21 @@ cold-boots into `MvOpen.mth` (the skip-intro path stays the default);
 `ctest decomp_opening` covers both the movie frame pixels and the attract
 demo (P-685/G-136).
 
+**P-686 (2026-09-14):** matches no longer stop immediately after the Ready
+sequence.  Adding the THP decoder changed host link layout and exposed
+`ftmaterial.c`'s DOL-only assumption that `ftMaterial_803C69D0` and
+`ftMaterial_803C6A44` follow the declared `ftMObj` object in memory.  The
+out-of-bounds cast produced a TExp type of 0 instead of `HSD_TE_CNST` (4), so
+the first fighter material panicked in `HSD_TExpSetReg`; the viewer hid the
+triage panic and appeared to exit normally.  The `PORT_PC` path now uses the
+named templates.  Both `--match` and frontend VS mode share this fix, and the
+deterministic match retains its exact frame-600 position (G-137).  The decomp
+pin is updated from `7db32491c` to `40012f51f`; the affected `ft/types.h` and
+`lb/types.h` patches were rebased, and native panic/assert signatures follow
+upstream's const-correct declarations.  The existing `player.c` and
+`gmclassic.c` adjacency patches now leave their original non-`PORT_PC` source
+expressions intact, restoring the reference DOL checksum.
+
 **P-671/P-678/P-672 (2026-09-13):** the renderer-parity program (ADR-0017)
 produced `learnings/gx_coverage_matrix.md` (the 100-function GX surface with
 Aurora references and P-672..P-680 gap list).  `GXGetProjectionv` now returns
@@ -418,7 +433,7 @@ lightmap phases, alpha test, XLU blend) and every fighter is scaled by its
 | HPS stream ring (P-648) | The menu BGM sustains across all three ARAM ring slots: `ax_collapse_addr_sync` preserves the header `loopFlag` when the synchronous DevCom burst coalesces `AXSetVoiceAddr` with the address-field sync bits, the mixer's end test is crossing-based (a page handoff whose loop target sits above the lagging `endAddress` no longer re-wraps into a ~2.3 kHz buzz), and the page table's `AXPBADPCMLOOP` predictor contexts byte-swap so seams are sample-continuous (G-115..G-117).  Before/after energy probe: silence from ~13 s vs music through 22 s, zero buzz windows; `ctest` 15/15 |
 | Audio output (S5) | `melee_decomp_boot --audio-dump out.wav` writes deterministic 32 kHz s16 stereo (peak -1.3 dBFS, no clipping) and logs `audio: frames=N hash=...`; `melee_decomp_viewer --match` plays through an SDL3 audio stream |
 | Reverb (S5) | `reverb_std`'s asm `HandleReverb` transcribed to C in `native/decomp/axfx/axfx_port.c`; registered by `lbAudioAx_8002838C` as aux A |
-| Match fighters visible (P-625) | The compiled fighters render fully textured in `--match`: `fighter.c`'s `x21FC_flag.u8 = 1` sets the MWCC `b7` bit only via the `FtStatusFlags` PORT_PC union (G-091), and the GL texture cache evicts LRU instead of returning black when full (G-092).  `--dump-draws FRAME` lists a captured frame's draws/textures/NDC bounds |
+| Match fighters visible (P-625) | The compiled fighters render fully textured in `--match`: `fighter.c`'s `x21FC_flag.byte = 1` sets the MWCC `b7` bit only via the `FtStatusFlags` PORT_PC union (G-091), and the GL texture cache evicts LRU instead of returning black when full (G-092).  `--dump-draws FRAME` lists a captured frame's draws/textures/NDC bounds |
 | Fighter animations loop (P-626) | Walk/run cycles wrap instead of freezing at the clip end: `conv_waitanim_flags` now bit-reverses the top byte of `x10_animCurrFlags` into the low byte, so `x594_b1_loop` reads the console bit and `ftAnim_8006EBE8` sets `AOBJ_LOOP` (converter v57, G-093) |
 | GPU channel evaluation (P-628) | The GX channel/specular lighting now runs in the GL vertex shader (uniforms for 4 channels + 8 lights) instead of per-vertex C: `ctest decomp_render`/`decomp_gx_direct` pass, match-frame RMSE <= 3.4/255 vs the CPU path, spikes 8.5/s -> 3.4/s and worst frame 68 ms -> 26 ms |
 | Match pacing (P-626) | Interactive `--match` no longer fights vsync (it skips the manual 60 Hz delay when the swap already blocked) and re-anchors instead of burst-catching-up after a slow frame; `[match] frame N draws=... render=Xms` reports the per-frame render cost |

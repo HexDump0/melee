@@ -147,7 +147,7 @@ explicit listening test.  The owner listening check is TASKS.md P-637.
 cmake -S native -B build/native-asan -DCMAKE_BUILD_TYPE=Debug -DMELEE_SANITIZE=ON
 cmake --build build/native-asan -j4
 SDL_VIDEODRIVER=offscreen ASAN_OPTIONS=detect_leaks=0 \
-    ./build/native-asan/melee --scripted --frames 600
+    ./build/native-asan/melee_prototype --scripted --frames 600
 ```
 
 Leaks are disabled because the GL driver leaks at exit; the port's own
