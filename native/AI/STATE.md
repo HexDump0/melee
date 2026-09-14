@@ -1,15 +1,14 @@
 # State of the port
 
-Last updated: 2026-09-13 (S6 in progress; S8 Aurora migration accepted, ADR-0015)
+Last updated: 2026-09-14 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed)
 
-> **Direction (2026-09-13): ADR-0017 — keep the GLES renderer, reach Aurora parity.**
+> **Direction (2026-09-13/14): ADR-0017 — keep the GLES renderer, reach Aurora parity.**
 > The 32-bit product, in-place converter and GLES3/WebGL2 renderer stay; the
-> S8 Aurora-dependency plan (ADR-0015/0016) is parked.  A dedicated parity agent
-> studies Aurora (pinned `749d6ee7…`) and ports its missing/approximated GX
-> behavior into `native/decomp/gx/` feature by feature, each with a regression:
-> tasks P-671..P-677, brief in `workflows/renderer_parity.md`.  No C++/Aurora
-> dependency; MIT attribution in `native/licenses/aurora-MIT.txt`.  P-617/P-642
-> are reinstated as P-672/P-676.
+> S8 Aurora-dependency plan (ADR-0015/0016) is parked and the owner confirmed
+> (2026-09-14) that it is **not needed**: the Aurora algorithm ports
+> (P-671..P-682, gap matrix in `learnings/gx_coverage_matrix.md`) are the
+> accepted renderer path.  No C++/Aurora dependency; MIT attribution in
+> `native/licenses/aurora-MIT.txt`.  P-617/P-642 were superseded by P-672/P-676.
 
 > Update this file whenever behavior changes. Keep it factual: what a fresh
 > `git pull` + build does today.
@@ -456,9 +455,9 @@ Ordered by impact.
 5. **Audio landed in S5; menus/items/results/netplay/WASM are not there yet.**
 In-match and boot/title audio play; `AXFXReverbHi`/`AXFXChorus` are ported
 but never registered by Melee, and the mixer's ITD ramps per 5 ms frame
-(P-638).  Validate pan/fade/pause/mute by ear during the owner check.  The
-menu BGM page ring is fixed (P-648); stage BGM selection and results are S6;
-netplay/WASM are S7.
+(P-638).  The menu BGM page ring is fixed (P-648) and the owner confirmed
+the game's music is "pretty much perfect" (2026-09-14), which closes the
+stage-BGM/results audio flag; netplay/WASM are S7.
 6. **Captain Falcon's eyes do not render** in the compiled path (P-616); the
    rest of the head now matches the prototype.  See TASKS.md.
 7. **Non-Mario physics values** are demo defaults, not per-character data.

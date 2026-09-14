@@ -941,3 +941,12 @@ rather than a portable formula, and those cases get documented as deviations
 in `learnings/`.
 
 **Status:** accepted (2026-09-13); supersedes ADR-0015 and ADR-0016.
+
+**Addendum (owner, 2026-09-14):** S8 is not needed.  The renderer-parity
+program (P-671..P-682: the GX coverage matrix and the subsequent Aurora
+algorithm ports for indirect/toon, lighting/specular, EFB/Z-texture,
+textures/samplers, fog, primitives and match-path batching) reached the
+accuracy the Aurora migration was meant to provide, so P-663..P-670 stay
+parked permanently unless the owner revisits the 64-bit/mobile question.
+The owner also confirmed the full S6 frontend flow, save data and the game's
+music on the same date.

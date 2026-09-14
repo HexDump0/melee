@@ -7,17 +7,19 @@ references, acceptance commands and risks is
 [`TASKS.md`](TASKS.md) and current behavior is in [`STATE.md`](STATE.md).
 
 **Current position: the project pivoted on 2026-09-11 from the hand-written
-prototype to a decompilation-based full-game port (ADR-0010). S0–S5 are done
-(see `STATE.md`), and S6 is in progress (2026-09-13): the retail frontend flow
-runs end to end (title → menu → VS CSS → stage select → match → results) from
-the product binary `build/native/melee`, with `ctest decomp_frontend` as the
-headless regression.  Memory-card save data now creates and reloads through
-the game's own card filesystem (P-646/G-132, `ctest decomp_frontend_card`);
-the title enters in the retail state (P-624/G-090, `ctest decomp_title`), and
-converter coverage now includes the per-stage `yakumono_param` layouts, the
-remaining public roots (event levels, intro-easy, trophy/cutscene scenes),
-items and fighters (P-658/P-662/G-133/G-134).  Item models are fixed and
-enabled by default (P-643).**
+prototype to a decompilation-based full-game port (ADR-0010). S0–S6 are done
+(see `STATE.md`): the retail frontend flow runs end to end (title → menu → VS
+CSS → stage select → match → results) from the product binary
+`build/native/melee`, with `ctest decomp_frontend` as the headless
+regression.  Memory-card save data creates and reloads through the game's own
+card filesystem (P-646/G-132, `ctest decomp_frontend_card`); the title enters
+in the retail state (P-624/G-090, `ctest decomp_title`); converter coverage
+includes the per-stage `yakumono_param` layouts and every public root
+(P-658/P-662/G-133/G-134); and the owner confirmed the frontend, saves and
+music (2026-09-14).  The renderer-parity program (ADR-0017, P-671–P-682) met
+the Aurora accuracy goal on the existing GLES renderer, so the S8 Aurora
+program is dropped; S7 platforms/mods/netplay is the remaining open
+milestone.**
 
 ---
 
@@ -70,7 +72,7 @@ What this changes:
 | S3 | Asset pipeline | **done 2026-09-12** | real disc assets load through compiled loaders | 3–6 weeks |
 | S4 | First match | **done 2026-09-12** | compiled fighters/items/stages; the game's own match loop | 6–12 weeks |
 | S5 | Audio | **done 2026-09-12** | the compiled AX stack plays SFX/HPS through a host mixer | 4–12 weeks |
-| S6 | Frontend + saves | later | menus, character select, results, memory card | 3–6 weeks |
+| S6 | Frontend + saves | **done 2026-09-14** | menus, character select, results, memory card | 3–6 weeks |
 | S7 | Platforms + mods | stretch | Android, web, Windows/macOS parity, mod hooks, netplay | open ended |
 
 Sizes are rough agent-time estimates and are re-baselined by S0.
@@ -171,7 +173,7 @@ headlessly (`ctest audio`, `ctest decomp_audio`, `--audio-dump`) and the
 owner confirmed it sounds right (2026-09-13). Evidence:
 `learnings/decomp_audio.md`, `STATE.md`.
 
-## S6 — Frontend and saves
+## S6 — Frontend and saves (done 2026-09-14)
 
 **Goal.** The game as a product, not just a match.
 
@@ -179,6 +181,14 @@ owner confirmed it sounds right (2026-09-13). Evidence:
 card/save handling (external format, platform layer).
 
 **Exit criteria.** Boot → menu → select → match → results → save/load.
+
+**Result.** The product binary runs the retail flow headlessly
+(`decomp_frontend`, `decomp_title`) and creates/reloads save data through the
+game's own card filesystem (`decomp_frontend_card`).  Results code is
+compiled and the trophy/HUD fixes landed (P-644/P-645); the owner confirmed
+the frontend, saves and music on 2026-09-14.  Automated coverage that drives
+a match *through* the results scene remains an optional test-coverage
+follow-up, not an open milestone item.
 
 ## S7 — Platforms and mods (stretch)
 
