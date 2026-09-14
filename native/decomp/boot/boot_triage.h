@@ -58,6 +58,10 @@ unsigned boot_triage_frames(void);
  * harness.  Safe to call from a signal handler. */
 void boot_triage_stop(const char* reason);
 void boot_triage_install_stop_target(sigjmp_buf* env);
+/* Whether a harness is waiting on that longjmp.  Without one boot_triage_stop
+ * exits 0, which is the right answer for a finished boot run and the wrong one
+ * for a panic -- OSPanic uses this to abort() instead. */
+int boot_triage_has_stop_target(void);
 extern volatile sig_atomic_t boot_triage_stopped;
 
 /* Print the summary: totals per category and first-hit order. */
@@ -71,5 +75,9 @@ const char* boot_triage_crash_signal_name(void);
 /* Captured in the signal handler, symbolized after the longjmp. */
 void boot_triage_capture_crash(int signo);
 void boot_triage_print_crash(FILE* out);
+
+/* Symbolised backtrace of the caller, taken live rather than from the signal
+ * handler's capture.  label says what prompted it, e.g. "panic". */
+void boot_triage_print_backtrace(FILE* out, const char* label);
 
 #endif /* MELEE_DECOMP_BOOT_TRIAGE_H */

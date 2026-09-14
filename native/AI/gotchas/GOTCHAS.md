@@ -2656,3 +2656,36 @@ and magnitude the console's address space gave it, not just the offset.
 retail code is protected by exactly that.  Writes are worse still — a write to
 `file_sizes[9]` clobbers a live pointer on both platforms; those sites are
 left alone here because no caller is proven to reach them (noted in P-717).
+
+## G-168: a panic that reaches no stream is indistinguishable from a clean quit
+
+`OSPanic` wrote its message to `boot_triage_out()`, and the viewer points that
+at `/dev/null` unless `MELEE_VIEWER_TRIAGE` is set.  It then called
+`boot_triage_stop("OSPanic")`, which `exit(0)`s when no harness has installed a
+`siglongjmp` target — so the `abort()` on the next line never ran.
+
+The result: every failed `HSD_ASSERT` in normal play looked exactly like the
+user closing the window.  No message, status 0, "exited normally" under gdb,
+no core, no stack.  The owner reported "a lot of bugs/crashes that just close
+like this" across the whole game, and they were all panics with the evidence
+discarded.
+
+The same applied to `OSReport`.  The game narrates its own failures — `"****
+Not Found Toy Model!(%d)"`, `"*** BG data aren't being loaded!"`, `"Cannot find
+symbol %s."` — and the line before a panic is usually the one that names the
+bug.  All of it went to `/dev/null`.
+
+**Rule:** a diagnostic path may be quiet, but it may never be silent *and*
+exit successfully.  Report on stderr regardless of where the log is pointed,
+and leave through `abort()` so the shell sees a failure and a debugger keeps
+the frame.  Concretely, in this port:
+
+- `OSPanic` echoes to stderr, dumps the last 64 `OSReport` lines, prints a
+  symbolised backtrace (`-rdynamic` is already on, so `dladdr` names game
+  functions), and aborts.
+- `MELEE_LOG_REPORTS=1` echoes every `OSReport` live.
+
+The first run after this landed named its own bug in one line: `**** Not Found
+Toy Model!(3073)` with `Toy_8030813C <- Toy_80310324` above it.  Before it,
+the same failure was a blank exit.
+

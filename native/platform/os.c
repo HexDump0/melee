@@ -475,10 +475,68 @@ void DCInvalidateRange(void* addr, u32 nBytes)
 
 /* ---------------------------------------------------------- report / panic */
 
+/* The game narrates its own failures through OSReport -- "**** Not Found Toy
+ * Model!(%d)", "*** BG data aren't being loaded!" and so on -- and the line
+ * before a panic is usually the one that names the bug.  The viewer sends the
+ * triage stream to /dev/null by default, so those lines were being discarded
+ * exactly when they mattered.
+ *
+ * Echoing all of them to stderr would bury the boot in traffic, so keep the
+ * last few in a ring and dump it when something panics.  MELEE_LOG_REPORTS=1
+ * echoes every line live instead, for when the interesting one scrolled past.
+ *
+ * Written from whichever thread is reporting, with no lock: a torn line in a
+ * crash dump is an acceptable trade for not serialising OSReport. */
+#define OS_REPORT_RING 64
+#define OS_REPORT_LINE 256
+
+static char report_ring[OS_REPORT_RING][OS_REPORT_LINE];
+static unsigned report_next;
+static int report_echo = -1;
+
+void os_report_dump(FILE* out)
+{
+    unsigned n = report_next < OS_REPORT_RING ? report_next : OS_REPORT_RING;
+    unsigned i;
+
+    if (out == NULL || n == 0) {
+        return;
+    }
+    fprintf(out, "[boot] last %u OSReport line%s before the panic:\n", n,
+            n == 1 ? "" : "s");
+    for (i = 0; i < n; i++) {
+        const char* line = report_ring[(report_next - n + i) % OS_REPORT_RING];
+        fprintf(out, "[boot]   %s", line);
+        if (line[0] != '\0' && line[strlen(line) - 1] != '\n') {
+            fputc('\n', out);
+        }
+    }
+    fflush(out);
+}
+
 void OSReport(char* msg, ...)
 {
     va_list ap;
     FILE* out = boot_triage_out();
+    char* slot;
+
+    if (report_echo < 0) {
+        report_echo = getenv("MELEE_LOG_REPORTS") != NULL;
+    }
+
+    slot = report_ring[report_next % OS_REPORT_RING];
+    report_next++;
+    va_start(ap, msg);
+    vsnprintf(slot, OS_REPORT_LINE, msg, ap);
+    va_end(ap);
+
+    if (report_echo) {
+        fprintf(stderr, "[report] %s", slot);
+        if (slot[0] != '\0' && slot[strlen(slot) - 1] != '\n') {
+            fputc('\n', stderr);
+        }
+        fflush(stderr);
+    }
 
     if (out == NULL) {
         out = stderr;

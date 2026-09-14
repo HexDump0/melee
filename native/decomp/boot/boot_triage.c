@@ -153,6 +153,11 @@ void boot_triage_install_stop_target(sigjmp_buf* env)
     stop_target = env;
 }
 
+int boot_triage_has_stop_target(void)
+{
+    return stop_target != NULL;
+}
+
 void boot_triage_stop(const char* reason)
 {
     boot_triage_stopped = 1;
@@ -200,6 +205,31 @@ const char* boot_triage_crash_signal_name(void)
     default:
         return "";
     }
+}
+
+void boot_triage_print_backtrace(FILE* out, const char* label)
+{
+    void* frames_here[BOOT_MAX_FRAMES];
+    int depth;
+    int i;
+
+    if (out == NULL) {
+        return;
+    }
+    depth = backtrace(frames_here, BOOT_MAX_FRAMES);
+    fprintf(out, "[boot] backtrace (%s):\n", label);
+    for (i = 0; i < depth; i++) {
+        Dl_info info;
+
+        if (dladdr(frames_here[i], &info) != 0 && info.dli_sname != NULL) {
+            fprintf(out, "[boot]   #%d %s+0x%lx\n", i, info.dli_sname,
+                    (unsigned long) ((char*) frames_here[i] -
+                                     (char*) info.dli_saddr));
+        } else {
+            fprintf(out, "[boot]   #%d %p\n", i, frames_here[i]);
+        }
+    }
+    fflush(out);
 }
 
 void boot_triage_print_crash(FILE* out)
