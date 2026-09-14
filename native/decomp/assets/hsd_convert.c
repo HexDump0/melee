@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 82u
+#define HSD_CONVERTER_VERSION 83u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -3512,6 +3512,21 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
             /* IfAll/If* `Stc_scemdls`-style sections: DynamicModelDesc* array */
             c->st.roots_unknown++;
             conv_dynamic_models(c, data_off);
+        } else if ((length == 4 && memcmp(name, "lupe", 4) == 0) ||
+                   (length == 5 && memcmp(name, "tdsce", 5) == 0) ||
+                   (length == 12 && memcmp(name, "Stc_rarwmdls", 12) == 0)) {
+            /* IfAll HUD model sets whose names follow no pattern, all loaded
+             * with lbArchive_LoadSections and dereferenced as
+             * `(*desc)->joint`, exactly like Stc_scemdls:
+             *   lupe          off-screen player magnifier (ifmagnify.c:468)
+             *   tdsce         countdown timer digits     (iftime.c:35)
+             *   Stc_rarwmdls  rotating HUD arrows        (if_2FD9.c:202)
+             * Left unconverted, their HSD_ImageDesc kept big-endian fields:
+             * the magnifier asked HSD_ImageDescCopyFromEFB for a
+             * 0x4000 x 0x4000 copy (64 x 64 byte-swapped), which cost ~400 ms
+             * a frame in the EFB encoder (G-146). */
+            c->st.roots_unknown++;
+            conv_dynamic_models(c, data_off);
         } else if (name_ends_with(name, length, "_modelset")) {
             /* GmStRoll: ScGamRegStaffrollNames_scene_modelset — the credits
              * name models are a DynamicModelDesc** (staffroll.c:84). */
@@ -3572,7 +3587,15 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
             c->st.roots_unknown++;
             conv_regclear_spawn_table(c, data_off);
         } else {
+            /* MELEE_ROOT_TRACE lists the public symbols no rule claims.  A
+             * root that should be walked but is not leaves its whole
+             * sub-graph big-endian, which surfaces far away as absurd
+             * dimensions or garbage pointers (G-146). */
             c->st.roots_unknown++;
+            if (getenv("MELEE_ROOT_TRACE") != NULL) {
+                fprintf(stderr, "[convert] unhandled root: %.*s\n",
+                        (int) length, name);
+            }
         }
     }
 }

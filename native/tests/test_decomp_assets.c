@@ -825,6 +825,96 @@ static int check_item_attr_bits(unsigned char** articles, unsigned count)
  * `DynamicModelDesc**` of ten credits name models (gmstaffroll.c:84);
  * without the converter's `_modelset` walk the joint flags and each anim
  * joint's flags stay big-endian. */
+/* P-696: three IfAll HUD model sets have names that match no converter rule
+ * (`lupe`, `tdsce`, `Stc_rarwmdls`), so their whole sub-graph -- joints, TObjs
+ * and the HSD_ImageDesc the magnifier copies the EFB into -- stayed
+ * big-endian.  ifMagnify_802FBBDC then asked for a 0x4000 x 0x4000 EFB copy
+ * (64 x 64 byte-swapped) every frame a player was off-camera, which cost
+ * ~400 ms a frame in the copy encoder (G-146).  Reading the converted word as
+ * host-endian must give the same value as reading the raw word as big-endian.
+ */
+static int check_ifall_hud_modelsets(const char* image)
+{
+    static const char* const names[] = { "lupe", "tdsce", "Stc_rarwmdls" };
+    char error[256];
+    size_t size = 0;
+    unsigned char* buffer =
+        load_archive(image, "IfAll.dat", NULL, &size, error, sizeof(error));
+    unsigned char* raw = NULL;
+    HSD_Archive archive;
+    HsdConvertStats stats;
+    unsigned checked = 0;
+    int failed = 0;
+    size_t n;
+
+    if (buffer == NULL) {
+        fprintf(stderr, "decomp_assets: IfAll.dat: %s\n", error);
+        return 1;
+    }
+    raw = malloc(size);
+    if (raw == NULL) {
+        free(buffer);
+        return 1;
+    }
+    memcpy(raw, buffer, size);
+    if (!hsd_asset_convert(buffer, size, &stats) ||
+        HSD_ArchiveParse(&archive, buffer, size) != 0)
+    {
+        fprintf(stderr, "decomp_assets: IfAll.dat conversion failed\n");
+        free(raw);
+        free(buffer);
+        return 1;
+    }
+    for (n = 0; n < sizeof(names) / sizeof(names[0]); n++) {
+        unsigned char* slot =
+            HSD_ArchiveGetPublicAddress(&archive, names[n]);
+        unsigned char* desc;
+        unsigned char* joint;
+        uint32_t off;
+        uint32_t host;
+        uint32_t want;
+
+        if (slot == NULL || !ptr_in_buffer(slot, buffer, size)) {
+            fprintf(stderr, "decomp_assets: IfAll.dat has no `%s`\n",
+                    names[n]);
+            failed++;
+            continue;
+        }
+        desc = read_host_ptr(slot);
+        if (desc == NULL || !ptr_in_buffer(desc + 0x10, buffer, size)) {
+            fprintf(stderr, "decomp_assets: `%s` desc out of range\n",
+                    names[n]);
+            failed++;
+            continue;
+        }
+        joint = read_host_ptr(desc);
+        if (joint == NULL || !ptr_in_buffer(joint + 0x40, buffer, size)) {
+            fprintf(stderr, "decomp_assets: `%s` joint out of range\n",
+                    names[n]);
+            failed++;
+            continue;
+        }
+        off = (uint32_t) (joint - (buffer + 0x20));
+        host = read_host_u32(buffer + 0x20 + off + 0x04);
+        want = read_be_u32(raw + 0x20 + off + 0x04);
+        if (host != want) {
+            fprintf(stderr,
+                    "decomp_assets: IfAll `%s` joint flags=%08x want=%08x "
+                    "(not converted?)\n",
+                    names[n], host, want);
+            failed++;
+            continue;
+        }
+        checked++;
+    }
+    if (failed == 0) {
+        printf("decomp_assets: IfAll.dat hud modelsets=%u ok\n", checked);
+    }
+    free(raw);
+    free(buffer);
+    return failed != 0 ? 1 : 0;
+}
+
 static int check_staffroll_modelset(const char* image)
 {
     char error[256];
@@ -2467,6 +2557,7 @@ int main(int argc, char** argv)
     failures += check_item_models(image);
     failures += check_ty_data_tables(image);
     failures += check_staffroll_modelset(image);
+    failures += check_ifall_hud_modelsets(image);
     failures += check_kumite_tables(image);
     failures += check_yorster_param(image);
     failures += check_stage_params(image);

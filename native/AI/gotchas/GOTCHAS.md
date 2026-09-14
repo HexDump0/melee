@@ -2000,3 +2000,44 @@ per-site verdict table are in `learnings/decomp_port.md` ("P-695 missing-
 - Do not invent a default for a site where retail is *also* indeterminate.
   Read the DOL epilogue first; if `r3`/`f1` is never written on that path, the
   path is unreachable and the right change is none (AGENTS.md §0.1).
+
+## G-146: an unconverted archive root shows up as a 400 ms frame, far from the cause
+
+**Symptom:** the match runs at 60 Hz until any part of a player leaves the
+camera, then drops to ~2.5 fps and recovers the moment they come back:
+
+```
+[match] frame 1590 ... render=4.09ms  frame=16.75ms
+[match] spike frame=1598 interval=408.4ms render=405.31ms draws=320
+[match] spike frame=1599 interval=407.9ms render=408.67ms draws=320
+```
+
+`draws`/`verts` barely move (302 -> 320), so it is not geometry.
+
+**Cause:** the off-screen player magnifier.  `convert_roots` in
+`hsd_convert.c` dispatches on the archive's public symbol name and silently
+ignores names no rule claims, leaving that root's whole sub-graph big-endian.
+IfAll.dat's `lupe` (and `tdsce`, `Stc_rarwmdls`) were in that hole, so the
+magnifier's `HSD_ImageDesc` still held big-endian fields.
+`ifMagnify_802FBBDC` -> `lb_800122C8` -> `HSD_ImageDescCopyFromEFB` feeds those
+fields straight to `GXSetTexCopySrc`/`GXSetTexCopyDst`, so a 64x64 RGB5A3
+target (`0x0040`, `0x00000005`) became a **0x4000 x 0x4000** copy in format
+**0x05000000**.  `copy_tex_encode` then ran 268M iterations writing nothing,
+because the byte-swapped format matched no `case` — pure wasted CPU, every
+frame the magnifier was up.
+
+**Fix:** `lupe`/`tdsce`/`Stc_rarwmdls` now route to `conv_dynamic_models`
+(converter version 83), and `efb_copy_tex` refuses any copy larger than the
+640x480 EFB with a one-line warning naming the format, so a future
+unconverted descriptor costs a log line instead of 25 frames.
+`ctest decomp_assets` (`check_ifall_hud_modelsets`) fails with the rule
+disabled.  Worst-case render over a 300-frame match: **414.22 ms -> 13.57 ms**.
+
+**Generalisation:** when a frame time or a dimension is absurd, read the number
+in the other byte order first.  `16384` is `0x4000` = 64 byte-swapped;
+`83886080` is `0x05000000` = 5.  Then find which root owns that data and check
+it against the dispatch in `convert_roots` — `MELEE_ROOT_TRACE=1` lists the
+ones nothing claims.  Beware near-miss names: the rule is
+`name_ends_with(..., "scemdls")` and `Stc_rarwmdls` ends in `mdls`.
+Full method and the remaining unhandled-root list in
+`learnings/decomp_assets.md`.

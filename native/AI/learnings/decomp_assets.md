@@ -728,3 +728,73 @@ Today none of this is on the critical path: ADR-0012 keeps the product 32-bit.
 The reason to write this section down now is that the S3 converter's data
 model (32-bit offsets + `Locate`) is the thing a future 64-bit port replaces,
 and the descriptor walk in §7 is exactly the schema the expansion would use.
+
+## Converter root names are an allow-list — find the gaps (P-696, version 83)
+
+`convert_roots` dispatches on the archive's **public symbol name**.  A name no
+rule claims falls into `else { c->st.roots_unknown++; }`, and then that root's
+entire sub-graph stays big-endian.  Nothing warns: the archive still parses,
+the relocations are still valid, and the damage only shows up when some far
+away consumer reads a field.
+
+Three IfAll.dat HUD model sets were in that hole.  All three are
+`DynamicModelDesc*` arrays loaded with `lbArchive_LoadSections` and
+dereferenced as `(*desc)->joint`, exactly like the `Stc_scemdls` sections the
+converter already walked — but their names match no pattern:
+
+| Symbol | Owner | What it is |
+|---|---|---|
+| `lupe` | `ifmagnify.c:468` | the off-screen player magnifier ("Lupe") |
+| `tdsce` | `iftime.c:35` | the countdown timer digits |
+| `Stc_rarwmdls` | `if_2FD9.c:202` | the rotating HUD arrows |
+
+`Stc_rarwmdls` is the trap worth remembering: the existing rule is
+`name_ends_with(name, length, "scemdls")`, and `rarwmdls` ends with `mdls`,
+not `scemdls`.  A name that *looks* like a sibling of a handled root is not
+necessarily handled.
+
+The symptom was remote from the cause.  `ifMagnify_802FBBDC` passes the
+magnifier's `HSD_ImageDesc` to `HSD_ImageDescCopyFromEFB`, which does
+
+```c
+GXSetTexCopySrc(origx, origy, idesc->width, idesc->height);
+GXSetTexCopyDst(idesc->width, idesc->height, idesc->format, ...);
+```
+
+so the unconverted 64x64 RGB5A3 descriptor asked for a **0x4000 x 0x4000**
+copy in format **0x05000000**.  The GL backend's encoder spun
+16384 x 16384 = 268M iterations writing nothing (the byte-swapped format
+matched no `case`), which is ~400 ms of CPU **per frame**, for as long as a
+player stayed off-camera.  See G-146.
+
+### How to look for more of these
+
+```sh
+MELEE_ROOT_TRACE=1 MELEE_NO_ASSET_CACHE=1 SDL_VIDEODRIVER=offscreen \
+    SDL_AUDIODRIVER=dummy MELEE_NO_CARD=1 \
+    ./build/native/melee --match --frames 300 --no-hud --shot /tmp/x.bmp \
+    2>&1 | grep 'unhandled root' | sort -u
+```
+
+Run it through as many scenes as you can drive; a root is only reported once
+its archive is actually loaded, so a 60-frame run sees a fraction of them.
+Names still unhandled after P-696, each of which needs its type established
+from the `src/` consumer **before** any rule is added (converting the wrong
+shape silently corrupts data):
+
+`ALDYakuAll`, `lbBgFlashColAnimData`, `lbRefData`, `lbRumbleData`,
+`plLoadCommonData`, `quake_model_set`, `SIS_IntroData`, `SIS_MessageData`,
+`TitleMark_sobjdesc`, `ScTitle_cam_int1_camanim`, `MemCardBanner_0*`,
+`MemCardIcon*`, `ty*Tbl`, and the `Grd*_image`/`*_tlut*` leaf roots (those last
+ones are raw texture payloads with no header to swap — they are correctly
+unhandled).
+
+Regression: `check_ifall_hud_modelsets` in `native/tests/test_decomp_assets.c`
+reads each root's first joint `flags` word from the converted buffer as
+host-endian and from an untouched copy as big-endian; the two must agree.  With
+the rule disabled it prints
+`IfAll `lupe` joint flags=00000010 want=10000000 (not converted?)` for all
+three.
+
+**Bump `HSD_CONVERTER_VERSION` whenever the walk changes** — it is the disk
+cache key, and without it a stale `~/.cache/melee/assets` entry hides the fix.

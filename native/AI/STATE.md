@@ -385,6 +385,25 @@ now writes the vertex (raster) colour when the draw updates colour; the
 title's `(320,60)` readback is `36,36,36` instead of `0,0,0`, `ctest` 21/21.
 Gotcha G-138.
 
+**P-696 (2026-09-14, magnifier 400 ms frames):** the owner reported the match
+dropping to ~2.5 fps whenever any part of their fighter left the camera, and
+recovering the instant it came back (`render=405ms` with `draws` barely moving).
+`convert_roots` dispatches on the archive's public symbol name and silently
+ignores names no rule claims, so IfAll.dat's `lupe` (off-screen magnifier),
+`tdsce` (countdown digits) and `Stc_rarwmdls` (rotating arrows) kept
+big-endian sub-graphs.  `ifMagnify_802FBBDC` hands the magnifier's
+`HSD_ImageDesc` to `HSD_ImageDescCopyFromEFB`, which passes `width`/`height`/
+`format` straight to `GXSetTexCopySrc`/`GXSetTexCopyDst`: the 64x64 RGB5A3
+target became a 0x4000 x 0x4000 copy in format 0x05000000, and the GL
+encoder spun 268M no-op iterations per frame.  The three roots now route to
+`conv_dynamic_models` (converter version 83) and `efb_copy_tex` rejects any
+copy larger than the 640x480 EFB with a one-line warning.  Worst-case render
+over a 300-frame match: **414.22 ms -> 13.57 ms**.  `ctest decomp_assets`
+gained `check_ifall_hud_modelsets`, which fails with the rule disabled
+(`IfAll `lupe` joint flags=00000010 want=10000000`); `ctest` 23/23.
+`MELEE_ROOT_TRACE=1` now lists roots nothing claims — the remaining ones are
+tabulated in `learnings/decomp_assets.md`.  Gotcha G-146.
+
 **P-695 (2026-09-14, match-end crash + missing-`return` census):** the owner
 reported a hard segfault one frame after the "GAME!!" announcer at the end of
 any 1P stage — `lb_800138D8` with `gobj == 0`, from `gmvs.c`'s `fn_8016D634`

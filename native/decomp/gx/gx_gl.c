@@ -1966,6 +1966,27 @@ static void efb_copy_tex(const GxHleDraw* d)
     if (dest == NULL || d->copy_dst_w == 0 || d->copy_dst_h == 0) {
         return;
     }
+    /* The EFB is 640x480, so nothing can legitimately ask for a bigger copy.
+     * A descriptor the converter left big-endian does: the magnifier's 64x64
+     * RGB5A3 image read as 0x4000 x 0x4000, and copy_tex_encode then spun
+     * 268M iterations (~400 ms a frame) writing nothing, because the
+     * byte-swapped format matched no case.  Refuse it loudly instead
+     * (G-146). */
+    if (d->copy_w > 640 || d->copy_h > 480 || d->copy_dst_w > 640 ||
+        d->copy_dst_h > 480)
+    {
+        static int warned;
+        if (!warned) {
+            warned = 1;
+            fprintf(stderr,
+                    "gx: rejecting %ux%u -> %ux%u EFB copy (fmt 0x%x); the "
+                    "source HSD_ImageDesc is probably unconverted\n",
+                    (unsigned) d->copy_w, (unsigned) d->copy_h,
+                    (unsigned) d->copy_dst_w, (unsigned) d->copy_dst_h,
+                    (unsigned) d->copy_fmt);
+        }
+        return;
+    }
     src_x = (int) d->copy_left * gl_width / 640;
     src_y = (int) d->copy_top * gl_height / 480;
     src_w = (int) d->copy_w * gl_width / 640;
