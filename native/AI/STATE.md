@@ -385,6 +385,26 @@ now writes the vertex (raster) colour when the draw updates colour; the
 title's `(320,60)` readback is `36,36,36` instead of `0,0,0`, `ctest` 21/21.
 Gotcha G-138.
 
+**P-700 (2026-09-14, SIS text truncation):** the owner reported the 1P
+character-select level reading `normar.a.`; headless it renders `VERY EASE..`
+instead of `VERY EASY`.  The SIS text engine builds every string with
+`vsnprintf(buffer, -1, fmt, args)` — `-1` means "unbounded" to the console's
+MSL, but glibc documents sizes above `INT_MAX` as unsupported and writes one
+byte fewer than asked (reproducible in ten lines, 32- and 64-bit alike).  The
+engine's strings are Shift-JIS, two bytes per Latin letter, so the lost byte
+truncates mid-character: `HSD_SisLib_803A67EC`'s SJIS lookup then finds
+nothing for the orphaned lead byte, emits no glyph, and the renderer runs on
+into the bytes that follow — the trailing `E..`.  All three call sites
+(`hsd_3A64.c` x2, `textlib.c`) now pass `sizeof(buffer)` under `PORT_PC`;
+every destination is a fixed local array.  `MELEE_CLASSIC_TEST` reaches the 1P
+CSS and `ctest decomp_classic_text` probes the leading digit of the
+right-aligned "TOTAL HIGH SCORE" value (**0 -> 159**) — a pixel probe on the
+level text itself is useless because its box rescales to fit, so the broken
+and correct strings occupy almost the same pixels.  `ctest` 26/26; `ninja`
+100.00% matched.  The empty name plate is a separate bug (P-702).  Gotcha
+G-149; the wider "console MSL was laxer than glibc" sweep is in
+`learnings/decomp_port.md`.
+
 **P-701 (2026-09-14, Classic splash decorations):** the owner's Dolphin
 comparison showed the Classic "STAGE n" splash missing its row of stage-marker
 models (only the thin chain between them survived, reading as a bare zigzag on

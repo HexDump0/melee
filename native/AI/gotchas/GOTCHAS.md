@@ -2111,3 +2111,43 @@ had perfectly good vertex positions all along.
 **Generalisation:** the same `!= 0` idiom appears in several other walkers.
 Any array of pointers in an HSD archive should be walked with the reloc bit,
 which also handles G-002 (a legitimate pointer to data offset 0 reads as 0).
+
+## G-149: `vsnprintf(buf, -1, ...)` silently drops the last character on glibc
+
+**Symptom:** every string the SIS text engine renders loses its final glyph and
+picks up junk: the 1P character-select level reads `VERY EASE••` instead of
+`VERY EASY`, `NORMAL` renders as `NORMAr` + junk, and the "TOTAL HIGH SCORE"
+value shows eight digits instead of nine.
+
+**Cause:** `HSD_SisLib_803A6B98`/`803A70A0` (`hsd_3A64.c`) and
+`DevText_Printf` (`textlib.c`) call `vsnprintf(buffer, -1, fmt, args)`.  The
+console's MSL reads `-1` as "unbounded", which is the intent.  glibc
+documents sizes above `INT_MAX` as unsupported and writes one byte fewer than
+asked.  Ten-line repro, 32- and 64-bit alike:
+
+```c
+char b[128];
+vsnprintf(b, -1, "%s", "VERY EASY");   /* -> "VERY EAS" */
+```
+
+The engine's strings are Shift-JIS, two bytes per letter, so losing one byte
+truncates mid-character: `HSD_SisLib_803A67EC` then fails its SJIS lookup for
+the orphaned lead byte, emits nothing for it, and the parser reads on into the
+bytes that follow — which is where the trailing `E••` came from.
+
+**Fix:** pass `sizeof(buffer)` under `PORT_PC`
+(`patches/src/sysdolphin/baselib/hsd_3A64.c.patch`,
+`patches/src/melee/if/textlib.c.patch`).  Every destination is a fixed local
+buffer, so the bound is exact and matches what the console does for anything
+that fits.  `ctest decomp_classic_text` probes the leading digit of the
+right-aligned score: **0** before the fix, **159** after.
+
+**Generalisation:** grep for any `-1`, `~0`, `0xFFFFFFFF` or `SIZE_MAX` passed
+as a size to a libc function the port compiles.  The console's MSL was
+routinely laxer than glibc here, and the failure is silent and off-by-one —
+which reads as a font or parser bug, a long way from the call.
+
+**Debugging note:** do not trust a pixel probe on text inside a fitted box.
+The CSS level box rescales its contents (`text->x88`), so the broken
+11-glyph string and the correct 9-glyph one occupied almost the same pixels
+(327..484 vs 330..482).  The right-aligned score value was the discriminator.

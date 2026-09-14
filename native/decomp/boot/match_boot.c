@@ -343,6 +343,11 @@ static void match_boot_frame(void)
     }
 }
 
+int match_boot_classic_active(void)
+{
+    return classic_test && gm_GetCurrentGameMode() == GM_CLASSIC;
+}
+
 int match_boot_intro_active(void)
 {
     return intro_test && intro_stage != 0;

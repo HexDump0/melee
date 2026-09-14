@@ -161,6 +161,19 @@ Classic character-select screen.  Keep the branch **before** the debug-VS
 stock/logging code in `match_boot_frame`: `log_match_state` walks
 `Player_GetEntity`, which is stale once the VS scene is gone and segfaults.
 
+## 1P character select text (SIS engine)
+
+```sh
+SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy MELEE_CLASSIC_TEST=1 \
+    MELEE_NO_CARD=1 ./build/native/melee --match --frames 700 --no-hud \
+    --shot /tmp/cl.bmp
+```
+
+Expect `LEVEL` to read `VERY EASY` and `[classic] score_lead=` well above
+zero.  `score_lead=0` means SIS strings are losing their last character
+(G-149).  Do not probe the level text itself: its box rescales to fit, so a
+truncated string occupies almost the same pixels as a correct one.
+
 ## Classic splash screen (GS_INTRO_EASY)
 
 ```sh

@@ -644,6 +644,20 @@ if(MELEE_SDL3_LIB32)
       PASS_REGULAR_EXPRESSION "\\[intro\\] markers nonblack=[1-9][0-9][0-9][0-9][0-9]+"
       TIMEOUT 600
       ENVIRONMENT "SDL_VIDEODRIVER=offscreen;SDL_AUDIODRIVER=dummy;MELEE_NO_CARD=1;MELEE_INTRO_TEST=1")
+  # P-700: SIS text is built with vsnprintf(buf, -1, ...), which the console
+  # reads as unbounded; glibc drops the final character, so every string lost
+  # its last glyph ("VERY EASY" -> "VERY EAS" plus the two glyphs the parser
+  # then ran into).  The 1P CSS "TOTAL HIGH SCORE" value is right-aligned, so
+  # a dropped character shortens it on the left; this probes the strip its
+  # leading digit occupies only when the string survives intact.
+  add_test(NAME decomp_classic_text COMMAND melee
+      --match --frames 700 --no-hud
+      --shot ${CMAKE_CURRENT_BINARY_DIR}/decomp_classic_text.bmp)
+  set_tests_properties(decomp_classic_text PROPERTIES
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
+      PASS_REGULAR_EXPRESSION "\\[classic\\] score_lead=[1-9][0-9]+"
+      TIMEOUT 600
+      ENVIRONMENT "SDL_VIDEODRIVER=offscreen;SDL_AUDIODRIVER=dummy;MELEE_NO_CARD=1;MELEE_CLASSIC_TEST=1")
   add_test(NAME decomp_title COMMAND melee
       --frontend --no-items
       --input ${CMAKE_CURRENT_SOURCE_DIR}/tests/frontend_vs.txt

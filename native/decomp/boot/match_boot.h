@@ -15,6 +15,10 @@ int match_boot_gameover_active(void);
  * (GS_INTRO_EASY), so the viewer can probe the finished frame (P-701). */
 int match_boot_intro_active(void);
 
+/* Non-zero once MELEE_CLASSIC_TEST has reached the 1P character-select
+ * screen, so the viewer can probe the finished frame (P-700). */
+int match_boot_classic_active(void);
+
 /* Switch modes immediately from a frame hook/current scene context. */
 void match_boot_force(unsigned char mode);
 

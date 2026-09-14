@@ -336,6 +336,7 @@ typedef struct MatchView {
     int no_items;
     int banner_probed;
     int markers_probed;
+    int level_probed;
     PadInputFrame live[4];
     unsigned last_mode;
     unsigned last_scene;
@@ -906,6 +907,21 @@ static void match_present(void)
         /* P-701: the Classic splash's stage-marker chain is a lit-only
          * material whose HSD_PEDesc the converter used to corrupt, so it drew
          * nothing and the row read as bare background (G-148). */
+        /* P-700: the CSS level text is drawn by the SIS engine from a
+         * vsnprintf'd string.  With the console's unbounded -1 size glibc
+         * drops the last character, so "VERY EASY" rendered as "VERY EAS"
+         * plus the two glyphs the parser then ran into (G-149).  The broken
+         * "TOTAL HIGH SCORE" value is right-aligned, so a dropped character
+         * shortens it on the left: probe the strip the leading digit
+         * occupies only when the string survives intact. */
+        if (!match_view.level_probed && match_boot_classic_active()) {
+            static unsigned settle3;
+            if (++settle3 > 60) {
+                match_view.level_probed = 1;
+                fprintf(stderr, "[classic] score_lead=%u\n",
+                        gx_gl_probe_white(408, 402, 14, 20));
+            }
+        }
         if (!match_view.markers_probed && match_boot_intro_active()) {
             static unsigned settle2;
             if (++settle2 > 30) {
@@ -1040,6 +1056,7 @@ static int run_match(SDL_Window* window, SDL_GLContext context,
     match_view.no_items = no_items;
     match_view.banner_probed = 0;
     match_view.markers_probed = 0;
+    match_view.level_probed = 0;
     match_view.last_mode = 0xFFFFFFFFu;
     match_view.last_scene = 0xFFFFFFFFu;
 

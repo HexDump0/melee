@@ -426,3 +426,34 @@ faithful to port.  The interesting ones, with the reason:
 
 Re-run the census after every submodule re-pin; upstream may add or remove
 sites.
+
+
+## P-700 libc strictness: `vsnprintf(buf, -1, ...)` (2026-09-14)
+
+The SIS text engine builds every string with
+
+```c
+vsnprintf((char*) buffer, -1, fmt, args);   /* hsd_3A64.c x2, textlib.c */
+```
+
+`-1` means "unbounded" to the console's MSL.  glibc documents sizes above
+`INT_MAX` as unsupported and writes **one byte fewer** than asked, on 32- and
+64-bit alike.  Because the engine's strings are Shift-JIS (two bytes per
+Latin letter), losing the last byte truncates mid-character; the SJIS lookup
+in `HSD_SisLib_803A67EC` then finds nothing for the orphaned lead byte, emits
+no glyph, and the renderer runs on into whatever follows.  "VERY EASY" came
+out as "VERY EASE••" (G-149).
+
+Patched to `sizeof(buffer)` under `PORT_PC` — every destination is a fixed
+local array, so the bound is exact.
+
+**This is the class to sweep next.** The console's MSL was laxer than glibc in
+several places, and the failures are silent:
+
+```sh
+grep -rn "vsnprintf\|vsprintf\|snprintf\|strncpy\|memcpy" decomp/src \
+    | grep -E ", *-1|, *~0|0xFFFFFFFF|SIZE_MAX"
+```
+
+After P-700 the three known sites are fixed; re-run the grep after every
+submodule re-pin.

@@ -2334,7 +2334,8 @@ static void write_u32le(FILE* f, unsigned int v)
  * that are not (near-)black.  The 1P clear screen's "STAGE CLEAR" banner sits
  * on a deliberately black backdrop, so a collapsed shape-anim mesh reads as a
  * uniformly black band and this returns 0 (G-147). */
-unsigned gx_gl_probe_nonblack(int gx_x, int gx_y, int gx_w, int gx_h)
+static unsigned gx_gl_probe_rect(int gx_x, int gx_y, int gx_w, int gx_h,
+                                 int threshold)
 {
     unsigned char* rgba;
     unsigned count = 0;
@@ -2366,12 +2367,30 @@ unsigned gx_gl_probe_nonblack(int gx_x, int gx_y, int gx_w, int gx_h)
     glReadPixels(x0, y0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
     for (i = 0; i < w * h; ++i) {
         const unsigned char* p = rgba + (size_t) i * 4;
-        if (p[0] > 24 || p[1] > 24 || p[2] > 24) {
+        if (threshold >= 190) {
+            if (p[0] > threshold && p[1] > threshold && p[2] > threshold) {
+                count++;
+            }
+        } else if (p[0] > threshold || p[1] > threshold ||
+                   p[2] > threshold) {
             count++;
         }
     }
     free(rgba);
     return count;
+}
+
+unsigned gx_gl_probe_nonblack(int gx_x, int gx_y, int gx_w, int gx_h)
+{
+    return gx_gl_probe_rect(gx_x, gx_y, gx_w, gx_h, 24);
+}
+
+/* P-700 regression probe: count near-white pixels in a 640x480-space
+ * rectangle.  Text probes need this rather than gx_gl_probe_nonblack because
+ * menu backgrounds are dark but not black. */
+unsigned gx_gl_probe_white(int gx_x, int gx_y, int gx_w, int gx_h)
+{
+    return gx_gl_probe_rect(gx_x, gx_y, gx_w, gx_h, 190);
 }
 
 int gx_gl_save_bmp(const char* path)
