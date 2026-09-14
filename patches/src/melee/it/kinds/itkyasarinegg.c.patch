@@ -1,0 +1,22 @@
+diff --git a/src/melee/it/kinds/itkyasarinegg.c b/src/melee/it/kinds/itkyasarinegg.c
+index b2bb111d1..29725e1fb 100644
+--- a/src/melee/it/kinds/itkyasarinegg.c
++++ b/src/melee/it/kinds/itkyasarinegg.c
+@@ -132,7 +132,17 @@ void it_802EFD84(Item_GObj* gobj)
+ 
+ bool itKyasarinegg_UnkMotion4_Anim(Item_GObj* gobj)
+ {
++#ifdef PORT_PC
++    /* No `return` in the decompilation.  Retail (0x802efe08) is a bare
++     * `bl it_802751D8` followed by the epilogue, so r3 still holds the
++     * callee's result -- and that result is read: this function is the
++     * `animated` predicate of the egg's motion-state-4 ItemStateTable entry
++     * (itkyasarinegg.c:21), and Item_80269528 (item.c:1303) destroys the item
++     * when it returns true.  On the host the caller saw whatever %eax held. */
++    return it_802751D8(gobj);
++#else
+     it_802751D8(gobj);
++#endif
+ }
+ 
+ static inline bool it_damage_inline(Item_GObj* gobj)

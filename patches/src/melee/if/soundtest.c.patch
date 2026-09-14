@@ -1,0 +1,68 @@
+diff --git a/src/melee/if/soundtest.c b/src/melee/if/soundtest.c
+index e2ceb9eb3..0c10516d3 100644
+--- a/src/melee/if/soundtest.c
++++ b/src/melee/if/soundtest.c
+@@ -808,7 +808,16 @@ bool un_802FF88C(enum soundtest_callback_arg0 arg0)
+ 
+ bool un_802FF934(enum soundtest_callback_arg0 arg0)
+ {
++#ifdef PORT_PC
++    /* No `return` in the decompilation.  Retail (0x802ff934) is a bare
++     * `bl lbAudioAx_80024C08` plus the epilogue, so r3 is the callee's
++     * result.  Sound Test menu callbacks are read: un_80302E00
++     * (textlib_1.c:33) only forwards the key to the parent handler
++     * (un_804D6E44->xC) when the entry's callback returns 0. */
++    return lbAudioAx_80024C08(un_804D6DBC);
++#else
+     lbAudioAx_80024C08(un_804D6DBC);
++#endif
+ }
+ 
+ bool un_802FF958(enum soundtest_callback_arg0 arg0)
+@@ -1258,16 +1267,46 @@ bool un_80300724(enum soundtest_callback_arg0 arg0)
+ 
+ bool un_80300758(enum soundtest_callback_arg0 arg0)
+ {
++#ifdef PORT_PC
++    /* No `return` in the decompilation, and un_80302E00 (textlib_1.c:33)
++     * reads the result.  Retail is fully determined here even so:
++     * `cmpwi r3, 1` leaves r3 alone, and un_802FFCD0 (0x802ffcd0) never
++     * writes r3 either -- it only reads `count` and works out of r0/r5/r6/r7.
++     * So retail returns `count` (4, true) on the arg0 == 1 path and the
++     * incoming `arg0` otherwise.  Only zero-vs-non-zero reaches the
++     * consumer, so the bool spellings below are exact. */
+     if (arg0 == 1) {
+         un_802FFCD0(4, (u8*) &un_803FA258 + 0x10);
++        return true;
+     }
++    return arg0 != 0;
++#else
++    if (arg0 == 1) {
++        un_802FFCD0(4, (u8*) &un_803FA258 + 0x10);
++    }
++#endif
+ }
+ 
+ bool un_80300790(enum soundtest_callback_arg0 arg0)
+ {
++#ifdef PORT_PC
++    /* No `return` in the decompilation, and un_80302E00 (textlib_1.c:33)
++     * reads the result.  Retail is fully determined here even so:
++     * `cmpwi r3, 1` leaves r3 alone, and un_802FFCD0 (0x802ffcd0) never
++     * writes r3 either -- it only reads `count` and works out of r0/r5/r6/r7.
++     * So retail returns `count` (4, true) on the arg0 == 1 path and the
++     * incoming `arg0` otherwise.  Only zero-vs-non-zero reaches the
++     * consumer, so the bool spellings below are exact. */
+     if (arg0 == 1) {
+         un_802FFCD0(4, (u8*) &un_803FA258 + 0x24);
++        return true;
+     }
++    return arg0 != 0;
++#else
++    if (arg0 == 1) {
++        un_802FFCD0(4, (u8*) &un_803FA258 + 0x24);
++    }
++#endif
+ }
+ 
+ #ifdef MUST_MATCH

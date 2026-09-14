@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-14 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707 and P-709 fixed, P-699/P-702 open)
+Last updated: 2026-09-14 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709 and P-710 fixed, P-699/P-702/P-711 open)
 
 > **Direction (2026-09-13/14): ADR-0017 — keep the GLES renderer, reach Aurora parity.**
 > The 32-bit product, in-place converter and GLES3/WebGL2 renderer stay; the
@@ -312,6 +312,35 @@ returns a defined `0.0f`, because both callers store the result into
 `fp->cur_anim_frame`.  GC build still `main.dol: OK` (100.00% matched);
 `ctest` 28/28.  The results path remains harness-unreachable (G-144), so `xE`
 has no end-to-end assertion.  See G-158/G-159.
+
+**P-710 (2026-09-14, the P-695 census's "unread" bucket was decided by the
+wrong grep):** re-auditing our own triage against `999sian/melee-pc` — which
+patched all 45 fall-off-the-end sites blindly — found the census had decided
+"no caller reads the result" by grepping for `name(`, i.e. **direct calls
+only**.  Nine of those 14 sites are never called directly at all: they live in
+callback tables and the engine reads the result through a pointer (G-160).
+Four are now fixed, all census outcome 1 with the retail `r3` read out of
+`main.elf`.  The gameplay one is `itKyasarinegg_UnkMotion4_Anim`, the
+`animated` predicate of the Chansey egg's motion-state-4 `ItemStateTable` row:
+`Item_80269528` destroys the item when it returns true, so the port was
+destroying eggs on a coin flip.  The other three are Sound Test menu rows,
+whose result decides whether `un_80302E00` forwards the key to the parent
+handler.  Two of those (`un_80300758`/`un_80300790`) look like they must return
+0 — melee-pc patched them that way — but retail returns 4, because the `void`
+callee `un_802FFCD0` never writes `r3` (G-161).  Five Sound Test sites remain,
+each needing a per-path trace of a `switch`; tracked as P-711.  GC build still
+`main.dol: OK` (100.00% matched); `ctest` 28/28.  Owner check queued as H-6.
+
+**Checked and not applicable (2026-09-14, same review):** melee-pc's
+`2957ebf` marks `Fighter_x2D0_t` `DISC_STRUCT` because Kirby/Purin alias
+`fp->dat_attrs` through it and their access-time endian model byte-swapped only
+the `ftCo_DatAttrs` view.  Our port converts the whole 0x424 `dat_attrs` blob
+as dense `u32` at load (`hsd_convert.c:2540`), so both views see the same
+converted bytes and the bug cannot occur here.  Its `6f363e7` (Venom arwing
+`jobj` read uninitialised) predates its own decomp re-pin; our pin already has
+`jobj = gobj->hsd_obj` at `grvenom.c:1145`.  The rest of melee-pc's crash fixes
+are 64-bit pointer-width work (`b810dc7`, `4c7da38`, `93fc1c7`, `6a18a36`,
+`393a4b5`), which ADR-0012 makes moot for our 32-bit targets.
 
 **P-688 (2026-09-14):** host math now follows the console where upstream
 diverges.  The MSL `sinf`/`cosf`/`tanf` tables and wrappers compile

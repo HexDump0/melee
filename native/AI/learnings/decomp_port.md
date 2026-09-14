@@ -413,7 +413,7 @@ the closing brace and the real flows were run (`decomp_match`, `decomp_hit`,
 through title -> menu -> CSS -> SSS -> match).  Only two ever fired:
 `lbspdisplay.c:753` and `extern/.../axfx/delay.c:94`.
 
-### Patched (6, plus `ftAnim_8006F3DC` in P-709)
+### Patched (6, plus `ftAnim_8006F3DC` in P-709 and four more in P-710)
 
 | Site | Function | Retail `r3` on the fall-through | Fix |
 |---|---|---|---|
@@ -448,12 +448,60 @@ faithful to port.  The interesting ones, with the reason:
 | `mn/mnstagesw.c:227` | `mnStageSw_80235C58` | the final `for (i = 1; found; i++)` never clears `found`, so the end is unreachable by construction (it spins instead) |
 | `pl/pltrick.c:27` | `pl_80037B2C` | the only caller (`plbonus.c:494`) passes `k` in `1..0x10`, always `< 0x64` |
 | `ty/toy.c:1531`, `it/kinds/itsscope.c:95`, `mn/mndiagram2.c:581`, `mn/mnname.c:851`, `mn/mndiagram.c:1184` | — | `switch`/loop covers every value any caller passes |
-| `gm/gm_1601.c` x4, `gm/gmresult.c:344`, `gr/grcorneria.c:1704`, `gr/gricemt.c:1607`, `it/itzako.c:237`, `it/kinds/itarwinglaser.c:297`, `it/kinds/itlinkarrow.c:146`/`:305`, `it/kinds/itmewtwoshadowball.c:112`, `it/kinds/itkyasarinegg.c:136`, `it/kinds/itkusudama.c:195`, `ft/kinds/ftPopo/ftpopospecialhi.c:126`, `pl/player.c:1700`, `if/soundtest.c` x8 | — | declared non-void but no caller reads the result ("fake return type" in the decomp's own comments) |
+| `gm/gm_1601.c` x4, `gm/gmresult.c:344`, `gr/grcorneria.c:1704`, `gr/gricemt.c:1607`, `it/itzako.c:237`, `it/kinds/itarwinglaser.c:297`, `it/kinds/itlinkarrow.c:146`/`:305`, `it/kinds/itmewtwoshadowball.c:112`, `it/kinds/itkusudama.c:195`, `ft/kinds/ftPopo/ftpopospecialhi.c:126`, `pl/player.c:1700` | — | declared non-void but no caller reads the result ("fake return type" in the decomp's own comments).  **Re-checked in P-710** for table membership as well as direct calls (G-160): each of these really is unread — every direct call discards the value and none of the names appears in a function-pointer table |
+| `it/kinds/itkyasarinegg.c:136`, `if/soundtest.c` x8 | — | **Wrongly bucketed here.**  These are never called directly at all; they are installed in callback tables and the engine reads the result.  Four are fixed in P-710, five remain — see below |
 | `Runtime/Gecko_setjmp.c:38`, `Runtime/__va_arg.c:58` | — | bodies are `#ifdef MWERKS_GEKKO` only; dead on the host (GCC lowers `va_arg` itself) |
 | `gm/gmmain.c:220` | `main` | renamed `gm_main`; `run_match` ignores the result |
 
 Re-run the census after every submodule re-pin; upstream may add or remove
 sites.
+
+## P-710 census correction: the "unread" bucket missed callback tables (2026-09-14)
+
+Prompted by the `999sian/melee-pc` cross-port review (same upstream pin), which
+patched all 45 sites blindly where we triaged them.  Re-auditing our triage
+found the census's **method** was wrong, not just one verdict: "no caller reads
+the result" had been decided by grepping for `name(`, i.e. direct calls only.
+Nine of the 14 sites in that bucket are never called directly — they are
+installed in callback tables and invoked through a pointer.  Full write-up in
+G-160; the one-line check is
+
+```sh
+grep -rn "\b$fn\b" --include=*.c --include=*.h decomp/src | grep -v "$fn *("
+```
+
+### Fixed (4)
+
+All four are **outcome 1** — retail's `r3` provably holds a specific
+expression, so this is a faithful port, not an invented default.
+
+| Site | Retail (`main.elf`) | Fix | Why it matters |
+|---|---|---|---|
+| `it/kinds/itkyasarinegg.c:136` `itKyasarinegg_UnkMotion4_Anim` | `0x802efe08`: bare `bl it_802751D8` + epilogue, `r3` untouched | `return it_802751D8(gobj);` | it is the `animated` predicate of the egg's motion-state-4 `ItemStateTable` row (`itkyasarinegg.c:21`); `Item_80269528` (`item.c:1303`) **destroys the item** when it returns true, so the host was destroying the Chansey egg on a coin flip |
+| `if/soundtest.c:812` `un_802FF934` | `0x802ff934`: bare `bl lbAudioAx_80024C08` + epilogue | `return lbAudioAx_80024C08(un_804D6DBC);` | Sound Test row callback |
+| `if/soundtest.c:1264` `un_80300758` | `0x80300758`: `cmpwi r3,1` does not write `r3`, and `un_802FFCD0` (`0x802ffcd0`) never writes `r3` either — it reads `count` and works out of `r0/r5/r6/r7`.  So `arg0 == 1` returns `count` (4) and the other path returns `arg0` | `return true;` / `return arg0 != 0;` | see below |
+| `if/soundtest.c:1271` `un_80300790` | same shape at `0x80300790` | same | see below |
+
+The Sound Test consumer is `un_80302E00` (`textlib_1.c:33`): it calls the
+row's `x4` and forwards the key to the parent handler
+(`un_804D6E44->xC(arg1)`) **only when the row returned 0**.  A garbage
+non-zero swallows the key; a garbage zero double-handles it.  Only
+zero-vs-non-zero reaches that test, which is why the `bool` spellings above
+are exact.
+
+**`melee-pc` gets these two wrong**: `58cf731` returns `0` from both, which
+inverts the `arg0 == 1` path's fall-through decision.  Its `void` callee looked
+indeterminate; the callee simply never touches `r3` (G-161).
+
+### Still open (5) — tracked as P-711
+
+`if/soundtest.c` `fn_80300CC8:1510`, `fn_80300DE0:1551`, `fn_80300ED0:1586`,
+`fn_803011EC:1729`, `un_80301CE0:2176`.  Same consumer, same class, but each
+ends in a multi-case `switch` whose arms leave different things in `r3`, so
+deciding them needs a per-path trace of the retail disassembly rather than a
+single epilogue read.  The recipe is the one above: dump the function, and for
+each path that reaches the shared epilogue, find the last instruction that
+writes `r3` (checking whether any `bl` target writes it at all).
 
 
 ## P-700 libc strictness: `vsnprintf(buf, -1, ...)` (2026-09-14)

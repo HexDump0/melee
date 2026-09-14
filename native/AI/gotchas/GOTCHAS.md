@@ -2401,3 +2401,52 @@ indeterminate, because the host's garbage is unrelated to the caller's `f1`.
 Note this is an exception to the P-695 census's outcome 3 ("indeterminate and
 unreachable -> leave it"): the rule holds unless a consumer stores the result
 into live state, which `fp->cur_anim_frame` is.
+
+## G-160: "no caller reads the result" must include function-pointer tables
+
+**Symptom:** the Chansey egg (`itKyasarinegg`) in motion state 4 was destroyed
+at random, and the Sound Test menu swallowed or double-handled key presses.
+
+**Cause:** the P-695 missing-`return` census bucketed 14 of its 45 sites as
+"declared non-void but no caller reads the result (fake return type)".  That
+judgement was made by grepping for `name(` — i.e. **direct calls only**.  Four
+of those functions are never called directly at all; they are installed in
+callback tables and invoked through a pointer, and the engine does read the
+result:
+
+| Function | Installed as | Consumer |
+|---|---|---|
+| `itKyasarinegg_UnkMotion4_Anim` | `ItemStateTable.animated` (`itkyasarinegg.c:21`) | `Item_80269528` (`item.c:1303`) destroys the item when it returns true |
+| `un_802FF934`, `un_80300758`, `un_80300790` | `un_80304138_objalloc_t_x8.x4` (Sound Test menu rows) | `un_80302E00` (`textlib_1.c:33`) forwards the key to the parent handler **only** when the row's callback returns 0 |
+
+A grep for `\bname\b` that *excludes* `name(` finds these in one pass:
+
+```sh
+grep -rn "\b$fn\b" --include=*.c --include=*.h decomp/src | grep -v "$fn *("
+```
+
+**Fix:** all four are census outcome 1 (retail's `r3` provably holds a specific
+expression), fixed in P-710 — see `learnings/decomp_port.md`.
+
+**Rule:** before writing off a fall-off-the-end site as unread, check for
+table membership as well as direct calls.  In this codebase the state machines
+(`ItemStateTable`, `ftState`, menu row tables, `HSD_GObjPredicate` slots) are
+where the *consumed* return values live, and they never appear as `name(`.
+
+## G-161: a `void` callee still decides the caller's `r3`
+
+**Symptom:** `un_80300758`/`un_80300790` look like they must return 0 on the
+`arg0 == 1` path — the reference port `999sian/melee-pc` patched them that way
+(`58cf731`) — but retail returns **4**.
+
+**Cause:** the path ends in `un_802FFCD0(4, ptr)`, which is `void`.  Its retail
+body (`0x802ffcd0`) reads `count` out of `r3` and does all its work in
+`r0/r5/r6/r7`, so it **never writes `r3`** and the argument survives the call.
+`cmpwi r3, 1` does not write `r3` either, so the other path returns the
+incoming `arg0`.  Both paths are therefore fully determined, not garbage.
+
+**Rule:** when deciding what a fall-off-the-end site returns, do not stop at
+"the last call was `void`, so it is indeterminate".  Disassemble the callee and
+check whether it writes `r3` at all; a small leaf function often does not, and
+then the *caller's* argument is the return value.  This is how the P-710 sites
+turned out to be outcome 1 rather than outcome 3.
