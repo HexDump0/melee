@@ -17,9 +17,11 @@
  *   - the PCM hash is stable for identical pump runs.
  */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <dolphin/ax.h>
+#include <dolphin/axfx.h>
 #include <dolphin/os.h>
 
 #include "audio/ax_hle.h"
@@ -40,6 +42,20 @@ unsigned char* platform_aram_base(void)
 unsigned platform_aram_size(void)
 {
     return TEST_ARAM_SIZE;
+}
+
+/* axfx.c links its default heap hooks even when the test installs its own;
+ * satisfy their OS-heap references without pulling in the allocator. */
+volatile OSHeapHandle __OSCurrHeap = -1;
+void* OSAllocFromHeap(int heap, unsigned long size)
+{
+    (void) heap;
+    return malloc(size);
+}
+void OSFreeToHeap(int heap, void* ptr)
+{
+    (void) heap;
+    free(ptr);
 }
 
 /* ----------------------------------------------------------------- fixture */
@@ -192,6 +208,97 @@ static void test_ssm_conversion(void)
           "ssm ADPCMLOOP fields");
 }
 
+/* P-638: the reverb_hi and chorus replacement TU (Melee registers neither)
+ * must create their delay lines, process a buffer without touching memory it
+ * does not own, re-create on Settings and free on Shutdown.  The processing
+ * itself has no retail oracle (the effects are DSP microcode), so the checks
+ * are structural: init/settings/shutdown succeed, the mix is finite and
+ * deterministic, and ASan sees every allocation freed. */
+static void* effect_alloc(unsigned long size)
+{
+    return malloc(size);
+}
+
+static void effect_free(void* ptr)
+{
+    free(ptr);
+}
+
+static void test_axfx_effects(void)
+{
+    struct AXFX_REVERBHI rev;
+    struct AXFX_CHORUS chorus;
+    long left[160];
+    long right[160];
+    long sur[160];
+    long first_left[160];
+    struct AXFX_BUFFERUPDATE update;
+    unsigned i;
+
+    AXFXSetHooks(effect_alloc, effect_free);
+
+    update.left = left;
+    update.right = right;
+    update.surround = sur;
+    for (i = 0; i < 160; i++) {
+        left[i] = (long) (i * 977);
+        right[i] = (long) (i * -613);
+        sur[i] = (long) (i * 311);
+    }
+
+    memset(&rev, 0, sizeof(rev));
+    rev.coloration = 0.5f;
+    rev.time = 1.0f;
+    rev.mix = 0.5f;
+    rev.damping = 0.5f;
+    rev.preDelay = 0.01f;
+    rev.crosstalk = 0.25f;
+    check(AXFXReverbHiInit(&rev) == 1, "reverb_hi init");
+    AXFXReverbHiCallback(&update, &rev);
+    memcpy(first_left, left, sizeof(first_left));
+    check(left[100] != (long) (100 * 977), "reverb_hi processes the buffer");
+    for (i = 0; i < 160; i++) {
+        if (left[i] > (1L << 26) || left[i] < -(1L << 26) ||
+            right[i] > (1L << 26) || right[i] < -(1L << 26) ||
+            sur[i] > (1L << 26) || sur[i] < -(1L << 26))
+        {
+            break;
+        }
+    }
+    check(i == 160, "reverb_hi output is bounded");
+    check(AXFXReverbHiSettings(&rev) == 1, "reverb_hi settings");
+    /* The modified delay lines start empty: the same input yields a
+     * different tail than the first pass. */
+    for (i = 0; i < 160; i++) {
+        left[i] = (long) (i * 977);
+    }
+    AXFXReverbHiCallback(&update, &rev);
+    check(memcmp(first_left, left, sizeof(first_left)) != 0,
+          "reverb_hi settings rebuild the work buffers");
+    check(AXFXReverbHiShutdown(&rev) == 1, "reverb_hi shutdown");
+
+    memset(&chorus, 0, sizeof(chorus));
+    chorus.baseDelay = 5;
+    chorus.variation = 13;
+    chorus.period = 100;
+    check(AXFXChorusInit(&chorus) == 1, "chorus init");
+    memcpy(first_left, left, sizeof(first_left));
+    AXFXChorusCallback(&update, &chorus);
+    check(memcmp(first_left, left, sizeof(first_left)) != 0,
+          "chorus writes the buffer");
+    for (i = 0; i < 160; i++) {
+        left[i] = (long) (i * 977);
+        right[i] = (long) (i * -613);
+        sur[i] = (long) (i * 311);
+    }
+    memcpy(first_left, left, sizeof(first_left));
+    AXFXChorusCallback(&update, &chorus);
+    check(memcmp(first_left, left, sizeof(first_left)) != 0,
+          "chorus output advances with the ring");
+    check(AXFXChorusSettings(&chorus) == 1, "chorus settings");
+    check(AXFXChorusShutdown(&chorus) == 1, "chorus shutdown");
+}
+
 int main(void)
 {
     AXVPB* voice;
@@ -270,6 +377,9 @@ int main(void)
         hash_b = ax_hle_pcm_hash();
         check(hash_a == hash_b, "hash is stable across identical runs");
     }
+
+    /* 5. Unused AXFX effects (P-638). */
+    test_axfx_effects();
 
     if (failures == 0) {
         printf("test_audio: PASS (%u frames, callback total %d)\n",

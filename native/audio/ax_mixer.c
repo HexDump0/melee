@@ -333,6 +333,23 @@ void ax_mixer_frame(s16* out, unsigned frames)
             voice_reset(v, pb);
         }
 
+        /* ITD shift ramp.  The DSP updates the current shift toward the
+         * target once per 5 ms frame (the game sets a target every frame and
+         * snaps `shiftL/R` directly only when a voice starts or is reset),
+         * so a pan glides over up to 31 frames instead of one sample. */
+        if (pb->itd.flag != 0) {
+            if (pb->itd.shiftL < pb->itd.targetShiftL) {
+                pb->itd.shiftL++;
+            } else if (pb->itd.shiftL > pb->itd.targetShiftL) {
+                pb->itd.shiftL--;
+            }
+            if (pb->itd.shiftR < pb->itd.targetShiftR) {
+                pb->itd.shiftR++;
+            } else if (pb->itd.shiftR > pb->itd.targetShiftR) {
+                pb->itd.shiftR--;
+            }
+        }
+
         for (f = 0; f < frames; f++) {
             s16 x;
             s32 gain;
@@ -354,23 +371,13 @@ void ax_mixer_frame(s16* out, unsigned frames)
             pb->ve.currentVolume =
                 (u16) (pb->ve.currentVolume + (u16) (s16) pb->ve.currentDelta);
 
-            /* ITD: delay each ear by its own shift (0 disables). */
+            /* ITD: delay each ear by its own current shift (0 disables). */
             dl = y;
             dr = y;
             if (pb->itd.flag != 0) {
                 s32 shift_l = (s16) pb->itd.shiftL;
                 s32 shift_r = (s16) pb->itd.shiftR;
 
-                if (pb->itd.shiftL < pb->itd.targetShiftL) {
-                    pb->itd.shiftL++;
-                } else if (pb->itd.shiftL > pb->itd.targetShiftL) {
-                    pb->itd.shiftL--;
-                }
-                if (pb->itd.shiftR < pb->itd.targetShiftR) {
-                    pb->itd.shiftR++;
-                } else if (pb->itd.shiftR > pb->itd.targetShiftR) {
-                    pb->itd.shiftR--;
-                }
                 if (shift_l > 0 && shift_l < AX_ITD_SAMPLES) {
                     dl = v->itd_l[(v->itd_pos + AX_ITD_SAMPLES -
                                    (u32) shift_l) %

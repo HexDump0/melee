@@ -145,10 +145,24 @@ wrap per voice per page; a storm of wraps means G-116.
 
 `__AXProcessAux` runs the registered aux A/B callbacks on the CPU-side buffer
 of a triple buffer; the mixer fills the aux sends from `AXPBMix` and adds the
-command list's aux output buffers to the main mix.  `reverb_std` is ported to C
-in `native/decomp/axfx/axfx_port.c` (the only asm in that file);
-`AXFXReverbHi`/`AXFXChorus` are never registered by Melee and report init
-failure.  `delay.c` compiles as-is.
+command list's aux output buffers to the main mix.  `reverb_std`, `reverb_hi`
+and `chorus` are ported to C in `native/decomp/axfx/axfx_port.c` (the asm in
+those SDK files is transcribed; `delay.c` compiles as-is).  Melee registers
+only `reverb_std` + `delay` and snaps the ITD shifts directly when a voice
+starts (`HSD_SynthSFXUpdateMix`, synth.c:1186), so the two unregistered effects
+have no in-game observer; `test_audio` exercises their create/settings/
+shutdown and one buffer each.
+
+Two port details worth knowing:
+- `do_src1`/`do_src2` (chorus) index the 512-float 12 kHz table with
+  `rlwinm r10,r4,7,21,27`: a rotate-left 7 then mask bits 21..27, not a plain
+  shift.  The retail DOL contains the same encoding (`54 8a 3d 76`) at
+  0x359b34/0x359ccc; implement it with the PPC rotate+mask semantics, not
+  `(posLo >> 14) & 0x7f`.
+- `HandleReverb` (reverb_hi) is three feedback combs -> three allpasses ->
+  one-pole low-pass (0.3) with a `0.6*level*allpass + 0.6*(1-level)*dry`
+  mix and `ps_muls0`-only right-channel crosstalk; `lpLastout` feeds back
+  across combs (unlike reverb_std).
 
 ## Verification
 

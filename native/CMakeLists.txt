@@ -66,7 +66,7 @@ set(MELEE_AX_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/src/dolphin/axfx/axfx.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/src/dolphin/axfx/delay.c
     # reverb_std/reverb_hi/chorus are hybrid asm in extern/ (ADR-0011 rule 3);
-    # this replacement TU ports reverb_std and stubs the two unused effects.
+    # this replacement TU ports all three effects.
     ${CMAKE_CURRENT_SOURCE_DIR}/decomp/axfx/axfx_port.c)
 
 add_executable(melee_prototype

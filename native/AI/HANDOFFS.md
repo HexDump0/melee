@@ -56,6 +56,7 @@ something the next agent must know, or finish a task that changes interfaces.
 | 2026-09-14 | P-662 stage `yakumono_param` layouts + `dynamicsdata_*` conversion (Castle crash) | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-662-stage-params.md`](handoffs/2026-09-14-P-662-stage-params.md) |
 | 2026-09-14 | P-624 retail title state verified; `MELEE_TITLE_TEST` probe + `decomp_title` ctest | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-624-title-state.md`](handoffs/2026-09-14-P-624-title-state.md) |
 | 2026-09-14 | P-658 unwalked public roots: stand/cut scenes, intro-easy table, 51 event levels, dbLoadCommonData | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-658-roots.md`](handoffs/2026-09-14-P-658-roots.md) |
+| 2026-09-14 | P-638 reverb_hi/chorus ports + per-frame ITD ramp | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-638-axfx-itd.md`](handoffs/2026-09-14-P-638-axfx-itd.md) |
 
 ## Template
 

@@ -1787,3 +1787,23 @@ would read their rule floats as denormals.
   fields; the branch is explicit but only the relocation pass acts.
 `test_decomp_assets` compares each walked field against the raw archive
 (missing the branch fails on the first value) and ASan stays clean.
+
+## G-135: the AX ITD shift ramps per 5 ms frame, and chorus's resampler rotates
+
+**Symptom / scope:** the mixer's ITD moved `shiftL/shiftR` toward the target
+once per *sample*, so any pan reached its target within 32 samples (< 1 ms)
+and the game's separate snap path (`HSD_SynthSFXUpdateMix` sets `shiftL/R`
+directly when `interpolate == 0`, otherwise only writes `targetShiftL/R` via
+`AXSetVoiceItdTarget`) was pointless.  That the SDK keeps a target mechanism
+at all only makes sense if the DSP ramp is slower than a frame.
+**Fix:** `ax_mixer_frame` steps each shift by one toward its target once per
+5 ms frame, before the sample loop; the frame uses that constant shift.  A
+full pan now glides over up to 31 frames (~155 ms), which is what the
+`interpolate == 0` vs target split in the game's own code implies.  There is
+no retail oracle for the exact rate; the regression is the deterministic PCM
+hash (`ctest decomp_audio`) and the mixer unit test.
+**Separate chorus trap:** `do_src1`/`do_src2` index the 12 kHz resample table
+with `rlwinm r10,r4,7,21,27` (rotate left 7, mask bits 21..27), **not** a
+plain `(posLo >> 14) & 0x7f`.  The retail DOL carries the same encoding
+(`54 8a 3d 76`) at 0x359b34 and 0x359ccc, so use the PPC rotate+mask
+semantics; the 512-float table's phase ordering assumes it.

@@ -128,9 +128,11 @@ host.  `src/sysdolphin/baselib/axdriver.c` and the SDK's pure-C AX voice layer
 compiled against `native/audio/` (`ax_hle.c` is the `AXOut`/DSP/AI boundary,
 `ax_mixer.c` is the software DSP: DSP-ADPCM, ratio SRC, `AXPBMIX` routing, VE
 ramps, ITD, loop/end/current-address and state write-back, aux returns).  The
-200 Hz AX clock is derived from VI (10 frames per 3 retraces).  `reverb_std`'s
-asm `HandleReverb` is ported to C (`native/decomp/axfx/axfx_port.c`);
-`reverb_hi`/`chorus` are not registered by Melee and are stubbed.
+200 Hz AX clock is derived from VI (10 frames per 3 retraces).  All three
+AXFX effects are ported to C (`native/decomp/axfx/axfx_port.c`): `reverb_std`
+(used by the game) and `reverb_hi`/`chorus` (never registered by Melee, but
+their asm callbacks are transcribed and unit-tested).  The mixer's ITD ramps
+`shiftL/shiftR` toward the target once per 5 ms frame (P-638/G-135).
 `platform/{ssm,sem,hps}.c` convert the three audio asset formats on the DVD
 read path.  `melee_decomp_boot --audio-dump out.wav` writes a deterministic
 32 kHz mix and logs an FNV-1a hash; the viewer opens an SDL3 32 kHz stream.
@@ -452,11 +454,11 @@ Ordered by impact.
    (`src/melee/gr/*`) still supersede the viewer's stand-in lights at S4.
    See `learnings/hsd_tev_materials.md` and `decomp_s2_gx_hle.md`.
 5. **Audio landed in S5; menus/items/results/netplay/WASM are not there yet.**
-   In-match and boot/title audio play, but `AXFXReverbHi`/`AXFXChorus` are
-   stubbed (Melee never registers them) and the mixer's ITD is a simple delay
-   line; validate pan/fade/pause/mute by ear during the owner check.  The menu
-   BGM page ring is fixed (P-648); stage BGM selection and results are S6;
-   netplay/WASM are S7.
+In-match and boot/title audio play; `AXFXReverbHi`/`AXFXChorus` are ported
+but never registered by Melee, and the mixer's ITD ramps per 5 ms frame
+(P-638).  Validate pan/fade/pause/mute by ear during the owner check.  The
+menu BGM page ring is fixed (P-648); stage BGM selection and results are S6;
+netplay/WASM are S7.
 6. **Captain Falcon's eyes do not render** in the compiled path (P-616); the
    rest of the head now matches the prototype.  See TASKS.md.
 7. **Non-Mario physics values** are demo defaults, not per-character data.
