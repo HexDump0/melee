@@ -1077,3 +1077,67 @@ sites**, which the flag does not address and which are a different class
 (genuinely uninitialised locals the decompiler lost, like melee-pc's Venom
 `jobj`).  Triage is P-713.  melee-pc reported 153 of these and had not triaged
 them either.
+
+## ADR-0020: Compile the decompilation with `-DLINT` so its layout contract is enforced
+
+**Date:** 2026-09-14 (P-714)
+
+**Context.** The decompilation carries the console's layout contract inline:
+189 `ASSERT_SIZE`/`ASSERT_OFFSET` declarations, plus a `#pragma pack(push, 1)`
+around `TmData::x37[]` in `melee/gm/types.h`.  All of it is gated on
+`#if defined(MUST_MATCH) || defined(LINT)` (`Runtime/platform.h:120`), and the
+port defined neither.  On top of that, `native/decomp/shim/Runtime/platform.h`
+**`#undef`ed `STATIC_ASSERT`** outright, so even the raw
+`STATIC_ASSERT(offsetof(...))` assertions in headers like `melee/ty/types.h`
+expanded to nothing.
+
+Two consequences, one latent and one live:
+
+- Every layout assertion in the tree was inert.  The port had **no** check
+  that its structs match the console — the exact bug class
+  (`999sian/melee-pc`'s "one object, many views") that produced several of
+  that port's crashes.
+- `TmData` was genuinely mis-laid-out.  Measured on our own 32-bit build:
+
+  | | port (before) | console |
+  |---|---|---|
+  | `sizeof(struct TmData)` | `0x5F8` | `0x574` |
+  | `sizeof(struct TmUnkMenuData)` | `0x14` | `0x12` |
+
+  Without the pragma, the `u16 x9` after nine `u8`s gets natural alignment, so
+  each of the 64 entries grows two bytes and every field after `x37[64]` in
+  the live `gm_804771C4` Tournament Mode global shifts by 132 bytes.
+
+The shim's stated reason — "those assertions are true on the GC and false on a
+64-bit host" — was written before ADR-0012 moved every compiled target to
+32-bit.  On a 32-bit target the documented PowerPC sizes are simply correct.
+
+**Decision.** Define `LINT` for every target that compiles decompiled sources
+or their headers (`MELEE_DECOMP_LAYOUT_OPTIONS` in `native/CMakeLists.txt`,
+appended to the same eight option lines as `MELEE_32BIT_FP_OPTIONS`), and
+delete the `STATIC_ASSERT` neutralisation from the shim.
+
+**Evidence.** A `-DLINT` pass over all 993 compiled TUs reports **0** failing
+assertions.  The instrument was validated by deliberately breaking
+`ASSERT_SIZE(struct Fighter, 0x23EC)` and confirming it fires — a zero from an
+unvalidated pass is worthless, and the first version of this check silently
+measured nothing because the shim was still neutralising the macro.
+
+**The mixed-layout hazard.** `LINT` changes packing, so a build where some TUs
+see it and others do not would give one struct two layouts — worse than the
+bug being fixed.  1149 of 1171 TUs get the flag; the remaining 22 were checked
+by preprocessing each one and none reaches a LINT-sensitive header
+(`melee_decomp_math` is 64-bit and compiles only `mtx.c`).  **Re-run that check
+if a target is added or its includes change.**
+
+**Note on the reference port.** `999sian/melee-pc` withdrew this same idea
+(`51965c2`, "Retract the ASSERT_SIZE recommendation; it is not a usable
+lever") after a `-DLINT` pass gave it 94 failures.  Its reasoning is sound for
+its target and does not transfer: on x86-64 every pointer-bearing struct
+legitimately differs from the documented PowerPC size, so the assertions are
+noise there.  ADR-0012 is precisely what makes them signal here.
+
+**Consequences.** The layout contract is now enforced on every build, so a
+future submodule re-pin or a struct edit that breaks console layout fails to
+compile instead of corrupting memory at runtime.  `ctest` 28/28 with the flag;
+no `src/` change, so the GameCube build is untouched.

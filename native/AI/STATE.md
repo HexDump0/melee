@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-14 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712 and P-713 fixed, P-699/P-702/P-711 open)
+Last updated: 2026-09-14 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713 and P-714 fixed, P-699/P-702/P-711/P-715 open)
 
 > **Direction (2026-09-13/14): ADR-0017 — keep the GLES renderer, reach Aurora parity.**
 > The 32-bit product, in-place converter and GLES3/WebGL2 renderer stay; the
@@ -870,3 +870,30 @@ queued as H-7.  Full verdict table in `learnings/decomp_port.md`.
 low-yield after three sampled sites turned out to be false positives.  That was
 a bad generalisation from a sample of three; the real hit rate was seven, and
 the pointer-ranked shortlist in `logs/` contained all of them.
+
+**P-714 (2026-09-14, the layout contract was switched off twice over):** the
+decompilation ships the console's layout contract inline — 189
+`ASSERT_SIZE`/`ASSERT_OFFSET` declarations and a `#pragma pack(push, 1)` around
+`TmData::x37[]` — all gated on `MUST_MATCH || LINT`, which the port defined
+neither of; and `native/decomp/shim/Runtime/platform.h` `#undef`ed
+`STATIC_ASSERT` on top of that, killing even the raw offset assertions outside
+that gate.  So the port had no check at all that its structs match the console,
+which is the bug class (`one object, many views`) behind several of
+`999sian/melee-pc`'s crashes.  It was also hiding a live one: `sizeof(struct
+TmData)` measured `0x5F8` against the console's `0x574` (`TmUnkMenuData` `0x14`
+vs `0x12`), shifting every field after `x37[64]` in the live `gm_804771C4`
+Tournament Mode global by 132 bytes.  ADR-0020 turns `LINT` on for all eight
+decomp targets and deletes the shim's `#undef`; all 993 TUs pass, `ctest`
+28/28.  The shim's stated reason was simply stale — it predates ADR-0012, which
+made every compiled target 32-bit, where the documented PowerPC sizes are
+correct.  melee-pc withdrew this same idea in `51965c2` for its 64-bit target,
+correctly for them and not for us.  G-163.
+
+**Cross-port review status (P-715):** 15 of the 63 `src/`-touching commits in
+`999sian/melee-pc` have been reviewed.  The remaining 48 are listed and ranked
+in P-715; the highest-value unread ones are its sign-extension and
+bitfield-union sweeps, its missing-SFX diagnosis (bears on our open P-706), and
+its white-quad/`GX_TEXMAP_NULL` TEV work.  **Treat that port as a source of
+leads, not patches:** three of its conclusions have now turned out wrong for us
+on re-derivation (`un_80300758`, `gmevent.c`, and the ASSERT_SIZE retraction),
+each time because its 64-bit architecture changes the reasoning.

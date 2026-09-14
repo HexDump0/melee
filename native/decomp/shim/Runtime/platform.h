@@ -4,16 +4,17 @@
 /*
  * PC shadow of src/Runtime/platform.h for compiled decomp TUs.
  *
- * 1. Includes the real header next in the include search path (the shim
- *    directory is first), then
- * 2. neutralises STATIC_ASSERT for the host build.
+ * Includes the real header next in the include search path (the shim
+ * directory is first).
  *
- * Several decomp headers (e.g. src/melee/ty/types.h) assert GameCube 32-bit
- * struct offsets at compile time with raw STATIC_ASSERT(offsetof(...)). Those
- * assertions are true on the GC and false on a 64-bit host; they are compile
- * time only, so neutralising the macro keeps the TUs buildable without
- * touching src/ (ADR-0011 prefers shims). Runtime struct layout is
- * self-consistent because the whole game is compiled for the host.
+ * This header used to also #undef STATIC_ASSERT, because several decomp
+ * headers (e.g. src/melee/ty/types.h) assert GameCube 32-bit struct offsets
+ * with a raw STATIC_ASSERT(offsetof(...)) and those are false on a 64-bit
+ * host.  ADR-0012 moved every compiled target to 32-bit, which made that
+ * reasoning obsolete: the console offsets are simply correct here.  The
+ * neutralisation was removed in P-714 so those assertions verify our layout
+ * on every build instead of being silently discarded -- see ADR-0020.  The
+ * file is kept as a pass-through so the shim include path stays uniform.
  *
  * `#include_next` is a GCC/Clang extension; this header is only on the
  * include path of native/decomp targets (compiled with -w) and is marked as a
@@ -23,8 +24,5 @@
 
 #include_next <Runtime/platform.h>
 
-#undef STATIC_ASSERT
-#define STATIC_ASSERT(cond)                                                   \
-    _Static_assert(1, "disabled on the host port build (GameCube layout)")
 
 #endif /* MELEE_NATIVE_DECOMP_SHIM_RUNTIME_PLATFORM_H */

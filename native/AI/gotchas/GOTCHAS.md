@@ -2485,3 +2485,47 @@ this aliasing class, the second is genuinely lost assignments (P-713).  A
 filter that greps for only one of the two strings returns a confident wrong
 answer — melee-pc hit exactly this trap from the other direction on its Venom
 crash, where the assert macro demoted a real bug to "may be used".
+
+## G-163: the decomp's own layout assertions were switched off twice over
+
+**Symptom (latent, and one live):** nothing in the port ever verified that its
+structs match the console, and `struct TmData` (the `gm_804771C4` Tournament
+Mode global) was `0x5F8` instead of `0x574`, with every field after `x37[64]`
+shifted 132 bytes.
+
+**Cause:** two independent switches, both off.
+
+1. `Runtime/platform.h:120` gates `ASSERT_SIZE`/`ASSERT_OFFSET` on
+   `#if defined(MUST_MATCH) || defined(LINT)`.  The port defined neither, so
+   all 189 of them expanded to nothing.  The same condition also gates a
+   `#pragma pack(push, 1)` in `melee/gm/types.h` — so `LINT` is not only
+   assertions, it is **layout**.
+2. `native/decomp/shim/Runtime/platform.h` additionally `#undef`ed
+   `STATIC_ASSERT` itself, killing even the raw
+   `STATIC_ASSERT(offsetof(...))` assertions that are not behind that gate.
+   Its reason — "false on a 64-bit host" — predates ADR-0012, which made every
+   compiled target 32-bit.
+
+**Fix:** ADR-0020 — `-DLINT` on every decomp target
+(`MELEE_DECOMP_LAYOUT_OPTIONS`) and the shim's `#undef` deleted.  All 993 TUs
+pass.
+
+**Two traps worth remembering:**
+
+- **Validate the instrument before believing a zero.**  The first run of this
+  check reported 0 failures and meant nothing: the shim was still neutralising
+  `STATIC_ASSERT`, so the pass was measuring air.  Breaking
+  `ASSERT_SIZE(struct Fighter, 0x23EC)` on purpose and watching it fire is
+  what proved the check was live.  Do this every time.
+- **`LINT` changes struct packing, so it is all-or-nothing.**  A build where
+  some TUs define it and others do not gives one struct two layouts, which is
+  worse than the original bug.  If you add a target or change its includes,
+  re-run the check in ADR-0020 that no non-`LINT` TU reaches a LINT-sensitive
+  header.
+
+**Do not assume a reference port's retraction applies to us.**
+`999sian/melee-pc` explicitly withdrew this idea (`51965c2`) after getting 94
+failures — correctly, for a 64-bit target where pointer-bearing structs cannot
+match PowerPC sizes.  Being 32-bit (ADR-0012) is exactly what turns their dead
+lever into our live one.  See also G-160/G-161, where copying that port's
+conclusions would have been wrong for different reasons.
