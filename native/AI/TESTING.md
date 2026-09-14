@@ -206,6 +206,38 @@ returns the **state id**, not the `GS_*` kind — both are easy to get wrong.
 Expect `[intro] markers nonblack=` well over 10000; ~553 means the
 stage-marker chain is not drawing (G-148).
 
+**Every `[intro]`/`[classic]`/`[gameover]` probe line needs
+`MELEE_VIEWER_TRIAGE=1`.**  `viewer_main.c` points `boot_triage_note()` at
+`/dev/null` without it, so a run that reached the scene looks identical to one
+that never got there (G-151).  The `ctest` cases set it for you; ad-hoc runs
+must set it themselves.
+
+Two harness switches (committed with the P-704 fix):
+
+- `MELEE_INTRO_US=1` — with `MELEE_INTRO_TEST`, forces
+  `saved_language = LANG_US`.  Without it the debug route leaves the save as
+  JP and the splash shows the Japanese name table, which looks like a bug and
+  is not.
+- `MELEE_CLASSIC_INTRO=1` — with `MELEE_CLASSIC_TEST`, steps `GM_CLASSIC` onto
+  its own state id 0, i.e. the real `GS_INTRO_EASY` fed by
+  `gmClassicIntroDataBuffer`.  Use this, not `MELEE_INTRO_TEST`, whenever the
+  question is about the splash's *enter data* rather than its rendering.
+
+## VS splash fighter names (P-704)
+
+```sh
+SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy MELEE_INTRO_TEST=1 \
+    MELEE_INTRO_US=1 MELEE_NO_CARD=1 ./build/native/melee --match \
+    --frames 420 --no-hud --shot /tmp/vs.bmp
+```
+
+Expect `[intro] names white=` in the thousands; `0` means `fn_80160DE8` is
+reading the US name-width table past the end of `lbl_803B75F8` again and
+storing an x-scale of 0 (G-154).  The probe counts **white**, not non-black:
+the dark backdrop and the white "VS" logo keep a non-black count high in both
+the broken and fixed builds, so only the white count flips (G-155).  The
+`ctest` case is `decomp_intro_names`.
+
 ## Missing-`return` census
 
 `src/` is compiled with `-w`, so `-Wreturn-type` never fires in a normal

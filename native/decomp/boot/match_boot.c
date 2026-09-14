@@ -20,6 +20,8 @@
 #include <melee/gm/forward.h>
 #include <melee/gm/gm_1601.h>
 #include <melee/gm/gm_1A3F.h>
+#include <melee/gm/gmmain_lib.h>
+#include <melee/lb/lblanguage.h>
 #include <melee/gm/gmscene.h>
 #include <melee/gm/gmvs.h>
 #include <melee/ft/ftlib.h>
@@ -233,6 +235,12 @@ static void match_boot_frame(void)
      * it.  gm_SetNextGameModeStateId(n) lands on state id n (it stores n + 1
      * and gm_801A4014 takes next_state_id - 1), so 6 (P-700). */
     if (intro_test) {
+        /* The debug-mode route leaves the saved language as JP, which picks
+         * the JP name table; force US so the probe exercises the same path a
+         * retail US save does (G-151). */
+        if (getenv("MELEE_INTRO_US") != NULL) {
+            gmMainLib_GetGamePrefs()->saved_language = LANG_US;
+        }
         /* gm_GetCurrentSceneIndex returns the state machine's current state
          * id, not the GS_* scene kind, so match the debug table's id 6. */
         unsigned scene = (unsigned) gm_GetCurrentSceneIndex();
@@ -272,6 +280,19 @@ static void match_boot_frame(void)
                 boot_triage_note("[classic] name_lead=%02x sjis=%d\n",
                                  (unsigned) lead,
                                  lead >= 0x81 && lead <= 0x9F ? 1 : 0);
+            }
+            /* MELEE_CLASSIC_INTRO: step Classic onto its own state id 0,
+             * which is the real GS_INTRO_EASY splash with
+             * gmClassicIntroDataBuffer -- unlike MELEE_INTRO_TEST, which
+             * borrows gm_Mode_Debug_States and so carries junk enter data. */
+            if (getenv("MELEE_CLASSIC_INTRO") != NULL &&
+                gm_GetCurrentSceneIndex() != 0 &&
+                ((frame - start_frame) % 60) == 0)
+            {
+                boot_triage_note("[classic] -> intro (state %u)\n",
+                                 (unsigned) gm_GetCurrentSceneIndex());
+                gm_SetNextGameModeStateId(0);
+                gm_801A4B60();
             }
             return;
         }

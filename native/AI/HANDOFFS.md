@@ -63,6 +63,8 @@ something the next agent must know, or finish a task that changes interfaces.
 | 2026-09-14 | P-687..P-689 fixed: host fallbacks, console math, respawn platform | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-687-P-689-divergences-done.md`](handoffs/2026-09-14-P-687-P-689-divergences-done.md) |
 | 2026-09-14 | P-692..P-694 GX HLE audit: vertex formats, texgen source z, TEV raster channel | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-692-gx-audit.md`](handoffs/2026-09-14-P-692-gx-audit.md) |
 | 2026-09-14 | P-695/P-696/P-698 fixed (match-end crash, magnifier 400 ms frames, "STAGE CLEAR" shape-anim banner); P-699/P-700 filed | claude (opus-5) | [`2026-09-14-P-697-clear-screen-black-band.md`](handoffs/2026-09-14-P-697-clear-screen-black-band.md) |
+| 2026-09-14 | P-700/P-701/P-703 fixed (SIS `vsnprintf` truncation, scene-desc fog walk, Shift-JIS name literals); P-704 filed — Classic VS names still absent, `xEF` indexes `x57C[3]` out of range | claude (opus-5) | [`2026-09-14-P-704-classic-vs-names.md`](handoffs/2026-09-14-P-704-classic-vs-names.md) |
+| 2026-09-14 | P-704 fixed: US name-width table read one past `lbl_803B75F8`; VS splash names draw again (0 -> 2457 white pixels) | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-704-classic-vs-names.md`](handoffs/2026-09-14-P-704-classic-vs-names.md) |
 
 ## Template
 

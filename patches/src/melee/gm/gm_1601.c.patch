@@ -1,8 +1,47 @@
 diff --git a/src/melee/gm/gm_1601.c b/src/melee/gm/gm_1601.c
-index 85d056f3a..aaf25cf9a 100644
+index 85d056f3a..e0e830111 100644
 --- a/src/melee/gm/gm_1601.c
 +++ b/src/melee/gm/gm_1601.c
-@@ -3901,6 +3901,14 @@ void fn_80168A6C(void* arg0, void* arg1, s32 idx)
+@@ -851,9 +851,26 @@ void fn_80160DE8(HSD_JObj* arg0, u8 arg1, s32 arg2, u8 arg3, f32 farg0,
+             use_alt_name = true;
+         }
+         if (use_alt_name) {
++#ifdef PORT_PC
++            /* The four name-width tables are separate 33-entry `static const`
++             * arrays that the console linker placed back to back at
++             * 803B75F8/767C/7700/7784, so the retail code indexes the first
++             * one past its end: +0x21 is lbl_803B767C, +0x42 is
++             * lbl_803B7700, +0x63 is lbl_803B7784.  GCC gives each array its
++             * own section (-fdata-sections), so those reads land in padding
++             * and return 0.0 -- and a 0 width makes HSD_SisLib_803A7548 store
++             * an x-scale of 0, drawing every glyph at zero width.  Name the
++             * arrays instead; gm_80160B40 and gm_80160C90 already do. */
++            temp = lbl_803B7784[tmp_ckind];
++#else
+             temp = lbl_803B75F8[tmp_ckind + 0x63];
++#endif
+         } else {
++#ifdef PORT_PC
++            temp = lbl_803B767C[tmp_ckind];
++#else
+             temp = lbl_803B75F8[tmp_ckind + 0x21];
++#endif
+         }
+         size = temp;
+     } else {
+@@ -863,7 +880,11 @@ void fn_80160DE8(HSD_JObj* arg0, u8 arg1, s32 arg2, u8 arg3, f32 farg0,
+             use_alt_name = true;
+         }
+         if (use_alt_name) {
++#ifdef PORT_PC
++            temp = lbl_803B7700[tmp_ckind];
++#else
+             temp = lbl_803B75F8[tmp_ckind + 0x42];
++#endif
+         } else {
+             temp = lbl_803B75F8[tmp_ckind];
+         }
+@@ -3901,6 +3922,14 @@ void fn_80168A6C(void* arg0, void* arg1, s32 idx)
  f32 gm_80168B34(CharacterKind ckind, int arg1, int arg2)
  {
      int base;
@@ -17,7 +56,7 @@ index 85d056f3a..aaf25cf9a 100644
      if (ckind == CKind_GKoops) {
          return 58.0F;
      }
-@@ -3933,7 +3941,14 @@ float gm_80168BF8(int arg0)
+@@ -3933,7 +3962,14 @@ float gm_80168BF8(int arg0)
  {
      CharacterKind ckind = Player_GetPlayerCharacter(arg0);
      u32 costume = Player_GetCostumeId(arg0);

@@ -652,6 +652,21 @@ if(MELEE_SDL3_LIB32)
       PASS_REGULAR_EXPRESSION "\\[intro\\] markers nonblack=[1-9][0-9][0-9][0-9][0-9]+"
       TIMEOUT 600
       ENVIRONMENT "SDL_VIDEODRIVER=offscreen;SDL_AUDIODRIVER=dummy;MELEE_NO_CARD=1;MELEE_INTRO_TEST=1")
+  # P-704: fn_80160DE8 reads the US fighter-name width table as
+  # lbl_803B75F8[ckind + 0x21] -- one past the end of a 33-entry array, which
+  # only resolves to lbl_803B767C because the console linker laid the four
+  # tables out back to back.  GCC gives each its own section, so the read
+  # returns 0.0 and HSD_SisLib_803A7548 stores an x-scale of 0, drawing every
+  # glyph at zero width.  Only the US branch uses those offsets, so force the
+  # saved language to US and probe the name row of the VS splash.
+  add_test(NAME decomp_intro_names COMMAND melee
+      --match --frames 420 --no-hud
+      --shot ${CMAKE_CURRENT_BINARY_DIR}/decomp_intro_names.bmp)
+  set_tests_properties(decomp_intro_names PROPERTIES
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
+      PASS_REGULAR_EXPRESSION "\\[intro\\] names white=[1-9][0-9][0-9]+"
+      TIMEOUT 600
+      ENVIRONMENT "SDL_VIDEODRIVER=offscreen;SDL_AUDIODRIVER=dummy;MELEE_NO_CARD=1;MELEE_INTRO_TEST=1;MELEE_INTRO_US=1")
   # P-700: SIS text is built with vsnprintf(buf, -1, ...), which the console
   # reads as unbounded; glibc drops the final character, so every string lost
   # its last glyph ("VERY EASY" -> "VERY EAS" plus the two glyphs the parser

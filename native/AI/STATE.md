@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-14 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed)
+Last updated: 2026-09-14 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-704 fixed, P-699/P-702 open)
 
 > **Direction (2026-09-13/14): ADR-0017 — keep the GLES renderer, reach Aurora parity.**
 > The 32-bit product, in-place converter and GLES3/WebGL2 renderer stay; the
@@ -402,6 +402,27 @@ flag, `sjis=0` without) — a pixel probe is useless here because the broken
 build renders *garbage kana* rather than nothing (927 vs 1054 white pixels).
 `ctest` 27/27; the GameCube build is untouched (host compile flag).  Gotcha
 G-150.
+
+**P-704 (2026-09-14, Classic VS names):** P-703's encoding fix was necessary
+but not sufficient.  `fn_80160DE8` (`gm_1601.c`) picks the US name width with
+`lbl_803B75F8[ckind + 0x21]` (`+ 0x42`, `+ 0x63`), i.e. **past the end of the
+33-entry table**.  Retail works only because the console linker placed
+`lbl_803B767C`/`lbl_803B7700`/`lbl_803B7784` immediately after it; GCC's
+`-fdata-sections` gives every array its own section, so the reads land in
+padding and return 0.0.  A zero width makes `HSD_SisLib_803A7548` store an
+x-scale of 0 (8.8 fixed, G-152), so every glyph drew at zero width — silent.
+Only the US branch uses those offsets (the JP path reads in bounds), which is
+why the JP harness rendered names while the owner's US save showed none.
+Under `PORT_PC` the function now names the array each offset resolves to, as
+`gm_80160B40`/`gm_80160C90` already did;
+`patches/src/melee/gm/gm_1601.c.patch`.  `ctest decomp_intro_names` forces US
+through the now-committed `MELEE_INTRO_US` harness switch and counts white in
+the name row: **0 broken, 2457 fixed** — a non-black count does not flip, the
+dark backdrop and the white "VS" logo keep it high either way.  `ctest` 28/28;
+GameCube `ninja` 100.00% linked with the patch applied.  Gotchas G-154
+(linker-adjacency reads) and G-155 (probe statistic must flip); the diagnostic
+record stays in
+[`handoffs/2026-09-14-P-704-classic-vs-names.md`](handoffs/2026-09-14-P-704-classic-vs-names.md).
 
 **P-700 (2026-09-14, SIS text truncation):** the owner reported the 1P
 character-select level reading `normar.a.`; headless it renders `VERY EASE..`

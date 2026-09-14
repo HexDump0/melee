@@ -2184,3 +2184,104 @@ flag, `name_lead=ef sjis=0` without.
 **Do not test this with a pixel probe.** The broken build renders *garbage
 glyphs*, not nothing, so a white-pixel count barely moves (927 vs 1054 over
 the name row).  Check the encoding at the source instead.
+
+## G-151: `match_boot`'s probe lines are silent unless `MELEE_VIEWER_TRIAGE=1`
+
+Every `[boot]`/`[match]`/`[gameover]`/`[intro]`/`[classic]` line in
+`native/decomp/boot/match_boot.c` goes through `boot_triage_note()`, and
+`viewer_main.c:1063` initialises that stream to **`/dev/null`** unless
+`MELEE_VIEWER_TRIAGE` is set:
+
+```c
+boot_triage_init(getenv("MELEE_VIEWER_TRIAGE") != NULL
+                     ? stderr
+                     : (devnull != NULL ? devnull : stderr),
+                 0, 0);
+```
+
+A harness run with `MELEE_CLASSIC_TEST=1` alone therefore produces no probe
+output at all, which reads exactly like "the harness never reached the scene".
+It did; you just cannot see it.  Always set `MELEE_VIEWER_TRIAGE=1` alongside
+the scene harness env vars.
+
+The `ctest` cases set it already — this only bites interactive/ad-hoc runs.
+
+## G-152: HSD splash-layout tables are indexed by a *count*, so the count must be right
+
+`gm_1832.c` reads the Classic splash layout as
+
+```c
+lbl_804D6604->x57C[lbl_8047368C.xEF].x18[i]   /* xEF is a COUNT, not an index */
+lbl_804D6604->x00[lbl_8047368C.xEF - 1].vals[i]
+```
+
+where `x57C` is `ClassicSplashRow[3]` and `x00` is `ClassicSlotVals[2]`.  The
+game picks a *row per player count*, so a count that is one too large silently
+reads the next table's bytes.
+
+Two consequences when porting:
+
+- A wrong count upstream does not crash and does not drop a draw — it produces
+  a plausible-looking but wrong layout.
+- The damage is invisible in the draw stream, because
+  `HSD_SisLib_803A7548` (`hsd_3A64.c:481`) stores the scale as **8.8 fixed
+  point**: `*p = (u8) scale; p[1] = (u8) (256.0f * scale);`.  Any scale below
+  `1/256`, or `>= 256`, quantises to 0 and the glyphs draw at zero size — no
+  error, no missing geometry, just absent text.
+
+So when text is missing from a SIS screen, check the *count* feeding the
+layout lookup before you go looking at the glyph atlas or the draw state.
+
+## G-153: gdb is unusable for breakpoints deep in a menu walk (~0.6 fps)
+
+Reaching a 1P screen means letting the game run several hundred frames through
+the menus.  Under `gdb -batch` the compiled decomp manages roughly **0.6
+frames per second** — a breakpoint 500 frames past boot is 10+ minutes away,
+and a `timeout` around the run reports success while the breakpoint never
+fired.  The same build reaches frame 900 in under a minute when run directly.
+
+Probe scene state with a throwaway `printf` in the file that owns the static
+(most of these are file-static, so the probe has to live there), rebuild
+incrementally, run without gdb, then revert the decomp edit.  Keep gdb for
+crashes and for breakpoints that are reachable in the first few frames.
+
+## G-154: retail tables that rely on linker adjacency break under `-fdata-sections`
+
+`fn_80160DE8` (`gm_1601.c`) picks the width for a fighter-name glyph string
+with `lbl_803B75F8[ckind + 0x21]`, `+ 0x42` and `+ 0x63`.  `lbl_803B75F8` is a
+33-entry `static const float` array, so those indexes are past its end — on
+the console they land in the tables the linker placed immediately after it
+(`lbl_803B767C` at +0x21, `lbl_803B7700` at +0x42, `lbl_803B7784` at +0x63).
+GCC gives every `static const` array its own section, so the reads land in
+padding and return `0.0`.
+
+Same class as P-686 (fighter material templates): **a decompiled index that
+only makes sense because of the retail link order cannot be compiled as-is.**
+Under `PORT_PC`, name the array the offset resolves to
+(`lbl_803B767C[tmp_ckind]`), which is what the sibling `gm_80160B40` /
+`gm_80160C90` already do.
+
+Why it hid for so long: only the **US** branch of `fn_80160DE8` uses the
+out-of-bounds offsets; the JP path reads `lbl_803B75F8[ckind]`, which is in
+bounds.  A JP save — or the debug harness without `MELEE_INTRO_US` — renders
+names perfectly, so local checks looked green while the owner's US save showed
+nothing.  When a data-adjacency hypothesis is on the table, test the branch
+that actually reads the offset.
+
+A zero width is then swallowed silently: `HSD_SisLib_803A7548` stores the
+scale 8.8 fixed, so 0 draws every glyph at zero width with no error (G-152).
+
+## G-155: `gx_gl_probe_nonblack` cannot see white text on a non-black backdrop
+
+The VS splash's name row sits on a dark but non-black backdrop, and the white
+"VS" logo sits at x~298..340 in the middle of it.  A non-black count over the
+whole row is nonzero with *and* without the glyphs (6661 vs 7929 here), so any
+threshold low enough to pass the fixed build also passes the broken one — the
+test does not flip.  Use `gx_gl_probe_white` (`gx_gl.c`, per-channel `> 190`)
+and choose a rectangle that excludes other white elements (here x 60..280):
+the same row measured **0 without the fix and 2457 with it**.
+
+The general rule: pick the probe statistic that isolates the thing under
+test, then run the probe against the **broken** build before committing the
+test.  A probe that stays above threshold in both states is not a regression
+test.

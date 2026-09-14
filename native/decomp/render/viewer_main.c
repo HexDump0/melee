@@ -336,6 +336,7 @@ typedef struct MatchView {
     int no_items;
     int banner_probed;
     int markers_probed;
+    int names_probed;
     int level_probed;
     PadInputFrame live[4];
     unsigned last_mode;
@@ -930,6 +931,23 @@ static void match_present(void)
                         gx_gl_probe_nonblack(48, 28, 544, 40));
             }
         }
+        /* P-704: the fighter names on the VS splash sit on the row the
+         * layout table puts at y=380.  They vanished because fn_80160DE8 read
+         * the US name-width table through an out-of-bounds index into its
+         * neighbour, which is 0 here, and a 0 width makes the SIS renderer
+         * store an x-scale of 0.  Only the US branch does that, so this probe
+         * is meaningful only with MELEE_INTRO_US set.  White, not non-black:
+         * the splash's dark backdrop reads non-black both with and without the
+         * glyphs, so a non-black count does not flip.  Stop at x=280: the
+         * white "VS" logo sits at x~298..340 and would count on its own. */
+        if (!match_view.names_probed && match_boot_intro_active()) {
+            static unsigned settle4;
+            if (++settle4 > 45) {
+                match_view.names_probed = 1;
+                fprintf(stderr, "[intro] names white=%u\n",
+                        gx_gl_probe_white(60, 380, 220, 32));
+            }
+        }
         if (!match_view.banner_probed && match_boot_gameover_active()) {
             static unsigned settle;
             if (++settle > 30) {
@@ -1056,6 +1074,7 @@ static int run_match(SDL_Window* window, SDL_GLContext context,
     match_view.no_items = no_items;
     match_view.banner_probed = 0;
     match_view.markers_probed = 0;
+    match_view.names_probed = 0;
     match_view.level_probed = 0;
     match_view.last_mode = 0xFFFFFFFFu;
     match_view.last_scene = 0xFFFFFFFFu;

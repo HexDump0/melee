@@ -490,3 +490,15 @@ literals starts being compiled:
 ```sh
 grep -rlP '[^\x00-\x7f]' decomp/src --include=*.c | head
 ```
+
+## P-704 name-width tables: out-of-bounds reads into adjacent arrays (2026-09-14)
+
+| File | Patch | Why |
+|---|---|---|
+| `src/melee/gm/gm_1601.c` (`fn_80160DE8`) | `patches/src/melee/gm/gm_1601.c.patch`: under `PORT_PC`, read `lbl_803B767C`/`lbl_803B7700`/`lbl_803B7784[tmp_ckind]` instead of `lbl_803B75F8[tmp_ckind + 0x21/0x42/0x63]` | The four name-width tables are 33-entry `static const float` arrays that the console linker placed back to back, so the US branch indexes the first one past its end.  GCC's `-fdata-sections` puts each array in its own section, so the reads land in padding and return `0.0`; `HSD_SisLib_803A7548` stores a 0 width as an x-scale of 0, drawing every fighter name on the US VS splash at zero width.  Same class as P-686 (G-154). |
+
+Only the US branch uses the out-of-bounds offsets; the JP path reads
+`lbl_803B75F8[tmp_ckind]` in bounds, which is why the JP harness rendered names
+while the owner's US save did not.  Regression test: `ctest
+decomp_intro_names` with `MELEE_INTRO_US=1` (`[intro] names white=`; 0 broken,
+2457 fixed).  G-155 covers why the probe counts white rather than non-black.
