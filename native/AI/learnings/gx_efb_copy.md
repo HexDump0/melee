@@ -54,6 +54,11 @@ Z8 path (`displayfunc.c` erase rect) is covered by `decomp_efb` pass 2.
 
 `GXSetZTexture` REPLACE is covered by pass 2 and the source `Z8` texture is
 decoded as I8.  ADD has no caller in Melee and stays untested until P-682.
+The depth pass must keep the colour pipeline too: the hardware writes the TEV
+colour whenever `color_update` is on, and the screen erase (`displayfunc.c`,
+the title's dark-grey base) relies on it.  `draw_ztex` writes the vertex
+(raster) colour for those draws and black for the depth-only shadow passes
+(P-691/G-138).
 
 ## Re-run
 

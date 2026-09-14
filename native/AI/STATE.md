@@ -337,6 +337,16 @@ the fog ramp and the range-adjusted frame compares against the interpolated
 SDK table `k`; reverting to `gl_FragCoord.z` fails all four pixels.  `ctest`
 21/21.  Learning `gx_fog.md` (P-690 correction).
 
+**P-691 (2026-09-14):** the title screen's background base is the game's dark
+grey again.  HSD's screen erase draws a full-screen `GXSetZTexture(REPLACE)`
+quad with `color_update` on; the port's dedicated Z-texture program wrote
+only black (it was built for the depth-only shadow passes), so the erase
+colour (38,38,38) never reached the EFB and every background layer composited
+over black — the owner's "black bands" versus Dolphin.  The Z-texture program
+now writes the vertex (raster) colour when the draw updates colour; the
+title's `(320,60)` readback is `36,36,36` instead of `0,0,0`, `ctest` 21/21.
+Gotcha G-138.
+
 **P-680 (2026-09-13):** `GX_LINES`/`GX_LINESTRIP`/`GX_POINTS` now render.
 `GxHleDraw` carries topology runs (consecutive same-mode groups merge, so
 triangle-only draws keep one run and are byte-identical: `decomp_render`

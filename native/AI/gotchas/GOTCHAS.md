@@ -1856,3 +1856,24 @@ the adjacency expression for the GameCube build.  `decomp_match` retains its
 exact frame-600 position, and `decomp_hit` plus a 240-frame live viewer match
 exercise the fighter material path.  Do not treat link-layout-sensitive
 failures as timing bugs until a backtrace checks for adjacent-data casts.
+
+## G-138: `GXSetZTexture` draws still write the TEV colour (screen erase)
+
+**Symptom:** the title screen's background base read black instead of the
+scene's dark grey (the owner's "black bands" against Dolphin's filled
+background); every background layer that should composite over the erase
+colour sat on black instead.
+**Cause:** HSD's screen erase (`displayfunc.c`, reached from
+`gmTitle_801A18D4` via `HSD_CObjEraseScreen`) draws a full-screen quad with
+`GXSetZTexture(GX_ZT_REPLACE, GX_TF_Z8, 0)` and `color_update = GX_ENABLE`:
+the hardware replaces depth *and* writes the TEV colour (the erase colour,
+38,38,38 for the title).  The port's dedicated Z-texture program hard-coded
+`frag = vec4(0.0)` -- it was written for the depth-only shadow passes -- so
+the erase colour never landed.  `--part 0 --part-mode only` showed a black
+frame even though the draw's vertices carry the erase colour.
+**Fix:** the Z-texture fragment program writes the vertex (raster) colour when
+the draw updates colour, black otherwise.  Melee's only colour-writing
+Z-texture draws use `GX_SRC_VTX` material with a passthrough TEV, so the
+vertex colour is the TEV result there.  `decomp_efb` stays green (the shadow
+paths still write no colour) and the title's `(320,60)` readback is now
+`36,36,36` instead of `0,0,0`.

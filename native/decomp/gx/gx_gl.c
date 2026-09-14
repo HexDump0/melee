@@ -97,6 +97,7 @@ static GLuint ztex_program;
 static GLint u_ztex_sampler;
 static GLint u_ztex_op_loc;
 static GLint u_ztex_bias_loc;
+static GLint u_ztex_color_loc;
 static GLint u_tex_lod_bias;
 static GLint u_tex_dynamic_i4;
 static GLint u_dst_alpha_enable;
@@ -364,13 +365,20 @@ static const char* ZTEX_FRAGMENT_SRC =
     "uniform sampler2D u_ztex;\n"
     "uniform int u_ztex_op;\n"
     "uniform float u_ztex_bias;\n"
+    "uniform int u_ztex_color;\n"
     "in vec2 v_uv0;\n"
+    "in vec4 v_color;\n"
     "out vec4 frag;\n"
     "void main() {\n"
     "    float z = texture(u_ztex, v_uv0).r;\n"
     "    if (u_ztex_op == 2) gl_FragDepth = clamp(z + u_ztex_bias, 0.0, 1.0);\n"
     "    else gl_FragDepth = clamp(gl_FragCoord.z + z + u_ztex_bias, 0.0, 1.0);\n"
-    "    frag = vec4(0.0);\n"
+    "    /* GXSetZTexture replaces depth, but the TEV colour still reaches the\n"
+    "     * framebuffer when the draw updates colour -- the screen erase\n"
+    "     * (displayfunc.c) paints the erase colour this way.  Melee's only\n"
+    "     * colour-writing Z-texture draws use mat_src = VTX with a passthrough\n"
+    "     * TEV, so the vertex colour is the TEV output there. */\n"
+    "    frag = u_ztex_color != 0 ? vec4(v_color.rgb, 1.0) : vec4(0.0);\n"
     "}\n";
 
 static const char* FRAGMENT_SRC =
@@ -824,6 +832,8 @@ static int build_program(char* error, size_t error_size)
             u_ztex_sampler = glGetUniformLocation(ztex_program, "u_ztex");
             u_ztex_op_loc = glGetUniformLocation(ztex_program, "u_ztex_op");
             u_ztex_bias_loc = glGetUniformLocation(ztex_program, "u_ztex_bias");
+            u_ztex_color_loc =
+                glGetUniformLocation(ztex_program, "u_ztex_color");
         }
     }
     glUseProgram(program);
@@ -2064,6 +2074,7 @@ static void draw_ztex(const GxHleDraw* d, const GxHleDrawState* s,
     glUniform1i(u_ztex_sampler, 0);
     glUniform1i(u_ztex_op_loc, (int) s->ztex_op);
     glUniform1f(u_ztex_bias_loc, s->ztex_bias);
+    glUniform1i(u_ztex_color_loc, (int) s->color_update);
     apply_viewport(s);
     apply_draw_state(s);
     glDrawArrays(GL_TRIANGLES, (GLint) d->first_vertex,
