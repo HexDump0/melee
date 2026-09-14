@@ -48,7 +48,7 @@ void OSReport(char* fmt, ...)
     va_end(ap);
 }
 
-void __assert(char* file, u32 line, char* msg)
+void __assert(const char* file, u32 line, const char* msg)
 {
     fprintf(stderr, "assert %s:%u: %s\n", file, (unsigned) line, msg);
     abort();

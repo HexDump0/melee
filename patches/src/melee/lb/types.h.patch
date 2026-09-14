@@ -1,5 +1,5 @@
 diff --git a/src/melee/lb/types.h b/src/melee/lb/types.h
-index 5917d53b6..202cbdd92 100644
+index bac2f7765..e57e48af6 100644
 --- a/src/melee/lb/types.h
 +++ b/src/melee/lb/types.h
 @@ -2,6 +2,16 @@
@@ -19,7 +19,7 @@ index 5917d53b6..202cbdd92 100644
  
  #include <melee/gr/forward.h>
  #include <melee/lb/forward.h> // IWYU pragma: export
-@@ -326,12 +336,12 @@ struct ColorOverlay_UnkInner {
+@@ -330,12 +340,12 @@ struct ColorOverlay_UnkInner {
  
  union ColorOverlay_x8_t {
      GXColor light_color;
@@ -34,7 +34,7 @@ index 5917d53b6..202cbdd92 100644
          u32 x0_0 : 1;
          u32 x0_1 : 1;
          u32 x0_2 : 1;
-@@ -343,7 +353,7 @@ union ColorOverlay_x8_t {
+@@ -347,7 +357,7 @@ union ColorOverlay_x8_t {
          s32 x : 12;
          s32 yz : 12;
      } light_rot2;
@@ -43,7 +43,7 @@ index 5917d53b6..202cbdd92 100644
          u32 unk : 6;
          u32 timer : 26;
      } unk;
-@@ -519,19 +529,19 @@ struct lbColl_8000A10C_arg0_t {
+@@ -523,19 +533,19 @@ struct lbColl_8000A10C_arg0_t {
      Vec3 x14;
  };
  
@@ -67,9 +67,9 @@ index 5917d53b6..202cbdd92 100644
      u32 x;
  };
  struct Command_05 {
-@@ -540,205 +550,205 @@ struct Command_05 {
+@@ -544,205 +554,205 @@ struct Command_05 {
  struct Command_07 {
-     union CmdUnion* ptr;
+     CmdUnion* ptr;
  };
 -struct Command_09 {
 +struct CMD_BE Command_09 {
@@ -316,7 +316,7 @@ index 5917d53b6..202cbdd92 100644
      u32 opcode : 6;
      u32 boneId : 8;
      u32 useCommonBoneIDs : 1;
-@@ -746,23 +756,23 @@ struct spawn_gfx_0 {
+@@ -750,23 +760,23 @@ struct spawn_gfx_0 {
      u32 useUnkBone : 1;
      u32 unk1 : 15;
  };
@@ -345,7 +345,7 @@ index 5917d53b6..202cbdd92 100644
      u32 opcode : 6;
      u32 id : 3;
      u32 hit_group : 3;
-@@ -771,15 +781,15 @@ struct spawn_hitbox_0 {
+@@ -775,15 +785,15 @@ struct spawn_hitbox_0 {
      u32 use_common_bone_ids : 1;
      u32 damage : 10;
  };
@@ -364,7 +364,7 @@ index 5917d53b6..202cbdd92 100644
      u32 angle : 9;
      u32 knockback_growth : 9;
      u32 weight_set_knockback : 9;
-@@ -789,7 +799,7 @@ struct spawn_hitbox_3 {
+@@ -793,7 +803,7 @@ struct spawn_hitbox_3 {
      u32 clank : 1;
      u32 rebound : 1;
  };
@@ -373,7 +373,7 @@ index 5917d53b6..202cbdd92 100644
      u32 base_knockback : 9;
      u32 element : 5;
      s32 shield_damage : 8;
-@@ -798,7 +808,7 @@ struct spawn_hitbox_4 {
+@@ -802,7 +812,7 @@ struct spawn_hitbox_4 {
      u32 hit_grounded : 1;
      u32 hit_aerial : 1;
  };
@@ -382,7 +382,7 @@ index 5917d53b6..202cbdd92 100644
      u32 x0 : 8;
      u32 x1_b0 : 1;
      u32 x1_b1 : 1;
-@@ -809,14 +819,14 @@ struct spawn_hitbox_5 {
+@@ -813,14 +823,14 @@ struct spawn_hitbox_5 {
      u32 x1_b6 : 1;
      u32 x1_b7 : 1;
  };
@@ -399,7 +399,7 @@ index 5917d53b6..202cbdd92 100644
      u32 base_knockback : 9;
      u32 element : 5;
      u32 x40_b0 : 1;
-@@ -828,54 +838,68 @@ struct it_create_hitbox_4 {
+@@ -832,54 +842,68 @@ struct it_create_hitbox_4 {
  };
  struct spawn_hitbox_skip {
      u8 _0[0xF];
@@ -478,7 +478,7 @@ index 5917d53b6..202cbdd92 100644
      u32 opcode : 6;
      u32 boneId : 8;
      u32 use_alt_bone : 1;
-@@ -883,36 +907,36 @@ struct footstep_fx_0 {
+@@ -887,36 +911,36 @@ struct footstep_fx_0 {
      u32 x2_b0_7 : 8;
      u32 x3_b0_7 : 8;
  };

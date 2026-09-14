@@ -1,18 +1,18 @@
 diff --git a/src/melee/ft/types.h b/src/melee/ft/types.h
-index 623e4cbc6..eee536c86 100644
+index 7b2896b18..a2eebc1ed 100644
 --- a/src/melee/ft/types.h
 +++ b/src/melee/ft/types.h
-@@ -1247,6 +1247,38 @@ struct ft_800898B4_t {
-     /*  +11 */ u8 x11_b4 : 1;
- };
+@@ -1295,6 +1295,38 @@ typedef struct Fighter_x1670_t {
+     /* +24 */ int x24;
+ } Fighter_x1670_t; ///< @todo figure out proper size
  
-+/* The fighter status byte is written raw (`x21FC_flag.u8 = 1` in fighter.c)
++/* The fighter status byte is written raw (`x21FC_flag.byte = 1` in fighter.c)
 + * and read as individual bN bits (ftdrawcommon.c).  MWCC allocates the first
 + * bitfield at the MSB, so retail's `u8 = 1` sets b7; GCC's LSB-first layout
 + * would set b0 and leave b7 clear, hiding the model.  Declare the aliases in
 + * reverse under PORT_PC so the raw byte and the named bits agree. */
 +typedef union FtStatusFlags {
-+    u8 u8;
++    u8 byte;
 +#ifdef PORT_PC
 +    struct {
 +        u8 b7 : 1;
@@ -41,7 +41,7 @@ index 623e4cbc6..eee536c86 100644
  struct Fighter {
      /*    fp+0 */ HSD_GObj* gobj;
      /*    fp+4 */ FighterKind kind;
-@@ -1687,7 +1719,7 @@ struct Fighter {
+@@ -1700,7 +1732,7 @@ struct Fighter {
      /* fp+21F0 */ HSD_GObjEvent take_dmg_2_cb;
      /* fp+21F4 */ HSD_GObjEvent hurtbox_detect_cb;
      /* fp+21F8 */ HSD_GObjEvent x21F8;
@@ -50,7 +50,7 @@ index 623e4cbc6..eee536c86 100644
      /* fp+21FC */ u8 filler_x21FC[0x2200 - 0x21FD];
      /* fp+2200 */ u32 cmd_vars[4];
      /* fp+2210 */ union {
-@@ -1928,7 +1960,7 @@ struct Fighter {
+@@ -1941,7 +1973,7 @@ struct Fighter {
  };
  ASSERT_SIZE(struct Fighter, 0x23EC);
  

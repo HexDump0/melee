@@ -1,8 +1,8 @@
 diff --git a/src/melee/pl/player.c b/src/melee/pl/player.c
-index 9742bf4da..7ef008ecf 100644
+index 9742bf4da..23b1e9be2 100644
 --- a/src/melee/pl/player.c
 +++ b/src/melee/pl/player.c
-@@ -77,6 +77,28 @@ ftMapping ftMapping_list[ChKind_Max] = {
+@@ -77,6 +77,15 @@ ftMapping ftMapping_list[ChKind_Max] = {
      /* ChKind_Popo     */ { Ft_Kind_Popo, 0xFF }
  };
  
@@ -13,78 +13,84 @@ index 9742bf4da..7ef008ecf 100644
 +#define PDPM_X(kind) (ftMapping_list[(kind)].internal_id)
 +#define PDPM_Y(kind) (ftMapping_list[(kind)].extra_internal_id)
 +#define PDPM_Z(kind) (ftMapping_list[(kind)].has_transformation)
-+#else
-+#define PDPM_X(kind)                                                       \
-+    (((struct Unk_Struct_w_Array*) &str_PdPmdat_start_of_data)             \
-+         ->vec_arr[(kind)]                                                 \
-+         .x)
-+#define PDPM_Y(kind)                                                       \
-+    (((struct Unk_Struct_w_Array*) &str_PdPmdat_start_of_data)             \
-+         ->vec_arr[(kind)]                                                 \
-+         .y)
-+#define PDPM_Z(kind)                                                       \
-+    (((struct Unk_Struct_w_Array*) &str_PdPmdat_start_of_data)             \
-+         ->vec_arr[(kind)]                                                 \
-+         .z)
 +#endif
 +
  ////.bss
  StaticPlayer player_slots[Gm_Player_NumMax];
  HSD_ObjAllocData Player_AllocData;
-@@ -351,7 +373,7 @@ void Player_80032070(int slot, bool bool_arg)
+@@ -351,7 +360,11 @@ void Player_80032070(int slot, bool bool_arg)
      if (bool_arg == 0) {
          ftCo_800D4FF4(player->player_entity[player->transformed[0]]);
  
--        if (player->flags.b2 && unkStruct->vec_arr[player->ckind].z == 0 &&
++#ifdef PORT_PC
 +        if (player->flags.b2 && PDPM_Z(player->ckind) == 0 &&
++#else
+         if (player->flags.b2 && unkStruct->vec_arr[player->ckind].z == 0 &&
++#endif
              ftLib_8008701C(player->player_entity[player->transformed[1]]))
          {
              ftCo_800D4FF4(player->player_entity[player->transformed[1]]);
-@@ -440,7 +462,7 @@ Gm_PKind Player_8003248C(s32 slot, bool arg1)
+@@ -440,7 +453,11 @@ Gm_PKind Player_8003248C(s32 slot, bool arg1)
      player = &player_slots[slot];
  
      if (arg1 == 1) {
--        if (unk_struct->vec_arr[player->ckind].z == 0) {
++#ifdef PORT_PC
 +        if (PDPM_Z(player->ckind) == 0) {
++#else
+         if (unk_struct->vec_arr[player->ckind].z == 0) {
++#endif
              if (player->pkind == Gm_PKind_Human ||
                  player->pkind == Gm_PKind_Cpu)
              {
-@@ -484,10 +506,10 @@ s8 Player_80032610(s32 slot, bool arg1)
+@@ -484,10 +501,18 @@ s8 Player_80032610(s32 slot, bool arg1)
      player = &player_slots[slot];
  
      if (arg1 == 0) {
--        return some_struct->vec_arr[player->ckind].x;
++#ifdef PORT_PC
 +        return PDPM_X(player->ckind);
++#else
+         return some_struct->vec_arr[player->ckind].x;
++#endif
      }
      if (arg1 == 1) {
--        return some_struct->vec_arr[player->ckind].y;
++#ifdef PORT_PC
 +        return PDPM_Y(player->ckind);
++#else
+         return some_struct->vec_arr[player->ckind].y;
++#endif
      }
  
      return error_value;
-@@ -1286,8 +1308,8 @@ s32 Player_GetFalls(s32 slot)
+@@ -1286,8 +1311,12 @@ s32 Player_GetFalls(s32 slot)
      Player_CheckSlot(slot);
      player = &player_slots[slot];
  
--    if (unkStruct->vec_arr[player->ckind].y != -1 &&
--        unkStruct->vec_arr[player->ckind].z != 0)
-+    if (PDPM_Y(player->ckind) != -1 &&
-+        PDPM_Z(player->ckind) != 0)
++#ifdef PORT_PC
++    if (PDPM_Y(player->ckind) != -1 && PDPM_Z(player->ckind) != 0)
++#else
+     if (unkStruct->vec_arr[player->ckind].y != -1 &&
+         unkStruct->vec_arr[player->ckind].z != 0)
++#endif
      {
          return player->falls[player->transformed[0]] +
                 player->falls[player->transformed[1]];
-@@ -2040,11 +2062,9 @@ void Player_80036E20(CharacterKind ckind, HSD_Archive* archive, s32 arg2)
+@@ -2040,12 +2069,19 @@ void Player_80036E20(CharacterKind ckind, HSD_Archive* archive, s32 arg2)
  {
      struct Unk_Struct_w_Array* unkStruct =
          (struct Unk_Struct_w_Array*) &str_PdPmdat_start_of_data;
--    ftDemo_SetArchiveData(unkStruct->vec_arr[ckind].x, archive, arg2);
--    if ((unkStruct->vec_arr[ckind].y != -1) &&
--        (unkStruct->vec_arr[ckind].z == 0))
--    {
--        ftDemo_SetArchiveData(unkStruct->vec_arr[ckind].y, archive, arg2);
++#ifdef PORT_PC
 +    ftDemo_SetArchiveData(PDPM_X(ckind), archive, arg2);
 +    if ((PDPM_Y(ckind) != -1) && (PDPM_Z(ckind) == 0)) {
 +        ftDemo_SetArchiveData(PDPM_Y(ckind), archive, arg2);
++    }
++#else
+     ftDemo_SetArchiveData(unkStruct->vec_arr[ckind].x, archive, arg2);
+     if ((unkStruct->vec_arr[ckind].y != -1) &&
+         (unkStruct->vec_arr[ckind].z == 0))
+     {
+         ftDemo_SetArchiveData(unkStruct->vec_arr[ckind].y, archive, arg2);
      }
++#endif
  }
  
+ HSD_JObj* Player_80036EA0(s32 slot)

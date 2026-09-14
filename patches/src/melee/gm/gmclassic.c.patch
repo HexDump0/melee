@@ -1,8 +1,8 @@
 diff --git a/src/melee/gm/gmclassic.c b/src/melee/gm/gmclassic.c
-index 1cd625586..e39b98bec 100644
+index 1cd625586..9f47171ce 100644
 --- a/src/melee/gm/gmclassic.c
 +++ b/src/melee/gm/gmclassic.c
-@@ -606,11 +606,19 @@ static gm_803DDEC8Struct* gmClassic_801B2D54(gm_803DDEC8Struct* arg0)
+@@ -606,11 +606,22 @@ static gm_803DDEC8Struct* gmClassic_801B2D54(gm_803DDEC8Struct* arg0)
      gm_803DDEC8Struct* ptr;
      gmClassicSceneData* scene_data =
          (gmClassicSceneData*) gm_Mode_Classic_States;
@@ -11,55 +11,75 @@ index 1cd625586..e39b98bec 100644
 +     * the retail code reaches it through the scene_data cast.  GCC reorders
 +     * statics; address the matchup tables directly. */
 +    gmClassic_803DDEC8Data* matchups = &gmClassic_803DDEC8;
-+#else
-+    gmClassic_803DDEC8Data* matchups = &scene_data->matchups;
 +#endif
  
      for (ptr = arg0; ptr->x0 != 0xD; ptr++) {
          if (ptr->x1 & 8) {
-             gmClassicMatchup* result = gmClassic_801B2BA4(
--                scene_data->matchups.x2B0, o->state.order.x60, arg0);
++#ifdef PORT_PC
++            gmClassicMatchup* result = gmClassic_801B2BA4(
 +                matchups->x2B0, o->state.order.x60, arg0);
++#else
+             gmClassicMatchup* result = gmClassic_801B2BA4(
+                 scene_data->matchups.x2B0, o->state.order.x60, arg0);
++#endif
              if (result != NULL) {
                  ptr->xC = result;
              } else {
-@@ -624,7 +632,7 @@ static gm_803DDEC8Struct* gmClassic_801B2D54(gm_803DDEC8Struct* arg0)
+@@ -623,8 +634,13 @@ static gm_803DDEC8Struct* gmClassic_801B2D54(gm_803DDEC8Struct* arg0)
+     for (ptr = arg0; ptr->x0 != 0xD; ptr++) {
          u8 flags = ptr->x1;
          if ((flags & 2) && !(flags & 0x20)) {
-             gmClassicMatchup* result = gmClassic_801B2BA4(
--                scene_data->matchups.x26C, o->state.order.x54, arg0);
++#ifdef PORT_PC
++            gmClassicMatchup* result = gmClassic_801B2BA4(
 +                matchups->x26C, o->state.order.x54, arg0);
++#else
+             gmClassicMatchup* result = gmClassic_801B2BA4(
+                 scene_data->matchups.x26C, o->state.order.x54, arg0);
++#endif
              if (result != NULL) {
                  ptr->xC = result;
              } else {
-@@ -638,7 +646,7 @@ static gm_803DDEC8Struct* gmClassic_801B2D54(gm_803DDEC8Struct* arg0)
+@@ -637,8 +653,13 @@ static gm_803DDEC8Struct* gmClassic_801B2D54(gm_803DDEC8Struct* arg0)
+     for (ptr = arg0; ptr->x0 != 0xD; ptr++) {
          u8 flags = ptr->x1;
          if ((flags & 0x10) && !(flags & 0x20)) {
-             gmClassicMatchup* result = gmClassic_801B2BA4(
--                scene_data->matchups.x1B8, o->state.order.x34, arg0);
++#ifdef PORT_PC
++            gmClassicMatchup* result = gmClassic_801B2BA4(
 +                matchups->x1B8, o->state.order.x34, arg0);
++#else
+             gmClassicMatchup* result = gmClassic_801B2BA4(
+                 scene_data->matchups.x1B8, o->state.order.x34, arg0);
++#endif
              if (result != NULL) {
                  ptr->xC = result;
              } else {
-@@ -652,7 +660,7 @@ static gm_803DDEC8Struct* gmClassic_801B2D54(gm_803DDEC8Struct* arg0)
+@@ -651,8 +672,13 @@ static gm_803DDEC8Struct* gmClassic_801B2D54(gm_803DDEC8Struct* arg0)
+     for (ptr = arg0; ptr->x0 != 0xD; ptr++) {
          u8 flags = ptr->x1;
          if (flags == 0 || flags == 4) {
-             gmClassicMatchup* result = gmClassic_801B2BA4(
--                scene_data->matchups.x0CC, o->state.order.x0C, arg0);
++#ifdef PORT_PC
++            gmClassicMatchup* result = gmClassic_801B2BA4(
 +                matchups->x0CC, o->state.order.x0C, arg0);
++#else
+             gmClassicMatchup* result = gmClassic_801B2BA4(
+                 scene_data->matchups.x0CC, o->state.order.x0C, arg0);
++#endif
              if (result != NULL) {
                  ptr->xC = result;
              } else {
-@@ -681,7 +689,7 @@ static gm_803DDEC8Struct* gmClassic_801B2D54(gm_803DDEC8Struct* arg0)
+@@ -681,7 +707,11 @@ static gm_803DDEC8Struct* gmClassic_801B2D54(gm_803DDEC8Struct* arg0)
  
      for (ptr = arg0; ptr->x0 != 0xD; ptr++) {
          if (ptr->x1 & 0x20) {
--            ptr->xC = scene_data->matchups.x0C0;
++#ifdef PORT_PC
 +            ptr->xC = matchups->x0C0;
++#else
+             ptr->xC = scene_data->matchups.x0C0;
++#endif
              return ptr;
          }
      }
-@@ -693,25 +701,33 @@ void gm_Mode_Classic_OnLoad(void)
+@@ -693,15 +723,39 @@ void gm_Mode_Classic_OnLoad(void)
      UnkAllstarData* data;
      gmClassicSceneData* scene_data =
          (gmClassicSceneData*) gm_Mode_Classic_States;
@@ -68,33 +88,42 @@ index 1cd625586..e39b98bec 100644
 +     * the retail code reaches it through the scene_data cast.  GCC reorders
 +     * statics; address the matchup tables directly. */
 +    gmClassic_803DDEC8Data* matchups = &gmClassic_803DDEC8;
-+#else
-+    gmClassic_803DDEC8Data* matchups = &scene_data->matchups;
 +#endif
      gmClassicRuntimeData* o =
          (gmClassicRuntimeData*) &gmClassicIntroDataBuffer;
      gm_803DDEC8Struct* entry;
      PAD_STACK(40);
  
--    for (entry = scene_data->matchups.x00; entry->x0 != 0x0D; entry++) {
++#ifdef PORT_PC
 +    for (entry = matchups->x00; entry->x0 != 0x0D; entry++) {
++#else
+     for (entry = scene_data->matchups.x00; entry->x0 != 0x0D; entry++) {
++#endif
          entry->xC = NULL;
      }
  
--    gmClassic_InitMatchupOrder(scene_data->matchups.x2B0,
++#ifdef PORT_PC
 +    gmClassic_InitMatchupOrder(matchups->x2B0,
++                               (gmClassicOrderIndex*) &gm_804908A0[0x60],
++                               (gmClassicOrderIndex*) o, 0x80);
++    gmClassic_InitMatchupOrder(matchups->x26C,
++                               (gmClassicOrderIndex*) &gm_804908A0[0x54],
++                               (gmClassicOrderIndex*) o, 0x74);
++    gmClassic_InitMatchupOrder(matchups->x1B8,
++                               (gmClassicOrderIndex*) &gm_804908A0[0x34],
++                               (gmClassicOrderIndex*) o, 0x54);
++    gmClassic_InitMatchupOrder(matchups->x0CC,
++                               (gmClassicOrderIndex*) &gm_804908A0[0x0C],
++                               (gmClassicOrderIndex*) o, 0x2C);
++#else
+     gmClassic_InitMatchupOrder(scene_data->matchups.x2B0,
                                 (gmClassicOrderIndex*) &gm_804908A0[0x60],
                                 (gmClassicOrderIndex*) o, 0x80);
--    gmClassic_InitMatchupOrder(scene_data->matchups.x26C,
-+    gmClassic_InitMatchupOrder(matchups->x26C,
-                                (gmClassicOrderIndex*) &gm_804908A0[0x54],
-                                (gmClassicOrderIndex*) o, 0x74);
--    gmClassic_InitMatchupOrder(scene_data->matchups.x1B8,
-+    gmClassic_InitMatchupOrder(matchups->x1B8,
-                                (gmClassicOrderIndex*) &gm_804908A0[0x34],
-                                (gmClassicOrderIndex*) o, 0x54);
--    gmClassic_InitMatchupOrder(scene_data->matchups.x0CC,
-+    gmClassic_InitMatchupOrder(matchups->x0CC,
+@@ -714,6 +768,7 @@ void gm_Mode_Classic_OnLoad(void)
+     gmClassic_InitMatchupOrder(scene_data->matchups.x0CC,
                                 (gmClassicOrderIndex*) &gm_804908A0[0x0C],
                                 (gmClassicOrderIndex*) o, 0x2C);
++#endif
  
+     data = gm_GetAllStarData();
+     gmMainLib_8015CDC8();

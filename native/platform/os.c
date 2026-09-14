@@ -501,7 +501,7 @@ OSErrorHandler OSSetErrorHandler(OSError error, OSErrorHandler handler)
     return old;
 }
 
-void OSPanic(char* file, int line, char* msg, ...)
+void OSPanic(const char* file, int line, const char* msg, ...)
 {
     va_list ap;
     FILE* out = boot_triage_out();
