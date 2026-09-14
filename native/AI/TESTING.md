@@ -146,6 +146,21 @@ produces.  `fn_8016D634` then hands the result to `gmregclear.c`'s
 
 A missing second line means the run died inside the clear overlay.
 
+## 1P Classic screens (approach, CSS, clear)
+
+```sh
+SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy MELEE_CLASSIC_TEST=1 \
+    MELEE_NO_CARD=1 ./build/native/melee --match --frames 700 --no-hud \
+    --shot /tmp/cl.bmp
+```
+
+`MELEE_CLASSIC_TEST` forces `GM_CLASSIC` from the boot hook the same way
+`match_boot_force` reaches `GM_DEBUG_VS`, which is the only way to reach the
+1P screens without driving the menus.  By frame ~700 it is sitting on the
+Classic character-select screen.  Keep the branch **before** the debug-VS
+stock/logging code in `match_boot_frame`: `log_match_state` walks
+`Player_GetEntity`, which is stale once the VS scene is gone and segfaults.
+
 ## Missing-`return` census
 
 `src/` is compiled with `-w`, so `-Wreturn-type` never fires in a normal

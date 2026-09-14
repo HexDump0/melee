@@ -50,6 +50,7 @@ static int title_logged;
 static int title_seen;
 static int gameover_test;
 static int gameover_stage;
+static int classic_test;
 static PadInputFrame match_input[MATCH_INPUT_FRAMES][MATCH_INPUT_CHANNELS];
 
 /* MELEE_HIT_TEST: p0 jabs in place while p1 walks into it.  The default
@@ -221,6 +222,22 @@ static void match_boot_frame(void)
     if (frame < start_frame) {
         return;
     }
+
+    /* MELEE_CLASSIC_TEST: drive 1P Classic instead of the debug VS scene, so
+     * the Classic approach screen (stage-marker chain, the big "VS", the
+     * fighter names) and the clear screen after it can be rendered headlessly
+     * (P-700). */
+    if (classic_test) {
+        if (gm_GetCurrentGameMode() == GM_CLASSIC) {
+            return;
+        }
+        if (frame == start_frame || ((frame - start_frame) % 30) == 0) {
+            boot_triage_note("[classic] frame %u: mode %u\n", frame,
+                             (unsigned) gm_GetCurrentGameMode());
+            match_boot_force(GM_CLASSIC);
+        }
+        return;
+    }
     /* `onEnterDebugVs` starts every player with 0 stocks (the debug menu
      * usually overrides this) and the current game mode only flips to
      * GM_DEBUG_VS one scene later, so top the human players up while the VS
@@ -321,6 +338,9 @@ void match_boot_init(unsigned frame_in)
         }
         if (getenv("MELEE_GAMEOVER_TEST") != NULL) {
             gameover_test = 1;
+        }
+        if (getenv("MELEE_CLASSIC_TEST") != NULL) {
+            classic_test = 1;
         }
         boot_platform_set_frame_hook(match_boot_frame);
     }
