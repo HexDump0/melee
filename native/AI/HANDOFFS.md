@@ -66,6 +66,7 @@ something the next agent must know, or finish a task that changes interfaces.
 | 2026-09-14 | P-700/P-701/P-703 fixed (SIS `vsnprintf` truncation, scene-desc fog walk, Shift-JIS name literals); P-704 filed — Classic VS names still absent, `xEF` indexes `x57C[3]` out of range | claude (opus-5) | [`2026-09-14-P-704-classic-vs-names.md`](handoffs/2026-09-14-P-704-classic-vs-names.md) |
 | 2026-09-14 | P-704 fixed: US name-width table read one past `lbl_803B75F8`; VS splash names draw again (0 -> 2457 white pixels) | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-704-classic-vs-names.md`](handoffs/2026-09-14-P-704-classic-vs-names.md) |
 | 2026-09-14 | P-706 opt-in `MELEE_SFX_DEBUG` recorder for the intermittent loud SFX burst; waiting on the owner's capture | Codex | [`2026-09-14-P-706-sfx-capture.md`](handoffs/2026-09-14-P-706-sfx-capture.md) |
+| 2026-09-14 | P-707 fixed: `GrCs.dat` `yakumono_param` stayed big-endian so the Castle intro countdown never ran and the `0x53025` ambient looped for the whole match; owner confirmed the sound no longer glitches | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-706-sfx-capture.md`](handoffs/2026-09-14-P-706-sfx-capture.md) |
 
 ## Template
 

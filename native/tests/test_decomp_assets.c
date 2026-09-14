@@ -1368,6 +1368,23 @@ static const ParamRange inishie1_ranges[] = {
     { 0x00, 5, 4 }, { 0x14, 6, 2 }, { 0x20, 3, 4 },
     { 0x2C, 6, 4 }, { 0x44, 4, 4 },
 };
+/* P-707: Peach's Castle (GrCs) `grCastle_YakumonoParam` (grcastle.c:121).
+ * Nine `entries[]` of { s16 timer; f32 speed; Vec3 rot } at +0x5C stride 0x14. */
+static const ParamRange castle_ranges[] = {
+    { 0x00, 8, 2 },  { 0x10, 3, 4 },  { 0x20, 8, 4 },
+    { 0x40, 3, 2 },  { 0x48, 3, 4 },  { 0x54, 1, 2 }, { 0x58, 1, 2 },
+    { 0x5C, 1, 2 },  { 0x60, 4, 4 },
+    { 0x70, 1, 2 },  { 0x74, 4, 4 },
+    { 0x84, 1, 2 },  { 0x88, 4, 4 },
+    { 0x98, 1, 2 },  { 0x9C, 4, 4 },
+    { 0xAC, 1, 2 },  { 0xB0, 4, 4 },
+    { 0xC0, 1, 2 },  { 0xC4, 4, 4 },
+    { 0xD4, 1, 2 },  { 0xD8, 4, 4 },
+    { 0xE8, 1, 2 },  { 0xEC, 4, 4 },
+    { 0xFC, 1, 2 },  { 0x100, 4, 4 },
+    { 0x110, 1, 4 }, { 0x118, 4, 4 },
+    { 0x12C, 4, 2 }, { 0x134, 4, 4 },
+};
 
 static const StageParamCase stage_param_cases[] = {
     { "GrCn.dat", corneria_ranges,
@@ -1384,6 +1401,8 @@ static const StageParamCase stage_param_cases[] = {
       (unsigned) (sizeof(onett_ranges) / sizeof(onett_ranges[0])) },
     { "GrI1.dat", inishie1_ranges,
       (unsigned) (sizeof(inishie1_ranges) / sizeof(inishie1_ranges[0])) },
+    { "GrCs.dat", castle_ranges,
+      (unsigned) (sizeof(castle_ranges) / sizeof(castle_ranges[0])) },
 };
 
 static int check_stage_params(const char* image)
@@ -1549,6 +1568,9 @@ static int check_stage_params(const char* image)
         }
         if (case_failed) {
             failed++;
+        } else if (tc->ranges[0].size == 2) {
+            printf("decomp_assets: %s yakumono_param x00=%u layout ok\n",
+                   tc->path, read_host_u16(buffer + 0x20 + off));
         } else {
             printf("decomp_assets: %s yakumono_param x00=%.4g layout ok\n",
                    tc->path,
@@ -1645,6 +1667,65 @@ static int check_castle_dynamics(const char* image)
         printf("decomp_assets: GrCs.dat dynamicsdata counts=3/4/6 records ok\n");
     }
     free(raw);
+    free(buffer);
+    return failed != 0 ? 1 : 0;
+}
+
+/* P-707: `grCastle_801CE260` copies `yakumono_param->entries[map_id - 8].x0`
+ * into the Ground's intro timer and `grCastle_801CE578` counts it down before
+ * running the castle animation; completing that animation is what stops the
+ * looping `castle.ssm` 0x53025 ambient via `Ground_801C5544`.  Left
+ * big-endian the timers read negative (map 8: -27391) or tens of thousands of
+ * frames (map 9: 22530), so the intro never runs and the loud ambient loops
+ * for the whole match. */
+static int check_castle_param(const char* image)
+{
+    static const int timers[9] = { 405, 600, 600, 720, 575,
+                                   720, 575, 600, 600 };
+    char error[256];
+    size_t size = 0;
+    unsigned char* buffer = load_archive(image, "GrCs.dat", NULL, &size,
+                                         error, sizeof(error));
+    HSD_Archive archive;
+    HsdConvertStats stats;
+    unsigned char* param;
+    uint32_t off;
+    int i;
+    int failed = 0;
+
+    if (buffer == NULL) {
+        printf("decomp_assets: GrCs.dat SKIP (%s)\n", error);
+        return 0;
+    }
+    if (!hsd_asset_convert(buffer, size, &stats) ||
+        HSD_ArchiveParse(&archive, buffer, size) != 0)
+    {
+        fprintf(stderr, "decomp_assets: GrCs.dat conversion failed\n");
+        free(buffer);
+        return 1;
+    }
+    param = HSD_ArchiveGetPublicAddress(&archive, "yakumono_param");
+    if (param == NULL || !ptr_in_buffer(param, buffer, size)) {
+        fprintf(stderr, "decomp_assets: GrCs.dat yakumono_param missing\n");
+        free(buffer);
+        return 1;
+    }
+    off = (uint32_t) (param - (buffer + 0x20));
+    for (i = 0; i < 9; i++) {
+        int host = (int) read_host_u16(buffer + 0x20 + off + 0x5C +
+                                       (uint32_t) i * 0x14);
+        if (host != timers[i]) {
+            fprintf(stderr,
+                    "decomp_assets: GrCs.dat entries[%d].x0=%d want=%d "
+                    "(intro timer not converted?)\n",
+                    i, host, timers[i]);
+            failed++;
+        }
+    }
+    if (failed == 0) {
+        printf("decomp_assets: GrCs.dat yakumono_param entries[0..8].x0="
+               "405/600/600/720/575/720/575/600/600 ok\n");
+    }
     free(buffer);
     return failed != 0 ? 1 : 0;
 }
@@ -2747,6 +2828,7 @@ int main(int argc, char** argv)
     failures += check_yorster_param(image);
     failures += check_stage_params(image);
     failures += check_castle_dynamics(image);
+    failures += check_castle_param(image);
     failures += check_scene_root(image, "GmRgStnd.dat", "standScene");
     failures += check_scene_root(image, "GmRegEnd.dat", "cut1CanimScene");
     failures += check_intro_easy(image);

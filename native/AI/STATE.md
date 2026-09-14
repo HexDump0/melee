@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-14 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-705 fixed, P-699/P-702 open)
+Last updated: 2026-09-14 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707 fixed, P-699/P-702 open)
 
 > **Direction (2026-09-13/14): ADR-0017 — keep the GLES renderer, reach Aurora parity.**
 > The 32-bit product, in-place converter and GLES3/WebGL2 renderer stay; the
@@ -149,8 +149,12 @@ The owner later reported a separate intermittent, very loud repeating SFX.
 P-706 adds an opt-in `MELEE_SFX_DEBUG=<path>` recorder at the game-request,
 synth-start, sample-wrap and final-PCM boundaries. It keeps normal playback
 unchanged while logging one-second checkpoints and detailed burst snapshots
-with fighter state, voice addresses and request call stacks. The incident
-still needs an owner capture before its cause can be fixed; see `TESTING.md`.
+with fighter state, voice addresses and request call stacks. The owner's
+capture showed a single Peach's Castle ambient voice (`0x53025`) looping for
+the whole title-demo match and clipping the mix; `GrCs.dat`'s `yakumono_param`
+public was never converted, so the intro countdown that stops the loop read
+big-endian (P-707, converter v87, G-157). The owner confirmed the sound no
+longer glitches; `TESTING.md` keeps the capture recipe.
 
 **S6 in progress (2026-09-13): the retail frontend flow runs end to end.**
 The product target is now `melee` (the compiled game's own frontend; the old

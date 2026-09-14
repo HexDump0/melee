@@ -895,3 +895,27 @@ weight reads as a denormal. CPU navigation remains functional because it is
 compiled logic, but attack selection cannot return usable commands. The
 title attract match is the integration oracle: four level-9 CPUs, no PAD
 input, sane table check followed by an attack-state transition and damage.
+
+## Peach's Castle `yakumono_param` in GrCs.dat (P-707, converter version 87)
+
+`grcastle.c` keeps the `GrdCastleCast` public in a file-static
+`yakumono_param` and reads it per map: `entries[ground->u.icemt.x2]`, where
+`x2 = map_id - 8` covers the nine Castle maps. Each entry's `x0` is an s16
+frame countdown for the intro sequence; `x4` and `rot` drive its satellite
+motion. The ground's `xCA` copies the countdown and decrements it once per
+frame; when it goes negative the intro animation starts, and the animation's
+completion calls `Ground_801C5544` to stop the ambient loop.
+
+| Offset | Data |
+|---|---|
+| `+0x00..0x0E`, `+0x40..0x44`, `+0x54`, `+0x58` | s16 scalars |
+| `+0x10..0x18`, `+0x20..0x3C`, `+0x48..0x50` | f32 scalars |
+| `+0x5C` | `entries[9]`, 0x14 bytes each: s16 `x0`, four f32 (`x4`, `rot`) |
+| `+0x110`, `+0x118..0x124`, `+0x134..0x140` | f32 |
+| `+0x114` | pointer (relocation pass only) |
+| `+0x12C` | s16[4] |
+
+Unconverted, `entries[0].x0` reads 38145 and `entries[1].x0` 22530, so no
+Castle map ever starts its intro and the `0x53025` ambient loops until the
+match ends (G-157). `check_castle_param` in `test_decomp_assets.c` asserts
+the nine converted countdowns against the raw archive.

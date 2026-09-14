@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 86u
+#define HSD_CONVERTER_VERSION 87u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -101,6 +101,7 @@ enum {
     STAGE_PARAM_VENOM,
     STAGE_PARAM_ONETT,
     STAGE_PARAM_INISHIE1,
+    STAGE_PARAM_CASTLE,
 };
 
 typedef struct StageParamMarker {
@@ -117,6 +118,7 @@ static const StageParamMarker stage_param_markers[] = {
     { "GrdOnett", STAGE_PARAM_ONETT },
     { "GrdInishie1", STAGE_PARAM_INISHIE1 },
     { "GrdYorster", STAGE_PARAM_YORSTER },
+    { "GrdCastleCast", STAGE_PARAM_CASTLE },
 };
 
 typedef struct Conv {
@@ -1706,6 +1708,40 @@ static void conv_inishie1_param(Conv* c, uint32_t off)
     conv_u32_range(c, off + 0x44, 4);
 }
 
+/* GrCs.dat (Peach's Castle) `yakumono_param` (grcastle.c:121): eight s16,
+ * three f32, eight f32, three s16, three f32, two s16, nine
+ * { s16 timer; f32 speed; Vec3 rot } entries, a f32, the +0x114 pointer
+ * (left to the relocation pass), four f32, four s16 and four f32.  The
+ * `entries[].x0` values are the per-map intro timers `grCastle_801CE578`
+ * counts down before it runs the castle animation and stops the looping
+ * stage ambient with `Ground_801C5544`; left big-endian they read negative
+ * or far too large, so the intro never completes and `castle.ssm` 0x53025
+ * loops for the whole match (P-707). */
+static void conv_castle_param(Conv* c, uint32_t off)
+{
+    int i;
+
+    if (!in_data(c, off, 0x144) || !mark(c, off)) {
+        return;
+    }
+    conv_u16_range(c, off + 0x00, 8);
+    conv_u32_range(c, off + 0x10, 3);
+    conv_u32_range(c, off + 0x20, 8);
+    conv_u16_range(c, off + 0x40, 3);
+    conv_u32_range(c, off + 0x48, 3);
+    conv_u16(c, off + 0x54);
+    conv_u16(c, off + 0x58);
+    for (i = 0; i < 9; i++) {
+        uint32_t e = off + 0x5C + (uint32_t) i * 0x14;
+        conv_u16(c, e + 0x00);
+        conv_u32_range(c, e + 0x04, 4);
+    }
+    conv_u32(c, off + 0x110);
+    conv_u32_range(c, off + 0x118, 4);
+    conv_u16_range(c, off + 0x12C, 4);
+    conv_u32_range(c, off + 0x134, 4);
+}
+
 /* GrCs.dat/GrRc.dat `dynamicsdata_*` publics: a `DynamicsDesc`
  * { DynamicsData* data; u32 count; Vec3 pos } whose `data` points at `count`
  * 0x3C-byte source records.  lb_80011710 copies the record floats into the
@@ -1800,6 +1836,9 @@ static void conv_stage_yakumono(Conv* c, uint32_t off)
         break;
     case STAGE_PARAM_INISHIE1:
         conv_inishie1_param(c, off);
+        break;
+    case STAGE_PARAM_CASTLE:
+        conv_castle_param(c, off);
         break;
     default:
         conv_yakumono_param(c, off);

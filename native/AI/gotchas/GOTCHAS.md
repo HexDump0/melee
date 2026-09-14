@@ -2315,3 +2315,35 @@ raw big-endian archive and reports `230 lists/1159 entries ok`. The idle
 title-demo part of `ctest decomp_opening` checks all four live CPU tables,
 observes attack-state entries and requires real damage without PAD input.
 Disabling the pData[22] walk makes both regressions fail.
+
+## G-157: a stage's `yakumono_param` public must be converted or its intro timers stay big-endian
+
+**Symptom:** the Peach's Castle title-demo match (and any Castle match) plays
+the `castle.ssm` ambient loop (`id 340005`, slot `0x53025`) for the whole run.
+The owner's SFX capture showed one request at scene entry, a ~0.7 s loop that
+never stopped (7.6 s and still alive at exit) and the mixed PCM clipping at
+`peak=32768` for most of the demo.
+
+**Cause:** `grCastle_801CE260` starts the loop and `grCastle_801CE578`'s
+countdown stops it through `Ground_801C5544`, but the countdown is
+`yakumono_param->entries[map_id - 8].x0` and the `GrdCastleCast` public in
+`GrCs.dat` was never converted (P-662 covered
+GrCn/GrIz/GrKg/GrSt/GrVe/GrOt/GrI1 only). Big-endian, the 405/600/720-frame
+timers read as 22530/38145, so the intro animation never runs and the loop
+never gets its stop call.
+
+**Fix:** converter v87 routes `GrdCastleCast` to `conv_castle_param`, which
+converts the 0x144-byte `grCastle_YakumonoParam`: the s16/f32 scalars, the
+nine 0x14-byte `entries` (s16 countdown + four f32), `x110`, `x118..x124`,
+`x12C[4]` and `x134..x140`. The `x114` pointer is left to the relocation
+pass. The marker must be `GrdCastleCast`, not `GrdCastle` — `GrNKr.dat` /
+`GrNSr.dat` carry `GrdCastleWater1_*` symbols that the shorter prefix also
+matches.
+
+**Evidence:** `ctest decomp_assets` compares the nine countdowns to the raw
+archive (`405/600/600/720/575/720/575/600/600`) and fails with the walk
+disabled (`entries[0].x0=38145 want=405`). After the fix the owner confirmed
+the sound no longer glitches.
+
+**Class:** every `Gr*.dat` whose `gr*.c` reads a `yakumono_param` public needs
+its own descriptor; the unconverted VS-legal stages are tracked as P-708.
