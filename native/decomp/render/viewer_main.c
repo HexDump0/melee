@@ -973,6 +973,11 @@ static int run_match(SDL_Window* window, SDL_GLContext context,
         db_DisableItemSpawns();
     }
     if (frontend) {
+        /* The P-624 title probe runs off the frame hook; the frontend flow
+         * never enters the match harness, so install only the probe. */
+        if (getenv("MELEE_TITLE_TEST") != NULL) {
+            match_boot_init(0);
+        }
         if (input_path != NULL) {
             unsigned channels = 0;
             unsigned total = limit != 0 ? limit + 2 : 18000;

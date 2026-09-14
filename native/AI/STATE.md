@@ -455,10 +455,12 @@ Ordered by impact.
 6. **Captain Falcon's eyes do not render** in the compiled path (P-616); the
    rest of the head now matches the prototype.  See TASKS.md.
 7. **Non-Mario physics values** are demo defaults, not per-character data.
-8. **Debug title freezes on the logo reveal card.**  `--match` reaches
-   `GM_TITLE` with `gm_804D67EC == 0`, so the logo stays at animation frame 0
-   and its opaque grey reveal card is visible; the retail title starts the
-   logo at frame 400.  S6/P-624; full analysis in G-090.
+8. **Title state fixed (P-624).**  The skip-intro boot enters `GM_TITLE`
+   with `gm_804D67EC == 0`, which now takes the retail branch: the logo
+   starts at frame 400 and loops 400..1600 (`gmTitle_801A1630`).  The
+   opening-movie transition still uses `fn_801A1498` with the movie frame
+   count and reveals the logo as the movie ends.  `ctest decomp_title`
+   asserts the title logo animation is in [400, 1600]; see G-090.
 9. **Windows/macOS untested.** Linux + Mesa is the only verified target.
 
 ## Baseline commands

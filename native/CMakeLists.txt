@@ -563,6 +563,20 @@ if(MELEE_SDL3_LIB32)
       PASS_REGULAR_EXPRESSION "scene=2"
       TIMEOUT 600
       ENVIRONMENT "SDL_VIDEODRIVER=offscreen;SDL_AUDIODRIVER=dummy;MELEE_NO_CARD=1")
+  # P-624/G-090: the title must enter the retail state: mode GM_TITLE with
+  # the logo animation past its opaque frame-0 reveal card, looping from
+  # frame 400.  The frontend flow drives the boot with a card so the memory
+  # card scene completes; the probe logs once the title logo is animating.
+  add_test(NAME decomp_title COMMAND melee
+      --frontend --no-items
+      --input ${CMAKE_CURRENT_SOURCE_DIR}/tests/frontend_vs.txt
+      --frames 400)
+  set_tests_properties(decomp_title PROPERTIES
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
+      PASS_REGULAR_EXPRESSION
+          "\\[title\\] mode=0 logos=1 logo_anim=[0-9.]+ ok=1"
+      TIMEOUT 300
+      ENVIRONMENT "SDL_VIDEODRIVER=offscreen;SDL_AUDIODRIVER=dummy;MELEE_CARD_DIR=${CMAKE_CURRENT_BINARY_DIR}/title-card;MELEE_TITLE_TEST=1;MELEE_VIEWER_TRIAGE=1")
   # P-646: the game's own card filesystem (hsd_3A94 pump) must create save
   # data on an empty card and reload it; two short frontend runs so the
   # card image stays inside the build directory.

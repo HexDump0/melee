@@ -22,7 +22,11 @@
 #include <melee/gm/gm_1A3F.h>
 #include <melee/gm/gmscene.h>
 #include <melee/ft/ftlib.h>
+#include <melee/if/forward.h>
+#include <melee/mn/mnmain.h>
 #include <melee/pl/player.h>
+
+#include <sysdolphin/baselib/gobj.h>
 
 #include <dolphin/mtx.h>
 #include <dolphin/pad.h>
@@ -40,6 +44,9 @@ static int hit_test;
 static int hit_logged;
 static int icon_test;
 static int icon_logged;
+static int title_test;
+static int title_logged;
+static int title_seen;
 static PadInputFrame match_input[MATCH_INPUT_FRAMES][MATCH_INPUT_CHANNELS];
 
 /* MELEE_HIT_TEST: p0 jabs in place while p1 walks into it.  The default
@@ -150,12 +157,64 @@ void match_boot_force(u8 mode)
     gm_801A4B60();
 }
 
+/* P-624/G-090: the title logo must be set up in the retail state.  When the
+ * mode is GM_TITLE and gm_804D67EC is 0 (the skip-intro boot), the correct
+ * path requests animation frame 400 and loops 400..1600; the opening-movie
+ * path (`fn_801A1498`) instead re-requests `gm_804D67EC - 5130` every frame,
+ * pinning the logo on its opaque frame-0 reveal card.  GX link 9 carries the
+ * title logo; its JObj animation frame must be past the card. */
+static void log_title_state(int force)
+{
+    HSD_GObj* gobj;
+    f32 logo_anim = 0.0f;
+    int found = 0;
+
+    if (title_logged || HSD_GObjGXLinkHead == NULL ||
+        (gm_GetCurrentGameMode() != GM_TITLE && !force))
+    {
+        return;
+    }
+    for (gobj = HSD_GObjGXLinkHead[9]; gobj != NULL; gobj = gobj->next_gx) {
+        f32 anim;
+        if (gobj->classifier != HSD_GOBJ_CLASS_UI || gobj->hsd_obj == NULL) {
+            continue;
+        }
+        anim = mn_8022F298(gobj->hsd_obj);
+        if (!found || anim > logo_anim) {
+            logo_anim = anim;
+        }
+        found = 1;
+    }
+    if (!title_seen) {
+        title_seen = 1;
+        boot_triage_note("[title] first mode=%u logos=%d logo_anim=%.1f\n",
+                         (unsigned) gm_GetCurrentGameMode(), found,
+                         (double) logo_anim);
+    }
+    if (!force && (!found || logo_anim < 400.0f || logo_anim > 1600.0f)) {
+        return;
+    }
+    title_logged = 1;
+    boot_triage_note("[title] mode=%u logos=%d logo_anim=%.1f ok=%d\n",
+                     (unsigned) gm_GetCurrentGameMode(), found,
+                     (double) logo_anim,
+                     found && logo_anim >= 400.0f && logo_anim <= 1600.0f &&
+                         gm_GetCurrentGameMode() == GM_TITLE);
+}
+
 static void match_boot_frame(void)
 {
+    frame++;
+    if (title_test) {
+        unsigned deadline = start_frame != 0 ? start_frame : 1200;
+        log_title_state(0);
+        if (!title_logged && frame >= deadline) {
+            log_title_state(1);
+        }
+    }
     if (start_frame == 0) {
         return;
     }
-    frame++;
     if (frame < start_frame) {
         return;
     }
@@ -210,6 +269,10 @@ void match_boot_init(unsigned frame_in)
 {
     start_frame = frame_in;
     frame = 0;
+    if (getenv("MELEE_TITLE_TEST") != NULL) {
+        title_test = 1;
+        boot_platform_set_frame_hook(match_boot_frame);
+    }
     if (frame_in != 0) {
         if (getenv("MELEE_HIT_TEST") != NULL) {
             hit_test = 1;

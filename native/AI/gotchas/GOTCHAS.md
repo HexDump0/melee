@@ -1039,6 +1039,16 @@ from `--match`.
 is `GM_TITLE` by scene on-enter and/or `gm_804D67EC` is past 5400, so
 `gmTitle_801A165C` starts the logo at frame 400.  Do not "fix" this in the
 GL layer.
+**Resolution (2026-09-14):** the mode-ordering work that shipped the retail
+frontend as the product (`05b034415`) already enters the title scene with
+`gm_GetCurrentGameMode() == GM_TITLE` (traced at `gmTitle_801A165C`: mode 0,
+scene 0, `gm_804D67EC == 0`), so the retail branch runs: logo requested at
+frame 400, `gmTitle_801A1630` looping 400..1600.  The opening path still uses
+`fn_801A1498` and reveals the logo as the movie frame count passes 5400.  The
+grey card is gone in both flows; `ctest decomp_title` (`MELEE_TITLE_TEST=1`)
+reads the link-9 title logo's `mn_8022F298` frame and requires it in
+[400, 1600].  Flipping `isActiveTitle()` to true (the old wrong branch) makes
+the probe read `logo_anim=4294962176` and fail the test.
 
 ## G-091: fighters were never drawn — `x21FC_flag` bit order
 
