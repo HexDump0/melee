@@ -2,7 +2,23 @@ diff --git a/src/melee/ft/ftanim.c b/src/melee/ft/ftanim.c
 index e0535c76c..e228eab47 100644
 --- a/src/melee/ft/ftanim.c
 +++ b/src/melee/ft/ftanim.c
-@@ -797,6 +797,14 @@ HSD_Joint* ftAnim_8006F994(Fighter* fp, HSD_JObj* jobj, HSD_Joint* joint)
+@@ -568,6 +568,15 @@ float ftAnim_8006F3DC(Fighter_GObj* fighter_gobj)
+     } else {
+         return lbGetJObjCurrFrame(fp->x8AC_animSkeleton);
+     }
++#ifdef PORT_PC
++    /* No `return` in the decompilation.  With x8A4_animBlendFrames == 0 and
++     * no part passing the flag test (or a matching part whose joint has no
++     * HSD_AObj), control falls off the end; retail leaves the caller's f1,
++     * the host leaves whatever xmm0 happens to hold.  Both callers feed the
++     * result to fp->cur_anim_frame (:371-376), so pick the defined value
++     * that does not advance the frame. */
++    return 0.0f;
++#endif
+ }
+ 
+ float ftAnim_8006F484(Fighter_GObj* fighter_gobj)
+@@ -797,6 +806,14 @@ HSD_Joint* ftAnim_8006F994(Fighter* fp, HSD_JObj* jobj, HSD_Joint* joint)
          i += 1;
          ftAnim_GetNextJointInTree(&joint, &depth);
      }

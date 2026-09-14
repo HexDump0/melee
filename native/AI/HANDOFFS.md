@@ -68,6 +68,7 @@ something the next agent must know, or finish a task that changes interfaces.
 | 2026-09-14 | P-706 opt-in `MELEE_SFX_DEBUG` recorder for the intermittent loud SFX burst; waiting on the owner's capture | Codex | [`2026-09-14-P-706-sfx-capture.md`](handoffs/2026-09-14-P-706-sfx-capture.md) |
 | 2026-09-14 | P-707 fixed: `GrCs.dat` `yakumono_param` stayed big-endian so the Castle intro countdown never ran and the `0x53025` ambient looped for the whole match; owner confirmed the sound no longer glitches | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-706-sfx-capture.md`](handoffs/2026-09-14-P-706-sfx-capture.md) |
 | 2026-09-14 | P-709 filed: GQR3 is a quantized-u16 store (corrects the P-687 `fn_80166A8C` float store) + `ftAnim_8006F3DC` return fix, both from the `999sian/melee-pc` cross-port review | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-709-gqr3-u16-store.md`](handoffs/2026-09-14-P-709-gqr3-u16-store.md) |
+| 2026-09-14 | P-709 fixed: `fn_80166A8C` now stores the clamped GQR3 u16 the caller reads back into `MatchPlayerData.xE` (`objdump`: 2-byte store, was `movss`), and `ftAnim_8006F3DC` returns a defined `0.0f` on its not-found path | claude (opus-5) | [`2026-09-14-P-709-gqr3-u16-store.md`](handoffs/2026-09-14-P-709-gqr3-u16-store.md) |
 
 ## Template
 

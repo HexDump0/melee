@@ -1,15 +1,20 @@
 --- a/src/melee/gm/gm_1601.c
 +++ b/src/melee/gm/gm_1601.c
-@@ -3084,6 +3084,13 @@
+@@ -3084,6 +3084,18 @@
      register float x = src->x;
      asm { psq_st x, Vec3.x(dst), 1, qr3 }
      return x;
 +#elif defined(PORT_PC)
-+    /* psq_st with W=1 through GQR3 (float type, no scale) is a single-element
-+     * float store: x reaches dst->x and is also the return value.  The
-+     * caller reads sp48_x after the call. */
++    /* Not a float store.  init_spr_unk (gmmain.c:107-120) loads GQR3 with
++     * 0x00050005, and GQR store type 5 is U16 with scale 0, so the psq_st
++     * writes one clamped 0..65535 halfword at dst and leaves the source
++     * float in f1 as the return value.  (GQR2/4/5 get 4/6/7 in the same
++     * call -- the U8/S8/S16 family.)  The caller gm_80166378 reads the
++     * halfword straight back with `*(u16*) &sp48_x` into
++     * MatchPlayerData.xE, so storing four bytes of float here hands the
++     * high-score accumulator mantissa bits. */
 +    float x = src->x;
-+    dst->x = x;
++    *(u16*) dst = (u16) (x < 0.0f ? 0.0f : (x > 65535.0f ? 65535.0f : x));
 +    return x;
  #endif
  }

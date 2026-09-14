@@ -2364,10 +2364,20 @@ and leaves the float in `f1`.  Upstream `doldecomp/melee#3456` and its fork
 branch describe this `psq_st` as "a single-element float store" — that is
 wrong, and the P-687 patch inherited the error.
 
-**Fix:** in `patches/src/melee/gm/gm_1601_ml_fallback.patch`, clamp and store
-a u16 (`*(u16*) dst = (u16) (x < 0.0f ? 0.0f : (x > 65535.0f ? 65535.0f : x));`)
-and still return the float.  Reference implementation at the same upstream pin:
-`999sian/melee-pc` `src/melee/gm/gm_1601.c:3094-3106`.  Tracked as P-709.
+**Fix (landed, P-709):** `patches/src/melee/gm/gm_1601_ml_fallback.patch` now
+clamps and stores a u16
+(`*(u16*) dst = (u16) (x < 0.0f ? 0.0f : (x > 65535.0f ? 65535.0f : x));`) and
+still returns the float.  Reference implementation at the same upstream pin:
+`999sian/melee-pc` `src/melee/gm/gm_1601.c:3094-3106`.  Check it with
+`objdump -d` on the inlined copy in `gm_80166378`: the store at
+`player_standings[i].xE` must be `mov %ax,0x66(%edi)` (2 bytes) preceded by a
+`comiss` 0-clamp and a `$0xffff` saturate, never a `movss`.
+
+**Generalise it:** any `psq_st`/`psq_l` in the tree is quantized by whichever
+GQR the instruction names, and `init_spr_unk` is the only place the game loads
+them.  Before writing a `PORT_PC` fallback for one, read the GQR type field
+there rather than assuming the float default (type 0) — and do not trust
+upstream #3456 on this point.
 
 ## G-159: `ftAnim_8006F3DC` falls off the end on the not-found path
 
@@ -2384,7 +2394,10 @@ observed"; but the host value is indeterminate rather than inherited, and
 "functions that fell off the end returning garbage on x86-64" commit
 (`21da73a09`) to return `0.0f`.
 
-**Fix:** add a `PORT_PC` `return 0.0f;` after the loop in
-`patches/src/melee/ft/ftanim.c.patch` (same file already patches
+**Fix (landed, P-709):** `patches/src/melee/ft/ftanim.c.patch` adds a
+`PORT_PC` `return 0.0f;` after the loop (the same patch already handles
 `ftAnim_8006F994`).  Deterministic beats indeterminate even where retail is
-indeterminate.  Tracked as P-709.
+indeterminate, because the host's garbage is unrelated to the caller's `f1`.
+Note this is an exception to the P-695 census's outcome 3 ("indeterminate and
+unreachable -> leave it"): the rule holds unless a consumer stores the result
+into live state, which `fp->cur_anim_frame` is.

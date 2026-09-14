@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-14 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707 fixed, P-699/P-702 open)
+Last updated: 2026-09-14 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707 and P-709 fixed, P-699/P-702 open)
 
 > **Direction (2026-09-13/14): ADR-0017 — keep the GLES renderer, reach Aurora parity.**
 > The 32-bit product, in-place converter and GLES3/WebGL2 renderer stay; the
@@ -294,6 +294,24 @@ GameCube build still reports `build/GALE01/main.dol: OK` with the patches
 applied (100.00% matched, 1130/1130 linked).  The Big Blue and results paths
 are not exercised by a test today (G-144, needs a human/owner run for the
 stage).
+
+**P-709 (2026-09-14, cross-port corrections from `999sian/melee-pc`):** that
+port pins the same upstream commit as we do (`40012f51f`), and a review of it
+found two of our decisions wrong.  (a) The P-687 `fn_80166A8C` fallback stored
+a 4-byte float, following upstream #3456's description of the `psq_st` as a
+float store.  It is a **GQR3 quantized u16 store** — `init_spr_unk`
+(`gmmain.c:107-120`) loads GQR2..GQR5 with `4/5/6/7` (U8/U16/S8/S16), and the
+caller reads the halfword back with `*(u16*)&sp48_x` into
+`MatchPlayerData.xE`, the joystick-activity score feeding the high-score
+accumulator — so the results screen was reading float mantissa bits.  The
+fallback now clamps to 0..65535 and stores two bytes; `objdump` of the
+inlined copy in `gm_80166378` shows the `comiss` 0-clamp, the `$0xffff`
+saturate and `mov %ax,0x66(%edi)`.  (b) `ftAnim_8006F3DC` fell off the end on
+its not-found path (P-695 left it as "indeterminate in retail too"); it now
+returns a defined `0.0f`, because both callers store the result into
+`fp->cur_anim_frame`.  GC build still `main.dol: OK` (100.00% matched);
+`ctest` 28/28.  The results path remains harness-unreachable (G-144), so `xE`
+has no end-to-end assertion.  See G-158/G-159.
 
 **P-688 (2026-09-14):** host math now follows the console where upstream
 diverges.  The MSL `sinf`/`cosf`/`tanf` tables and wrappers compile

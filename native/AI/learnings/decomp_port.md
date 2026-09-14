@@ -323,16 +323,36 @@ reports `build/GALE01/main.dol: OK` (100.00% matched, 1130/1130 linked).
 | File | Patch | Reason |
 |---|---|---|
 | `src/melee/gr/grbigblue.c` (`grBigBlue_801ECB50`) | the five `asm { rlwimi byte, st_val, 2, 24, 29 }` blocks gain `#elif defined(PORT_PC)` with `byte = (byte & ~0xFC) | ((st_val & 0x3F) << 2);` | The asm sat under `#ifdef MUST_MATCH` with no fallback, so the host store was a no-op and the cars' 6-bit state byte could never become 10 (closest car) or 4.  `objdump` of the port now shows five `and $0x3` + `or $0x28`/`or $0x10` insert sites. |
-| `src/melee/gm/gm_1601.c` (`fn_80166A8C`) | `patches/src/melee/gm/gm_1601_ml_fallback.patch`: under `PORT_PC`, store `src->x` to `dst->x` and return it | The body was `#ifdef MWERKS_GEKKO` with no fallback, so the function was empty; the caller `gm_80166378` read the uninitialised `sp48_x` into `player_standings[i].xE` (results screen). |
+| `src/melee/gm/gm_1601.c` (`fn_80166A8C`) | `patches/src/melee/gm/gm_1601_ml_fallback.patch`: under `PORT_PC`, clamp `src->x` to 0..65535 and store it as a `u16` at `dst`, still returning the float | The body was `#ifdef MWERKS_GEKKO` with no fallback, so the function was empty; the caller `gm_80166378` read the uninitialised `sp48_x` into `player_standings[i].xE` (results screen).  The store is a **GQR3 quantized u16**, not a float — corrected by P-709 below; the row originally said `dst->x = src->x`. |
 | `src/Runtime/runtime.c` (`__cvt_dbl_usll`) | under `PORT_PC`, `return (u64) x;` after the asm block | Empty non-void body compiled to a bare `ret`; `gm_1884.c:784` passes the result to `lb_80019880` (training-mode speed).  Mirrors the in-file `__cvt_fp2unsigned` fallback directly above. |
 
 
-**Correction (P-709, G-158):** the `fn_80166A8C` entry above is wrong about the
-store width.  `init_spr_unk` (`gmmain.c:107-120`) sets GQR3 = `0x00050005`
-(type 5 = U16, scale 0), so the `psq_st` writes a clamped halfword and the
-caller's `*(u16*)&sp48_x` reads it.  The landed patch stores a float instead;
-the fix (clamp + u16 store) is tracked as P-709 and the reference is
-`999sian/melee-pc` `src/melee/gm/gm_1601.c:3094-3106` (same upstream pin).
+**Correction (P-709, G-158) — landed.**  The first `fn_80166A8C` fallback
+(`d2b3ab26c`) stored a 4-byte float, following upstream #3456's reading of the
+`psq_st` as "a single-element float store".  That is wrong: `init_spr_unk`
+(`gmmain.c:107-120`) sets GQR3 = `0x00050005` (store type 5 = U16, scale 0;
+GQR2/4/5 get 4/6/7, the U8/S8/S16 family), so the `psq_st` writes a clamped
+0..65535 halfword and leaves the source float in `f1`.  The caller reads that
+halfword back with `*(u16*)&sp48_x` into `MatchPlayerData.xE`, the
+joystick-activity score that `gm_801688AC`/`gm_80168940` -> `gm_8016247C`
+accumulate, so a float store handed it mantissa bits.  The patch now does
+
+```c
+float x = src->x;
+*(u16*) dst = (u16) (x < 0.0f ? 0.0f : (x > 65535.0f ? 65535.0f : x));
+return x;
+```
+
+Reference implementation at the same upstream pin: `999sian/melee-pc`
+`src/melee/gm/gm_1601.c:3094-3106`.  Verified by disassembling the inlined
+copy in `gm_80166378` (`gm_1601.c.o`): `comiss`/`ja` 0-clamp, `$0xffff`
+saturate, `cvttss2si`, then `mov %ax,0x66(%edi)` — a **2-byte** store at
+`player_standings[i].xE` (the struct base sits at `%edi+0x58`; `x34` is the
+neighbouring `0x8c(%edi)`).  No 4-byte `movss` remains at that offset.
+
+The results screen is still not ctest-reachable (G-144), so there is no
+end-to-end assertion on `xE`; the `objdump` check above is the acceptance
+evidence.  Worth revisiting if a results-screen harness ever lands.
 
 ## P-695 missing-`return` census (2026-09-14)
 
@@ -393,7 +413,7 @@ the closing brace and the real flows were run (`decomp_match`, `decomp_hit`,
 through title -> menu -> CSS -> SSS -> match).  Only two ever fired:
 `lbspdisplay.c:753` and `extern/.../axfx/delay.c:94`.
 
-### Patched (6)
+### Patched (6, plus `ftAnim_8006F3DC` in P-709)
 
 | Site | Function | Retail `r3` on the fall-through | Fix |
 |---|---|---|---|
@@ -403,6 +423,7 @@ through title -> menu -> CSS -> SSS -> match).  Only two ever fired:
 | `src/melee/ft/ftanim.c:800` | `ftAnim_8006F994` | garbage (`r3 = &joint` from `0x8006fa20`, then clobbered by `ftAnim_GetNextJointInTree`) | `return joint;` (`NULL` by the loop condition); both consumers drive `while (joint != NULL)` with it |
 | `src/melee/lb/lb_00B0.c:745` | `lb_8000CDC0` | garbage (`HSD_LObjGetFlags`' flags word) | `return cur;` (`NULL` by the loop condition) |
 | `src/melee/gm/gm_1798.c:484` | `fn_8017A318` | `gobj` when `slot != 0`; `fn_8017A078`'s inner camera GObj when `slot == 0` | `return gobj;`.  Matches retail on the `slot != 0` path; the one caller stores it in `ResultsPlayerData::camera`, which nothing in the game reads back |
+| `src/melee/ft/ftanim.c:571` | `ftAnim_8006F3DC` | indeterminate (`f1` never written on the not-found path) | `return 0.0f;` — **added later by P-709**, outcome 3 in the list above overridden because both callers feed the result straight to `fp->cur_anim_frame`; see G-159 |
 
 ### Live on the host, currently correct by accident (1)
 
@@ -421,7 +442,7 @@ faithful to port.  The interesting ones, with the reason:
 
 | Site | Function | Why it is left |
 |---|---|---|
-| `ft/ftanim.c:571` | `ftAnim_8006F3DC` | `f1` is **never written** on the not-found path (`0x8006f468`), so retail returns the caller's `f1`.  Needs every fighter part to lack an `HSD_AObj`; never observed.  P-709/G-159: `999sian/melee-pc` returns a defined `0.0f` on this path |
+| `ft/ftanim.c:571` | `ftAnim_8006F3DC` | `f1` is **never written** on the not-found path (`0x8006f468`), so retail returns the caller's `f1`.  Needs every fighter part to lack an `HSD_AObj`; never observed.  **Fixed by P-709** (G-159): `patches/src/melee/ft/ftanim.c.patch` adds a `PORT_PC` `return 0.0f;` after the loop, matching `999sian/melee-pc` `21da73a09`.  Retail is indeterminate here too, but the host value is *garbage* rather than *inherited*, and both callers feed it to `fp->cur_anim_frame`; `0.0f` does not advance the frame |
 | `it/kinds/itsscope.c:137` | `it_80291DAC` | `r3` still holds the incoming `gobj` pointer at `0x80291f04`; retail returns a pointer as a charge level.  Needs `xD4C > 0` but smaller than level 1's cost |
 | `mn/mnmain.c:1761` / `:1713` | `mn_8022C010` / `mn_8022BFBC` | the `switch` covers `MENU_KIND_MAIN..MULTI_VS` (0..33); only `MENU_KIND_34` is missing and no code ever assigns it.  `mn_8022BFBC` only ever sees `mn_8022C010`'s 0..4 |
 | `mn/mnstagesw.c:227` | `mnStageSw_80235C58` | the final `for (i = 1; found; i++)` never clears `found`, so the end is unreachable by construction (it spins instead) |
