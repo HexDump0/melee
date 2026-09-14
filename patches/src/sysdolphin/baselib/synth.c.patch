@@ -2,6 +2,16 @@ diff --git a/src/sysdolphin/baselib/synth.c b/src/sysdolphin/baselib/synth.c
 index 6210fbc4f..4962b0663 100644
 --- a/src/sysdolphin/baselib/synth.c
 +++ b/src/sysdolphin/baselib/synth.c
+@@ -7,6 +7,9 @@
+ #include "debug.h"
+ #include "devcom.h"
+ #include "synth.static.h"
++#ifdef PORT_PC
++#include "audio/sfx_debug.h"
++#endif
+ #include <dolphin/ai.h>
+ #include <dolphin/ar.h>
+ #include <dolphin/os.h>
 @@ -104,9 +104,41 @@ static void HSD_SynthSFXSampleLoadCallback(int result, int length, void* addr,
              n = *HSD_Synth_804D7734;
              (void) n;
@@ -136,7 +146,20 @@ index 6210fbc4f..4962b0663 100644
                  AXSetVoiceSrc(voices[voice_idx], &HSD_Synth_80407FD8);
                  AXSetVoiceAddr(voices[voice_idx], &SFX_VOICE(voice_idx)->x10);
                  AXSetVoiceAdpcm(voices[voice_idx], &SFX_VOICE(voice_idx)->x20);
-@@ -722,9 +810,14 @@ static inline void stopRange(size_t lo, size_t hi)
+@@ -678,5 +769,12 @@ bool HSD_SynthSFXPlayWithGroup(int sfx_id, u8 vol, u8 vol2, u8 pan,
+     result = HSD_Synth_80389334(sfx_id, vol, vol2, pan, priority, itd_flag,
+                                 pitch1, pitch2, mix_main, mix_auxA, mix_auxB);
++#ifdef PORT_PC
++    if (result > 0 && (node = getNode(result)) != NULL) {
++        melee_sfx_debug_voice_pair(
++            result, node->voice[0]->index,
++            node->voice_count > 1 ? (int) node->voice[1]->index : -1);
++    }
++#endif
+     HSD_Synth_804C28E0_1844[group] = result;
+     return result;
+ }
+@@ -722,9 +820,14 @@ static inline void stopRange(size_t lo, size_t hi)
      for (i = 0; i < 0x40; i++) {
          struct HSD_SynthSFXNode* node = &hsd_SynthSFXNodes[i];
          if (hsd_SynthSFXNodes[i].x0 > 0) {

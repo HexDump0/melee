@@ -263,6 +263,29 @@ cache so a stale converter-v86 file cannot hide a flipped test.
 
 ## Audio (S5)
 
+### Intermittent SFX spam capture
+
+Run the normal interactive frontend with the opt-in recorder:
+
+```sh
+MELEE_SFX_DEBUG=melee-sfx-debug.log ./build/native/melee --frontend
+```
+
+Reproduce the loud repeating sound, then exit with Escape so the final
+summary is written. Send `melee-sfx-debug.log`; do not redirect the ordinary
+viewer output into it. The recorder is line-buffered and also writes one
+`[sfx-window]` checkpoint per second, so most evidence survives even if the
+process must be killed.
+
+`[sfx-alert]` blocks distinguish four signals: four requests for one ID in
+two seconds, three wraps of one mapped SFX voice in three seconds, sustained
+PCM clipping, and voice saturation. Each alert includes the rolling request
+history, original and internal sound IDs, AX address/loop/rate/gain state,
+the current scene and fighters, and a symbolized call stack for request
+bursts. This diagnostic never suppresses, stops, or changes a sound. The
+value `MELEE_SFX_DEBUG=1` uses the same default filename; `-` writes to
+stderr.
+
 ```sh
 ./build/native/test_audio                       # disc-free mixer + .ssm test
 ctest --test-dir build/native -R decomp_audio   # two matches, byte-identical PCM

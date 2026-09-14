@@ -145,6 +145,13 @@ needed endian conversion (G-099), and synchronous `.sem` loading needed the
 idle tick to pump completions (G-100).  Owner listening check passed
 2026-09-13 ("audio sound pretty fine").
 
+The owner later reported a separate intermittent, very loud repeating SFX.
+P-706 adds an opt-in `MELEE_SFX_DEBUG=<path>` recorder at the game-request,
+synth-start, sample-wrap and final-PCM boundaries. It keeps normal playback
+unchanged while logging one-second checkpoints and detailed burst snapshots
+with fighter state, voice addresses and request call stacks. The incident
+still needs an owner capture before its cause can be fixed; see `TESTING.md`.
+
 **S6 in progress (2026-09-13): the retail frontend flow runs end to end.**
 The product target is now `melee` (the compiled game's own frontend; the old
 hand-port sandbox is `melee_prototype`).  A bare `./build/native/melee` runs the

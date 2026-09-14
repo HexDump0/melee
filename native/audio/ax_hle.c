@@ -18,6 +18,7 @@
 #include <dolphin/os.h>
 
 #include "audio/ax_mixer.h"
+#include "audio/sfx_debug.h"
 #include "decomp/boot/boot_triage.h"
 
 /* extern/dolphin/src/dolphin/ax/__ax.h (compiled into the same target). */
@@ -138,6 +139,7 @@ void __AXOutNewFrame(u32 lessDspCycles)
 {
     unsigned i;
 
+    melee_sfx_debug_set_audio_frame(ax_frame_count);
     ax_collapse_addr_sync();
     __AXSyncPBs(lessDspCycles);
     __AXPrintStudio();
@@ -149,6 +151,7 @@ void __AXOutNewFrame(u32 lessDspCycles)
     }
     __AXNextFrame(ax_frame_surround, ax_frame_output);
     ax_mixer_frame(ax_frame_output, AX_FRAME_SAMPLES);
+    melee_sfx_debug_mix(ax_frame_output, AX_FRAME_SAMPLES);
 
     for (i = 0; i < AX_FRAME_SAMPLES * 2; i++) {
         ax_hash ^= (u16) ax_frame_output[i];

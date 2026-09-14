@@ -1,0 +1,37 @@
+diff --git a/src/sysdolphin/baselib/axdriver.c b/src/sysdolphin/baselib/axdriver.c
+index 3fe50eb42..9cb8a5000 100644
+--- a/src/sysdolphin/baselib/axdriver.c
++++ b/src/sysdolphin/baselib/axdriver.c
+@@ -4,6 +4,10 @@
+ #include "debug.h"
+ #include "synth.h"
+ #include <dolphin/ax.h>
++#ifdef PORT_PC
++#include "audio/sfx_debug.h"
++#endif
++
+ #include <dolphin/axfx.h>
+ #include <dolphin/dvd.h>
+ #include <dolphin/os.h>
+@@ -207,6 +211,10 @@ void AXDriver_8038BF6C(HSD_SM* v)
+                     v->track, pitch1, pitch2, left_inv_sqrt * tmp2, left_sqrt,
+                     right_sqrt * left_inv_sqrt);
+ 
++#ifdef PORT_PC
++                melee_sfx_debug_voice_start(v->unk, v->fid, v->vID,
++                                            v->track, v->itdflag);
++#endif
+                 if (v->vID != -1) {
+                     AXDriver_804C5920[v->vID & 0x3F] = v;
+                     v->flags &= 0xFFF4FF99;
+@@ -599,6 +607,10 @@ int AXDriver_8038CFF4(int sound_id, u8 volume, u8 pan, int track, int channel)
+     AXDriver_804D77D0++;
+     OSRestoreInterrupts(enabled);
+ 
++#ifdef PORT_PC
++    melee_sfx_debug_request(sound_id, v->unk, volume, pan, track, channel);
++#endif
++
+     return v->unk;
+ }
+ 

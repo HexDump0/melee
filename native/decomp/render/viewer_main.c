@@ -32,6 +32,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "audio/sfx_debug.h"
 #include "decomp/assets/hsd_convert.h"
 #include "decomp/boot/boot_triage.h"
 #include "decomp/boot/match_boot.h"
@@ -46,7 +47,9 @@
 
 #include <dolphin/pad.h>
 #include <melee/db/db.h>
+#include <melee/ft/types.h>
 #include <melee/gm/gm_1A3F.h>
+#include <melee/pl/player.h>
 
 extern int gm_main(void);
 
@@ -807,6 +810,39 @@ static void dump_draws(unsigned frame)
     }
 }
 
+static void update_sfx_debug_state(void)
+{
+    MeleeSfxDebugGameState state;
+    int slot;
+
+    if (!melee_sfx_debug_enabled()) {
+        return;
+    }
+    memset(&state, 0, sizeof(state));
+    state.video_frame = match_view.frames;
+    state.mode = gm_GetCurrentGameMode();
+    state.scene = gm_GetCurrentSceneIndex();
+    for (slot = 0; slot < MELEE_SFX_DEBUG_FIGHTERS; slot++) {
+        HSD_GObj* gobj = Player_GetEntity(slot);
+        Fighter* fp;
+        MeleeSfxDebugFighter* out;
+
+        if (gobj == NULL || gobj->user_data == NULL) {
+            continue;
+        }
+        fp = (Fighter*) gobj->user_data;
+        out = &state.fighters[slot];
+        out->active = 1;
+        out->player = fp->player_id;
+        out->kind = fp->kind;
+        out->motion = fp->motion_id;
+        out->damage = Player_GetDamage(slot);
+        out->x = fp->cur_pos.x;
+        out->y = fp->cur_pos.y;
+    }
+    melee_sfx_debug_set_game_state(&state);
+}
+
 static void match_present(void)
 {
     SDL_Event e;
@@ -877,6 +913,7 @@ static void match_present(void)
     }
 
     match_view.frames++;
+    update_sfx_debug_state();
     {
         Uint64 frame_start = SDL_GetTicksNS();
         Uint64 interval = 0;

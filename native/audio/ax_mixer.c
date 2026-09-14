@@ -28,6 +28,8 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "audio/sfx_debug.h"
+
 #define AX_FRAME_SAMPLES 160
 #define AX_SRC_ONE 0x10000u
 #define AX_ITD_SAMPLES 32
@@ -160,6 +162,10 @@ static int voice_decode_frame(AxVoiceMix* v, AXPB* pb)
         int can_loop = pb->addr.loopFlag != 0 && loop_addr != 0;
 
         if (can_loop) {
+            melee_sfx_debug_voice_loop(
+                (unsigned) (v - voices), pb->addr.format, v->frame_addr,
+                loop_addr, end_addr,
+                ((u32) pb->src.ratioHi << 16) | pb->src.ratioLo);
             v->frame_addr = loop_addr;
             v->yn1 = (s16) pb->adpcmLoop.loop_yn1;
             v->yn2 = (s16) pb->adpcmLoop.loop_yn2;
@@ -324,6 +330,7 @@ void ax_mixer_frame(s16* out, unsigned frames)
         if (pb->state != 1) {
             v->active = 0;
             v->ended = 0;
+            melee_sfx_debug_voice_idle(i);
             continue;
         }
         if (!v->active || pb_cur_addr(pb) != v->write_addr) {

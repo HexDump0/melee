@@ -1,0 +1,31 @@
+diff --git a/src/melee/ft/ft_0877.c b/src/melee/ft/ft_0877.c
+index 0fc0ab8aa..081372000 100644
+--- a/src/melee/ft/ft_0877.c
++++ b/src/melee/ft/ft_0877.c
+@@ -8,6 +8,9 @@
+ #include <melee/lb/lbaudio_ax.h>
+ #include <sysdolphin/baselib/gobj.h>
+ #include <sysdolphin/baselib/random.h>
++#ifdef PORT_PC
++#include "audio/sfx_debug.h"
++#endif
+ 
+ #define TEST(expr) (expr) ? true : false
+ 
+@@ -455,6 +458,16 @@ void ft_PlaySFX(Fighter* fp, enum_t sfx_id, u8 sfx_vol, u8 sfx_pan)
+ {
+     sfx_id = ft_80087D0C(fp, sfx_id);
++#ifdef PORT_PC
++    melee_sfx_debug_fighter_context(sfx_id, fp->player_id, fp->kind,
++                                    fp->motion_id, fp->cur_pos.x,
++                                    fp->cur_pos.y);
++#endif
+     fp->x2160 = lbAudioAx_800237A8(sfx_id, sfx_vol, sfx_pan);
++#ifdef PORT_PC
++    /* Clear even when AXDriver rejects the request, so an unrelated sound
++     * cannot inherit this fighter context. */
++    melee_sfx_debug_clear_context();
++#endif
+ 
+     {
+         int rand;

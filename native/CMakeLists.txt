@@ -55,6 +55,7 @@ target_compile_options(melee_decomp_math PRIVATE
 # native/audio/ax_hle.c.  Kept as a list so the audio unit test can link it
 # without the whole game library.
 set(MELEE_AX_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/audio/sfx_debug.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/src/dolphin/ax/AX.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/src/dolphin/ax/AXAlloc.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/src/dolphin/ax/AXAux.c
@@ -309,6 +310,7 @@ list(APPEND MELEE_DECOMP_SOURCES
 add_library(melee_decomp_game OBJECT ${MELEE_DECOMP_SOURCES})
 target_include_directories(melee_decomp_game BEFORE PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/include)
 # G-150: the game's non-ASCII string literals (character names, menu text)
