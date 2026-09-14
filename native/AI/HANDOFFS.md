@@ -60,6 +60,7 @@ something the next agent must know, or finish a task that changes interfaces.
 | 2026-09-14 | P-685 opening movie: host THP decoder, texture-cache invalidation, colanim/ftData endianness fixes | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-685-opening-movie.md`](handoffs/2026-09-14-P-685-opening-movie.md) |
 | 2026-09-14 | P-686 fixed: fighter material templates used DOL-only data adjacency; decomp pin updated | Codex | [`2026-09-14-P-686-match-spawn.md`](handoffs/2026-09-14-P-686-match-spawn.md) |
 | 2026-09-14 | P-687..P-689 non-Metrowerks divergences (upstream #3456) + task specs | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-687-native-divergences.md`](handoffs/2026-09-14-P-687-native-divergences.md) |
+| 2026-09-14 | P-687..P-689 fixed: host fallbacks, console math, respawn platform | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-687-P-689-divergences-done.md`](handoffs/2026-09-14-P-687-P-689-divergences-done.md) |
 | 2026-09-14 | P-692..P-694 GX HLE audit: vertex formats, texgen source z, TEV raster channel | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-692-gx-audit.md`](handoffs/2026-09-14-P-692-gx-audit.md) |
 
 ## Template
