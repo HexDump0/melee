@@ -3,7 +3,7 @@
 This file is for the **project owner**. Agents plan from `TASKS.md`; this page
 answers "what is visibly wrong today, and what is it waiting on?".
 
-**Last updated:** 2026-09-13
+**Last updated:** 2026-09-14
 
 Status meanings:
 - **BROKEN** — confirmed wrong, reproducible.
@@ -18,10 +18,17 @@ Status meanings:
 
 | # | What you see | Where | What would settle it |
 |---|---|---|---|
+| B-20 | A black box covers the top quarter of the 1P clear ("GAME!!" results) screen | `MELEE_GAMEOVER_TEST=1 ./build/native/melee --match --frames 300 --no-hud --shot /tmp/clear.bmp`, or just finish a Classic stage | Pinned down to one draw (a solid opaque black quad, GX rows 0..115) but **I need a Dolphin capture of the same screen**: is there a translucent dark band across the top in retail?  Yes -> the quad is real and only its blending is wrong; no -> its geometry is wrong.  Full analysis and both next steps in `handoffs/2026-09-14-P-697-clear-screen-black-band.md`; tracked as P-697. |
 | B-1 | Bowser's hair/mohawk looks mangled during `Wait1` (fine in T-pose) | `--model PlKpNr.dat --view --animate --clip Wait1` | H-5: capture the same frame/angle in Dolphin. Match -> the hunched pose is authored; mismatch -> a real animation gap (P-207/blending). **Owner has no Dolphin access right now and will compare later — do not change Bowser before then.** Investigation notes: `learnings/hsd_animation.md` §7. |
 
 Resolved 2026-09-11 (owner): the face texture artifact is gone (was B-2), and
 the viewer at 180 Hz is confirmed correct (H-4).
+
+Resolved 2026-09-14: the crash one frame after the "GAME!!" announcer at the
+end of every 1P stage (`lb_800138EC` had no `return`; G-145, P-695), and the
+~2.5 fps stall whenever a fighter left the camera (the magnifier's
+`HSD_ImageDesc` was never byte-swapped, so it asked for a 0x4000 x 0x4000 EFB
+copy; G-146, P-696).
 
 ## Confirmed gaps (BROKEN / BLOCKED)
 

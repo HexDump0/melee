@@ -62,6 +62,7 @@ something the next agent must know, or finish a task that changes interfaces.
 | 2026-09-14 | P-687..P-689 non-Metrowerks divergences (upstream #3456) + task specs | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-687-native-divergences.md`](handoffs/2026-09-14-P-687-native-divergences.md) |
 | 2026-09-14 | P-687..P-689 fixed: host fallbacks, console math, respawn platform | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-687-P-689-divergences-done.md`](handoffs/2026-09-14-P-687-P-689-divergences-done.md) |
 | 2026-09-14 | P-692..P-694 GX HLE audit: vertex formats, texgen source z, TEV raster channel | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-692-gx-audit.md`](handoffs/2026-09-14-P-692-gx-audit.md) |
+| 2026-09-14 | P-695/P-696 fixed (match-end crash, magnifier 400 ms frames); P-697 clear-screen black band localised, needs a Dolphin capture | claude (opus-5) | [`2026-09-14-P-697-clear-screen-black-band.md`](handoffs/2026-09-14-P-697-clear-screen-black-band.md) |
 
 ## Template
 
