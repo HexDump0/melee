@@ -1,0 +1,121 @@
+diff --git a/src/melee/ty/toy.c b/src/melee/ty/toy.c
+index 1e5fd2f52..ceecc356c 100644
+--- a/src/melee/ty/toy.c
++++ b/src/melee/ty/toy.c
+@@ -241,11 +241,52 @@ bool un_80304780(void)
+     { 7, 65 }, { 6, 66 }, { 5, 67 }, { 4, 68 }, { 3, 69 },
+     { 2, 70 }, { 0, 73 }, { 1, 88 }, { 8, 83 },
+ };
++#ifdef PORT_PC
++/* These five objects are one region on the console (804A26B8..804A2ABC) and
++ * the code relies on it: _Toy_804A26B8 is a 12-byte struct, but its address is
++ * cast to Toy26B8* (0x196 bytes, ->x195) at seven sites, and toy.c also walks
++ * it through u16, s32 and u8 pointers at byte offsets up to 0x3FF
++ * (M2C_FIELD(base, s8 ptr, 0x3FF) at :2588), which is inside Toy_804A2AA8,
++ * the last symbol here.
++ * The port builds with -fdata-sections, so each of these would get its own
++ * section and the linker could place them anywhere, leaving every one of those
++ * reads and writes pointed at unrelated memory.
++ *
++ * Reproduce the console's layout instead of reinterpreting any of it: one
++ * block, the five names bound to members at the console's own offsets.  This
++ * is the hsd_4D11.c treatment (P-646) applied to the trophy data; the two
++ * names that other TUs link against (tylist.c casts Toy_804A284C to
++ * TyModeState*) get real symbols via .set, and the three file-local ones are
++ * macros so `sizeof` still works for the ASSERT_SIZEs below.
++ *
++ * The offsets are the console deltas from 804A26B8 and are asserted, so if
++ * padding ever differs this fails to compile rather than silently shifting. */
++struct ToyBlock_804A26B8 {
++    /* +0x000 */ struct _Toy_804A26B8_t s26B8;
++    /* +0x00C */ char dt26C4[0x8C];
++    /* +0x098 */ char dt2750[0xFC];
++    /* +0x194 */ u16 a284C[302];
++    /* +0x3F0 */ ToyAnimState s2AA8;
++};
++struct ToyBlock_804A26B8 Toy_block_804A26B8;
++STATIC_ASSERT(offsetof(struct ToyBlock_804A26B8, dt26C4) == 0x00C);
++STATIC_ASSERT(offsetof(struct ToyBlock_804A26B8, dt2750) == 0x098);
++STATIC_ASSERT(offsetof(struct ToyBlock_804A26B8, a284C) == 0x194);
++STATIC_ASSERT(offsetof(struct ToyBlock_804A26B8, s2AA8) == 0x3F0);
++#define _Toy_804A26B8 (Toy_block_804A26B8.s26B8)
++#define _Toy_devtext_buf_804A26C4 (Toy_block_804A26B8.dt26C4)
++#define _Toy_devtext_buf_804A2750 (Toy_block_804A26B8.dt2750)
++__asm__(".globl Toy_804A284C\n"
++        ".set Toy_804A284C, Toy_block_804A26B8 + 0x194");
++__asm__(".globl Toy_804A2AA8\n"
++        ".set Toy_804A2AA8, Toy_block_804A26B8 + 0x3F0");
++#else
+ /* 4A26B8 */ static struct _Toy_804A26B8_t _Toy_804A26B8;
+ /* 4A26C4 */ static char _Toy_devtext_buf_804A26C4[0x8C];
+ /* 4A2750 */ static char _Toy_devtext_buf_804A2750[0xFC];
+ /* 4A284C */ u16 Toy_804A284C[302];
+ /* 4A2AA8 */ ToyAnimState Toy_804A2AA8;
++#endif
+ /* 4D5A40 */ static GXColor _Toy_color_E2E2E2FF = { 0xE2, 0xE2, 0xE2, 0xFF };
+ /* 4D5A44 */ static GXColor _Toy_color_FF8020FF = { 0xFF, 0x80, 0x20, 0xFF };
+ 
+@@ -2044,19 +2085,46 @@ void Toy_80306D70(s32 arg0)
+         s32 idx;
+         u8 kind;
+ 
++#ifdef PORT_PC
++        /* `base` exists only to reach symbols[] and entries[], and on the
++         * console 803FDD18 + offsetof(TyLightFile, symbols) == 0xCC lands
++         * exactly on _Toy_803FDDE4, whose own members are that same pair.
++         * With -fdata-sections the filename string and the table are separate
++         * objects that the linker need not keep adjacent, so read the table
++         * through its own symbol below and leave `base` unused here. */
++        base = NULL;
++        (void) base;
++#else
+         base = (TyLightFile*) _Toy_str_TyLight_dat;
++#endif
+         data = (TyLightData*) Toy_sbss_804D6ED4;
+ 
+         if (data->archive != NULL && data->gobj != NULL) {
+             HSD_GObjProc_RemoveAllProcs(data->gobj);
+             HSD_GObjFree(data->gobj);
+             data->gobj = NULL;
++            #ifdef PORT_PC
++            idx = _Toy_803FDDE4.values[arg0].index;
++#else
+             idx = base->entries[arg0].idx;
++#endif
++            #ifdef PORT_PC
++            sym = _Toy_803FDDE4.symbols[idx].name;
++#else
+             sym = base->symbols[idx].name;
++#endif
+             sp14 = HSD_ArchiveGetPublicAddress(data->archive, sym);
+         } else {
++            #ifdef PORT_PC
++            idx = _Toy_803FDDE4.values[arg0].index;
++#else
+             idx = base->entries[arg0].idx;
++#endif
++            #ifdef PORT_PC
++            sym = _Toy_803FDDE4.symbols[idx].name;
++#else
+             sym = base->symbols[idx].name;
++#endif
+             data->archive =
+                 lbArchive_80016DBC(_Toy_str_TyLight_dat, &sp14, sym, 0);
+         }
+@@ -2075,8 +2143,16 @@ void Toy_80306D70(s32 arg0)
+                 HSD_GObj_80390CD4(data->gobj);
+             }
+         } else {
++            #ifdef PORT_PC
++            idx = _Toy_803FDDE4.values[arg0].index;
++#else
+             idx = base->entries[arg0].idx;
++#endif
++            #ifdef PORT_PC
++            sym = _Toy_803FDDE4.symbols[idx].name;
++#else
+             sym = base->symbols[idx].name;
++#endif
+             OSReport("*** Can not Load Light Label(%s)\n", sym);
+             HSD_ASSERT(2253, 0);
+         }
