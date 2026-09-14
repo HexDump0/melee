@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-14 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716 and P-718 fixed, P-699/P-702/P-711/P-715/P-717 open)
+Last updated: 2026-09-14 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716, P-718 and P-719 fixed, P-699/P-702/P-711/P-715/P-717 open)
 
 > **Direction (2026-09-13/14): ADR-0017 — keep the GLES renderer, reach Aurora parity.**
 > The 32-bit product, in-place converter and GLES3/WebGL2 renderer stay; the
@@ -945,3 +945,22 @@ This is the **second** instance of the class: G-154/P-704 was the same bug in
 the four name-width tables `gm_1601.c` indexes past `lbl_803B75F8`.  Recorded
 as G-166 with the tells to find the rest — console-linker adjacency is never
 guaranteed here.
+
+**P-719 (2026-09-14, the card work area's declaration disagreed with its
+definition):** the same P-716 sweep reported 332 `-Warray-bounds` accesses
+"outside array bounds of `u8[16]`" across `hsd_3A94.c` and `hsd_3B27.c`.  The
+runtime layout was already right — P-646 defines `hsd_804D1138` as one
+`0x1510` array and aliases `hsd_804D1148` (+0x10) and `hsd_804D2348` (+0x1210)
+into it, because letting GCC allocate them separately splits the request queue
+between its writers and the pump and deadlocks the first file command — but
+`hsd_3A94.h` still declared the base as `u8[0x10]`.  Every card call site
+therefore told GCC the object was sixteen bytes while the real accesses run to
+`0x1510`, and object size is something the optimiser is entitled to act on.
+Matching the declaration to the definition takes the count from 332 to 3.
+`ctest` 28/28 including `decomp_frontend_card`; GC `main.dol: OK`.
+
+The three that remain are a separate, real finding for P-717:
+`state->file_sizes[file_idx]` at `hsd_3A94.c:2855`, `:3694` and `:4133`, where
+GCC has proved `file_idx == 9` reaches an `int[9]` — that reads
+`CardState::file_data[0]`, a pointer, as a file size.  In-struct, so wrong data
+rather than corruption.

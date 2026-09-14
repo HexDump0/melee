@@ -1,0 +1,31 @@
+diff --git a/src/sysdolphin/baselib/hsd_3A94.h b/src/sysdolphin/baselib/hsd_3A94.h
+index 99305c244..2dc66f54d 100644
+--- a/src/sysdolphin/baselib/hsd_3A94.h
++++ b/src/sysdolphin/baselib/hsd_3A94.h
+@@ -85,7 +85,26 @@ typedef struct CardState {
+ /* 3B2674 */ s32 hsd_803B2674(CardState* state);
+ /* 3B26CC */ s32 fn_803B26CC(CardState* state, s32 comment, s32 banner,
+                              s32 icons, void (*callback)(s32, s32));
++#ifdef PORT_PC
++/* The console splits this work area into three symbols -- hsd_804D1138 (the
++ * 0x10-byte header), hsd_804D1148 (the command ring at +0x10) and
++ * hsd_804D2348 (the request queue at +0x1210) -- and hsd_3A94.c addresses all
++ * of them by casting this base to CardContext, which is 0x1510 bytes.  P-646
++ * already made that work at runtime: hsd_4D11.c defines one 0x1510 array and
++ * aliases the other two symbols into it, because allocating them separately
++ * splits the queue between its writers and the pump and deadlocks the first
++ * file command.
++ *
++ * The declaration has to agree, though.  Left at 0x10 it tells GCC the object
++ * is sixteen bytes while every real access runs to 0x1510, which is why
++ * -Warray-bounds reports ~330 out-of-bounds accesses across hsd_3A94.c and
++ * hsd_3B27.c.  Those are not false positives about the runtime layout; they
++ * are GCC believing the declaration, and object-size knowledge is something it
++ * is entitled to optimise on. */
++extern u8 hsd_804D1138[0x1510];
++#else
+ /* 4D1138 */ extern u8 hsd_804D1138[0x10];
++#endif
+ /* 4D2E70 */ extern u8 hsd_804D2E70[2084];
+ /* 4D7990 */ extern s32 hsd_804D7990;
+ /* 4D7994 */ extern s32 hsd_804D7994;
