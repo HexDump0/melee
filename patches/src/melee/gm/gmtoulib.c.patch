@@ -1,0 +1,55 @@
+diff --git a/src/melee/gm/gmtoulib.c b/src/melee/gm/gmtoulib.c
+index abd1e4a53..7180c58de 100644
+--- a/src/melee/gm/gmtoulib.c
++++ b/src/melee/gm/gmtoulib.c
+@@ -82,6 +82,21 @@ typedef struct BracketData {
+     /* 0x3700 */ BracketSrcEntry* srcs[3];
+ } BracketData;
+ 
++/* BracketData overlays three consecutive console symbols: entries[64] is
++ * lbl_80473AB8 (0x3700 bytes), srcs[3] is lbl_804771B8 (TmBoxArrays, 0xC) and
++ * &srcs[3] -- one past that -- is gm_804771C4, the TmData tournament state.
++ * The writes below reach the third one, so with -fdata-sections, which gives
++ * each object its own section, they were landing wherever the linker happened
++ * to put memory after a 0x3700-byte array.  Name the symbol instead; the
++ * assertions pin the arithmetic that made the overlay line up. */
++#ifdef PORT_PC
++#define PORT_TM_DATA (&gm_804771C4)
++STATIC_ASSERT(offsetof(BracketData, srcs) == sizeof(lbl_80473AB8));
++STATIC_ASSERT(sizeof(((BracketData*) 0)->srcs) == sizeof(struct TmBoxArrays));
++#else
++#define PORT_TM_DATA ((TmData*) &((BracketData*) lbl_80473AB8)->srcs[3])
++#endif
++
+ typedef struct BracketSrcPtr {
+     BracketSrcEntry* ptr;
+ } BracketSrcPtr;
+@@ -2428,20 +2443,20 @@ void fn_8018FBE0(s32 arg0, s32 arg1, s32 arg2, s32 arg3, s32 arg4, s32 arg5,
+ {
+     s32 i;
+ 
+-    ((TmData*) &((BracketData*) lbl_80473AB8)->srcs[3])->cur_option = arg0;
+-    ((TmData*) &((BracketData*) lbl_80473AB8)->srcs[3])->x1C = arg1;
+-    ((TmData*) &((BracketData*) lbl_80473AB8)->srcs[3])->x20 = arg2;
++    PORT_TM_DATA->cur_option = arg0;
++    PORT_TM_DATA->x1C = arg1;
++    PORT_TM_DATA->x20 = arg2;
+ 
+     for (i = 0; 64 > i; i++) {
+-        ((TmData*) &((BracketData*) lbl_80473AB8)->srcs[3])->x37[i].x2 =
++        PORT_TM_DATA->x37[i].x2 =
+             (u8) arg3;
+-        ((TmData*) &((BracketData*) lbl_80473AB8)->srcs[3])->x37[i].x1 =
++        PORT_TM_DATA->x37[i].x1 =
+             (u8) arg4;
+-        ((TmData*) &((BracketData*) lbl_80473AB8)->srcs[3])->x37[i].xD =
++        PORT_TM_DATA->x37[i].xD =
+             (u8) i;
+-        ((TmData*) &((BracketData*) lbl_80473AB8)->srcs[3])->x37[i].x9 =
++        PORT_TM_DATA->x37[i].x9 =
+             (u16) arg5;
+-        ((TmData*) &((BracketData*) lbl_80473AB8)->srcs[3])->x37[i].x0 =
++        PORT_TM_DATA->x37[i].x0 =
+             (u8) arg6;
+     }
+ }

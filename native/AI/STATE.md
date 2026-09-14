@@ -994,6 +994,21 @@ same thing, inventoried in `logs/2026-09-14-P721-overlay-candidates.txt`.  The
 largest is `ty/toy.c`: `_Toy_804A26B8` is a 12-byte static, and the code casts
 its address to `Toy26B8*` (0x196 bytes) reaching through two devtext buffers
 into `Toy_804A284C[302]` — which `tylist.c` in turn overlays as `TyModeState*`.
+**`ty/toy.c` and `gm/gmtoulib.c` are now done** (141 -> 5 and 88 -> 80).  The
+trophy block got the `hsd_4D11.c` treatment — one object holding all five at
+the console's offsets, `#define`s for the file-local names so the live
+`ASSERT_SIZE`s still see real arrays, and `.set` aliases for the two names
+`tylist.c` links against, verified in the linked binary.  `gmtoulib.c` was
+sharper: `BracketData` overlays `lbl_80473AB8` (0x3700), `lbl_804771B8` (0xC)
+and then `gm_804771C4` — the **TmData tournament state** whose layout P-714
+had just fixed — and eight writes reached that third symbol through a base
+`-fdata-sections` does not anchor.  They now name `gm_804771C4`.
+
+**Triage note for the rest of the inventory:** most surviving
+`-Warray-bounds` reports are *benign*.  GCC says "`X[0]` is partly outside
+array bounds of `Y[n]`" whenever a struct is cast over a smaller array, even
+when every actual member access is in bounds — 80 of `gmtoulib.c`'s 88 are
+exactly that.  Only accesses that land **past the object** are defects.
 **That one is deliberately not attempted yet:** the overlays interlock across
 TUs and two of the four symbols are non-`static`, so it needs the `hsd_4D11.c`
 alias treatment rather than a quick rebase, and getting it wrong would corrupt
