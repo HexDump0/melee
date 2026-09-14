@@ -1,0 +1,126 @@
+diff --git a/src/melee/mn/mndiagram.c b/src/melee/mn/mndiagram.c
+index a1a4ff19a..72734b297 100644
+--- a/src/melee/mn/mndiagram.c
++++ b/src/melee/mn/mndiagram.c
+@@ -73,8 +73,41 @@ typedef struct mnDiagram_PopupAnimTableHead {
+     /* 0x00 */ Point3d points[3];
+ } mnDiagram_PopupAnimTableHead;
+ 
++#ifdef PORT_PC
++/* mnDiagram_Assets (0x118) is cast from &mnDiagram_FighterDisplayOrder, but
++ * that array is only its leading 0x1C bytes: sorted_names at 0x1C is
++ * mnDiagram_NameDisplayOrder, and the eight archive-asset pointer arrays from
++ * 0x94 are further symbols again in the same console run.  Thirty accesses go
++ * through that pointer, all but one of them past the base array.  With
++ * -fdata-sections these are separate sections the linker may place anywhere.
++ *
++ * Back the whole run with one object and bind the two named arrays into it at
++ * the console's offsets, so the 30 call sites stay as they are. */
++struct mnDiagram_AssetBlock {
++    /* +0x000 */ u8 fighters[0x1C];
++    /* +0x01C */ u8 names[0x78];
++    /* +0x094 */ u8 asset_ptrs[0x118 - 0x94];
++};
++struct mnDiagram_AssetBlock mnDiagram_asset_block;
++STATIC_ASSERT(sizeof(struct mnDiagram_AssetBlock) == sizeof(mnDiagram_Assets));
++STATIC_ASSERT(offsetof(struct mnDiagram_AssetBlock, names) ==
++              offsetof(mnDiagram_Assets, sorted_names));
++__asm__(".globl mnDiagram_FighterDisplayOrder\n"
++        ".set mnDiagram_FighterDisplayOrder, mnDiagram_asset_block + 0x00");
++__asm__(".globl mnDiagram_NameDisplayOrder\n"
++        ".set mnDiagram_NameDisplayOrder, mnDiagram_asset_block + 0x1C");
++/* Declared at the extent of the object they actually alias, not at their
++ * semantic length: several helpers take mnDiagram_FighterDisplayOrder as a
++ * `u8* sorted` and read sorted[idx + 0x1C], i.e. into the names array.  That
++ * is correct now the block guarantees adjacency, but a [0x1C] declaration
++ * would leave GCC believing otherwise -- the P-719 lesson. */
++extern u8 mnDiagram_FighterDisplayOrder[sizeof(struct mnDiagram_AssetBlock)];
++extern u8 mnDiagram_NameDisplayOrder[sizeof(struct mnDiagram_AssetBlock) -
++                                     0x1C];
++#else
+ u8 mnDiagram_FighterDisplayOrder[0x1C];
+ u8 mnDiagram_NameDisplayOrder[0x78];
++#endif
+ 
+ static mnDiagram_PopupAnimTableHead mnDiagram_PopupTextOffsets = {
+     {
+@@ -743,8 +776,12 @@ void mnDiagram_SortNamesByKOs(void)
+     int max_idx;
+     u8* dst_iter;
+     int i;
++#ifdef PORT_PC
++    mnDiagram_Assets* assets = (mnDiagram_Assets*) &mnDiagram_asset_block;
++#else
+     mnDiagram_Assets* assets =
+         (mnDiagram_Assets*) &mnDiagram_FighterDisplayOrder;
++#endif
+     u8* dst = assets->sorted_names;
+     u32* tp;
+     u8* candidate;
+@@ -1683,7 +1720,14 @@ void mnDiagram_PopupAnimProc(HSD_GObj* arg0)
+         text->default_alignment = 1;
+     }
+ 
++#ifdef PORT_PC
++    /* These four members are the only ones reached through the run's base
++     * pointer (see the mnDiagram_AnimTable comment); each is its own console
++     * symbol or literal, so name it and leave the overlay unused here. */
++    anim_frame = mn_8022EFD8(data->jobjs[12], &mnDiagram_CursorAnim);
++#else
+     anim_frame = mn_8022EFD8(data->jobjs[12], &tbl->cursor_anim);
++#endif
+     {
+         HSD_Text* t;
+         f32 y;
+@@ -1699,7 +1743,11 @@ void mnDiagram_PopupAnimProc(HSD_GObj* arg0)
+     }
+     text->default_alignment = 1;
+ 
++#ifdef PORT_PC
++    if (anim_frame == mnDiagram_CursorAnim.end_frame) {
++#else
+     if (anim_frame == tbl->cursor_anim.end_frame) {
++#endif
+         HSD_GObjProc_RemoveProc(HSD_GObj_CurrentInvokedProc);
+     }
+ }
+@@ -1910,8 +1958,13 @@ void mnDiagram_CreatePopup(s32 arg0, s32 arg1, s32 use_nametag)
+ 
+     user_data = HSD_MemAlloc(sizeof(mnDiagram_PopupData));
+     if (user_data == NULL) {
++#ifdef PORT_PC
++        OSReport("Can't get user_data.\n");
++        __assert("mndiagram.c", 0x5F8, "user_data");
++#else
+         OSReport(tbl->user_data_error);
+         __assert(tbl->file_name, 0x5F8, tbl->user_data_name);
++#endif
+     }
+ 
+     GObj_InitUserData(gobj, 0, mnDiagram_PopupCleanup, user_data);
+@@ -2597,8 +2650,12 @@ void mnDiagram_DrawFighterHeaders(HSD_GObj* arg0, int arg1, int arg2)
+     HSD_JObj* row_jobj;
+     int col_idx;
+     int col_remaining;
++#ifdef PORT_PC
++    mnDiagram_Assets* assets = (mnDiagram_Assets*) &mnDiagram_asset_block;
++#else
+     mnDiagram_Assets* assets =
+         (mnDiagram_Assets*) &mnDiagram_FighterDisplayOrder;
++#endif
+     f32 x_spacing;
+     f32 y_spacing;
+     int i;
+@@ -2873,8 +2930,12 @@ void mnDiagram_CreateScreen(u8 arg0)
+ /// @param arg1 Initial mode (passed to mnDiagram_CreateScreen)
+ void mnDiagram_Init(u8 arg0, u8 arg1)
+ {
++#ifdef PORT_PC
++    mnDiagram_Assets* assets = (mnDiagram_Assets*) &mnDiagram_asset_block;
++#else
+     mnDiagram_Assets* assets =
+         (mnDiagram_Assets*) &mnDiagram_FighterDisplayOrder;
++#endif
+     HSD_GObj* gobj;
+     HSD_GObjProc* proc;
+     HSD_Archive* archive;

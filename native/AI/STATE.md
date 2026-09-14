@@ -994,7 +994,7 @@ same thing, inventoried in `logs/2026-09-14-P721-overlay-candidates.txt`.  The
 largest is `ty/toy.c`: `_Toy_804A26B8` is a 12-byte static, and the code casts
 its address to `Toy26B8*` (0x196 bytes) reaching through two devtext buffers
 into `Toy_804A284C[302]` — which `tylist.c` in turn overlays as `TyModeState*`.
-**`ty/toy.c` and `gm/gmtoulib.c` are now done** (141 -> 5 and 88 -> 80).  The
+**`ty/toy.c`, `gm/gmtoulib.c`, `gm/gm_1798.c` and `mn/mndiagram.c` are now done** (141 -> 5, 88 -> 80, 60 -> 0 and 49 -> 1).  The
 trophy block got the `hsd_4D11.c` treatment — one object holding all five at
 the console's offsets, `#define`s for the file-local names so the live
 `ASSERT_SIZE`s still see real arrays, and `.set` aliases for the two names
