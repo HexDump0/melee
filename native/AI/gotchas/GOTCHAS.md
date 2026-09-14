@@ -2151,3 +2151,36 @@ which reads as a font or parser bug, a long way from the call.
 The CSS level box rescales its contents (`text->x88`), so the broken
 11-glyph string and the correct 9-glyph one occupied almost the same pixels
 (327..484 vs 330..482).  The right-aligned score value was the discriminator.
+
+## G-150: the decomp's non-ASCII literals are UTF-8; the console gets Shift-JIS
+
+**Symptom:** the Classic VS screen shows the two fighters but no names under
+them.  Forced through a debug entry the names appear as nonsense kana
+("いさwwv"); with the US name table they vanish entirely.
+
+**Cause:** the character names live in `src/melee/gm/gm_1601.c` as full-width
+literals (`"Ｍａｒｉｏ"`), stored in the source as **UTF-8** — `Ｍ` is
+`EF BC AD`.  The GameCube build pipes the source through **sjiswrap**
+(`decomp/configure.py --sjiswrap`), so MWCC emits the console's Shift-JIS
+bytes (`82 6C`).  `HSD_SisLib_803A67EC` reads the string two bytes at a time
+and looks the pair up in the SJIS table, so the UTF-8 bytes miss every entry:
+no glyph is emitted, and whatever partial pairs do match come out as random
+kana.
+
+**Fix:** compile the decomp objects with `-fexec-charset=CP932`
+(`native/CMakeLists.txt`, `melee_decomp_game`).  GCC converts the literals at
+codegen, after parsing, so the classic "0x5C as a Shift-JIS trail byte eats
+the quote" problem never arises — that is what sjiswrap exists to solve for
+MWCC, and it does not apply here.  **Use `CP932`, not `SHIFT-JIS`:** iconv's
+strict `SHIFT-JIS` rejects several characters the JP name table uses and the
+build fails with "converting to execution character set".
+
+Shift-JIS is ASCII-compatible, so every ordinary literal is unchanged; the
+GameCube build is untouched (this is a host compile flag only).
+`ctest decomp_classic_names` reads the first byte of `gm_80160980(0)` and
+requires a Shift-JIS lead byte (0x81..0x9F): `name_lead=82 sjis=1` with the
+flag, `name_lead=ef sjis=0` without.
+
+**Do not test this with a pixel probe.** The broken build renders *garbage
+glyphs*, not nothing, so a white-pixel count barely moves (927 vs 1054 over
+the name row).  Check the encoding at the source instead.

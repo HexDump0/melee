@@ -385,6 +385,24 @@ now writes the vertex (raster) colour when the draw updates colour; the
 title's `(320,60)` readback is `36,36,36` instead of `0,0,0`, `ctest` 21/21.
 Gotcha G-138.
 
+**P-703 (2026-09-14, missing fighter names):** the owner's Classic VS screen
+showed both fighters but no names under them.  The name tables in
+`gm_1601.c` are full-width literals stored in the source as **UTF-8**
+(`Ｍ` = `EF BC AD`); the GameCube build pipes the source through **sjiswrap**
+(`configure.py --sjiswrap`) so MWCC emits the console's Shift-JIS bytes
+(`82 6C`), which is what `HSD_SisLib_803A67EC` looks up two bytes at a time.
+Compiled as UTF-8 every lookup misses.  `melee_decomp_game` now builds with
+`-fexec-charset=CP932` — GCC converts at codegen, after parsing, so the
+backslash-as-trail-byte hazard sjiswrap exists to solve never arises, and
+Shift-JIS being ASCII-compatible leaves every ordinary literal alone.  Use
+**CP932, not SHIFT-JIS**: iconv's strict variant rejects characters the JP
+name table uses and the build fails.  `ctest decomp_classic_names` checks the
+first byte of `gm_80160980(0)` is a Shift-JIS lead byte (`sjis=1` with the
+flag, `sjis=0` without) — a pixel probe is useless here because the broken
+build renders *garbage kana* rather than nothing (927 vs 1054 white pixels).
+`ctest` 27/27; the GameCube build is untouched (host compile flag).  Gotcha
+G-150.
+
 **P-700 (2026-09-14, SIS text truncation):** the owner reported the 1P
 character-select level reading `normar.a.`; headless it renders `VERY EASE..`
 instead of `VERY EASY`.  The SIS text engine builds every string with

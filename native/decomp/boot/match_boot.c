@@ -51,6 +51,7 @@ static int title_seen;
 static int gameover_test;
 static int gameover_stage;
 static int classic_test;
+static int classic_named;
 static int intro_test;
 static int intro_stage;
 static PadInputFrame match_input[MATCH_INPUT_FRAMES][MATCH_INPUT_CHANNELS];
@@ -259,6 +260,19 @@ static void match_boot_frame(void)
      * (P-700). */
     if (classic_test) {
         if (gm_GetCurrentGameMode() == GM_CLASSIC) {
+            /* G-150: the fighter-name literals are non-ASCII.  The GameCube
+             * build runs the source through sjiswrap so MWCC emits Shift-JIS
+             * bytes, which is what HSD_SisLib_803A67EC looks up two at a
+             * time.  Compiled as UTF-8 they start 0xEF/0xE3 and every lookup
+             * fails, so the VS screen's names render as garbage or nothing.
+             * A Shift-JIS lead byte is 0x81..0x9F. */
+            if (!classic_named) {
+                unsigned char lead = (unsigned char) gm_80160980(0)[0];
+                classic_named = 1;
+                boot_triage_note("[classic] name_lead=%02x sjis=%d\n",
+                                 (unsigned) lead,
+                                 lead >= 0x81 && lead <= 0x9F ? 1 : 0);
+            }
             return;
         }
         if (frame == start_frame || ((frame - start_frame) % 30) == 0) {

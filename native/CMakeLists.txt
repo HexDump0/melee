@@ -311,9 +311,17 @@ target_include_directories(melee_decomp_game BEFORE PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/include)
+# G-150: the game's non-ASCII string literals (character names, menu text)
+# are stored in the decompilation as UTF-8, and the GameCube build converts
+# them with sjiswrap (configure.py --sjiswrap) so MWCC emits Shift-JIS bytes.
+# HSD_SisLib_803A67EC looks those bytes up two at a time as SJIS, so left as
+# UTF-8 every lookup fails and the text renders as nothing.  Ask GCC for the
+# same execution charset; Shift-JIS is ASCII-compatible, so plain literals
+# are unchanged.
 target_compile_options(melee_decomp_game PRIVATE
     -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS}
     -w -fgnu89-inline -ffunction-sections -fdata-sections
+    -fexec-charset=CP932
     -Wno-error=incompatible-pointer-types -DPORT_PC=1
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
 set_source_files_properties(
@@ -658,6 +666,19 @@ if(MELEE_SDL3_LIB32)
       PASS_REGULAR_EXPRESSION "\\[classic\\] score_lead=[1-9][0-9]+"
       TIMEOUT 600
       ENVIRONMENT "SDL_VIDEODRIVER=offscreen;SDL_AUDIODRIVER=dummy;MELEE_NO_CARD=1;MELEE_CLASSIC_TEST=1")
+  # G-150: the game's non-ASCII literals (character names, menu text) must
+  # reach the binary as Shift-JIS, which is what HSD_SisLib_803A67EC looks up.
+  # The GameCube build gets that from sjiswrap; this build gets it from
+  # -fexec-charset=CP932.  Compiled as UTF-8 the VS screen's fighter names
+  # render as garbage or vanish, so assert the encoding at the source.
+  add_test(NAME decomp_classic_names COMMAND melee
+      --match --frames 700 --no-hud
+      --shot ${CMAKE_CURRENT_BINARY_DIR}/decomp_classic_names.bmp)
+  set_tests_properties(decomp_classic_names PROPERTIES
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
+      PASS_REGULAR_EXPRESSION "\\[classic\\] name_lead=[0-9a-f]+ sjis=1"
+      TIMEOUT 600
+      ENVIRONMENT "SDL_VIDEODRIVER=offscreen;SDL_AUDIODRIVER=dummy;MELEE_NO_CARD=1;MELEE_CLASSIC_TEST=1;MELEE_VIEWER_TRIAGE=1")
   add_test(NAME decomp_title COMMAND melee
       --frontend --no-items
       --input ${CMAKE_CURRENT_SOURCE_DIR}/tests/frontend_vs.txt

@@ -457,3 +457,36 @@ grep -rn "vsnprintf\|vsprintf\|snprintf\|strncpy\|memcpy" decomp/src \
 
 After P-700 the three known sites are fixed; re-run the grep after every
 submodule re-pin.
+
+
+## P-703 source encoding: the decomp is UTF-8, the console is Shift-JIS
+
+`src/` stores the game's non-ASCII literals as UTF-8 — the character-name
+tables in `gm_1601.c` (`"Ｍａｒｉｏ"` = `EF BC AD ...`), menu strings, and so
+on.  The GameCube build converts them with **sjiswrap**
+(`decomp/configure.py --sjiswrap`) so MWCC emits the console's Shift-JIS
+bytes, which is what `HSD_SisLib_803A67EC` looks up two bytes at a time.
+
+The port gets the same result from `-fexec-charset=CP932` on
+`melee_decomp_game`.  GCC converts at codegen, after parsing, so the
+backslash-as-trail-byte hazard sjiswrap exists to handle does not arise.
+
+Two things to know:
+
+- Use **CP932**, not `SHIFT-JIS`.  iconv's strict `SHIFT-JIS` rejects
+  characters the JP name table uses and the build fails outright with
+  "converting to execution character set: Invalid or incomplete multibyte or
+  wide character".
+- Shift-JIS is ASCII-compatible, so plain literals are byte-identical and the
+  flag is safe to apply to the whole compiled decomp.
+
+The failure mode is nasty because it is *not* silent-but-blank: partial UTF-8
+byte pairs accidentally match SJIS table entries, so text renders as plausible
+kana.  See G-150.
+
+**Check this after every re-pin**, and whenever a new TU with non-ASCII
+literals starts being compiled:
+
+```sh
+grep -rlP '[^\x00-\x7f]' decomp/src --include=*.c | head
+```

@@ -174,6 +174,22 @@ zero.  `score_lead=0` means SIS strings are losing their last character
 (G-149).  Do not probe the level text itself: its box rescales to fit, so a
 truncated string occupies almost the same pixels as a correct one.
 
+## Non-ASCII literals (Shift-JIS)
+
+`melee_decomp_game` must compile with `-fexec-charset=CP932` so the game's
+full-width literals reach the binary as Shift-JIS, the way sjiswrap arranges
+for the GameCube build.  `ctest decomp_classic_names` asserts it; a bare
+check is:
+
+```sh
+SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy MELEE_CLASSIC_TEST=1 \
+    MELEE_NO_CARD=1 MELEE_VIEWER_TRIAGE=1 ./build/native/melee --match \
+    --frames 700 --no-hud --shot /tmp/cl.bmp 2>&1 | grep name_lead
+```
+
+Expect `name_lead=82 sjis=1`.  `sjis=0` means the flag was lost and every
+non-ASCII string will render as stray kana or vanish (G-150).
+
 ## Classic splash screen (GS_INTRO_EASY)
 
 ```sh
