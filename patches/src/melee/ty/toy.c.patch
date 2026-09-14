@@ -1,5 +1,5 @@
 diff --git a/src/melee/ty/toy.c b/src/melee/ty/toy.c
-index 1e5fd2f52..4fb8b2dd9 100644
+index 1e5fd2f52..5b27177e5 100644
 --- a/src/melee/ty/toy.c
 +++ b/src/melee/ty/toy.c
 @@ -241,11 +241,52 @@ bool un_80304780(void)
@@ -160,3 +160,26 @@ index 1e5fd2f52..4fb8b2dd9 100644
          joint = HSD_ArchiveGetPublicAddress(td->archive, *ptr);
          if (joint != NULL) {
              td->gobj = GObj_Create(4, 7, 0);
+@@ -5778,9 +5877,22 @@ void Toy_80310324(void)
+     Toy_803067BC(toy->x195, toy->x196);
+ 
+     if (tg->x50 == NULL) {
++#ifdef PORT_PC
++        /* `sym + 4` writes the loaded symbol 16 bytes past a one-element
++         * array.  On the console that landed on another slot of this frame and
++         * the value was never read again -- Toy_80307470 re-queries the
++         * archive with HSD_ArchiveGetPublicAddress -- so it was scratch.  The
++         * host's frame layout is its own, and the write lands on whichever
++         * local GCC put there (`toy`, `tg`, `syms`, a spill slot).  Use the
++         * slot that actually exists; nothing reads it either way. */
++        tg->x50 = lbArchive_LoadSymbols(
++            lbLang_IsSavedLanguageJP() ? "TyMnView.dat" : "TyMnView.usd", sym,
++            _Toy_803FDEA0[0], NULL);
++#else
+         tg->x50 = lbArchive_LoadSymbols(
+             lbLang_IsSavedLanguageJP() ? "TyMnView.dat" : "TyMnView.usd",
+             sym + 4, _Toy_803FDEA0[0], NULL);
++#endif
+     }
+ 
+     memzero(_Toy_sbss_804D6E68, sizeof(*_Toy_sbss_804D6E68));

@@ -2689,3 +2689,22 @@ The first run after this landed named its own bug in one line: `**** Not Found
 Toy Model!(3073)` with `Toy_8030813C <- Toy_80310324` above it.  Before it,
 the same failure was a blank exit.
 
+
+## G-169: the console's spare stack slot is the host's live local
+
+`Toy_80310324` declares `UNK_T sym[1]` and passes `sym + 4` as an out-pointer,
+so the callee writes 16 bytes past a one-element array.  On the console that
+landed on another slot of the same frame and nothing ever read it back — the
+value is re-fetched later with `HSD_ArchiveGetPublicAddress` — so it was free
+scratch, and the decompilation faithfully reproduces it.
+
+The host's frame layout is its own.  That write lands on whichever local GCC
+put there, and it is a silent corruption of an unrelated variable, not a
+crash — so it shows up later, somewhere else, as nonsense data.
+
+**Rule:** this is the stack-resident sibling of G-166.  When a decompiled
+function indexes a local array out of range, it is not undefined-behaviour
+pedantry: the console frame made that address mean something, and here it
+means something else.  Look for `arr + N` and `&arr[N]` where `N >=` the
+declared extent, the same way the `-Warray-bounds` sweep looks for the `.data`
+version.
