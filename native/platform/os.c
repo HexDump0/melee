@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <time.h>
 
 #include "decomp/boot/boot_triage.h"
 #include "platform/complete.h"
@@ -219,9 +220,47 @@ OSTick OSGetTick(void)
     return (OSTick) advance_ticks(OS_TICKS_PER_MSEC);
 }
 
+/* Seconds from the GameCube epoch (2000-01-01) to the host's wall clock,
+ * sampled once.  The virtual timebase starts at zero, which is deliberate --
+ * it keeps tick deltas and the boot log reproducible -- but OSGetTime is also
+ * what the game stamps save files with and what the boot banner prints as the
+ * calendar date, and zero there means every save claims 2000-01-01.  Adding a
+ * fixed base leaves every difference between two OSGetTime reads untouched
+ * while giving absolute reads the real date.  OSGetTick, which is what the
+ * timing paths use, stays zero-based. */
+#define GC_EPOCH_UNIX 946684800LL
+
+static u64 wall_base_ticks;
+static int wall_base_valid;
+
+static u64 wall_base(void)
+{
+    if (!wall_base_valid) {
+        wall_base_ticks = 0;
+        /* Off by default.  A real clock makes the attract demo differ from run
+         * to run, and the deterministic tests (decomp_opening's idle run in
+         * particular) depend on replaying the same demo -- turning it on
+         * surfaced a genuine, unrelated crash in Ness' yo-yo item allocation,
+         * which is a bug to fix rather than a reason to randomise CI. */
+        if (getenv("MELEE_WALL_CLOCK") != NULL) {
+            time_t now = time(NULL);
+            long long delta = (long long) now - GC_EPOCH_UNIX;
+
+            /* A host clock before 2000 (or an unset RTC) would make the stamp
+             * negative; fall back to the epoch rather than emit a
+             * 20th-century date the game's date handling has never seen. */
+            if (delta > 0) {
+                wall_base_ticks = (u64) delta * OS_TICKS_PER_SEC;
+            }
+        }
+        wall_base_valid = 1;
+    }
+    return wall_base_ticks;
+}
+
 OSTime OSGetTime(void)
 {
-    return advance_ticks(OS_TICKS_PER_MSEC);
+    return (OSTime) (wall_base() + advance_ticks(OS_TICKS_PER_MSEC));
 }
 
 /* Advance the virtual clock by one 60 Hz frame (used by VI pacing). */
@@ -249,6 +288,7 @@ void boot_platform_idle_tick(void)
 static void days_to_calendar(long long days, OSCalendarTime* td)
 {
     long long era;
+    long long unix_days;
     unsigned doe;
     unsigned yoe;
     unsigned doy;
@@ -257,8 +297,19 @@ static void days_to_calendar(long long days, OSCalendarTime* td)
     int month;
     int day;
 
-    /* Howard Hinnant's civil_from_days, shifted to the 1970 epoch, then
-     * re-based to 2000 by starting from 10957 days. */
+    /* Howard Hinnant's civil_from_days.  `days` arrives counted from
+     * 1970-01-01; the algorithm works in eras starting 0000-03-01, which is
+     * 719468 days earlier, and it yields the real year (2002), not a
+     * struct tm year-minus-1900.
+     *
+     * Both of those were previously missing -- no era shift, and a +1900 on
+     * the result -- which is self-consistent enough to look plausible and is
+     * wrong by seventy years: the GameCube epoch came out as 1930-03-01
+     * instead of 2000-01-01, which is what the boot banner's "GC Calendar
+     * Year 1930 Month 3 Day 1" was. */
+    unix_days = days;
+    days += 719468;
+
     era = (days >= 0 ? days : days - 146096) / 146097;
     doe = (unsigned) (days - era * 146097);
     yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
@@ -269,10 +320,11 @@ static void days_to_calendar(long long days, OSCalendarTime* td)
     month = (int) (mp < 10 ? mp + 3 : mp - 9);
     year += (month <= 2);
 
-    td->year = year + 1900;
+    td->year = year;
     td->mon = month - 1;
     td->mday = day;
-    td->wday = (int) ((days + 4) % 7);
+    /* 1970-01-01 was a Thursday, so this counts from the unshifted value. */
+    td->wday = (int) (((unix_days % 7) + 11) % 7);
     td->yday = 0;
 }
 
@@ -572,7 +624,36 @@ void OSPanic(const char* file, int line, const char* msg, ...)
     va_end(ap);
     fprintf(out, " in \"%s\" on line %d.\n", file, line);
     fflush(out);
-    boot_triage_stop("OSPanic");
+
+    /* The viewer points the triage stream at /dev/null unless
+     * MELEE_VIEWER_TRIAGE is set, so the report above goes nowhere and the
+     * process then leaves through boot_triage_stop's exit(0) -- a failed
+     * assertion is indistinguishable from the user closing the window: no
+     * message, status 0, and no core to open.  A panic is never something to
+     * swallow, so repeat it on stderr unconditionally. */
+    if (out != stderr) {
+        fprintf(stderr, "\n*** PANIC: ");
+        va_start(ap, msg);
+        vfprintf(stderr, msg, ap);
+        va_end(ap);
+        fprintf(stderr, " in \"%s\" on line %d.\n", file, line);
+        fflush(stderr);
+    }
+
+    /* Most panics are HSD_ASSERT, whose message names the file and line of the
+     * assert but says nothing about how the game got there -- and the game got
+     * there through a mode/scene callback that the assert site cannot name.
+     * The backtrace is the part that identifies the bug. */
+    os_report_dump(stderr);
+    boot_triage_print_backtrace(stderr, "panic");
+
+    /* Under the boot harness this longjmps, which is how the triage runs
+     * report a panic as a result rather than a crash.  With no harness it
+     * would exit(0); abort() instead, so the shell sees a failure and a
+     * debugger stops with the stack still intact. */
+    if (boot_triage_has_stop_target()) {
+        boot_triage_stop("OSPanic");
+    }
     abort();
 }
 
