@@ -1,0 +1,64 @@
+diff --git a/src/melee/gr/grbigblue.c b/src/melee/gr/grbigblue.c
+index 466345779..3cc417ff6 100644
+--- a/src/melee/gr/grbigblue.c
++++ b/src/melee/gr/grbigblue.c
+@@ -3246,8 +3246,10 @@ void grBigBlue_801ECB50(Ground_GObj* gobj)
+ 
+             st_val = 10;
+             byte = target_car[0xD4];
+-#ifdef MUST_MATCH
++#if defined(MUST_MATCH)
+             asm { rlwimi byte, st_val, 2, 24, 29 }
++#elif defined(PORT_PC)
++            byte = (byte & ~0xFC) | ((st_val & 0x3F) << 2);
+ #endif
+             target_car[0xD4] = byte;
+ 
+@@ -3260,8 +3262,10 @@ void grBigBlue_801ECB50(Ground_GObj* gobj)
+                      *(f32*) (bp + 0xE0) > *(f32*) (target_car + 0xE0)))
+                 {
+                     byte = bp[0xD4];
+-#ifdef MUST_MATCH
++#if defined(MUST_MATCH)
+                     asm { rlwimi byte, st_val, 2, 24, 29 }
++#elif defined(PORT_PC)
++                    byte = (byte & ~0xFC) | ((st_val & 0x3F) << 2);
+ #endif
+                     bp[0xD4] = byte;
+                 }
+@@ -3276,8 +3280,10 @@ void grBigBlue_801ECB50(Ground_GObj* gobj)
+                      *(f32*) (p + 0xE0) > *(f32*) (target_car + 0xE0)))
+                 {
+                     byte = p[0xD4];
+-#ifdef MUST_MATCH
++#if defined(MUST_MATCH)
+                     asm { rlwimi byte, st_val, 2, 24, 29 }
++#elif defined(PORT_PC)
++                    byte = (byte & ~0xFC) | ((st_val & 0x3F) << 2);
+ #endif
+                     p[0xD4] = byte;
+                 }
+@@ -3293,8 +3299,10 @@ void grBigBlue_801ECB50(Ground_GObj* gobj)
+                      *(f32*) (p + 0xE0) > *(f32*) (target_car + 0xE0)))
+                 {
+                     byte = p[0xD4];
+-#ifdef MUST_MATCH
++#if defined(MUST_MATCH)
+                     asm { rlwimi byte, st_val, 2, 24, 29 }
++#elif defined(PORT_PC)
++                    byte = (byte & ~0xFC) | ((st_val & 0x3F) << 2);
+ #endif
+                     p[0xD4] = byte;
+                 }
+@@ -3310,8 +3318,10 @@ void grBigBlue_801ECB50(Ground_GObj* gobj)
+                      *(f32*) (p + 0xE0) > *(f32*) (target_car + 0xE0)))
+                 {
+                     byte = p[0xD4];
+-#ifdef MUST_MATCH
++#if defined(MUST_MATCH)
+                     asm { rlwimi byte, st_val, 2, 24, 29 }
++#elif defined(PORT_PC)
++                    byte = (byte & ~0xFC) | ((st_val & 0x3F) << 2);
+ #endif
+                     p[0xD4] = byte;
+                 }

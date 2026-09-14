@@ -311,3 +311,16 @@ compiling `src/MSL/trigf.c` + `src/MSL/math_data.c` with
 `__sinit_trigf_c`, because `SECTION_CTORS` is empty off-Metrowerks — G-143).
 Full evidence table in ADR-0018.
 
+## P-687 non-Metrowerks asm/empty-body fallbacks (2026-09-14)
+
+Upstream #3456 items 3a/3b plus the port-only `__cvt_dbl_usll`; the ADR-0011
+addendum records why these use `#ifdef PORT_PC` instead of upstream's
+`#ifndef __MWERKS__`/`#else`.  With all patches applied, `ninja` in `decomp/`
+reports `build/GALE01/main.dol: OK` (100.00% matched, 1130/1130 linked).
+
+| File | Patch | Reason |
+|---|---|---|
+| `src/melee/gr/grbigblue.c` (`grBigBlue_801ECB50`) | the five `asm { rlwimi byte, st_val, 2, 24, 29 }` blocks gain `#elif defined(PORT_PC)` with `byte = (byte & ~0xFC) | ((st_val & 0x3F) << 2);` | The asm sat under `#ifdef MUST_MATCH` with no fallback, so the host store was a no-op and the cars' 6-bit state byte could never become 10 (closest car) or 4.  `objdump` of the port now shows five `and $0x3` + `or $0x28`/`or $0x10` insert sites. |
+| `src/melee/gm/gm_1601.c` (`fn_80166A8C`) | `patches/src/melee/gm/gm_1601_ml_fallback.patch`: under `PORT_PC`, store `src->x` to `dst->x` and return it | The body was `#ifdef MWERKS_GEKKO` with no fallback, so the function was empty; the caller `gm_80166378` read the uninitialised `sp48_x` into `player_standings[i].xE` (results screen). |
+| `src/Runtime/runtime.c` (`__cvt_dbl_usll`) | under `PORT_PC`, `return (u64) x;` after the asm block | Empty non-void body compiled to a bare `ret`; `gm_1884.c:784` passes the result to `lb_80019880` (training-mode speed).  Mirrors the in-file `__cvt_fp2unsigned` fallback directly above. |
+

@@ -264,6 +264,19 @@ the scripted match differ only in the rebirth windows (470–520, 580–600;
 every other frame byte-identical) and frame 480 shows Link standing on the
 restored platform (G-142).
 
+**P-687 (2026-09-14):** three more silent non-Metrowerks divergences from
+upstream #3456 are fixed behind `PORT_PC` fallbacks (ADR-0011 addendum).
+Big Blue's `grBigBlue_801ECB50` compiled its five `rlwimi` state writes out,
+so the cars' 6-bit state could never become 10 or 4; `fn_80166A8C` was an
+empty non-void results-screen function, so its caller read uninitialised
+`sp48_x` into `player_standings[i].xE`; `Runtime/runtime.c`'s
+`__cvt_dbl_usll` compiled to a bare `ret` (training-mode speed).  `objdump`
+shows all five Big Blue bit-inserts and the real conversion body; the
+GameCube build still reports `build/GALE01/main.dol: OK` with the patches
+applied (100.00% matched, 1130/1130 linked).  The Big Blue and results paths
+are not exercised by a test today (G-144, needs a human/owner run for the
+stage).
+
 **P-688 (2026-09-14):** host math now follows the console where upstream
 diverges.  The MSL `sinf`/`cosf`/`tanf` tables and wrappers compile
 (`src/MSL/trigf.c` + `math_data.c`; the one ADR-0011 MSL exception, ADR-0018,

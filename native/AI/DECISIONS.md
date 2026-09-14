@@ -265,6 +265,15 @@ each one is a documented behavioral concession on the host, not a convenience.
 
 **Status:** accepted (2026-09-11).
 
+**Addendum (owner, 2026-09-14).**  The new host fallbacks for the
+non-Metrowerks divergences (upstream #3456: Big Blue's `rlwimi` blocks,
+`fn_80166A8C`, `__cvt_dbl_usll`, `atanf`) use this ADR's `#ifdef PORT_PC`
+shape rather than upstream's `#ifndef __MWERKS__`/`#else`: the port is the
+only non-Metrowerks consumer of this tree, so port-gating keeps the patch list
+uniform and provably neutral to the GC build (`decomp/` ninja still reports
+`build/GALE01/main.dol: OK` with 100.00% matched).  Mirror upstream's shape
+when #3456 merges and the patches can be dropped.
+
 ---
 
 ## ADR-0012: The compiled port builds 32-bit (i686), not 64-bit

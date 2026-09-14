@@ -1,0 +1,16 @@
+--- a/src/melee/gm/gm_1601.c
++++ b/src/melee/gm/gm_1601.c
+@@ -3084,6 +3084,13 @@
+     register float x = src->x;
+     asm { psq_st x, Vec3.x(dst), 1, qr3 }
+     return x;
++#elif defined(PORT_PC)
++    /* psq_st with W=1 through GQR3 (float type, no scale) is a single-element
++     * float store: x reaches dst->x and is also the return value.  The
++     * caller reads sp48_x after the call. */
++    float x = src->x;
++    dst->x = x;
++    return x;
+ #endif
+ }
+ 

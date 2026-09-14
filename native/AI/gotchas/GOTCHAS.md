@@ -1948,3 +1948,19 @@ to nothing and `__sinit_trigf_c_reference` is an ordinary unused pointer.
 **Fix:** run the initializer from a port `__attribute__((constructor))` TU
 (`native/decomp/msl_port.c`, P-688).  Treat any `#ifdef __MWERKS__`-only
 side effect as absent on the host until proven otherwise.
+
+## G-144: asm behind `#ifdef MUST_MATCH`/`#ifdef MWERKS_GEKKO` with no `#else` is a silent no-op
+
+**Symptom:** a function compiles on the port but does nothing, or returns
+uninitialised data, with no warning.  Observed: Big Blue's cars never reach
+state 10/4, the results screen's `player_standings[i].xE` came from
+uninitialised `sp48_x`, and `__cvt_dbl_usll` compiled to a single `ret`.
+**Cause:** the only implementation is the Metrowerks asm/body behind
+`#ifdef MUST_MATCH` (`grbigblue.c` x5), `#ifdef MWERKS_GEKKO` (`gm_1601.c`
+`fn_80166A8C`) or `#ifdef __MWERKS__` (`Runtime/runtime.c`
+`__cvt_dbl_usll`), with no `#else` for other compilers.
+**Fix:** `#elif defined(PORT_PC)` fallbacks in the P-687 patches; `ninja` in
+`decomp/` still reports `main.dol: OK` with them applied.  When re-pinning,
+check upstream #3456 first — merging it removes these patches.  `objdump` the
+port binary after touching these TUs: the five `and $0x3` Big Blue inserts and
+a real conversion body for `__cvt_dbl_usll` are the fingerprints.
