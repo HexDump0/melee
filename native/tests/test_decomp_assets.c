@@ -1214,6 +1214,329 @@ static int check_yorster_param(const char* image)
     return failed != 0 ? 1 : 0;
 }
 
+/* P-662: the per-stage `yakumono_param` layouts the converter v77 selects by
+ * the archive's own `Grd<Stage>*` publics.  Each range is a field run the
+ * layout claims (size 4 = f32/s32, size 2 = s16/u16); the regression requires
+ * every field to equal its byte-swapped raw value, which fails on the first
+ * word for an unconverted archive and catches an over-broad layout that
+ * rewrites a neighbouring field. */
+typedef struct ParamRange {
+    uint16_t off;
+    uint16_t count;
+    uint8_t size;
+} ParamRange;
+
+typedef struct StageParamCase {
+    const char* path;
+    const ParamRange* ranges;
+    unsigned count;
+} StageParamCase;
+
+static const ParamRange corneria_ranges[] = {
+    { 0x00, 20, 4 }, { 0x68, 1, 4 }, { 0x70, 1, 4 },
+    { 0x74, 4, 4 },  { 0x88, 1, 4 },
+};
+static const ParamRange izumi_ranges[] = {
+    { 0x00, 21, 4 },
+};
+static const ParamRange kongo_ranges[] = {
+    { 0x00, 17, 4 }, { 0x44, 8, 2 }, { 0x54, 4, 4 },
+    { 0x64, 2, 4 },  { 0x6C, 6, 4 }, { 0x88, 13, 4 },
+};
+static const ParamRange story_ranges[] = {
+    { 0x00, 9, 4 },
+};
+static const ParamRange venom_ranges[] = {
+    { 0x00, 5, 4 }, { 0x2C, 1, 4 }, { 0x34, 1, 4 },
+};
+static const ParamRange onett_ranges[] = {
+    { 0x00, 26, 4 },
+};
+static const ParamRange inishie1_ranges[] = {
+    { 0x00, 5, 4 }, { 0x14, 6, 2 }, { 0x20, 3, 4 },
+    { 0x2C, 6, 4 }, { 0x44, 4, 4 },
+};
+
+static const StageParamCase stage_param_cases[] = {
+    { "GrCn.dat", corneria_ranges,
+      (unsigned) (sizeof(corneria_ranges) / sizeof(corneria_ranges[0])) },
+    { "GrIz.dat", izumi_ranges,
+      (unsigned) (sizeof(izumi_ranges) / sizeof(izumi_ranges[0])) },
+    { "GrKg.dat", kongo_ranges,
+      (unsigned) (sizeof(kongo_ranges) / sizeof(kongo_ranges[0])) },
+    { "GrSt.dat", story_ranges,
+      (unsigned) (sizeof(story_ranges) / sizeof(story_ranges[0])) },
+    { "GrVe.dat", venom_ranges,
+      (unsigned) (sizeof(venom_ranges) / sizeof(venom_ranges[0])) },
+    { "GrOt.dat", onett_ranges,
+      (unsigned) (sizeof(onett_ranges) / sizeof(onett_ranges[0])) },
+    { "GrI1.dat", inishie1_ranges,
+      (unsigned) (sizeof(inishie1_ranges) / sizeof(inishie1_ranges[0])) },
+};
+
+static int check_stage_params(const char* image)
+{
+    /* Stages whose `yakumono_param` is packed data (offsets, bytes, mixed
+     * s16 records) must stay untouched: a layout applied to them would
+     * corrupt live fields.  These three are the counter-examples named in
+     * P-662. */
+    static const char* untouched[] = { "GrNBa.dat", "GrFs.dat", "GrFz.dat" };
+    unsigned c;
+    int failed = 0;
+
+    for (c = 0; c < sizeof(untouched) / sizeof(untouched[0]); c++) {
+        char error[256];
+        size_t size = 0;
+        unsigned char* buffer =
+            load_archive(image, untouched[c], NULL, &size, error,
+                         sizeof(error));
+        unsigned char* raw;
+        HSD_Archive archive;
+        HsdConvertStats stats;
+        unsigned char* param;
+        uint32_t off;
+        int i;
+        int case_failed = 0;
+
+        if (buffer == NULL) {
+            printf("decomp_assets: %s SKIP (%s)\n", untouched[c], error);
+            continue;
+        }
+        raw = malloc(size);
+        if (raw == NULL) {
+            free(buffer);
+            return failed + 1;
+        }
+        memcpy(raw, buffer, size);
+        if (!hsd_asset_convert(buffer, size, &stats) ||
+            HSD_ArchiveParse(&archive, buffer, size) != 0)
+        {
+            printf("decomp_assets: %s conversion failed\n", untouched[c]);
+            failed++;
+            free(raw);
+            free(buffer);
+            continue;
+        }
+        param = HSD_ArchiveGetPublicAddress(&archive, "yakumono_param");
+        off = param != NULL ? (uint32_t) (param - (buffer + 0x20)) : 0;
+        if (param == NULL || !ptr_in_buffer(param, buffer, size) ||
+            off + 4 > size - 0x20)
+        {
+            printf("decomp_assets: %s yakumono_param missing\n", untouched[c]);
+            failed++;
+            free(raw);
+            free(buffer);
+            continue;
+        }
+        for (i = 0; i < 4; i++) {
+            /* Pointers are byte-swapped by the relocation pass for every
+             * archive; only non-pointer words prove a numeric layout did or
+             * did not run. */
+            if (archive_has_reloc(&archive, buffer + 0x20 + off +
+                                               (uint32_t) i * 4))
+            {
+                continue;
+            }
+            if (memcmp(buffer + 0x20 + off + (uint32_t) i * 4,
+                       raw + 0x20 + off + (uint32_t) i * 4, 4) != 0)
+            {
+                printf("decomp_assets: %s yakumono_param+%d was converted "
+                       "(packed layout must stay raw)\n",
+                       untouched[c], i * 4);
+                failed++;
+                case_failed = 1;
+                break;
+            }
+        }
+        if (!case_failed) {
+            printf("decomp_assets: %s yakumono_param left raw ok\n",
+                   untouched[c]);
+        }
+        free(raw);
+        free(buffer);
+    }
+
+    for (c = 0; c < sizeof(stage_param_cases) / sizeof(stage_param_cases[0]);
+         c++)
+    {
+        const StageParamCase* tc = &stage_param_cases[c];
+        char error[256];
+        size_t size = 0;
+        unsigned char* buffer =
+            load_archive(image, tc->path, NULL, &size, error, sizeof(error));
+        unsigned char* raw;
+        HSD_Archive archive;
+        HsdConvertStats stats;
+        unsigned char* param;
+        uint32_t off;
+        unsigned r;
+        int case_failed = 0;
+
+        if (buffer == NULL) {
+            printf("decomp_assets: %s SKIP (%s)\n", tc->path, error);
+            continue;
+        }
+        raw = malloc(size);
+        if (raw == NULL) {
+            free(buffer);
+            return failed + 1;
+        }
+        memcpy(raw, buffer, size);
+        if (!hsd_asset_convert(buffer, size, &stats) ||
+            HSD_ArchiveParse(&archive, buffer, size) != 0)
+        {
+            printf("decomp_assets: %s conversion failed\n", tc->path);
+            free(raw);
+            free(buffer);
+            failed++;
+            continue;
+        }
+        param = HSD_ArchiveGetPublicAddress(&archive, "yakumono_param");
+        if (param == NULL || !ptr_in_buffer(param, buffer, size)) {
+            printf("decomp_assets: %s yakumono_param missing\n", tc->path);
+            free(raw);
+            free(buffer);
+            failed++;
+            continue;
+        }
+        off = (uint32_t) (param - (buffer + 0x20));
+        for (r = 0; r < tc->count && !case_failed; r++) {
+            const ParamRange* range = &tc->ranges[r];
+            unsigned i;
+            for (i = 0; i < range->count; i++) {
+                uint32_t field = off + range->off +
+                                 (range->size == 2 ? i * 2u : i * 4u);
+                if (range->size == 2) {
+                    uint16_t host = read_host_u16(buffer + 0x20 + field);
+                    uint16_t want =
+                        (uint16_t) ((raw[0x20 + field] << 8) |
+                                    raw[0x21 + field]);
+                    if (host != want) {
+                        if (case_failed == 0) {
+                            printf("decomp_assets: %s yakumono_param+%#x "
+                                   "u16=%u want=%u (not converted?)\n",
+                                   tc->path, range->off + i * 2u, host, want);
+                        }
+                        case_failed = 1;
+                        break;
+                    }
+                } else {
+                    uint32_t host = read_host_u32(buffer + 0x20 + field);
+                    uint32_t want = read_be_u32(raw + 0x20 + field);
+                    if (host != want) {
+                        if (case_failed == 0) {
+                            printf("decomp_assets: %s yakumono_param+%#x "
+                                   "=%u want=%u (not converted?)\n",
+                                   tc->path, range->off + i * 4u, host, want);
+                        }
+                        case_failed = 1;
+                        break;
+                    }
+                }
+            }
+        }
+        if (case_failed) {
+            failed++;
+        } else {
+            printf("decomp_assets: %s yakumono_param x00=%.4g layout ok\n",
+                   tc->path,
+                   (double) read_host_f32(buffer + 0x20 + off));
+        }
+        free(raw);
+        free(buffer);
+    }
+    return failed;
+}
+
+/* P-661 follow-up (GrCs/GrRc): `dynamicsdata_*` publics are source
+ * DynamicsDesc blocks whose `data` points at `count` 0x3C-byte records of
+ * floats; `lb_80011710` copies them into the runtime dynamics list.  Left
+ * big-endian, `count` reads 0x0n000000 and `lb_8000FD48` exhausts the pool
+ * (Princess Peach's Castle crashed on entry, grCastle_801CD658). */
+static int check_castle_dynamics(const char* image)
+{
+    static const char* names[] = { "dynamicsdata_flag3",
+                                   "dynamicsdata_flag4",
+                                   "dynamicsdata_flag6" };
+    static const int counts[] = { 3, 4, 6 };
+    char error[256];
+    size_t size = 0;
+    unsigned char* buffer = load_archive(image, "GrCs.dat", NULL, &size,
+                                         error, sizeof(error));
+    unsigned char* raw;
+    HSD_Archive archive;
+    HsdConvertStats stats;
+    unsigned i;
+    int failed = 0;
+
+    if (buffer == NULL) {
+        printf("decomp_assets: GrCs.dat SKIP (%s)\n", error);
+        return 0;
+    }
+    raw = malloc(size);
+    if (raw == NULL) {
+        free(buffer);
+        return 1;
+    }
+    memcpy(raw, buffer, size);
+    if (!hsd_asset_convert(buffer, size, &stats) ||
+        HSD_ArchiveParse(&archive, buffer, size) != 0)
+    {
+        printf("decomp_assets: GrCs.dat conversion failed\n");
+        free(raw);
+        free(buffer);
+        return 1;
+    }
+    for (i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        unsigned char* desc =
+            HSD_ArchiveGetPublicAddress(&archive, names[i]);
+        uint32_t count;
+        unsigned char* data;
+        int w;
+
+        if (desc == NULL || !ptr_in_buffer(desc, buffer, size)) {
+            printf("decomp_assets: GrCs.dat %s missing\n", names[i]);
+            failed++;
+            continue;
+        }
+        count = read_host_u32(desc + 0x04);
+        if ((int) count != counts[i]) {
+            printf("decomp_assets: GrCs.dat %s count=%u want=%d "
+                   "(not converted?)\n",
+                   names[i], count, counts[i]);
+            failed++;
+            continue;
+        }
+        data = read_host_ptr(desc + 0x00);
+        if (data == NULL || !ptr_in_buffer(data, buffer, size)) {
+            printf("decomp_assets: GrCs.dat %s data pointer bad\n", names[i]);
+            failed++;
+            continue;
+        }
+        {
+            uint32_t data_off = (uint32_t) (data - (buffer + 0x20));
+            for (w = 0; w < 15; w++) {
+                uint32_t host = read_host_u32(data + (uint32_t) w * 4);
+                uint32_t want =
+                    read_be_u32(raw + 0x20 + data_off + (uint32_t) w * 4);
+                if (host != want) {
+                    printf("decomp_assets: GrCs.dat %s record[0][%d]=%u "
+                           "want=%u\n",
+                           names[i], w, host, want);
+                    failed++;
+                    break;
+                }
+            }
+        }
+    }
+    if (failed == 0) {
+        printf("decomp_assets: GrCs.dat dynamicsdata counts=3/4/6 records ok\n");
+    }
+    free(raw);
+    free(buffer);
+    return failed != 0 ? 1 : 0;
+}
+
 /* P-645: TyDataf's trophy tables are 0x54-byte entries { s32 id; char
  * name[0x20]; char model[0x2c] }.  `Toy_8030813C` matches the id against the
  * table and `Toy_80308250` then hands out `entry + 4` (name) and `entry +
@@ -1756,6 +2079,8 @@ int main(int argc, char** argv)
     failures += check_staffroll_modelset(image);
     failures += check_kumite_tables(image);
     failures += check_yorster_param(image);
+    failures += check_stage_params(image);
+    failures += check_castle_dynamics(image);
     failures += check_converter_sweep(image);
     failures += check_stage_matanims(image, "GrNBa.dat");
     failures += check_stage_matanims(image, "GrNLa.dat");

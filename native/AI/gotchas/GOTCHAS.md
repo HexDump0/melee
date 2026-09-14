@@ -1722,3 +1722,29 @@ aliases the other two symbols onto it (`__asm__(".set hsd_804D1148,
 hsd_804D1138 + 0x10")`, `hsd_804D2348 + 0x1210`), which is the console layout.
 `ctest decomp_frontend_card` runs the frontend twice over one card directory
 (create then load) and requires the save file to exist after both.
+
+## G-133: per-stage `yakumono_param` layouts need the archive's own symbols
+
+**Symptom:** Peach's Castle (`GrCs.dat`) crashed on match entry
+(`grCastle_801CD658 -> lb_8000FD48`); stages outside Yoshi's Story/Zebes read
+their `yakumono_param` fields as denormals or huge ints.
+**Cause:** each stage stores a different struct under the same
+`yakumono_param` public.  The converter only knew the Zebes layout (a
+self-check at +0x2C) and the Yorster layout, and the `Grd<Stage>` marker scan
+stopped at the first hit.  That first-hit rule is wrong because stages reuse
+other stages' textures: `GrVe.dat` carries both `GrdVenom*` and
+`GrdCorneria*`, Big Blue carries `GrdCorneria*`, the adventure routes carry
+`GrdDonkey*`/`GrdCastle*`.  `GrCs.dat`'s `dynamicsdata_flag*` publics (source
+`DynamicsDesc`: `data`, `count`, `Vec3 pos`) were not walked at all; the
+big-endian `count` 3/4/6 read as `0x0n000000`, so `lb_8000FD48` drained the
+whole dynamics pool.
+**Fix:** converter v77/v78 adds a marker table ordered most-specific-first
+(`GrdVenomBase`, `GrdCorneriaAwbody`, `GrdIzumiBulbon`, `GrdDonkeyKareki`,
+`GrdStory`, `GrdOnett`, `GrdInishie1`, `GrdYorster`) and per-layout field
+tables for GrCn/GrIz/GrKg/GrSt/GrVe/GrOt/GrI1 (mixing u16 and u32 fields;
+pointer fields stay with the relocation pass), plus `conv_dynamics_desc` for
+`dynamicsdata_*`.  `data == 0` is a legal record base (`GrCs.dat` flag3), not
+NULL.  `test_decomp_assets` diffs every listed field against the raw archive,
+requires `GrNBa`/`GrFs`/`GrFz` (packed layouts) to stay raw, and pins the
+three Castle dynamics counts 3/4/6.  Remaining unknown layouts (target-test
+stages, adventure routes, GrBb/GrGb/GrKr/...) stay raw by design.

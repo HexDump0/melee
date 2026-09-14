@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 76u
+#define HSD_CONVERTER_VERSION 78u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -84,6 +84,40 @@
 
 #define HSD_GX_VA_NULL 0xFFu
 
+/* Per-stage `yakumono_param` layout.  The archive is identified by its own
+ * `Grd<Stage>*` public symbols (P-662; G-130/P-661 started this for GrYt).
+ * Several stages reuse another stage's textures and thus another stage's
+ * symbols (GrVe carries GrdVenom and GrdCorneria names, the adventure routes
+ * carry GrdDonkey and GrdCastle names), so the marker table is ordered most
+ * specific first and the scan checks every marker before giving up. */
+enum {
+    STAGE_PARAM_NONE = 0,
+    STAGE_PARAM_YORSTER,
+    STAGE_PARAM_CORNERIA,
+    STAGE_PARAM_IZUMI,
+    STAGE_PARAM_KONGO,
+    STAGE_PARAM_STORY,
+    STAGE_PARAM_VENOM,
+    STAGE_PARAM_ONETT,
+    STAGE_PARAM_INISHIE1,
+};
+
+typedef struct StageParamMarker {
+    const char* marker;
+    int layout;
+} StageParamMarker;
+
+static const StageParamMarker stage_param_markers[] = {
+    { "GrdVenomBase", STAGE_PARAM_VENOM },
+    { "GrdCorneriaAwbody", STAGE_PARAM_CORNERIA },
+    { "GrdIzumiBulbon", STAGE_PARAM_IZUMI },
+    { "GrdDonkeyKareki", STAGE_PARAM_KONGO },
+    { "GrdStory", STAGE_PARAM_STORY },
+    { "GrdOnett", STAGE_PARAM_ONETT },
+    { "GrdInishie1", STAGE_PARAM_INISHIE1 },
+    { "GrdYorster", STAGE_PARAM_YORSTER },
+};
+
 typedef struct Conv {
     unsigned char* d;      /* archive base */
     unsigned char* data;   /* data section (archive base + 0x20) */
@@ -94,7 +128,7 @@ typedef struct Conv {
     unsigned char* num;   /* one byte per data offset: numeric field done */
     HsdConvertStats st;
     int depth;
-    int yorster; /* GrYt.dat (Yoshi's Story) yakumono layout */
+    int stage_layout; /* selected `yakumono_param` layout */
 } Conv;
 
 static uint32_t be32(const unsigned char* p)
@@ -1558,16 +1592,155 @@ static void conv_yorster_param(Conv* c, uint32_t off)
 {
     int i;
 
+    if (!in_data(c, off, 0x20) || !mark(c, off)) {
+        return;
+    }
     for (i = 0; i < 8; i++) {
         conv_u32(c, off + (uint32_t) i * 4);
     }
 }
 
-/* Gr*.dat `yakumono_param`: stage-specific dynamic-object parameters (e.g.
- * grZe_YakumonoParam, src/melee/gr/grzebes.c).  For Zebes the word at +0x2C
+static void conv_u32_range(Conv* c, uint32_t off, int count)
+{
+    int i;
+
+    for (i = 0; i < count; i++) {
+        conv_u32(c, off + (uint32_t) i * 4);
+    }
+}
+
+static void conv_u16_range(Conv* c, uint32_t off, int count)
+{
+    int i;
+
+    for (i = 0; i < count; i++) {
+        conv_u16(c, off + (uint32_t) i * 2);
+    }
+}
+
+/* GrCn.dat (Corneria) `yakumono_param` (grcorneria.c:41): twenty f32, two
+ * isolated f32 at +0x68/+0x70, four s32 and a trailing f32; +0x84 is a
+ * relocation-backed pointer and stays host order. */
+static void conv_corneria_param(Conv* c, uint32_t off)
+{
+    if (!in_data(c, off, 0x8C) || !mark(c, off)) {
+        return;
+    }
+    conv_u32_range(c, off + 0x00, 20);
+    conv_u32(c, off + 0x68);
+    conv_u32(c, off + 0x70);
+    conv_u32_range(c, off + 0x74, 4);
+    conv_u32(c, off + 0x88);
+}
+
+/* GrIz.dat (Icicle Mountain/Izumi) `yakumono_param` (grizumi.c): f32 x00,
+ * s32 x04, then twenty f32 through +0x50. */
+static void conv_izumi_param(Conv* c, uint32_t off)
+{
+    if (!in_data(c, off, 0x54) || !mark(c, off)) {
+        return;
+    }
+    conv_u32_range(c, off + 0x00, 21);
+}
+
+/* GrKg.dat (Kongo Jungle) `yakumono_param` (grkongo.h:26): seventeen f32,
+ * eight s16, four f32, two s32, six f32, the +0x84 pointer, thirteen f32. */
+static void conv_kongo_param(Conv* c, uint32_t off)
+{
+    if (!in_data(c, off, 0xBC) || !mark(c, off)) {
+        return;
+    }
+    conv_u32_range(c, off + 0x00, 17);
+    conv_u16_range(c, off + 0x44, 8);
+    conv_u32_range(c, off + 0x54, 4);
+    conv_u32(c, off + 0x64);
+    conv_u32(c, off + 0x68);
+    conv_u32_range(c, off + 0x6C, 6);
+    conv_u32_range(c, off + 0x88, 13);
+}
+
+/* GrSt.dat (Yoshi's Story) `yakumono_param` (grstory.c): three f32 then the
+ * six-float vpos table. */
+static void conv_story_param(Conv* c, uint32_t off)
+{
+    if (!in_data(c, off, 0x24) || !mark(c, off)) {
+        return;
+    }
+    conv_u32_range(c, off + 0x00, 9);
+}
+
+/* GrVe.dat (Venom) `yakumono_param` (grvenom.c): five f32, then +0x2C and
+ * +0x34; those two are the fields the stage reads, the surrounding runs are
+ * unnamed in the decomp; +0x38 is a pointer. */
+static void conv_venom_param(Conv* c, uint32_t off)
+{
+    if (!in_data(c, off, 0x3C) || !mark(c, off)) {
+        return;
+    }
+    conv_u32_range(c, off + 0x00, 5);
+    conv_u32(c, off + 0x2C);
+    conv_u32(c, off + 0x34);
+}
+
+/* GrOt.dat (Onett) `yakumono_param` (gronett.c:88): twenty-six f32. */
+static void conv_onett_param(Conv* c, uint32_t off)
+{
+    if (!in_data(c, off, 0x68) || !mark(c, off)) {
+        return;
+    }
+    conv_u32_range(c, off + 0x00, 26);
+}
+
+/* GrI1.dat (Inishie 1) `yakumono_param` (grinishie1.c:116): five f32, six
+ * s16, three f32, two Vec3, four f32. */
+static void conv_inishie1_param(Conv* c, uint32_t off)
+{
+    if (!in_data(c, off, 0x54) || !mark(c, off)) {
+        return;
+    }
+    conv_u32_range(c, off + 0x00, 5);
+    conv_u16_range(c, off + 0x14, 6);
+    conv_u32_range(c, off + 0x20, 3);
+    conv_u32_range(c, off + 0x2C, 6);
+    conv_u32_range(c, off + 0x44, 4);
+}
+
+/* GrCs.dat/GrRc.dat `dynamicsdata_*` publics: a `DynamicsDesc`
+ * { DynamicsData* data; u32 count; Vec3 pos } whose `data` points at `count`
+ * 0x3C-byte source records.  lb_80011710 copies the record floats into the
+ * runtime list; left big-endian, `count` reads as 0x0n000000 and
+ * lb_8000FD48 walks the whole dynamics pool (grCastle_801CD658). */
+static void conv_dynamics_desc(Conv* c, uint32_t off)
+{
+    uint32_t data;
+    int count;
+    int i;
+
+    if (!in_data(c, off, 0x14) || !mark(c, off)) {
+        return;
+    }
+    conv_u32(c, off + 0x04); /* count */
+    conv_u32(c, off + 0x08); /* pos */
+    conv_u32(c, off + 0x0C);
+    conv_u32(c, off + 0x10);
+    /* `data` may legally be 0: it is the data-section base for the first
+     * record block (GrCs.dat flag3 stores offset 0), not a null pointer. */
+    data = rd32(c, off + 0x00);
+    count = (int) rd32(c, off + 0x04);
+    if (count <= 0 || count > 64 || !in_data(c, data, (size_t) count * 0x3C)) {
+        return;
+    }
+    for (i = 0; i < count; i++) {
+        conv_u32_range(c, data + (uint32_t) i * 0x3C, 15);
+    }
+}
+
+/* Gr*.dat `yakumono_param` fallback: stage-specific dynamic-object parameters
+ * whose layout this converter does not know yet.  For Zebes the word at +0x2C
  * is a relocation target to a bury DynamicsDesc stored directly before the
  * symbol (`ftCo_800C08A0` reads its `count` as the acid damage), so the sign
- * of the Zebes layout is `desc == off - sizeof(DynamicsDesc)`. */
+ * of the Zebes layout is `desc == off - sizeof(DynamicsDesc)`.  The check is
+ * self-validating: unknown stages are marked but left big-endian. */
 static void conv_yakumono_param(Conv* c, uint32_t off)
 {
     uint32_t desc;
@@ -1575,7 +1748,6 @@ static void conv_yakumono_param(Conv* c, uint32_t off)
     if (!in_data(c, off, 0x2C + 4) || !mark(c, off)) {
         return;
     }
-    c->st.yakumono_params++;
     desc = rd32(c, off + 0x2C);
     if (desc == off - 0x24 && in_data(c, off, 0x190)) {
         int i;
@@ -1597,6 +1769,40 @@ static void conv_yakumono_param(Conv* c, uint32_t off)
         for (i = 0; i < 30 * 8; i += 2) {
             conv_u16(c, off + 0xA0 + (uint32_t) i); /* acid level entries */
         }
+    }
+}
+
+static void conv_stage_yakumono(Conv* c, uint32_t off)
+{
+    c->st.yakumono_params++;
+    switch (c->stage_layout) {
+    case STAGE_PARAM_YORSTER:
+        conv_yorster_param(c, off);
+        break;
+    case STAGE_PARAM_CORNERIA:
+        conv_corneria_param(c, off);
+        break;
+    case STAGE_PARAM_IZUMI:
+        conv_izumi_param(c, off);
+        break;
+    case STAGE_PARAM_KONGO:
+        conv_kongo_param(c, off);
+        break;
+    case STAGE_PARAM_STORY:
+        conv_story_param(c, off);
+        break;
+    case STAGE_PARAM_VENOM:
+        conv_venom_param(c, off);
+        break;
+    case STAGE_PARAM_ONETT:
+        conv_onett_param(c, off);
+        break;
+    case STAGE_PARAM_INISHIE1:
+        conv_inishie1_param(c, off);
+        break;
+    default:
+        conv_yakumono_param(c, off);
+        break;
     }
 }
 
@@ -3006,15 +3212,29 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
 
     /* Per-stage parameter layouts are selected by the archive's own
      * stage-named publics (GrYt.dat carries the GrdYorster* texture names).
-     * The scan runs first so the order of the public table does not
-     * matter. */
-    for (i = 0; i < nb_public; i++) {
-        uint32_t so = rd32_abs(c, public_off + i * 8 + 4);
-        if ((size_t) symbols_off + so < c->size &&
-            strstr((const char*) c->d + symbols_off + so, "Yorster") != NULL)
+     * Check the marker table in order and scan every public for each marker:
+     * a stage can carry another stage's texture names (GrVe has both
+     * GrdVenom* and GrdCorneria*), so the most specific marker must win. */
+    {
+        size_t m;
+        for (m = 0; m < sizeof(stage_param_markers) /
+                            sizeof(stage_param_markers[0]);
+             m++)
         {
-            c->yorster = 1;
-            break;
+            int found = 0;
+            for (i = 0; i < nb_public && !found; i++) {
+                uint32_t so = rd32_abs(c, public_off + i * 8 + 4);
+                if ((size_t) symbols_off + so < c->size &&
+                    strstr((const char*) c->d + symbols_off + so,
+                           stage_param_markers[m].marker) != NULL)
+                {
+                    found = 1;
+                }
+            }
+            if (found) {
+                c->stage_layout = stage_param_markers[m].layout;
+                break;
+            }
         }
     }
     for (i = 0; i < nb_public; i++) {
@@ -3126,11 +3346,11 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
         } else if (name_ends_with(name, length, "grGroundParam")) {
             conv_ground_param(c, data_off);
         } else if (name_ends_with(name, length, "yakumono_param")) {
-            if (c->yorster) {
-                conv_yorster_param(c, data_off);
-            } else {
-                conv_yakumono_param(c, data_off);
-            }
+            conv_stage_yakumono(c, data_off);
+        } else if (length > 13 && memcmp(name, "dynamicsdata_", 13) == 0) {
+            /* GrCs.dat flag3/4/6 and GrRc.dat shipflag: source DynamicsDesc. */
+            c->st.roots_unknown++;
+            conv_dynamics_desc(c, data_off);
         } else if (length == 8 && memcmp(name, "itemdata", 8) == 0) {
             conv_itemdata(c, data_off);
         } else if (length > 19 &&
@@ -3172,7 +3392,7 @@ static int convert_archive(unsigned char* data, size_t size, Conv* c)
     c->data_size = data_size;
     c->st = (HsdConvertStats) { 0 };
     c->depth = 0;
-    c->yorster = 0;
+    c->stage_layout = STAGE_PARAM_NONE;
     c->reloc = calloc(data_size ? data_size : 1, 1);
     c->seen = calloc(data_size ? data_size : 1, 1);
     c->num = calloc(data_size ? data_size : 1, 1);

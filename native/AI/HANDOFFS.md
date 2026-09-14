@@ -53,6 +53,7 @@ something the next agent must know, or finish a task that changes interfaces.
 | 2026-09-12 | S5 audio stack + software mixer + asset formats | opencode (deepseek-v4.1-flash) | [`2026-09-12-S5-audio.md`](handoffs/2026-09-12-S5-audio.md) |
 | 2026-09-13 | P-648 menu BGM stall (blocked note, resolved the same day: G-115..G-117, `logs/2026-09-13-P-648-hps-ring.md`) | Muse Spark / opencode (deepseek-v4.1-flash) | [`2026-09-13-P-648-menu-bgm.md`](handoffs/2026-09-13-P-648-menu-bgm.md) |
 | 2026-09-14 | P-646 card pump deadlock fixed; P-662/P-658 converter work queued for the save-load match path | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-646-card-pump.md`](handoffs/2026-09-14-P-646-card-pump.md) |
+| 2026-09-14 | P-662 stage `yakumono_param` layouts + `dynamicsdata_*` conversion (Castle crash) | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-662-stage-params.md`](handoffs/2026-09-14-P-662-stage-params.md) |
 
 ## Template
 
