@@ -1093,9 +1093,11 @@ static int run_match(SDL_Window* window, SDL_GLContext context,
         db_DisableItemSpawns();
     }
     if (frontend) {
-        /* The P-624 title probe runs off the frame hook; the frontend flow
-         * never enters the match harness, so install only the probe. */
-        if (getenv("MELEE_TITLE_TEST") != NULL) {
+        /* Title/CPU probes run off the frame hook; the frontend flow never
+         * enters the debug-match harness, so install only explicit probes. */
+        if (getenv("MELEE_TITLE_TEST") != NULL ||
+            getenv("MELEE_CPU_TEST") != NULL)
+        {
             match_boot_init(0);
         }
         if (input_path != NULL) {

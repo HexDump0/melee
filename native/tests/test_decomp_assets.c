@@ -2348,6 +2348,190 @@ static int check_respawn_platform(const char* image)
     return failed;
 }
 
+/* P-705: PlCo.dat pData[22] (`Fighter_804D64FC`) owns the CPU command
+ * scripts and seven per-fighter attack-selection tables.  The scripts are
+ * bytes, but each 0x24-byte attack entry and the two reach tables are numeric
+ * data.  Leaving those words big-endian makes weights look like denormals,
+ * so CPU fighters approach their target but never select an attack. */
+static int check_cpu_attack_tables(const char* image)
+{
+    static const uint32_t attack_fields[] = {
+        0x04, 0x08, 0x0C, 0x10, 0x14, 0x18, 0x1C,
+    };
+    char error[256];
+    size_t size = 0;
+    unsigned char* buffer = load_archive(image, "PlCo.dat", NULL, &size,
+                                         error, sizeof(error));
+    unsigned char* raw = NULL;
+    HSD_Archive archive;
+    HsdConvertStats stats;
+    unsigned char* ft_data;
+    const unsigned char* rdata;
+    unsigned char* cdata;
+    uint32_t ft_off;
+    uint32_t cpu_off;
+    uint32_t host_base;
+    unsigned lists = 0;
+    unsigned entries = 0;
+    int failed = 0;
+    size_t fi;
+
+    if (buffer == NULL) {
+        fprintf(stderr, "decomp_assets: PlCo.dat: %s\n", error);
+        return 1;
+    }
+    raw = malloc(size);
+    if (raw == NULL) {
+        free(buffer);
+        return 1;
+    }
+    memcpy(raw, buffer, size);
+    if (!hsd_asset_convert(buffer, size, &stats) ||
+        HSD_ArchiveParse(&archive, buffer, size) != 0)
+    {
+        fprintf(stderr, "decomp_assets: PlCo.dat CPU conversion failed\n");
+        free(raw);
+        free(buffer);
+        return 1;
+    }
+    ft_data = HSD_ArchiveGetPublicAddress(&archive, "ftLoadCommonData");
+    if (ft_data == NULL || !ptr_in_buffer(ft_data, buffer, size)) {
+        fprintf(stderr, "decomp_assets: PlCo.dat missing ftLoadCommonData\n");
+        free(raw);
+        free(buffer);
+        return 1;
+    }
+    rdata = raw + 0x20;
+    cdata = buffer + 0x20;
+    host_base = (uint32_t) (uintptr_t) cdata;
+    ft_off = (uint32_t) (ft_data - cdata);
+    cpu_off = read_be_u32(rdata + ft_off + 22 * 4);
+    if (cpu_off == 0 || cpu_off + 0x28 > size - 0x20 ||
+        read_host_u32(cdata + ft_off + 22 * 4) != cpu_off + host_base)
+    {
+        fprintf(stderr, "decomp_assets: PlCo.dat CPU root invalid\n");
+        free(raw);
+        free(buffer);
+        return 1;
+    }
+
+    for (fi = 0; fi < sizeof(attack_fields) / sizeof(attack_fields[0]); fi++) {
+        uint32_t field = attack_fields[fi];
+        uint32_t table_off = read_be_u32(rdata + cpu_off + field);
+        int kind;
+
+        if (table_off == 0 || table_off + 33 * 4 > size - 0x20 ||
+            read_host_u32(cdata + cpu_off + field) != table_off + host_base)
+        {
+            fprintf(stderr,
+                    "decomp_assets: CPU attack table +%02x invalid\n",
+                    field);
+            failed = 1;
+            continue;
+        }
+        for (kind = 0; kind < 33; kind++) {
+            uint32_t slot = table_off + (uint32_t) kind * 4;
+            uint32_t list_off = read_be_u32(rdata + slot);
+            int i;
+
+            /* Some per-kind pointer runs end before Ft_Kind_Max; the next
+             * nonzero word belongs to adjacent numeric data.  Conversely, a
+             * relocated zero is the valid data-base pointer used by Mario's
+             * ground-attack list (G-023). */
+            if (!archive_has_reloc(&archive, cdata + slot)) {
+                if (list_off == 0) {
+                    continue;
+                }
+                break;
+            }
+            if (list_off + 0x24 > size - 0x20 ||
+                read_host_u32(cdata + slot) != list_off + host_base)
+            {
+                fprintf(stderr,
+                        "decomp_assets: CPU table +%02x kind %d list invalid\n",
+                        field, kind);
+                failed = 1;
+                continue;
+            }
+            lists++;
+            for (i = 0; i < 256; i++) {
+                uint32_t entry = list_off + (uint32_t) i * 0x24;
+                uint32_t cmd;
+                int word;
+
+                if (entry + 0x24 > size - 0x20) {
+                    failed = 1;
+                    break;
+                }
+                cmd = read_be_u32(rdata + entry);
+                for (word = 0; word < 9; word++) {
+                    uint32_t at = entry + (uint32_t) word * 4;
+                    uint32_t want = read_be_u32(rdata + at);
+                    uint32_t got = read_host_u32(cdata + at);
+                    if (got != want) {
+                        if (!failed) {
+                            fprintf(stderr,
+                                    "decomp_assets: CPU entry +%02x kind %d "
+                                    "word %d=%08x want=%08x\n",
+                                    field, kind, word, got, want);
+                        }
+                        failed = 1;
+                    }
+                }
+                if (cmd == 0) {
+                    break;
+                }
+                entries++;
+            }
+            if (i == 256) {
+                fprintf(stderr,
+                        "decomp_assets: CPU table +%02x kind %d unterminated\n",
+                        field, kind);
+                failed = 1;
+            }
+        }
+    }
+    {
+        static const struct {
+            uint32_t field;
+            unsigned count;
+        } numeric_tables[] = {
+            { 0x20, 33 },
+            { 0x24, 6 },
+        };
+        size_t ti;
+        for (ti = 0; ti < sizeof(numeric_tables) / sizeof(numeric_tables[0]);
+             ti++)
+        {
+            uint32_t table = read_be_u32(rdata + cpu_off +
+                                         numeric_tables[ti].field);
+            unsigned i;
+            for (i = 0; table != 0 && i < numeric_tables[ti].count; i++) {
+                uint32_t at = table + i * 4;
+                if (at + 4 > size - 0x20 ||
+                    read_host_u32(cdata + at) != read_be_u32(rdata + at))
+                {
+                    if (!failed) {
+                        fprintf(stderr,
+                                "decomp_assets: CPU numeric table +%02x "
+                                "entry %u is not host order\n",
+                                numeric_tables[ti].field, i);
+                    }
+                    failed = 1;
+                }
+            }
+        }
+    }
+    if (!failed) {
+        printf("decomp_assets: PlCo.dat CPU attack tables %u lists/%u entries "
+               "ok\n",
+               lists, entries);
+    }
+    free(raw);
+    free(buffer);
+    return failed;
+}
+
 static int check_archive(const char* image, const char* path,
                          ModelResult* result, int require_public)
 {
@@ -2539,6 +2723,7 @@ int main(int argc, char** argv)
     }
     failures += check_link_dynamics(image);
     failures += check_respawn_platform(image);
+    failures += check_cpu_attack_tables(image);
     failures += check_ft_part_anims(image, "PlMr.dat", "ftDataMario");
     failures += check_ft_part_anims(image, "PlLk.dat", "ftDataLink");
     failures += check_ft_part_anims(image, "PlFx.dat", "ftDataFox");

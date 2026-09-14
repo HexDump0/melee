@@ -246,6 +246,21 @@ retail-DOL method for deciding each site, and the current verdict table are in
 `learnings/decomp_port.md` ("P-695 missing-`return` census").  Use a real
 compile, not `-fsyntax-only` (it finds 8 of 45).
 
+## Title-demo CPU attacks
+
+`ctest decomp_opening` now covers the idle title demo as well as the opening
+movie. Its idle run sets `MELEE_CPU_TEST=1` and requires both:
+
+```text
+[cpu] tables checked=4 valid=4 ... ok=1
+[cpu] hit slot=N damage=N attack_entries=N motion=N
+```
+
+The first line catches byte-order regressions in `PlCo.dat` pData[22]
+(`Fighter_804D64FC`); the second proves the four level-9 CPUs selected and
+executed an attack without scripted PAD input. The run disables the asset
+cache so a stale converter-v86 file cannot hide a flipped test.
+
 ## Audio (S5)
 
 ```sh

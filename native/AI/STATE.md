@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-14 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-704 fixed, P-699/P-702 open)
+Last updated: 2026-09-14 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-705 fixed, P-699/P-702 open)
 
 > **Direction (2026-09-13/14): ADR-0017 — keep the GLES renderer, reach Aurora parity.**
 > The 32-bit product, in-place converter and GLES3/WebGL2 renderer stay; the
@@ -187,7 +187,14 @@ part-animation pointers and crashed or froze the first Classic landing
 (P-652/G-121).  Attacks now apply damage: the `spawn_hitbox_skip` flag is bit 3
 of command byte 0xF on the console, and the `PORT_PC` layout reads that bit
 instead of bit 4, so hitboxes activate (P-653/G-122; `ctest decomp_hit` checks
-the scripted opponent's percent).  Item attributes now read the console bits:
+the scripted opponent's percent).  CPU fighters now attack too: converter v86
+walks `PlCo.dat` pData[22], the `Fighter_804D64FC` CPU database.  Its 1,159
+`ftCo_AttackEntry` records and reach tables previously stayed big-endian, so
+attack IDs became values like `0x02000000` and weights became denormals; CPU
+fighters approached but selected no usable attack and repeatedly retried the
+action path.  The title-demo regression now observes sane tables, attack-state
+entries and real damage with no PAD input (P-705/G-156).  Item attributes now
+read the console bits:
 `ItemAttr`'s two flag bytes are MSB-first (`itIsHeavy`/`it_8026B30C`/
 `itGetHoldKind` asm pins 0x80/0x78/0x07), so a `PORT_PC` ordering lands
 GCC's LSB-first fields on those bits (P-654/G-123); `test_decomp_assets`

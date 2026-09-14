@@ -2285,3 +2285,33 @@ The general rule: pick the probe statistic that isolates the thing under
 test, then run the probe against the **broken** build before committing the
 test.  A probe that stays above threshold in both states is not a regression
 test.
+
+## G-156: relocated CPU tables need numeric conversion, including offset zero
+
+**Symptom:** CPU fighters move toward opponents but never attack. At close
+range an action SFX can repeat rapidly while the CPU retries, producing the
+reported frame stutter. The same behavior appears in the four-CPU title demo.
+
+**Cause:** `PlCo.dat`'s `ftLoadCommonData` root is a 23-pointer array, and
+`pData[22]` becomes `Fighter_804D64FC`, the CPU attack database. The generic
+relocation pass fixed its pointers but no descriptor walk converted the
+numeric pointees. Each `ftCo_AttackEntry` therefore read command `2` as
+`0x02000000`, while ordinary weights such as `3.0f` read as denormals. The
+attack selector either found a zero total weight or produced an unusable
+command, so movement logic worked but attack command scripts did not.
+
+**Fix:** converter v86 walks all seven FighterKind-indexed selection tables
+(`x4..x1C`), converting 230 lists / 1,159 0x24-byte records, plus the 33
+distance thresholds and six held-weapon reach bonuses. Command scripts at
+`x0` stay byte streams.
+
+**Offset-zero trap:** Mario's ground-attack list is the first object in the
+archive, so its serialized pointer value is zero. It is not NULL: the slot is
+in the relocation table and becomes the data-base address during archive
+location. Gate pointer walks on `c->reloc[slot]`, never on `value != 0`.
+
+**Evidence:** `ctest decomp_assets` compares every converted CPU word to the
+raw big-endian archive and reports `230 lists/1159 entries ok`. The idle
+title-demo part of `ctest decomp_opening` checks all four live CPU tables,
+observes attack-state entries and requires real damage without PAD input.
+Disabling the pData[22] walk makes both regressions fail.

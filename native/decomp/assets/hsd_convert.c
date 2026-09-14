@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 84u
+#define HSD_CONVERTER_VERSION 86u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -66,6 +66,7 @@
 #define HSD_FIGATREE_SIZE 0x14
 #define HSD_FIGATRACK_SIZE 0x0C
 #define FT_KIND_MAX 33
+#define FT_CPU_ATTACK_ENTRY_SIZE 0x24
 
 #define HSD_JOBJ_PTCL (1u << 5)
 #define HSD_JOBJ_INSTANCE (1u << 12)
@@ -2224,6 +2225,87 @@ static void conv_article_array(Conv* c, uint32_t off, int count, int first_kind)
     }
 }
 
+/* Fighter_804D64FC's seven selection tables contain 0x24-byte
+ * ftCo_AttackEntry records, terminated by a zero command.  Every field is a
+ * 32-bit integer or float; the command scripts referenced by x0 are byte
+ * streams and deliberately remain untouched. */
+static void conv_ft_cpu_attack_list(Conv* c, uint32_t off)
+{
+    int i;
+
+    if (!in_data(c, off, FT_CPU_ATTACK_ENTRY_SIZE) || !mark(c, off)) {
+        return;
+    }
+    for (i = 0; i < 256; i++) {
+        uint32_t entry = off + (uint32_t) i * FT_CPU_ATTACK_ENTRY_SIZE;
+        uint32_t cmd;
+        int word;
+
+        if (!in_data(c, entry, FT_CPU_ATTACK_ENTRY_SIZE)) {
+            break;
+        }
+        cmd = be32(c->data + entry);
+        for (word = 0; word < FT_CPU_ATTACK_ENTRY_SIZE; word += 4) {
+            conv_u32(c, entry + (uint32_t) word);
+        }
+        if (cmd == 0) {
+            break;
+        }
+    }
+}
+
+/* PlCo.dat pData[22] (`Fighter_804D64FC`, fighter.h) is the CPU attack
+ * database.  Fields x4..x1C point to seven FighterKind-indexed arrays of
+ * attack lists; x20 is the per-kind distance threshold and x24 contains six
+ * held-weapon reach bonuses. */
+static void conv_ft_cpu_data(Conv* c, uint32_t off)
+{
+    static const uint32_t attack_fields[] = {
+        0x04, 0x08, 0x0C, 0x10, 0x14, 0x18, 0x1C,
+    };
+    size_t fi;
+
+    if (!in_data(c, off, 0x28) || !mark(c, off)) {
+        return;
+    }
+    for (fi = 0; fi < ARRAY_SIZE(attack_fields); fi++) {
+        uint32_t table = rd32(c, off + attack_fields[fi]);
+        int kind;
+
+        if (table == 0 || !in_data(c, table, FT_KIND_MAX * 4)) {
+            continue;
+        }
+        for (kind = 0; kind < FT_KIND_MAX; kind++) {
+            uint32_t slot = table + (uint32_t) kind * 4;
+            uint32_t list = rd32(c, slot);
+
+            /* Relocation provenance prevents a malformed table from turning
+             * numeric data into a walk.  A relocated zero is data offset 0,
+             * not NULL (G-023); Mario's ground-attack list is exactly that
+             * first data object. */
+            if (c->reloc[slot]) {
+                conv_ft_cpu_attack_list(c, list);
+            }
+        }
+    }
+    {
+        uint32_t thresholds = rd32(c, off + 0x20);
+        uint32_t weapon_reach = rd32(c, off + 0x24);
+        int i;
+
+        if (thresholds != 0 && in_data(c, thresholds, FT_KIND_MAX * 4)) {
+            for (i = 0; i < FT_KIND_MAX; i++) {
+                conv_u32(c, thresholds + (uint32_t) i * 4);
+            }
+        }
+        if (weapon_reach != 0 && in_data(c, weapon_reach, 6 * 4)) {
+            for (i = 0; i < 6; i++) {
+                conv_u32(c, weapon_reach + (uint32_t) i * 4);
+            }
+        }
+    }
+}
+
 /* PlCo.dat `ftLoadCommonData`: an array of table pointers.  The first is
  * the big ftCommonData struct (0x818 of 4-byte floats/ints), and index 4 is
  * the per-kind FighterPartsTable array whose parts_num is read as a loop
@@ -2316,6 +2398,12 @@ static void conv_ft_common_data(Conv* c, uint32_t off)
             if (in_data(c, table, 8)) {
                 conv_u32(c, table + 0x04); /* x4 count */
             }
+        }
+    }
+    {
+        uint32_t cpu = rd32(c, off + 22 * 4);
+        if (cpu != 0) {
+            conv_ft_cpu_data(c, cpu);
         }
     }
 }

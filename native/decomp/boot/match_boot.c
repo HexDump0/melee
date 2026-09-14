@@ -24,7 +24,9 @@
 #include <melee/lb/lblanguage.h>
 #include <melee/gm/gmscene.h>
 #include <melee/gm/gmvs.h>
+#include <melee/ft/fighter.h>
 #include <melee/ft/ftlib.h>
+#include <melee/ft/ftcpuattack.h>
 #include <melee/if/forward.h>
 #include <melee/mn/mnmain.h>
 #include <melee/pl/player.h>
@@ -56,6 +58,11 @@ static int classic_test;
 static int classic_named;
 static int intro_test;
 static int intro_stage;
+static int cpu_test;
+static int cpu_hit_logged;
+static int cpu_tables_logged;
+static unsigned cpu_attack_entries;
+static unsigned char cpu_was_attacking[6];
 static PadInputFrame match_input[MATCH_INPUT_FRAMES][MATCH_INPUT_CHANNELS];
 
 /* MELEE_HIT_TEST: p0 jabs in place while p1 walks into it.  The default
@@ -155,6 +162,95 @@ static void log_match_state(void)
     }
 }
 
+/* P-705: the title demo is four level-9 CPU fighters with no PAD script, so
+ * it is the closest automated reproduction of the owner's report.  Record
+ * both attack-state entries and actual damage; damage proves the CPU selected
+ * an attack, emitted its command script and connected a hit. */
+static void log_cpu_test(void)
+{
+    int slot;
+
+    if (!cpu_test || cpu_hit_logged ||
+        gm_GetCurrentGameMode() != GM_OPENING_MV ||
+        gm_GetCurrentSceneIndex() != 1)
+    {
+        return;
+    }
+    if (!cpu_tables_logged) {
+        int checked = 0;
+        int valid = 0;
+        int first_cmd = 0;
+        float first_weight = 0.0f;
+
+        if (Fighter_804D64FC == NULL || Fighter_804D64FC->x4 == NULL) {
+            return;
+        }
+        for (slot = 0; slot < 6; slot++) {
+            HSD_GObj* gobj = Player_GetEntity(slot);
+            Fighter* fp;
+            unsigned char* list;
+            int cmd;
+            float weight;
+            if (gobj == NULL) {
+                continue;
+            }
+            fp = (Fighter*) gobj->user_data;
+            list = Fighter_804D64FC->x4[fp->kind];
+            if (list == NULL) {
+                continue;
+            }
+            cmd = *(int*) list;
+            weight = *(float*) (list + 0x18);
+            if (checked == 0) {
+                first_cmd = cmd;
+                first_weight = weight;
+            }
+            checked++;
+            if (cmd >= 0 && cmd < 0x100 && weight >= -1000.0f &&
+                weight <= 1000.0f)
+            {
+                valid++;
+            } else {
+                boot_triage_note(
+                    "[cpu] table slot=%d kind=%d cmd=%d weight=%g invalid\n",
+                    slot, (int) fp->kind, cmd, (double) weight);
+            }
+        }
+        if (checked != 0) {
+            cpu_tables_logged = 1;
+            boot_triage_note(
+                "[cpu] tables checked=%d valid=%d first_cmd=%d "
+                "first_weight=%g ok=%d\n",
+                checked, valid, first_cmd, (double) first_weight,
+                valid == checked);
+        }
+    }
+    for (slot = 0; slot < 6; slot++) {
+        HSD_GObj* gobj = Player_GetEntity(slot);
+        Fighter* fp;
+        int attacking;
+
+        if (gobj == NULL) {
+            cpu_was_attacking[slot] = 0;
+            continue;
+        }
+        fp = (Fighter*) gobj->user_data;
+        attacking = ftCo_800B630C(fp);
+        if (attacking && !cpu_was_attacking[slot]) {
+            cpu_attack_entries++;
+        }
+        cpu_was_attacking[slot] = attacking;
+        if (Player_GetDamage(slot) > 0) {
+            cpu_hit_logged = 1;
+            boot_triage_note(
+                "[cpu] hit slot=%d damage=%d attack_entries=%u motion=%d\n",
+                slot, (int) Player_GetDamage(slot), cpu_attack_entries,
+                (int) fp->motion_id);
+            return;
+        }
+    }
+}
+
 void match_boot_force(u8 mode)
 {
     boot_triage_note("[match] switching to game mode %u\n", (unsigned) mode);
@@ -214,6 +310,7 @@ static void log_title_state(int force)
 static void match_boot_frame(void)
 {
     frame++;
+    log_cpu_test();
     if (title_test) {
         unsigned deadline = start_frame != 0 ? start_frame : 1200;
         log_title_state(0);
@@ -399,6 +496,10 @@ void match_boot_init(unsigned frame_in)
     frame = 0;
     if (getenv("MELEE_TITLE_TEST") != NULL) {
         title_test = 1;
+        boot_platform_set_frame_hook(match_boot_frame);
+    }
+    if (getenv("MELEE_CPU_TEST") != NULL) {
+        cpu_test = 1;
         boot_platform_set_frame_hook(match_boot_frame);
     }
     if (frame_in != 0) {

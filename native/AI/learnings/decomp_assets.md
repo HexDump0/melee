@@ -866,3 +866,32 @@ to be corrupted by a few bytes.
    Scanning the converted archive for the descriptor's tail bytes found it at
    one offset with `c->num[]` set — proof that `conv_u32` had written there.
 5. A backtrace in `conv_u32` on that offset named `conv_scene_desc`.
+
+## CPU attack database in PlCo.dat (P-705, converter version 86)
+
+`Fighter_LoadCommonData` assigns `ftLoadCommonData` pData[22] to
+`Fighter_804D64FC`. Its layout from `fighter.h` is:
+
+| Offset | Data |
+|---|---|
+| `+0x00` | CPU command-script pointer table; scripts are bytes |
+| `+0x04..+0x1C` | seven FighterKind-indexed pointer tables of `ftCo_AttackEntry` lists |
+| `+0x20` | 33 per-kind distance-threshold floats |
+| `+0x24` | six held-weapon reach-bonus floats |
+
+`ftCo_AttackEntry` is nine 32-bit words (0x24 bytes): command, timing, four
+range floats, weight, frequency and minimum CPU level. Lists end with a
+zero-command record. All nine words are numeric and require conversion; only
+the command-script payloads remain byte-defined.
+
+There are 230 relocation-backed lists and 1,159 non-terminator records in the
+US 1.02 `PlCo.dat`. One list demonstrates the archive's zero-pointer rule:
+Mario's ground list is at data offset 0, so its slot contains zero but is in
+the relocation table. A converter check for `list != 0` silently skips it;
+`c->reloc[slot]` is the authoritative pointer test.
+
+Without this walk, a ground command `2` reads as `0x02000000` and `3.0f`
+weight reads as a denormal. CPU navigation remains functional because it is
+compiled logic, but attack selection cannot return usable commands. The
+title attract match is the integration oracle: four level-9 CPUs, no PAD
+input, sane table check followed by an attack-state transition and damage.

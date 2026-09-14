@@ -29,11 +29,21 @@ if [ ! -s "$work/card_a/file_000.gcm" ]; then
     exit 1
 fi
 
-MELEE_CARD_DIR="$work" SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy \
+MELEE_CPU_TEST=1 MELEE_VIEWER_TRIAGE=1 MELEE_NO_ASSET_CACHE=1 \
+    MELEE_CARD_DIR="$work" \
+    SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy \
     "$melee" --frontend --no-items --input "$work/idle.txt" --frames 1600 \
     --shot "$work/idle.bmp" >"$work/idle.log" 2>&1
 if ! grep -q 'mode=24 scene=1' "$work/idle.log"; then
     echo "frontend_opening: FAIL (title attract demo not reached)"
+    exit 1
+fi
+if ! grep -q '\[cpu\] tables .*ok=1' "$work/idle.log"; then
+    echo "frontend_opening: FAIL (title-demo CPU tables are not host order)"
+    exit 1
+fi
+if ! grep -q '\[cpu\] hit .*attack_entries=[1-9]' "$work/idle.log"; then
+    echo "frontend_opening: FAIL (title-demo CPUs did not attack and hit)"
     exit 1
 fi
 
