@@ -2619,3 +2619,40 @@ candidate.  The tell at compile time is `-Wstringop-overflow` /
 `-Warray-bounds` reporting a "region of size 0" or a size that matches one
 symbol while the access offset clearly belongs to the next.  Adjacency that the
 console's linker guaranteed is never guaranteed here.
+
+## G-167: a stray read of a *pointer* is negative on the console and positive here
+
+**Symptom:** `fn_803AF3F0` (memory card) could run
+`for (i = 0; i < file_blocks; i++) block_map[i] = -1;` with a garbage
+`file_blocks` over a 64-entry **stack** array.  The console never does.
+
+**Cause:** `CardState::file_sizes` is `int[9]`, and this file routinely carries
+a file index of **9** — it is expected, not accidental:
+`fn_803AC6B8_blocks_before` opens with `if (file_idx >= 9) return 0;` and
+`fn_803ACC50` tests `file_idx + 1 >= 9`.  The size reads have no such guard, so
+`file_sizes[9]` lands on `CardState::file_data[0]` at offset `0x70` — a
+pointer.
+
+Then the platforms diverge on the **sign**:
+
+| | `file_data[0]` as `s32` | `file_sizes[...] <= 0` guard | result |
+|---|---|---|---|
+| GameCube | MEM1 address `0x8xxxxxxx`, or NULL | negative or zero -> fires | file treated as empty, nothing happens |
+| 32-bit host | typical heap/bss address **below** `0x80000000` | positive -> does **not** fire | block count computed from an address, stack smash |
+
+So the console is saved by an accident of its address space, and the port is
+not.  This is the sharper form of G-164: there the stray byte changed meaning
+with *endianness*, here the stray word changes meaning with the *sign of a
+pointer value*.
+
+**Fix (P-720):** `port_file_size()` returns 0 for an out-of-range index, which
+is the outcome retail reaches anyway.  It is a `static inline` under
+`PORT_PC` and a macro expanding to the original expression otherwise, so the
+15 call sites need no `#ifdef` and the GameCube build stays byte-identical.
+
+**Rule:** whenever a stray access lands on a *pointer* field, check the sign
+and magnitude the console's address space gave it, not just the offset.
+`0x8xxxxxxx` read as a signed int is negative, and a surprising amount of
+retail code is protected by exactly that.  Writes are worse still — a write to
+`file_sizes[9]` clobbers a live pointer on both platforms; those sites are
+left alone here because no caller is proven to reach them (noted in P-717).

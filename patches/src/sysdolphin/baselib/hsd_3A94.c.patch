@@ -1,0 +1,167 @@
+diff --git a/src/sysdolphin/baselib/hsd_3A94.c b/src/sysdolphin/baselib/hsd_3A94.c
+index 6e9feaff5..52a8c4c63 100644
+--- a/src/sysdolphin/baselib/hsd_3A94.c
++++ b/src/sysdolphin/baselib/hsd_3A94.c
+@@ -88,6 +88,36 @@ typedef struct CardContext {
+     fn_803ACFC0((state), (block_idx), (block_id), (seq_num), (payload),       \
+                 (payload_len), (file_idx))
+ 
++#ifdef PORT_PC
++/* CardState::file_sizes is int[9], but this file routinely carries a file
++ * index of 9: fn_803AC6B8_blocks_before opens with `if (file_idx >= 9) return
++ * 0;` and fn_803ACC50 tests `file_idx + 1 >= 9`, so the value is expected.
++ * The unguarded reads below then index one past the array, which lands on
++ * CardState::file_data[0] -- a pointer -- at offset 0x70.
++ *
++ * On the console that pointer is a MEM1 address (0x8xxxxxxx) or NULL, so as a
++ * signed int it is negative or zero either way, and every consumer's
++ * `file_sizes[...] <= 0` guard treats the file as empty.  On a 32-bit host the
++ * same pointer is usually below 0x80000000 and therefore *positive*, so the
++ * guard does not fire and a block count is computed from an address.
++ * fn_803AF3F0 then runs `for (i = 0; i < file_blocks; i++) block_map[i] = -1;`
++ * over a 64-entry *stack* array, i.e. a stack smash where the console simply
++ * does nothing.
++ *
++ * Return 0 for an out-of-range index: that is the outcome retail reaches on
++ * this path, by way of a value that happens to be non-positive there. */
++static inline s32 port_file_size(const CardState* state, s32 file_idx)
++{
++    if ((u32) file_idx >= 9u) {
++        return 0;
++    }
++    return state->file_sizes[file_idx];
++}
++#else
++/* Textually the original expression, so the GameCube build is unchanged. */
++#define port_file_size(st, idx) ((st)->file_sizes[idx])
++#endif
++
+ /* 3A949C */ static void hsd_803A949C(s32 chan, s32 card_result);
+ /* 3ACB74 */ static s32 fn_803ACB74(s32 seq_a, s32 seq_b);
+ /* 4D1148 */ extern u32 hsd_804D1148[0x80][0x9];
+@@ -1653,7 +1683,7 @@ void hsd_803AC558(CardState* state, u8* data)
+         final_size = size | data[2];
+         data += 3;
+ 
+-        if (final_size != 0 && state->file_sizes[file_idx] == 0) {
++        if (final_size != 0 && port_file_size(state, file_idx) == 0) {
+             state->file_flags[file_idx] = flags;
+             state->file_sizes[file_idx] = final_size;
+         }
+@@ -1662,7 +1692,7 @@ void hsd_803AC558(CardState* state, u8* data)
+ 
+ u32 fn_803AC634(CardState* state, s32 file_idx)
+ {
+-    if (state->file_sizes[file_idx] <= 0) {
++    if (port_file_size(state, file_idx) <= 0) {
+         return 0;
+     }
+ 
+@@ -1683,7 +1713,7 @@ u32 fn_803AC634(CardState* state, s32 file_idx)
+ 
+     {
+         u32 sector_size = state->sector_size;
+-        return (u32) (state->file_sizes[file_idx] + sector_size - 0x21) /
++        return (u32) (port_file_size(state, file_idx) + sector_size - 0x21) /
+                (sector_size - 0x20);
+     }
+ }
+@@ -1786,7 +1816,7 @@ static inline s32 fn_803AC7DC_block_count(CardState* state, s32 file_idx)
+ {
+     s32 blocks;
+ 
+-    if (state->file_sizes[file_idx] <= 0) {
++    if (port_file_size(state, file_idx) <= 0) {
+         blocks = 0;
+     } else if (file_idx == 0) {
+         u32 usable;
+@@ -1804,7 +1834,7 @@ static inline s32 fn_803AC7DC_block_count(CardState* state, s32 file_idx)
+         }
+     } else {
+         u32 sector_size = state->sector_size;
+-        blocks = (u32) (state->file_sizes[file_idx] + sector_size - 0x21) /
++        blocks = (u32) (port_file_size(state, file_idx) + sector_size - 0x21) /
+                  (sector_size - 0x20);
+     }
+     return blocks;
+@@ -2197,7 +2227,7 @@ static inline s32 fn_803AD16C_logical_index(s32 blocks_before, s32 i)
+ 
+ static inline s32 fn_803AD16C_file_size(CardState* state, s32 file_idx)
+ {
+-    return state->file_sizes[file_idx];
++    return port_file_size(state, file_idx);
+ }
+ 
+ static inline s32 fn_803AD16C_seq_at(s32* seq, s32 phys)
+@@ -2451,7 +2481,7 @@ s32 fn_803AD16C(CardState* state)
+     }
+ 
+     for (file_idx = 0; file_idx < 9; file_idx++) {
+-        if (state->file_sizes[file_idx] <= 0 ||
++        if (port_file_size(state, file_idx) <= 0 ||
+             fn_803AD16C_file_type_nonzero(state, file_idx))
+         {
+             continue;
+@@ -2642,7 +2672,7 @@ static inline s32 calculateDataBlockSize(CardState* state, s32 file_idx,
+ 
+ static inline s32 calculateFileBlockCount(CardState* state, s32 file_idx)
+ {
+-    s32 file_size = state->file_sizes[file_idx];
++    s32 file_size = port_file_size(state, file_idx);
+ 
+     if (file_size <= 0) {
+         return 0;
+@@ -2852,7 +2882,7 @@ s32 fn_803ADF90(CardState* state, s32 file_idx, u8* buf, s32 async,
+ 
+     blocks_before = fn_803AC6B8_blocks_before(state, file_idx);
+ 
+-    file_size = state->file_sizes[file_idx];
++    file_size = port_file_size(state, file_idx);
+     file_blocks = calculateFileBlockCount(state, file_idx);
+ 
+     total_blocks = fn_803AC7DC(state);
+@@ -3062,7 +3092,7 @@ s32 fn_803AE7F8(CardState* state, s32 file_idx, s32 buf, s32 async,
+ 
+     blocks_before = fn_803AC6B8_blocks_before(state, file_idx);
+ 
+-    file_size = st->file_sizes[file_idx];
++    file_size = port_file_size(st, file_idx);
+     file_blocks = fn_803AC634(state, file_idx);
+     total_blocks = fn_803AC7DC(state);
+ 
+@@ -3623,7 +3653,7 @@ static inline void fn_803AF3F0_calc_file_blocks(s32 file_idx, CardState* state,
+                                                 s32* file_blocks,
+                                                 s32* total_blocks)
+ {
+-    if (state->file_sizes[file_idx] <= 0) {
++    if (port_file_size(state, file_idx) <= 0) {
+         *file_blocks = 0;
+     } else if (file_idx == 0) {
+         u32 sector_size = state->sector_size;
+@@ -3642,7 +3672,7 @@ static inline void fn_803AF3F0_calc_file_blocks(s32 file_idx, CardState* state,
+     } else {
+         u32 sector_size = state->sector_size;
+         *file_blocks =
+-            (u32) (state->file_sizes[file_idx] + sector_size - 0x21) /
++            (u32) (port_file_size(state, file_idx) + sector_size - 0x21) /
+             (sector_size - 0x20);
+     }
+ 
+@@ -3691,7 +3721,7 @@ s32 fn_803AF3F0(CardState* state, s32 file_idx, s32 buf, s32 async,
+ 
+     blocks_before = fn_803AC6B8_blocks_before(state, file_idx);
+ 
+-    file_size = state->file_sizes[file_idx];
++    file_size = port_file_size(state, file_idx);
+     fn_803AF3F0_calc_file_blocks(file_idx, state, &file_blocks, &total_blocks);
+ 
+     if (async != 0) {
+@@ -4130,7 +4160,7 @@ s32 fn_803B0120(CardState* state, s32 file_idx, s32 buf, s32 async,
+     blocks_before = fn_803AC6B8_blocks_before(state, file_idx);
+ 
+     {
+-        s32 size = state->file_sizes[file_idx];
++        s32 size = port_file_size(state, file_idx);
+         file_size = size;
+     }
+     file_blocks = calculateFileBlockCount(state, file_idx);

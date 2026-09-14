@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-14 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716, P-718 and P-719 fixed, P-699/P-702/P-711/P-715/P-717 open)
+Last updated: 2026-09-14 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716, P-718, P-719 and P-720 fixed, P-699/P-702/P-711/P-715/P-717 open)
 
 > **Direction (2026-09-13/14): ADR-0017 — keep the GLES renderer, reach Aurora parity.**
 > The 32-bit product, in-place converter and GLES3/WebGL2 renderer stay; the
@@ -964,3 +964,19 @@ The three that remain are a separate, real finding for P-717:
 GCC has proved `file_idx == 9` reaches an `int[9]` — that reads
 `CardState::file_data[0]`, a pointer, as a file size.  In-struct, so wrong data
 rather than corruption.
+
+**P-720 (2026-09-14, a pointer read as a file size):** fixing P-719's
+declaration let GCC prove three `state->file_sizes[file_idx]` accesses with
+`file_idx == 9` on an `int[9]`.  Index 9 is not a mistake in the caller — the
+file expects it (`fn_803AC6B8_blocks_before` opens `if (file_idx >= 9) return
+0;`) — but the size reads are unguarded, so they land on
+`CardState::file_data[0]`, a pointer, at offset `0x70`.  The console reads a
+MEM1 address or NULL, which as a signed int is non-positive, so every
+`file_sizes[...] <= 0` guard treats the file as empty and nothing happens.  A
+32-bit host's pointer is usually below `0x80000000` and therefore positive, the
+guard does not fire, and `fn_803AF3F0` computes a block count from an address
+before running `for (i = 0; i < file_blocks; i++) block_map[i] = -1;` over a
+64-entry **stack** array.  `port_file_size()` now returns 0 out of range — the
+outcome retail reaches anyway — as an inline under `PORT_PC` and a macro
+expanding to the original expression otherwise, so the GameCube build is
+byte-identical.  G-167; this is the sign-of-a-pointer cousin of G-164.
