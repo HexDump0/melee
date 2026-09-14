@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 88u
+#define HSD_CONVERTER_VERSION 89u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -3274,6 +3274,30 @@ static void conv_toy_model_file_table(Conv* c, uint32_t off, int count)
     }
 }
 
+/* HSD_SObjDesc (sobjlib.h): { HSD_ImageDesc* image; HSD_Tlut* tlut; }.  These
+ * are the 2D sprite backgrounds -- TyMnBg.dat's ToyFigureBg*_sobjdesc are the
+ * trophy screen's, loaded by toy_sobj_loop and handed straight to
+ * HSD_SObjLib_803A477C.  No branch claimed the root, so the ImageDescs behind
+ * it stayed big-endian and the GX draw read 320x240 as 16385x61440 and format
+ * 6 as 0x06000000, which the texture decoder rejects. */
+static void conv_sobjdesc(Conv* c, uint32_t off)
+{
+    uint32_t image;
+    uint32_t tlut;
+
+    if (!in_data(c, off, 8) || !mark(c, off)) {
+        return;
+    }
+    image = rd32(c, off + 0x00);
+    if (image != 0) {
+        conv_imagedesc(c, image);
+    }
+    tlut = rd32(c, off + 0x04);
+    if (tlut != 0) {
+        conv_tlutdesc(c, tlut);
+    }
+}
+
 /* TyDatai trophy tables (toy.c:6824, one lbArchive_LoadSymbols call pulling
  * seven symbols).  None of these are HSD descriptors, so no branch of the name
  * dispatch claimed them and they stayed big-endian -- silently, because every
@@ -3727,6 +3751,9 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
             /* TyDataf: US trophy name/model overrides (5 entries). */
             c->st.roots_unknown++;
             conv_toy_model_file_table(c, data_off, 5);
+        } else if (name_ends_with(name, length, "_sobjdesc")) {
+            c->st.roots_unknown++;
+            conv_sobjdesc(c, data_off);
         } else if (length == 14 && memcmp(name, "tyModelSortTbl", 14) == 0) {
             /* TyDatai: ToyNameData[293], the trophy id/sort-key table. */
             c->st.roots_unknown++;

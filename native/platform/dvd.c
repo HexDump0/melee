@@ -449,6 +449,58 @@ void DVDInit(void)
     }
 }
 
+/* Which disc file a loaded buffer came from.
+ *
+ * When a texture descriptor decodes to nonsense the only useful question is
+ * "which archive is this?", and neither the GX asset registry nor
+ * HSD_ArchiveParse knows -- both see an address and a length.  The DVD layer
+ * is the one place the name and the destination address are both in hand.
+ *
+ * Buffers are reused as the game loads and frees archives, so this is a hint,
+ * not a fact: the newest matching entry wins and an entry can name a file
+ * whose data has since been replaced.  Good enough to point at a file. */
+#define DVD_ORIGIN_SLOTS 64
+
+static struct {
+    const unsigned char* base;
+    size_t size;
+    const char* name;
+} dvd_origins[DVD_ORIGIN_SLOTS];
+static unsigned dvd_origin_next;
+
+static void dvd_note_origin(const void* addr, size_t len, const char* name)
+{
+    unsigned slot;
+
+    if (addr == NULL || len == 0 || name == NULL) {
+        return;
+    }
+    slot = dvd_origin_next % DVD_ORIGIN_SLOTS;
+    dvd_origins[slot].base = (const unsigned char*) addr;
+    dvd_origins[slot].size = len;
+    dvd_origins[slot].name = name;
+    dvd_origin_next++;
+}
+
+const char* melee_dvd_origin(const void* ptr)
+{
+    const unsigned char* p = (const unsigned char*) ptr;
+    unsigned i;
+
+    if (p == NULL) {
+        return NULL;
+    }
+    for (i = 0; i < DVD_ORIGIN_SLOTS; i++) {
+        unsigned slot = (dvd_origin_next - 1 - i) % DVD_ORIGIN_SLOTS;
+        if (dvd_origins[slot].base != NULL &&
+            p >= dvd_origins[slot].base &&
+            p < dvd_origins[slot].base + dvd_origins[slot].size) {
+            return dvd_origins[slot].name;
+        }
+    }
+    return NULL;
+}
+
 int DVDReadAbsAsyncPrio(DVDCommandBlock* block, void* addr, long length,
                         long offset, DVDCBCallback callback, long prio)
 {
@@ -465,6 +517,12 @@ int DVDReadAbsAsyncPrio(DVDCommandBlock* block, void* addr, long length,
     block->transferredSize = 0;
     block->callback = callback;
     ok = length > 0 && dvd_read_range((uint32_t) offset, addr, (uint32_t) length);
+    if (ok) {
+        DvdFile* origin = find_file((uint32_t) offset);
+        if (origin != NULL) {
+            dvd_note_origin(addr, (size_t) length, origin->name);
+        }
+    }
     return dvd_post(block, callback, ok ? (s32) length : DVD_RESULT_FATAL_ERROR,
                     ok ? (u32) length : 0);
 }

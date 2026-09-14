@@ -1955,8 +1955,81 @@ static int check_event_levels(const char* image)
  * no table, so the Trophy Gallery panicked building its list.  Assert the
  * invariant that actually broke: every sort-table id resolves in the
  * model-file table. */
+/* P-728: TyMnBg.dat's ToyFigureBg*_sobjdesc roots were unclaimed by the
+ * converter's name dispatch, so the HSD_ImageDescs behind them stayed
+ * big-endian.  The trophy screen then asked GX to draw a 320x240 RGBA8
+ * background as 16385x61440 format 0x06000000 and the decoder rejected every
+ * one of them.  Check the descriptors the sprite path actually reads. */
+static int check_ty_sobj_backgrounds(const char* image)
+{
+    static const char* roots[] = { "ToyFigureBg3_sobjdesc",
+                                   "ToyFigureBg5_sobjdesc",
+                                   "ToyFigureBg6_sobjdesc" };
+    char error[256];
+    size_t size = 0;
+    unsigned char* buffer = load_archive(image, "TyMnBg.dat", NULL, &size,
+                                         error, sizeof(error));
+    HSD_Archive archive;
+    HsdConvertStats stats;
+    size_t k;
+    int failed = 0;
+
+    if (buffer == NULL) {
+        fprintf(stderr, "decomp_assets: TyMnBg.dat: %s\n", error);
+        return 1;
+    }
+    if (!hsd_asset_convert(buffer, size, &stats) ||
+        HSD_ArchiveParse(&archive, buffer, size) != 0)
+    {
+        fprintf(stderr, "decomp_assets: TyMnBg.dat conversion failed\n");
+        free(buffer);
+        return 1;
+    }
+    for (k = 0; k < sizeof(roots) / sizeof(roots[0]); k++) {
+        unsigned char* desc =
+            HSD_ArchiveGetPublicAddress(&archive, roots[k]);
+        unsigned char* img;
+        unsigned width;
+        unsigned height;
+        unsigned format;
+
+        if (desc == NULL || !ptr_in_buffer(desc, buffer, size)) {
+            fprintf(stderr, "decomp_assets: TyMnBg.dat missing %s\n",
+                    roots[k]);
+            failed++;
+            continue;
+        }
+        img = (unsigned char*) read_host_ptr(desc + 0x00);
+        if (img == NULL || !ptr_in_buffer(img, buffer, size)) {
+            fprintf(stderr, "decomp_assets: %s image pointer is bad\n",
+                    roots[k]);
+            failed++;
+            continue;
+        }
+        width = read_host_u16(img + 0x04);
+        height = read_host_u16(img + 0x06);
+        format = read_host_u32(img + 0x08);
+        /* An unconverted descriptor reads as a huge dimension and a format
+         * shifted into the top byte; a converted one is a real texture. */
+        if (width == 0 || width > 1024 || height == 0 || height > 1024 ||
+            format > 14)
+        {
+            fprintf(stderr,
+                    "decomp_assets: %s image %ux%u fmt=%u (not converted?)\n",
+                    roots[k], width, height, format);
+            failed++;
+        }
+    }
+    if (failed == 0) {
+        printf("decomp_assets: TyMnBg.dat sobjdesc images ok\n");
+    }
+    free(buffer);
+    return failed != 0 ? 1 : 0;
+}
+
 static int check_ty_datai_tables(const char* image)
 {
+
     char error[256];
     size_t isize = 0;
     unsigned char* ibuf = NULL;
@@ -2918,6 +2991,7 @@ int main(int argc, char** argv)
     failures += check_item_models(image);
     failures += check_ty_data_tables(image);
     failures += check_ty_datai_tables(image);
+    failures += check_ty_sobj_backgrounds(image);
     failures += check_staffroll_modelset(image);
     failures += check_ifall_hud_modelsets(image);
     failures += check_kumite_tables(image);

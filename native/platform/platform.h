@@ -65,4 +65,8 @@ unsigned pad_input_frame(void);
 /* Reads a file from the mounted host disc image (port bootstrap helpers). */
 int platform_disc_load_file(const char* disc_path, void** data, size_t* size);
 
+/* Name of the disc file a loaded buffer came from, or NULL.  A hint for
+ * diagnostics only -- buffers are reused, so an entry can outlive its data. */
+const char* melee_dvd_origin(const void* ptr);
+
 #endif /* MELEE_PLATFORM_PLATFORM_H */

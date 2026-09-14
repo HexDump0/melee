@@ -21,6 +21,7 @@
 
 #include "decomp/gx/gx_hle.h"
 #include "gx/texture.h"
+#include "platform/platform.h"
 
 #define MAX_GL_TEXTURES 256
 #define MAX_DYNAMIC_COPIES 8
@@ -1218,10 +1219,14 @@ static GLuint texture_for(const GxHleTexture* t)
                                  (int) t->format, pal, t->palette_entries,
                                  &rgba, error, sizeof(error)) != 0) {
             free(pal);
-            fprintf(stderr,
-                    "gx_gl: CI texture decode failed: %s (%dx%d fmt=%u "
-                    "avail=%zu)\n",
-                    error, t->width, t->height, (unsigned) t->format, bound);
+            {
+                const char* origin = melee_dvd_origin(image);
+                fprintf(stderr,
+                        "gx_gl: CI texture decode failed: %s (%dx%d fmt=%u "
+                        "avail=%zu from=%s)\n",
+                        error, t->width, t->height, (unsigned) t->format,
+                        bound, origin != NULL ? origin : "?");
+            }
             return 0;
         }
         free(pal);
@@ -1229,10 +1234,14 @@ static GLuint texture_for(const GxHleTexture* t)
         if (gx_texture_decode(image, bound, t->width, t->height,
                               (int) t->format, &rgba, error,
                               sizeof(error)) != 0) {
-            fprintf(stderr,
-                    "gx_gl: texture decode failed: %s (%dx%d fmt=%u "
-                    "avail=%zu)\n",
-                    error, t->width, t->height, (unsigned) t->format, bound);
+            {
+                const char* origin = melee_dvd_origin(image);
+                fprintf(stderr,
+                        "gx_gl: texture decode failed: %s (%dx%d fmt=%u "
+                        "avail=%zu from=%s)\n",
+                        error, t->width, t->height, (unsigned) t->format,
+                        bound, origin != NULL ? origin : "?");
+            }
             return 0;
         }
     }
