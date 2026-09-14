@@ -326,3 +326,103 @@ reports `build/GALE01/main.dol: OK` (100.00% matched, 1130/1130 linked).
 | `src/melee/gm/gm_1601.c` (`fn_80166A8C`) | `patches/src/melee/gm/gm_1601_ml_fallback.patch`: under `PORT_PC`, store `src->x` to `dst->x` and return it | The body was `#ifdef MWERKS_GEKKO` with no fallback, so the function was empty; the caller `gm_80166378` read the uninitialised `sp48_x` into `player_standings[i].xE` (results screen). |
 | `src/Runtime/runtime.c` (`__cvt_dbl_usll`) | under `PORT_PC`, `return (u64) x;` after the asm block | Empty non-void body compiled to a bare `ret`; `gm_1884.c:784` passes the result to `lb_80019880` (training-mode speed).  Mirrors the in-file `__cvt_fp2unsigned` fallback directly above. |
 
+
+## P-695 missing-`return` census (2026-09-14)
+
+Owner report: every 1P stage segfaulted one frame after the "GAME!!"
+announcer, in `lb_800138D8` with `gobj == 0`, reached from `gmvs.c`'s
+`fn_8016D634` -> `gmregclear.c`'s `fn_80180630`.  The cause is a decompiled
+function with **no `return` statement at all** (`lb_800138EC`,
+`HSD_GObj*`), which is undefined behaviour: MWCC leaves the useful value in
+`r3`/`f1`, GCC returns whatever is in `eax`/`xmm0`.  Same family as G-129
+(`gm_80168BF8`).
+
+### How to run the census
+
+`melee_decomp_game` compiles `src/` with `-w` (ADR-0011: `src/` must not be
+modified, so upstream warnings are suppressed), which hides this class
+completely.  Re-compile the same command lines with `-Wreturn-type`:
+
+```sh
+cmake -S native -B build/native -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+# for every melee_decomp_game entry in compile_commands.json:
+#   replace -w with -Wreturn-type, -o <obj> with -o /dev/null, keep -c
+```
+
+**Do not use `-fsyntax-only`.**  It disables the CFG pass, so only the
+parse-time "no return statement in function returning non-void" fires and the
+far more common "control reaches end of non-void function" is missed: 8 sites
+instead of 45.
+
+Census at pin `40012f51f`: **45 sites** (43 in `src/`, 1 in
+`extern/dolphin`, 1 is `gmmain.c`'s `main`).
+
+### How to decide what a site should return
+
+The decompilation is 100% matched, so the retail DOL is the authority.  Build
+it (`ninja` in `decomp/`) and read the epilogue:
+
+```sh
+decomp/build/binutils/powerpc-eabi-objdump -d \
+    --start-address=0x<sym> --stop-address=0x<next> decomp/build/GALE01/main.elf
+```
+
+Three outcomes, and only the first two justify an edit:
+
+1. **`r3`/`f1` provably holds a specific value on the fall-through path** ->
+   port that expression.  This is a faithful port, not a guess.
+2. **The value is indeterminate in retail too, but the path is unreachable and
+   a consumer would dereference it** -> return the value the loop condition
+   already guarantees (`NULL`), which is strictly safer than either garbage.
+   Say so in the comment.
+3. **Indeterminate in retail and the path is unreachable** -> leave it.
+   Inventing a default is a reinterpretation (AGENTS.md §0.1).
+
+### Reachability evidence
+
+Every one of the 45 sites was instrumented with a one-shot `puts` just before
+the closing brace and the real flows were run (`decomp_match`, `decomp_hit`,
+`decomp_icons`, the new `decomp_gameover`, and the retail `--frontend` flow
+through title -> menu -> CSS -> SSS -> match).  Only two ever fired:
+`lbspdisplay.c:753` and `extern/.../axfx/delay.c:94`.
+
+### Patched (6)
+
+| Site | Function | Retail `r3` on the fall-through | Fix |
+|---|---|---|---|
+| `src/melee/lb/lbspdisplay.c:753` | `lb_800138EC` | **`gobj`**: `GObj_SetupGXLinkMax` (`0x8039075c`) and `GObj_GXReorder` (`0x8039063c`) only read through `r3`, never write it | `return gobj;` — **the owner-reported crash** |
+| `src/melee/sfx/crowdsfx.c:512` | `un_803224DC` | **`un_8032201C`'s result** (`0x8032257c: bl`, then straight to the epilogue) | `return un_8032201C(spawn_id, cat);` |
+| `src/melee/sfx/crowdsfx.c:535` | `un_80322598` | **`un_8032201C`'s result** (`0x8032260c: bl`, then the epilogue) | `return un_8032201C(arg0, cat);` |
+| `src/melee/ft/ftanim.c:800` | `ftAnim_8006F994` | garbage (`r3 = &joint` from `0x8006fa20`, then clobbered by `ftAnim_GetNextJointInTree`) | `return joint;` (`NULL` by the loop condition); both consumers drive `while (joint != NULL)` with it |
+| `src/melee/lb/lb_00B0.c:745` | `lb_8000CDC0` | garbage (`HSD_LObjGetFlags`' flags word) | `return cur;` (`NULL` by the loop condition) |
+| `src/melee/gm/gm_1798.c:484` | `fn_8017A318` | `gobj` when `slot != 0`; `fn_8017A078`'s inner camera GObj when `slot == 0` | `return gobj;`.  Matches retail on the `slot != 0` path; the one caller stores it in `ResultsPlayerData::camera`, which nothing in the game reads back |
+
+### Live on the host, currently correct by accident (1)
+
+`extern/dolphin/src/dolphin/axfx/delay.c:94` `AXFXDelayInit` fires on every
+boot (`axdriver.c:1005` tests `== 1`).  On the console `r3` holds
+`AXFXDelaySettings`' `1`; at `-O2` GCC emits a tail `jmp` to the same
+function, so `eax` is also `1`.  `extern/` is never edited (AGENTS.md §0), and
+there is nothing to fix today — but this is one inlining decision away from
+silently dropping the AUX delay effect.  If AXFX delay ever goes missing,
+check this first.
+
+### Left alone (38)
+
+Retail is indeterminate too and the path is unreachable, so there is nothing
+faithful to port.  The interesting ones, with the reason:
+
+| Site | Function | Why it is left |
+|---|---|---|
+| `ft/ftanim.c:571` | `ftAnim_8006F3DC` | `f1` is **never written** on the not-found path (`0x8006f468`), so retail returns the caller's `f1`.  Needs every fighter part to lack an `HSD_AObj`; never observed |
+| `it/kinds/itsscope.c:137` | `it_80291DAC` | `r3` still holds the incoming `gobj` pointer at `0x80291f04`; retail returns a pointer as a charge level.  Needs `xD4C > 0` but smaller than level 1's cost |
+| `mn/mnmain.c:1761` / `:1713` | `mn_8022C010` / `mn_8022BFBC` | the `switch` covers `MENU_KIND_MAIN..MULTI_VS` (0..33); only `MENU_KIND_34` is missing and no code ever assigns it.  `mn_8022BFBC` only ever sees `mn_8022C010`'s 0..4 |
+| `mn/mnstagesw.c:227` | `mnStageSw_80235C58` | the final `for (i = 1; found; i++)` never clears `found`, so the end is unreachable by construction (it spins instead) |
+| `pl/pltrick.c:27` | `pl_80037B2C` | the only caller (`plbonus.c:494`) passes `k` in `1..0x10`, always `< 0x64` |
+| `ty/toy.c:1531`, `it/kinds/itsscope.c:95`, `mn/mndiagram2.c:581`, `mn/mnname.c:851`, `mn/mndiagram.c:1184` | — | `switch`/loop covers every value any caller passes |
+| `gm/gm_1601.c` x4, `gm/gmresult.c:344`, `gr/grcorneria.c:1704`, `gr/gricemt.c:1607`, `it/itzako.c:237`, `it/kinds/itarwinglaser.c:297`, `it/kinds/itlinkarrow.c:146`/`:305`, `it/kinds/itmewtwoshadowball.c:112`, `it/kinds/itkyasarinegg.c:136`, `it/kinds/itkusudama.c:195`, `ft/kinds/ftPopo/ftpopospecialhi.c:126`, `pl/player.c:1700`, `if/soundtest.c` x8 | — | declared non-void but no caller reads the result ("fake return type" in the decomp's own comments) |
+| `Runtime/Gecko_setjmp.c:38`, `Runtime/__va_arg.c:58` | — | bodies are `#ifdef MWERKS_GEKKO` only; dead on the host (GCC lowers `va_arg` itself) |
+| `gm/gmmain.c:220` | `main` | renamed `gm_main`; `run_match` ignores the result |
+
+Re-run the census after every submodule re-pin; upstream may add or remove
+sites.

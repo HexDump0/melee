@@ -21,6 +21,7 @@
 #include <melee/gm/gm_1601.h>
 #include <melee/gm/gm_1A3F.h>
 #include <melee/gm/gmscene.h>
+#include <melee/gm/gmvs.h>
 #include <melee/ft/ftlib.h>
 #include <melee/if/forward.h>
 #include <melee/mn/mnmain.h>
@@ -47,6 +48,8 @@ static int icon_logged;
 static int title_test;
 static int title_logged;
 static int title_seen;
+static int gameover_test;
+static int gameover_stage;
 static PadInputFrame match_input[MATCH_INPUT_FRAMES][MATCH_INPUT_CHANNELS];
 
 /* MELEE_HIT_TEST: p0 jabs in place while p1 walks into it.  The default
@@ -233,6 +236,34 @@ static void match_boot_frame(void)
     if (frame >= start_frame + 60 && (frame % 120) == 0) {
         log_match_state();
     }
+    /* MELEE_GAMEOVER_TEST: drive a real match end into the 1P "clear"
+     * overlay.  `onEnterDebugVs` starts a time match with the results
+     * overlay disabled, while the 1P modes (`gm_8017CE34`) set
+     * `rules.x4_4` and a stock match; only that combination makes
+     * `fn_8016D634` call `gmregclear.c`'s `fn_80180630`, which is the path
+     * that builds the screen-blur GObj (`lb_800138EC`).  Zeroing player 2's
+     * stocks makes `gm_GetFFAOutcome` return `OUTCOME_ELIMINATION` on the
+     * next frame, exactly like the last KO of a 1P stage. */
+    if (gameover_test && gm_GetCurrentGameMode() == GM_DEBUG_VS) {
+        VsSceneController* vs = gmVs_GetSceneController();
+        if (gameover_stage == 0 && frame >= start_frame + 120) {
+            vs->start.x4_4 = 1;
+            vs->start.match_kind = MatchKind_Stock;
+            Player_SetStocks(1, 0);
+            gameover_stage = 1;
+            boot_triage_note("[gameover] forced elimination at frame %u\n",
+                             frame);
+        } else if (gameover_stage == 1 && vs->state.unk_0 == 2) {
+            gameover_stage = 2;
+            boot_triage_note(
+                "[gameover] clear scene active frame=%u outcome=%d\n", frame,
+                (int) vs->state.match_result);
+        } else if (gameover_stage == 2 && vs->state.unk_0 != 2) {
+            gameover_stage = 3;
+            boot_triage_note("[gameover] clear scene finished frame=%u\n",
+                             frame);
+        }
+    }
     /* MELEE_ICON_TEST: the HUD stock icon frame is selected by
      * gm_80168B34/gm_80168BF8.  With the decompiled `base` left
      * uninitialized and gm_80168BF8 missing its return, every player asked
@@ -282,6 +313,9 @@ void match_boot_init(unsigned frame_in)
         }
         if (getenv("MELEE_ICON_TEST") != NULL) {
             icon_test = 1;
+        }
+        if (getenv("MELEE_GAMEOVER_TEST") != NULL) {
+            gameover_test = 1;
         }
         boot_platform_set_frame_hook(match_boot_frame);
     }

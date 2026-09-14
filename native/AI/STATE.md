@@ -385,6 +385,31 @@ now writes the vertex (raster) colour when the draw updates colour; the
 title's `(320,60)` readback is `36,36,36` instead of `0,0,0`, `ctest` 21/21.
 Gotcha G-138.
 
+**P-695 (2026-09-14, match-end crash + missing-`return` census):** the owner
+reported a hard segfault one frame after the "GAME!!" announcer at the end of
+any 1P stage — `lb_800138D8` with `gobj == 0`, from `gmvs.c`'s `fn_8016D634`
+-> `gmregclear.c`'s `fn_80180630`.  `lb_800138EC` (`lbspdisplay.c`) is
+declared `HSD_GObj*` and has **no `return` statement**: MWCC leaves the blur
+GObj in `r3` across `GObj_SetupGXLinkMax` -> `GObj_GXReorder` (neither writes
+`r3`, checked in `main.elf`), GCC returns `NULL`, and the very next call
+dereferences it.  `return gobj;` under `PORT_PC` fixes it and the 1P clear
+overlay now builds and runs.
+
+Because `melee_decomp_game` compiles `src/` with `-w`, the whole class was
+invisible, so the tree was swept with `-Wreturn-type`: **45 sites**.  Each was
+instrumented and the real flows re-run; only two ever execute their
+fall-through (`lb_800138EC`, and `extern/.../axfx/delay.c`'s `AXFXDelayInit`,
+which GCC happens to tail-call into `AXFXDelaySettings` so it still returns
+the console's `1`).  Five more sites were patched where the retail DOL proves
+the value (`un_803224DC`/`un_80322598` return `un_8032201C`'s result) or where
+a consumer would dereference the garbage (`ftAnim_8006F994`, `lb_8000CDC0`,
+`fn_8017A318`); the remaining 38 are indeterminate in retail too and were
+deliberately left alone rather than reinterpreted.  New `ctest
+decomp_gameover` (`MELEE_GAMEOVER_TEST=1`) drives a real
+`OUTCOME_ELIMINATION` into the clear overlay and segfaults without the patch;
+`ctest` is 23/23 and `ninja` in `decomp/` still reports 100.00% matched,
+1130/1130 linked.  Gotcha G-145, census table in `learnings/decomp_port.md`.
+
 **P-692..P-694 (2026-09-14, GX HLE audit):** an audit of the HLE against the
 Aurora reference closed three more silent gaps: vertex colours now expand by
 bit replication (the HLE still had the old round-by-scaling formula;

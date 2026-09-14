@@ -125,6 +125,35 @@ SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy \
 # ./build/native/melee_decomp_viewer
 ```
 
+## Match end / 1P clear overlay
+
+```sh
+MELEE_GAMEOVER_TEST=1 MELEE_NO_CARD=1 ./build/native/melee_decomp_boot \
+    --boot-frames 900 --boot-timeout 180 --boot-match 20
+ctest --test-dir build/native -R decomp_gameover
+```
+
+`MELEE_GAMEOVER_TEST` sets the two 1P rule bits `onEnterDebugVs` leaves clear
+(`rules.x4_4`, stock match) on the live VS controller and zeroes player 2's
+stocks, which is the same `OUTCOME_ELIMINATION` the last KO of a stage
+produces.  `fn_8016D634` then hands the result to `gmregclear.c`'s
+`fn_80180630` — the path that crashed in G-145.  Expect:
+
+```
+[gameover] forced elimination at frame 140
+[gameover] clear scene active frame=253 outcome=2
+```
+
+A missing second line means the run died inside the clear overlay.
+
+## Missing-`return` census
+
+`src/` is compiled with `-w`, so `-Wreturn-type` never fires in a normal
+build.  Re-run the census after every `decomp/` re-pin; the recipe, the
+retail-DOL method for deciding each site, and the current verdict table are in
+`learnings/decomp_port.md` ("P-695 missing-`return` census").  Use a real
+compile, not `-fsyntax-only` (it finds 8 of 45).
+
 ## Audio (S5)
 
 ```sh

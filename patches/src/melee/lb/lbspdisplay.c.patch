@@ -1,0 +1,21 @@
+diff --git a/src/melee/lb/lbspdisplay.c b/src/melee/lb/lbspdisplay.c
+index 050bdb4e3..88d1540ad 100644
+--- a/src/melee/lb/lbspdisplay.c
++++ b/src/melee/lb/lbspdisplay.c
+@@ -750,6 +750,16 @@ HSD_GObj* lb_800138EC(HSD_ImageDesc* img, GObj_RenderFunc render_func,
+     } else {
+         GObj_SetupGXLinkMax(gobj, render_func, prio);
+     }
++#ifdef PORT_PC
++    /* No `return` in the decompilation.  On the console `gobj` is still in r3
++     * across GObj_SetupGXLinkMax -> GObj_GXReorder (both take it as their
++     * first argument and never reload r3), so the retail function returns the
++     * blur GObj.  GCC returns whatever is in eax: the only caller,
++     * gmregclear.c:1081, stores the result in `state->x2C` and immediately
++     * dereferences it in lb_800138D8, so the results screen segfaulted on the
++     * frame the match ended. */
++    return gobj;
++#endif
+ }
+ 
+ HSD_CObj* lb_80013B14(HSD_CameraDescPerspective* desc)

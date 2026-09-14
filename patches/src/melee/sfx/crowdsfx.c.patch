@@ -1,0 +1,32 @@
+diff --git a/src/melee/sfx/crowdsfx.c b/src/melee/sfx/crowdsfx.c
+index 3d096079e..d0bba5ca8 100644
+--- a/src/melee/sfx/crowdsfx.c
++++ b/src/melee/sfx/crowdsfx.c
+@@ -505,7 +505,16 @@ bool un_803224DC(s32 spawn_id, f32 pos_x, f32 kb_mag)
+     }
+ check:
+     if (out_of_bounds != 0) {
++#ifdef PORT_PC
++        /* No `return` in the decompilation: on the console r3 still holds
++         * un_8032201C's result across the epilogue.  ftCommon_8007D780/
++         * 8007D7FC clear the knockback magnitude when this is true, so with
++         * GCC's indeterminate eax the crowd "ooh" fired -- and suppressed the
++         * next one -- at random. */
++        return un_8032201C(spawn_id, cat);
++#else
+         un_8032201C(spawn_id, cat);
++#endif
+     } else {
+         return 0;
+     }
+@@ -531,5 +540,10 @@ int un_80322598(int arg0, float arg1)
+     } else {
+         cat = 1;
+     }
++#ifdef PORT_PC
++    /* Same missing `return` as un_803224DC above; no caller reads it. */
++    return un_8032201C(arg0, cat);
++#else
+     un_8032201C(arg0, cat);
++#endif
+ }

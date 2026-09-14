@@ -1964,3 +1964,39 @@ uninitialised `sp48_x`, and `__cvt_dbl_usll` compiled to a single `ret`.
 check upstream #3456 first — merging it removes these patches.  `objdump` the
 port binary after touching these TUs: the five `and $0x3` Big Blue inserts and
 a real conversion body for `__cvt_dbl_usll` are the fingerprints.
+
+## G-145: a decompiled function with no `return` returns garbage on GCC
+
+**Symptom:** the game segfaults one frame after the "GAME!!" announcer at the
+end of any 1P stage:
+
+```
+lb_800138D8 (gobj=0x0, size=1) at src/melee/lb/lbspdisplay.c:683
+fn_80180630 (...) at src/melee/gm/gmregclear.c:1082
+fn_8016D634 () at src/melee/gm/gmvs.c:1545
+gm_Scene_Vs_OnFrame ()
+```
+
+**Cause:** `lb_800138EC` is declared `HSD_GObj*` and has **no `return`
+statement**.  On the console MWCC leaves `gobj` in `r3` across
+`GObj_SetupGXLinkMax` -> `GObj_GXReorder` (neither writes `r3`; verified in
+`main.elf` at `0x8039075c`/`0x8039063c`), so retail returns the blur GObj.
+GCC returns whatever is in `eax` — `NULL`.  `gmregclear.c:1081` stores that in
+`state->x2C` and dereferences it two lines later in `lb_800138D8`.
+
+**Fix:** `return gobj;` under `PORT_PC`
+(`patches/src/melee/lb/lbspdisplay.c.patch`).  `ctest decomp_gameover`
+(`MELEE_GAMEOVER_TEST=1` on the boot match) forces `OUTCOME_ELIMINATION` into
+the 1P clear overlay and segfaults without the patch.
+
+**Generalisation:** `melee_decomp_game` builds `src/` with `-w`, so this whole
+class is invisible.  There are 45 such sites at pin `40012f51f`.  The census
+recipe, the retail-asm method for deciding the correct return value, and a
+per-site verdict table are in `learnings/decomp_port.md` ("P-695 missing-
+`return` census").  Two traps:
+
+- `-fsyntax-only` finds only 8 of the 45 — it disables the CFG pass that
+  emits "control reaches end of non-void function".  Compile for real.
+- Do not invent a default for a site where retail is *also* indeterminate.
+  Read the DOL epilogue first; if `r3`/`f1` is never written on that path, the
+  path is unreachable and the right change is none (AGENTS.md §0.1).

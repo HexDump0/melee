@@ -416,6 +416,21 @@ set_tests_properties(decomp_icons PROPERTIES
     PASS_REGULAR_EXPRESSION "\\[icons\\] .*distinct=1"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
     TIMEOUT 240)
+# Match end -> 1P "clear" overlay.  gmvs.c's fn_8016D634 hands the finished
+# match to gmregclear.c's fn_80180630, which builds the screen-blur GObj with
+# lb_800138EC.  That function has no `return` in the decompilation, so GCC
+# handed back NULL and the very next call (lb_800138D8) dereferenced it: every
+# 1P stage segfaulted one frame after the "GAME!!" announcer (G-145).
+# MELEE_GAMEOVER_TEST sets the two 1P rule bits onEnterDebugVs leaves clear
+# (`x4_4`, stock match) on the live VS controller and zeroes player 2's
+# stocks, which is the same OUTCOME_ELIMINATION the last KO produces.
+add_test(NAME decomp_gameover
+    COMMAND melee_decomp_boot --boot-frames 900 --boot-timeout 180 --boot-match 20)
+set_tests_properties(decomp_gameover PROPERTIES
+    ENVIRONMENT "MELEE_GAMEOVER_TEST=1;MELEE_NO_CARD=1"
+    PASS_REGULAR_EXPRESSION "\\[gameover\\] clear scene active"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    TIMEOUT 300)
 if(MELEE_SANITIZE)
   target_compile_options(melee_decomp_boot PRIVATE
       -fsanitize=address,undefined -fno-omit-frame-pointer)

@@ -1,0 +1,17 @@
+diff --git a/src/melee/lb/lb_00B0.c b/src/melee/lb/lb_00B0.c
+index 827cf4c48..000c17840 100644
+--- a/src/melee/lb/lb_00B0.c
++++ b/src/melee/lb/lb_00B0.c
+@@ -742,6 +742,12 @@ HSD_LObj* lb_8000CDC0(HSD_LObj* cur)
+         }
+         cur = HSD_LObjGetNext(cur);
+     }
++#ifdef PORT_PC
++    /* No `return` in the decompilation.  The loop only ends with
++     * `cur == NULL`, which is what the single caller (ftCo_09F4.c:47) tests
++     * for. */
++    return cur;
++#endif
+ }
+ 
+ void lb_8000CE30(HSD_DObj* dobj, HSD_DObj* next)

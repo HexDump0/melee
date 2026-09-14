@@ -1,5 +1,5 @@
 diff --git a/src/melee/gm/gm_1798.c b/src/melee/gm/gm_1798.c
-index 071155858..78147bf65 100644
+index 071155858..1f24a9cad 100644
 --- a/src/melee/gm/gm_1798.c
 +++ b/src/melee/gm/gm_1798.c
 @@ -364,6 +364,24 @@ void fn_8017A078(s32 arg0)
@@ -87,3 +87,18 @@ index 071155858..78147bf65 100644
      }
  
      HSD_CObjSetEyePosition(cobj, &eye);
+@@ -463,6 +481,14 @@ HSD_GObj* fn_8017A318(s32 arg0)
+     if (slot == 0) {
+         fn_8017A078(arg0);
+     }
++#ifdef PORT_PC
++    /* No `return` in the decompilation; the console returns whatever is left
++     * in r3 (this gobj, or the one fn_8017A078 built when slot == 0).  The
++     * only caller stores it in ResultsPlayerData::camera, which nothing in
++     * the game ever reads back, so return the camera GObj this function
++     * created rather than an indeterminate pointer. */
++    return gobj;
++#endif
+ }
+ 
+ Fighter_GObj* fn_8017A67C(CharacterKind kind, int arg1, int arg2)
