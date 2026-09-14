@@ -1,5 +1,5 @@
 diff --git a/src/melee/lb/types.h b/src/melee/lb/types.h
-index 5917d53b6..958336e45 100644
+index 5917d53b6..202cbdd92 100644
 --- a/src/melee/lb/types.h
 +++ b/src/melee/lb/types.h
 @@ -2,6 +2,16 @@
@@ -19,6 +19,30 @@ index 5917d53b6..958336e45 100644
  
  #include <melee/gr/forward.h>
  #include <melee/lb/forward.h> // IWYU pragma: export
+@@ -326,12 +336,12 @@ struct ColorOverlay_UnkInner {
+ 
+ union ColorOverlay_x8_t {
+     GXColor light_color;
+-    struct {
++    struct CMD_BE {
+         s32 unk : 6;
+         s32 x : 13;
+         s32 yz : 13;
+     } light_rot1;
+-    struct {
++    struct CMD_BE {
+         u32 x0_0 : 1;
+         u32 x0_1 : 1;
+         u32 x0_2 : 1;
+@@ -343,7 +353,7 @@ union ColorOverlay_x8_t {
+         s32 x : 12;
+         s32 yz : 12;
+     } light_rot2;
+-    struct {
++    struct CMD_BE {
+         u32 unk : 6;
+         u32 timer : 26;
+     } unk;
 @@ -519,19 +529,19 @@ struct lbColl_8000A10C_arg0_t {
      Vec3 x14;
  };

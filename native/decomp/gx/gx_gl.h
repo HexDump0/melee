@@ -37,6 +37,11 @@ void gx_gl_set_options(const GxGlOptions* options);
  * addresses cannot hit stale cache entries). */
 void gx_gl_clear_textures(void);
 
+/* Drops the decoded-texture cache entry (if any) for a source image.  The
+ * cache key is the CPU pointer, so CPU-updated images (THP movie planes,
+ * EFB copies) must invalidate it or the GL texture keeps the first decode. */
+void gx_gl_invalidate_texture(const void* image);
+
 /* Renders the last frame captured by gx_hle into the pbuffer.  Returns the
  * number of draws submitted, or -1 on failure. */
 int gx_gl_render_frame(void);

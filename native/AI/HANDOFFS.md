@@ -57,6 +57,8 @@ something the next agent must know, or finish a task that changes interfaces.
 | 2026-09-14 | P-624 retail title state verified; `MELEE_TITLE_TEST` probe + `decomp_title` ctest | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-624-title-state.md`](handoffs/2026-09-14-P-624-title-state.md) |
 | 2026-09-14 | P-658 unwalked public roots: stand/cut scenes, intro-easy table, 51 event levels, dbLoadCommonData | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-658-roots.md`](handoffs/2026-09-14-P-658-roots.md) |
 | 2026-09-14 | P-638 reverb_hi/chorus ports + per-frame ITD ramp | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-638-axfx-itd.md`](handoffs/2026-09-14-P-638-axfx-itd.md) |
+| 2026-09-14 | P-685 opening movie: host THP decoder, texture-cache invalidation, colanim/ftData endianness fixes | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-685-opening-movie.md`](handoffs/2026-09-14-P-685-opening-movie.md) |
+| 2026-09-14 | P-686 open: debug boot no longer sticks in `GM_DEBUG_VS` after the P-685 decoder landed (same note) | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-685-opening-movie.md`](handoffs/2026-09-14-P-685-opening-movie.md) |
 
 ## Template
 

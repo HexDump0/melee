@@ -1807,3 +1807,34 @@ with `rlwinm r10,r4,7,21,27` (rotate left 7, mask bits 21..27), **not** a
 plain `(posLo >> 14) & 0x7f`.  The retail DOL carries the same encoding
 (`54 8a 3d 76`) at 0x359b34 and 0x359ccc, so use the PPC rotate+mask
 semantics; the 512-float table's phase ordering assumes it.
+
+## G-136: CPU-updated textures need cache invalidation (THP movie)
+
+**Symptom:** the opening movie played (frames advanced, audio, START skipped)
+but the screen stayed on the first decoded frame — a black/grey card.
+The GL draw dump showed the movie quad bound to the correct Y/U/V planes.
+**Cause:** `gx_gl`'s decoded-texture cache keys on the CPU pointer.  The THP
+player writes every frame into the same plane buffers (`THPDec_80331340`
+copies into `MoviePlayer.unk_50/54/58`), so the cache kept serving the first
+decode (black).  The EFB-copy path already invalidated; `GXInitTexObj` did
+not.  The player re-inits its three texobjs every frame, which is the natural
+dirty signal.
+**Fix:** `GXInitTexObj` calls `gx_gl_invalidate_texture(image_ptr)`; the next
+`GXLoadTexObj` re-decodes.  Static textures are initialized once, so there is
+no per-frame cost.  `ctest decomp_opening` requires the captured movie frame
+to have real pixels (flipping the invalidation off fails it).
+**Related porting notes (P-685):**
+- `extern/dolphin`'s `THPDec.c` is MWCC-only in practice: its `#ifdef
+  __MWERKS__` blocks remove the control flow that the remaining C labels rely
+  on (the Huffman decode falls through into the failure path).  Replaced by
+  `native/decomp/thp_dec.c`, a C transcription of Aurora's `THPDec.cpp`.
+- THP headers and each packed frame's size prefix are big-endian file words;
+  the host reads the raw file, so `lbmthp.c` swaps them under `PORT_PC`.
+- `ColorOverlay_x8_t`'s colanim opcode bitfields (`unk:6`, rot fields) are
+  archive data read MSB-first on the console; they need the same
+  `scalar_storage_order("big-endian")` treatment as the action commands
+  (G-082).  Without it the title attract demo dispatches a garbage opcode
+  into `ftCo_803C6AD0[opcode - 0x15]`.
+- `ftData->x54` is a relocation-backed pointer to a five-int per-costume part
+  table (`ftCo_8009F834` reads it for bone id 0x8D); the converter has to
+  walk the pointee or the entries stay byte-reversed.

@@ -407,11 +407,14 @@ void OSSetProgressiveMode(u32 mode)
 
 unsigned long OSGetResetCode(void)
 {
-    /* The host is a "reset to the menu" boot: the game's own check
-     * (gmMainLib_8015FCC0) maps 0x80000000 to skip_intro, which routes
-     * GM_BOOT to the memory-card scene instead of the opening movie.  The
-     * movie player (THP) is not ported yet, so letting the game take its
-     * skip-intro path is the faithful choice for headless bring-up. */
+    /* 0x80000000 is the game's "reset to menu" code: gmMainLib_8015FCC0 maps
+     * it to skip_intro, which routes GM_BOOT to the memory-card scene instead
+     * of the opening movie.  The skip-intro path stays the default until the
+     * opening is verified headlessly; MELEE_OPENING=1 cold-boots into
+     * GM_OPENING_MV and plays MvOpen.mth (P-685). */
+    if (getenv("MELEE_OPENING") != NULL) {
+        return 0;
+    }
     return 0x80000000;
 }
 

@@ -1,0 +1,66 @@
+diff --git a/src/melee/lb/lbmthp.c b/src/melee/lb/lbmthp.c
+index fde58837b..1ba08860d 100644
+--- a/src/melee/lb/lbmthp.c
++++ b/src/melee/lb/lbmthp.c
+@@ -14,6 +14,17 @@
+ #include <sysdolphin/baselib/tobj.h>
+ #include <sysdolphin/baselib/video.h>
+ 
++#ifdef PORT_PC
++/* The THP header and each packed frame's size prefix are big-endian file
++ * words; the host reads the raw file bytes and has no converter pass for the
++ * movie (P-685). */
++static inline u32 lbmthp_be32(u32 value)
++{
++    return ((value & 0x000000FFu) << 24) | ((value & 0x0000FF00u) << 8) |
++           ((value & 0x00FF0000u) >> 8) | ((value & 0xFF000000u) >> 24);
++}
++#endif
++
+ /* Struct used by fn_8001EBF0 for THP decode component init */
+ typedef struct THPDecComp {
+     /* 0x00 */ u8 pad0[0x08];
+@@ -117,7 +128,12 @@ static void fn_8001E910(int arg0, int arg1, void* arg2, int cancelflag)
+     } else {
+         var_r0 = streamPlayer->unk_8C - 1;
+     }
++#ifdef PORT_PC
++    streamPlayer->currPackedSize = lbmthp_be32(
++        *(u32*) streamPlayer->frame_buffers[var_r0]);
++#else
+     streamPlayer->currPackedSize = *(u32*) streamPlayer->frame_buffers[var_r0];
++#endif
+     if (streamPlayer->unk_90 != streamPlayer->unk_8C &&
+         streamPlayer->unk_70 != 0)
+     {
+@@ -167,6 +183,18 @@ static s32 fn_8001EB14(THPDecComp* data, const char* path)
+     data->file_entrynum = DVDConvertPathToEntrynum(path);
+     lbFile_800161C4(data->file_entrynum, 0, (u32) data, 0x40, 0x21, 1);
+ 
++#ifdef PORT_PC
++    data->version = lbmthp_be32(data->version);
++    data->buf_size = lbmthp_be32(data->buf_size);
++    data->x_size = lbmthp_be32(data->x_size);
++    data->y_size = lbmthp_be32(data->y_size);
++    data->frame_rate = lbmthp_be32(data->frame_rate);
++    data->num_frames = lbmthp_be32(data->num_frames);
++    data->first_frame = lbmthp_be32(data->first_frame);
++    data->frame_offsets = lbmthp_be32(data->frame_offsets);
++    data->first_frame_size = lbmthp_be32(data->first_frame_size);
++#endif
++
+     data->unk_40 = data->num_frames;
+     data->width = data->x_size;
+     data->height = data->y_size;
+@@ -297,7 +325,11 @@ static void fn_8001ECF4(THPDecComp* data, void* buf)
+                             1);
+             csizep = var_r29;
+             data->curr_file_offset += var_r24;
++#ifdef PORT_PC
++            var_r24 = lbmthp_be32(*(u32*) var_r29);
++#else
+             var_r24 = *(u32*) var_r29;
++#endif
+             var_r29 = var_r29 + data->unk_100;
+         }
+         data->unk_74 = var_r25;

@@ -271,6 +271,9 @@ list(APPEND MELEE_DECOMP_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/src/dolphin/ar/arq.c
     ${MELEE_AX_SOURCES})
 
+list(APPEND MELEE_DECOMP_SOURCES
+    # P-685: host THP movie decoder replacing the MWCC-only extern THPDec.c.
+    ${CMAKE_CURRENT_SOURCE_DIR}/decomp/thp_dec.c)
 add_library(melee_decomp_game OBJECT ${MELEE_DECOMP_SOURCES})
 target_include_directories(melee_decomp_game BEFORE PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
@@ -314,7 +317,6 @@ add_executable(melee_decomp_boot
     audio/ax_hle.c
     audio/ax_mixer.c
     audio/wav.c
-    platform/audio.c
     decomp/fonts.c
     platform/misc.c
     $<TARGET_OBJECTS:melee_decomp_game>)
@@ -423,7 +425,6 @@ add_executable(test_decomp_render
     platform/pad_card.c
     audio/ax_hle.c
     audio/ax_mixer.c
-    platform/audio.c
     decomp/fonts.c
     platform/misc.c
     $<TARGET_OBJECTS:melee_decomp_game>)
@@ -527,8 +528,7 @@ if(MELEE_SDL3_LIB32)
     platform/pad_card.c
       audio/ax_hle.c
       audio/ax_mixer.c
-      platform/audio.c
-      decomp/fonts.c
+        decomp/fonts.c
       platform/misc.c
       $<TARGET_OBJECTS:melee_decomp_game>)
   target_include_directories(melee BEFORE PRIVATE
@@ -577,6 +577,18 @@ if(MELEE_SDL3_LIB32)
           "\\[title\\] mode=0 logos=1 logo_anim=[0-9.]+ ok=1"
       TIMEOUT 300
       ENVIRONMENT "SDL_VIDEODRIVER=offscreen;SDL_AUDIODRIVER=dummy;MELEE_CARD_DIR=${CMAKE_CURRENT_BINARY_DIR}/title-card;MELEE_TITLE_TEST=1;MELEE_VIEWER_TRIAGE=1")
+  # P-685: the opening movie renders real frames and the title attract demo
+  # survives to the end of an idle run (colanim opcodes and the ftData part
+  # table used to crash both paths).
+  add_test(NAME decomp_opening
+      COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/tests/frontend_opening.sh
+              $<TARGET_FILE:melee>
+              ${CMAKE_CURRENT_SOURCE_DIR}/tests/frontend_vs.txt
+              ${CMAKE_CURRENT_BINARY_DIR}/frontend-opening)
+  set_tests_properties(decomp_opening PROPERTIES
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
+      PASS_REGULAR_EXPRESSION "frontend_opening: PASS"
+      TIMEOUT 600)
   # P-646: the game's own card filesystem (hsd_3A94 pump) must create save
   # data on an empty card and reload it; two short frontend runs so the
   # card image stays inside the build directory.

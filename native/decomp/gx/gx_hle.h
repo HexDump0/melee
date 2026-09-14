@@ -178,6 +178,10 @@ typedef struct GxHleDraw {
 /* Call once before submitting a frame's GX commands. */
 void gx_hle_begin_frame(void);
 
+/* Optional decoded-texture cache hook, set by gx_gl (targets that render
+ * call it for each GXInitTexObj so CPU-updated images are re-decoded). */
+void gx_hle_set_texture_invalidate_hook(void (*fn)(const void* image));
+
 /* Drops the captured geometry while keeping the GX state, so HSD's internal
  * state caches stay coherent across a multi-pass capture. */
 void gx_hle_discard_geometry(void);

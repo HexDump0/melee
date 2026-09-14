@@ -683,7 +683,7 @@ static void dump_draws(unsigned frame)
             fprintf(stderr, "    tex1: %p %ux%u fmt=%u pal=%p\n", t->image,
                     t->width, t->height, t->format, t->palette);
         }
-        if (d->state.blend_type != 0) {
+        if (d->state.blend_type != 0 || d->state.num_stages > 1) {
             int stage;
             fprintf(stderr,
                     "    alpha: tev C0=%.3f C1=%.3f C2=%.3f K0=%.3f "

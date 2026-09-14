@@ -854,6 +854,7 @@ static int gl_setup(char* error, size_t error_size)
 
 int gx_gl_attach(int width, int height, char* error, size_t error_size)
 {
+    gx_hle_set_texture_invalidate_hook(gx_gl_invalidate_texture);
     if (width > 0) {
         gl_width = width;
     }
@@ -905,6 +906,7 @@ void gx_gl_clear_textures(void)
 
 int gx_gl_init(int width, int height, char* error, size_t error_size)
 {
+    gx_hle_set_texture_invalidate_hook(gx_gl_invalidate_texture);
     static const EGLint config_attr[] = {
         EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
         EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
@@ -1075,6 +1077,14 @@ static void gl_texture_cache_invalidate(const void* image)
         }
         i++;
     }
+}
+
+void gx_gl_invalidate_texture(const void* image)
+{
+    if (tex_cache_count == 0) {
+        return;
+    }
+    gl_texture_cache_invalidate(image);
 }
 
 static GLuint dynamic_texture_for(const GxHleTexture* t)

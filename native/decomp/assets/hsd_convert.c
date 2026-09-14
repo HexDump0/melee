@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 80u
+#define HSD_CONVERTER_VERSION 81u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -2413,7 +2413,15 @@ static void conv_ft_data(Conv* c, uint32_t off)
     x34 = rd32(c, off + 0x34);
     x44 = rd32(c, off + 0x44);
     x50 = rd32(c, off + 0x50);
-    conv_u32(c, off + 0x54);
+    /* x54 is a relocation-backed pointer to the per-costume part table (five
+     * ints) that ftCo_8009F834 reads when a command's bone id is 0x8D;
+     * left big-endian the entries are byte-reversed ints (P-685). */
+    {
+        uint32_t part_tbl = rd32(c, off + 0x54);
+        if (part_tbl != 0 && in_data(c, part_tbl, 5 * 4)) {
+            conv_u32_range(c, part_tbl, 5);
+        }
+    }
 
     /* x8 can legitimately be data offset 0 (G-023): the ftData_x8 tables of
      * PlMr.dat live at the start of the data section. */

@@ -76,6 +76,13 @@ typedef struct {
     int begun;
 } GxHleState;
 
+static void (*texture_invalidate_hook)(const void* image);
+
+void gx_hle_set_texture_invalidate_hook(void (*fn)(const void* image))
+{
+    texture_invalidate_hook = fn;
+}
+
 static GxHleState gx;
 
 static GxHleVertex* frame_verts;
@@ -2024,6 +2031,12 @@ void GXInitTexObj(GXTexObj* obj, void* image_ptr, u16 width, u16 height,
     t->wrap_s = (u8) wrap_s;
     t->wrap_t = (u8) wrap_t;
     t->mipmap = mipmap;
+    /* A re-init of the same image means its CPU bytes may have changed
+     * (THP movie planes, streamed images); drop the decoded GL entry so the
+     * next load re-decodes instead of serving the first frame (P-685). */
+    if (image_ptr != NULL && texture_invalidate_hook != NULL) {
+        texture_invalidate_hook(image_ptr);
+    }
     gx.pending_tex = *t;
     gx.pending_tlut_name = -1;
     if (t != &gx.pending_tex) {

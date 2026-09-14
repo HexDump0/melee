@@ -12,7 +12,8 @@ prototype to a decompilation-based full-game port (ADR-0010). S0–S6 are done
 CSS → stage select → match → results) from the product binary
 `build/native/melee`, with `ctest decomp_frontend` as the headless
 regression.  Memory-card save data creates and reloads through the game's own
-card filesystem (P-646/G-132, `ctest decomp_frontend_card`); the title enters
+card filesystem (P-646/G-132, `ctest decomp_frontend_card`); the opening
+movie plays (`MELEE_OPENING=1`, P-685/G-136); the title enters
 in the retail state (P-624/G-090, `ctest decomp_title`); converter coverage
 includes the per-stage `yakumono_param` layouts and every public root
 (P-658/P-662/G-133/G-134); and the owner confirmed the frontend, saves and

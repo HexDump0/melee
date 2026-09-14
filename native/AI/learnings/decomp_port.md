@@ -261,3 +261,14 @@ The `MELEE_PORT_AX_*` macros live in `native/decomp/shim/decomp_shim.h`
 
 Other S6 frontend patches landed with their own tasks (P-641 camera/results
 tables, P-647 SisLib fonts, P-650 TexAnim); see `STATE.md`.
+
+## S6 `src/` portability patches (opening movie, 2026-09-14, P-685)
+
+| File | Patch | Reason |
+|---|---|---|
+| `src/melee/lb/lbmthp.c` | under `PORT_PC`, byte-swap the 0x40-byte THP header fields after the file read and the 4-byte packed-size prefix of every frame (`lbmthp_be32`) | The THP header and each frame record's leading size word are big-endian file data; the console reads them natively, the host reads raw bytes.  Without the swap `x_size`/`y_size`/`num_frames` are byte-reversed, the frame sizes are garbage and the player walks off the file (G-136).  The JPEG payload itself is byte-oriented and stays untouched. |
+| `src/melee/lb/types.h` (`ColorOverlay_x8_t`) | under `PORT_PC`, mark the union's three bitfield member structs `CMD_BE` (`scalar_storage_order("big-endian")`) | Colanim scripts are archive data read MSB-first; the colanim opcode is `unk:6` of the command word.  GCC's LSB-first layout read a garbage opcode, dispatched out of `ftCo_803C6AD0[opcode - 0x15]` and crashed the title attract demo (G-136, same class as G-082). |
+
+`native/decomp/thp_dec.c` replaces the MWCC-only
+`extern/dolphin/src/dolphin/thp/THPDec.c` (excluded from the PC build); it is
+a C transcription of Aurora's `lib/dolphin/thp/THPDec.cpp`.

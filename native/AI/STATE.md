@@ -227,7 +227,15 @@ at +0x10, dispatch queue at +0x1210) and the host allocated them separately,
 so the first file command was never dispatched; the `hsd_4D11.c` `PORT_PC`
 patch now aliases them onto the base, cards are inserted by default
 (`MELEE_NO_CARD=1` = empty slot), and `ctest decomp_frontend_card` creates
-and reloads a save over one card directory (P-646/G-132).
+and reloads a save over one card directory (P-646/G-132).  The opening movie
+is ported: a host THP decoder (`native/decomp/thp_dec.c`, from the Aurora
+reference) replaces the MWCC-only SDK one, `lbmthp.c` swaps the big-endian
+header/frame-size words, `GXInitTexObj` invalidates the decoded-texture cache
+so the CPU-updated movie planes re-upload, and the title attract demo's
+colanim opcode and `ftData->x54` endianness bugs are fixed.  `MELEE_OPENING=1`
+cold-boots into `MvOpen.mth` (the skip-intro path stays the default);
+`ctest decomp_opening` covers both the movie frame pixels and the attract
+demo (P-685/G-136).
 
 **P-671/P-678/P-672 (2026-09-13):** the renderer-parity program (ADR-0017)
 produced `learnings/gx_coverage_matrix.md` (the 100-function GX surface with

@@ -550,6 +550,28 @@ static int check_ft_data_tables(const char* image, const char* path,
             checked++;
         }
     }
+    {
+        /* x54: per-costume part table (five ints) read by ftCo_8009F834 when
+         * a command's bone id is 0x8D; it is a relocation-backed pointer, so
+         * only the converter walk can byte-swap the entries (P-685). */
+        uint32_t raw_parts = read_be_u32(raw + 0x20 + ft_off + 0x54);
+        if (raw_parts != 0 && raw_parts + 5 * 4 <= size - 0x20) {
+            for (i = 0; i < 5; i++) {
+                const unsigned char* rp = rdata + raw_parts + i * 4;
+                const unsigned char* cp = cdata + raw_parts + i * 4;
+                if (read_host_u32(cp) != read_be_u32(rp)) {
+                    if (failed == 0) {
+                        fprintf(stderr,
+                                "decomp_assets: %s x54[%d]=%u want=%u "
+                                "(not converted?)\n",
+                                path, i, read_host_u32(cp), read_be_u32(rp));
+                    }
+                    failed++;
+                }
+            }
+            checked++;
+        }
+    }
     raw_sfx = read_be_u32(raw + 0x20 + ft_off + 0x4C);
     if (raw_sfx != 0) {
         if (raw_sfx + 0x38 > size - 0x20) {
