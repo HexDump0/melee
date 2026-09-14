@@ -273,3 +273,24 @@ tables, P-647 SisLib fonts, P-650 TexAnim); see `STATE.md`.
 `native/decomp/thp_dec.c` replaces the MWCC-only
 `extern/dolphin/src/dolphin/thp/THPDec.c` (excluded from the PC build); it is
 a C transcription of Aurora's `lib/dolphin/thp/THPDec.cpp`.
+
+## Non-Metrowerks divergence census (2026-09-14, P-687..P-689)
+
+Findings from reviewing upstream `doldecomp/melee#3456` (filed 2026-09-11 by
+`alexscott2718-gif`; ribbanya applied the `portability` + `ai-assisted` labels;
+no upstream PR; reference diff on
+`alexscott2718-gif/melee:p0/native-build-fixes`).  The pin `40012f51f` still
+contains all four upstream items; all were re-verified against the port build.
+The tasks and exact fix specs are in
+`handoffs/2026-09-14-P-687-native-divergences.md`.
+
+| Divergence | Evidence in this tree | Task |
+|---|---|---|
+| `atanf` body is `#ifdef __MWERKS__` with no fallback (`src/melee/lb/lbtrigf.c:147-243`), so `atanf`/`atan2f`/`acosf`/`asinf` bind to host libm | `nm build/native/melee_decomp_boot` -> `U atanf@GLIBC_2.0`; six direct game callers incl. `ftcoll.c:2903` (quantised to degrees) | P-688 |
+| `src/placeholder.h:13,16` maps `__frsqrte` to `sqrt(x)` and `__fabs` to `fabsf` | `__frsqrte` already fixed by `native/decomp/shim/placeholder.h` (G-094); `__fabs` still live at `generator.c:884` | P-688 |
+| Big Blue: five `asm { rlwimi }` under `#ifdef MUST_MATCH` with no `#else` (`grbigblue.c:3250..3314`) | `grBigBlue_801ECB50` in the built binary has no bit-insert; the cars' 6-bit state byte is never written | P-687 |
+| `gm_1601.c:3081` `fn_80166A8C` is an empty non-void function outside `MWERKS_GEKKO` | caller `gm_1601.c:2986` reads uninitialised `sp48_x` into `player_standings[i].xE` | P-687 |
+| `Runtime/runtime.c:544` `__cvt_dbl_usll` is an empty non-void function on the host (port-only) | compiled symbol at `0x117a70` is a single `ret`; called from `gm_1884.c:784` (training speed) | P-687 |
+| PlCo `pData[8]` respawn-platform joint+anim pair never converted (port-only) | `hsd_convert.c:2233` walks 0/4/5/16/20, not 8; `ft_0D4D.c:139,148` reads the pair | P-689 |
+| `.nix` native target omits `src/MSL/trigf.c`, so `sinf`/`cosf`/`tanf` bind to host libm | port excludes all of `src/MSL/` per ADR-0011; 363 `sinf`/`cosf`/`tanf` call sites in game code | P-688 |
+

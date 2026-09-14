@@ -59,6 +59,7 @@ something the next agent must know, or finish a task that changes interfaces.
 | 2026-09-14 | P-638 reverb_hi/chorus ports + per-frame ITD ramp | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-638-axfx-itd.md`](handoffs/2026-09-14-P-638-axfx-itd.md) |
 | 2026-09-14 | P-685 opening movie: host THP decoder, texture-cache invalidation, colanim/ftData endianness fixes | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-685-opening-movie.md`](handoffs/2026-09-14-P-685-opening-movie.md) |
 | 2026-09-14 | P-686 fixed: fighter material templates used DOL-only data adjacency; decomp pin updated | Codex | [`2026-09-14-P-686-match-spawn.md`](handoffs/2026-09-14-P-686-match-spawn.md) |
+| 2026-09-14 | P-687..P-689 non-Metrowerks divergences (upstream #3456) + task specs | opencode (deepseek-v4.1-flash) | [`2026-09-14-P-687-native-divergences.md`](handoffs/2026-09-14-P-687-native-divergences.md) |
 
 ## Template
 
