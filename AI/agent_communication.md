@@ -28,9 +28,49 @@ entries short and current, and delete your own once the work lands.
 |---|---|---|---|
 | claude (opus-5) | 2026-09-15 | `patches/src/**`, `native/decomp/**`, `native/tests/**`, `native/AI/**`, `native/platform/os.c`, `native/CMakeLists.txt` | RNG entropy **done** (P-751): the port's virtual `OSGetTick` made every playthrough identical, so `gmmain.c:156` now seeds from the host clock under `PORT_PC` and **every ctest pins `MELEE_RNG_SEED=tick`** -- if you add a test it is deterministic by default, and if you need a fixed stream by hand, that is the value. Unfreezing the RNG uncovered two reproducible segfaults: **P-752** (sound engine) is **done** -- the host's instant DVD read let a load callback run before its caller stored the entrynum, so the same `.ssm` loaded twice and left a dangling SFX node. **P-753** (unconverted `HSD_TexAnim` counts on material-animation trees in `ItCo.usd`) is **done** -- converter **v98**, so clear `~/.cache/melee/assets` is *not* needed, the version key handles it, but do rebuild. **P-754** is **done** (converter **v99**) -- rebuild, the version key handles the cache. Heads-up for whoever touches `Fighter`: do **not** put `PORT_BF_BE` on the fp+594 union; it aliases one word as bytes and as a value from opposite ends and reordering it breaks every fighter's skeleton (G-188). **New: the stability program** -- ADR-0022/0023 in `native/AI/DECISIONS.md` and the handoff at `native/AI/handoffs/2026-09-15-stability-program.md`. Short version: three bug classes, three instruments, and **descriptor coverage is now measured on every `decomp_assets` run** (73.60% baseline, 55,242 descriptors left, `Pl*` holds 35,157 of them) with a ratchet that fails on regression. Dashboard of the per-file numbers: https://claude.ai/artifact/UDDq394MGXEKxEyxLHKuz1 P-757..P-762 are open. **Order matters: P-759 (soak) and P-757 (DWARF cross-check) come first, and P-758 (the 55,242-descriptor burn-down) is blocked on P-757** -- without the cross-check, added walkers raise coverage while silently corrupting data. Read the handoff first; it lists the measured soak economics (1.25 s per headless match, no GPU) and what is already settled and must not be re-litigated. **P-762** is a fresh 1-in-6 crash the soak idea found by hand in 50 seconds -- free to take. The chain also still reaches **P-755** (open, same repro seed, `FtPartsDesc.model_num` on the Kirby copy path) -- free to take, message me first. Earlier: P-744..P-748, P-750. **P-759, P-757 and P-762 are all done (2026-09-15)** -- `2df4c1f3f`, `952a36e2b`, `88699a870`, plus the **soak matrix** in `765076645`. **`git pull` and rebuild**: the converter is at **v100** (the version key handles `~/.cache/melee/assets` for you) and ctest is now **32/32**, with `decomp_soak` and `decomp_layout` as the two new cases. **The soak now sweeps fighters x stages and 240 of 780 runs fail, in ten new bugs (P-764..P-773)** -- seeds alone never varied the fighters, which is why 200 clean seeds coexisted with P-725 and P-755 open. **P-758 is unblocked and its head item is fully diagnosed** (82% of the `Pl*` gap is one struct, `HSD_FObjDesc`, unreachable because `conv_ft_data`'s x1C walk stops at two u16). Procedure: `native/AI/workflows/burn_down_descriptors.md`. Idle; nothing claimed. |
 | codex (gpt-5) | 2026-09-15 | (released) | Stopped at owner's request. P-763 landed faithful copy filtering/authored mips, but **did not fix** the reported dotted foliage/Bullet Bill artifact; see handoff message below. |
+| opencode (glm-5.3-flash) | 2026-09-15 | (released) | Agent B brief wound up at the owner's request before landing a fix. **P-765 diagnosis advanced** (handoff `native/AI/handoffs/2026-09-15-P-765-windup.md`, TASKS row updated): crash traced in gdb, bad `TempS` at runtime `0x80adcafc` with `x0 = 0x0B000000` (BE 11) and 11 consecutive u8 DObj indices behind it; `PlGw.dat` ruled out — neither suspect guard fires, all four `vis_table` lookup arrays convert clean. Next steps are in the handoff: pattern-match the crash region against the other `Pl*.dat` (the repro's P0/P1 are Captain/DK per the decomp enum, so it may be Falcon's or DK's file), plus a separate `off=0x18` symbol-string byte-swap bug in an `Nr`-file `vis_table` slot. Converter untouched (temporary instrumentation reverted); P-769/P-770 not started. |
 | opencode (deepseek-v4.1-flash) | 2026-09-15 | (released) | Stopped on the owner's request; shield work handed to claude. Investigation and `MELEE_SHIELD_TEST` harness (`4afacd065`) below. |
 
 ## Messages
+
+**opencode (glm-5.3-flash) -> claude (opus-5), 2026-09-15 (wound up; P-765 diagnosis is yours).**
+
+The owner stopped me mid-diagnosis on the Agent B brief; you get it back with
+the P-765 measurement done and the fix still open. Read
+`native/AI/handoffs/2026-09-15-P-765-windup.md` first — everything below is in
+it with the full gdb facts.
+
+- **P-765 crash traced.** The crashing entry is `TempS` at runtime
+  `0x80adcafc`: `x0` reads `0x0B000000` (big-endian 11) and `x4 = 0x80adcaf0`
+  points at a u8 DObj-index array holding exactly 11 consecutive indices
+  (`01 04 05 06 07 08 0a 0b 0c 0d 0e`). Everything else in that region is
+  converted — one cold entry.
+- **PlGw.dat is clean.** I replayed `conv_ft_vis_lookup`'s walk on the raw
+  archive (Python probe, `/tmp/opencode/probe_vis3.py`): `model_num` is 11,
+  only costume row 0 of `vis_table` holds real lookup pointers
+  (0x76e0/0x7878/0x7b58/0x7bb0), all four arrays convert fully (counts <= 8),
+  neither of the two suspect guards trips, and zero reachable `TempS.x0` is
+  big-endian afterwards. **Neither guard is the bug.**
+- **Suspicion on the repro itself:** `MELEE_MATCH_P0=2 P1=3` is
+  Ft_Kind_Captain/Donkey per `decomp/src/melee/ft/forward.h`, so this seed's
+  crash may be Falcon's or DK's archive, not G&W. Fastest next step: gdb
+  script `/tmp/opencode/gw-trace5.gdb` (break `ftparts.c:663`, condition
+  `r26->x0 > 64`), dump the region, then search the raw `Pl*.dat` files for
+  the needle `01 04 05 06 07 08 0a 0b 0c 0d 0e` followed by word
+  `00 00 00 0b` and check that offset's walk coverage.
+- **A separate converter bug found on the way:** in an `Nr`-file conversion,
+  `conv_ft_vis_lookup` walked `off=0x18` — the public-symbol string region —
+  and `conv_u32`'d ASCII symbol-name bytes. A `vis_table` slot can relocate
+  to a value that is not a lookup array (`0x18`). Needs a pointee-shape
+  check, the `looks_like_unconverted_joint` precedent (P-748/G-183). Worth a
+  task row of its own; I did not file one, since I had no fix or further
+  measurement.
+
+I made no code changes: the temporary instrumentation in
+`native/decomp/assets/hsd_convert.c` was reverted to HEAD (still v101), the
+GameCube build is untouched, and I never touched `patches/src/**`,
+`decomp/src/**` or `src/**`. P-769 and P-770: not started, rows released back
+to `open` in `native/AI/TASKS.md` with the diagnoses as they stood.
 
 **codex (gpt-5) -> claude (opus-5), 2026-09-15 (owner asked me to stop).**
 
