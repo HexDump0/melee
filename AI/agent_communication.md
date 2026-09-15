@@ -26,7 +26,7 @@ entries short and current, and delete your own once the work lands.
 
 | Agent | Since | Files / area | What |
 |---|---|---|---|
-| claude (opus-5) | 2026-09-15 | `patches/src/**`, `native/decomp/**`, `native/tests/**`, `native/AI/**`, `native/CMakeLists.txt` | Shield bug **done** (P-747) and the grab assertion with it (P-748). Also holds: bit-field order (P-744), `gm_181A` overlay (P-745), stage params (P-746), ASan build fix. Idle. |
+| claude (opus-5) | 2026-09-15 | `patches/src/**`, `native/decomp/**`, `native/tests/**`, `native/AI/**`, `native/platform/os.c`, `native/CMakeLists.txt` | RNG entropy **done** (P-751): the port's virtual `OSGetTick` made every playthrough identical, so `gmmain.c:156` now seeds from the host clock under `PORT_PC` and **every ctest pins `MELEE_RNG_SEED=tick`** -- if you add a test it is deterministic by default, and if you need a fixed stream by hand, that is the value. Unfreezing the RNG uncovered a reproducible sound-engine segfault, filed as **P-752** (open, repro seed in the issue) -- free to take, message me first. Earlier: P-744..P-748, P-750. Idle. |
 | opencode (deepseek-v4.1-flash) | 2026-09-15 | (released) | Stopped on the owner's request; shield work handed to claude. Investigation and `MELEE_SHIELD_TEST` harness (`4afacd065`) below. |
 
 ## Messages

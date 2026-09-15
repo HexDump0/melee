@@ -39,6 +39,7 @@
 #include <sysdolphin/baselib/tobj.h>
 
 #include <sysdolphin/baselib/gobj.h>
+#include <sysdolphin/baselib/random.h>
 #include <sysdolphin/baselib/initialize.h>
 #include <dolphin/os/OSAlloc.h>
 
@@ -68,6 +69,7 @@ static int item_trace;
 static int item_verbose;
 static int shield_test;
 static int heap_trace;
+static int rng_trace;
 static void log_shield_state(void);
 static int shield_ok_said;
 static int shield_bad_said;
@@ -526,6 +528,16 @@ static void match_boot_frame(void)
      * fail after a 1P stage ends, so the question is whether the HSD heap
      * shrinks across scene changes.  Print the free total next to the mode
      * and scene so a leak shows up as a staircase. */
+    /* P-751: is the RNG advancing the way the console's does?  Melee has no
+     * entropy -- HSD_Rand seeds at 1 and steps per call -- so the variety a
+     * player sees comes entirely from how many calls have happened by the
+     * time something asks.  If the seed at a given scene is identical across
+     * runs with different input timing, the port is not stepping it. */
+    if (rng_trace && (frame % 30) == 0) {
+        fprintf(stderr, "[rng] frame=%u mode=%u seed=0x%08x\n", frame,
+                (unsigned) gm_GetCurrentGameMode(),
+                (unsigned) *HSD_RandSeedPtr);
+    }
     if (heap_trace && (frame % 60) == 0) {
         fprintf(stderr, "[heap] frame=%u mode=%u free=%ld\n", frame,
                 (unsigned) gm_GetCurrentGameMode(),
@@ -790,6 +802,10 @@ void match_boot_init(unsigned frame_in)
     frame = 0;
     if (getenv("MELEE_STADIUM_TRACE") != NULL) {
         stadium_trace = 1;
+        boot_platform_set_frame_hook(match_boot_frame);
+    }
+    if (getenv("MELEE_RNG_TRACE") != NULL) {
+        rng_trace = 1;
         boot_platform_set_frame_hook(match_boot_frame);
     }
     if (getenv("MELEE_TITLE_TEST") != NULL) {

@@ -1,0 +1,16 @@
+diff --git a/src/melee/gm/gmmain.c b/src/melee/gm/gmmain.c
+index 2f0f59ce0..48b36f639 100644
+--- a/src/melee/gm/gmmain.c
++++ b/src/melee/gm/gmmain.c
+@@ -153,7 +153,11 @@ int main(void)
+     HSD_GXSetFifoObj(GXInit(HSD_AllocateFifo(0x40000), 0x40000));
+     HSD_InitComponent();
+     GXSetMisc(1, 8);
++#ifdef PORT_PC
++    *HSD_RandSeedPtr = PortRandomSeed();
++#else
+     *HSD_RandSeedPtr = OSGetTick();
++#endif
+     lbAudioAx_8002838C();
+     lb_80019AAC(&gmMain_8015FD24);
+     HSD_VISetUserPostRetraceCallback(&gmMain_8015FDA0);

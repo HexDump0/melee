@@ -1,8 +1,8 @@
 diff --git a/src/Runtime/platform.h b/src/Runtime/platform.h
-index 3e752d28e..c68046d2f 100644
+index 3e752d28e..d7320ec9f 100644
 --- a/src/Runtime/platform.h
 +++ b/src/Runtime/platform.h
-@@ -24,6 +24,25 @@
+@@ -24,6 +24,41 @@
  /// @deprecated Use #true instead.
  #undef TRUE
  
@@ -23,6 +23,22 @@ index 3e752d28e..c68046d2f 100644
 +#define PORT_BF_BE __attribute__((scalar_storage_order("big-endian")))
 +#else
 +#define PORT_BF_BE
++#endif
++
++#ifdef PORT_PC
++/// Boot entropy for the one seed Melee draws (see gmmain.c).
++///
++/// On console the seed is @c OSGetTick() sampled after GX comes up, and the
++/// drive spin-up before that point is what makes it differ from boot to boot.
++/// The port's timebase is a virtual counter that starts at zero and advances
++/// in fixed steps -- deliberately, so tick deltas and the boot log stay
++/// reproducible -- so the same sample comes back every time and the whole
++/// game plays out identically: the same 1P opponent order, the same stages,
++/// the same item drops.  Seeding from the host clock here fixes that without
++/// touching the timebase or ::HSD_Rand, which is console-exact.
++///
++/// @c MELEE_RNG_SEED pins the value for tests that replay a fixed demo.
++u32 PortRandomSeed(void);
 +#endif
 +
  /// The underlying type of an @c enum, used as a placeholder

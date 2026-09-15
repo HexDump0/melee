@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <unistd.h>
 #include <time.h>
 
 #include "decomp/boot/boot_triage.h"
@@ -218,6 +219,63 @@ static u64 advance_ticks(u64 step)
 OSTick OSGetTick(void)
 {
     return (OSTick) advance_ticks(OS_TICKS_PER_MSEC);
+}
+
+/* Melee's only source of variety.  gmmain seeds HSD_Rand once at boot with
+ * OSGetTick(); on console the value depends on how long the drive took to
+ * spin up, so it differs every time.  Here the timebase is virtual and
+ * zero-based -- on purpose, since tick *deltas* and the boot log have to stay
+ * reproducible -- so that sample is a constant and every playthrough is the
+ * same one: the same 1P opponent on the same stage, the same item drops.
+ *
+ * So the entropy is injected at the seed rather than in the clock: nothing
+ * that measures elapsed time changes, and HSD_Rand itself stays console-exact.
+ * The tick is still read, both because it is what the console seeds with and
+ * because reading it advances the virtual clock, which is a side effect the
+ * boot sequence is entitled to.
+ *
+ * MELEE_RNG_SEED pins the seed for tests, which need the opposite of what the
+ * game needs: audio_determinism replays a run and diffs it, and a harness that
+ * lands a hit has to land it every time.  A number pins that number -- print
+ * a run's seed, feed it back, replay the run.  The word "tick" pins the bare
+ * console value, which is what every test uses: it reproduces the stream each
+ * test was written against, rather than one arbitrary constant that would
+ * move every harness onto a new stream at once. */
+u32 PortRandomSeed(void)
+{
+    const char* pinned = getenv("MELEE_RNG_SEED");
+    u32 tick = (u32) OSGetTick();
+    struct timespec ts;
+    u64 seed;
+
+    if (pinned != NULL && *pinned != '\0') {
+        if (strcmp(pinned, "tick") == 0) {
+            return tick;
+        }
+        return (u32) strtoul(pinned, NULL, 0);
+    }
+
+    /* CLOCK_REALTIME rather than the monotonic clock: two runs started a
+     * second apart must not agree, and a monotonic clock that resets with the
+     * machine would hand out the same seed after every reboot. */
+    if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
+        ts.tv_sec = time(NULL);
+        ts.tv_nsec = 0;
+    }
+    seed = (u64) ts.tv_sec * 1000000000ull + (u64) ts.tv_nsec;
+
+    /* Two copies launched in the same nanosecond tick would otherwise share a
+     * seed; the pid separates them. */
+    seed ^= (u64) getpid() * 2654435761ull;
+    seed = (seed ^ (seed >> 32)) ^ tick;
+
+    /* Printed so a run that turns up a bug can be replayed exactly: feed the
+     * value back as MELEE_RNG_SEED. */
+    fprintf(stderr,
+            "[rng] seed=0x%08x (MELEE_RNG_SEED=0x%08x replays this run, "
+            "tick=0x%08x)\n",
+            (unsigned) (u32) seed, (unsigned) (u32) seed, (unsigned) tick);
+    return (u32) seed;
 }
 
 /* Seconds from the GameCube epoch (2000-01-01) to the host's wall clock,

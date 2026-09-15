@@ -823,3 +823,21 @@ if(MELEE_SDL3_LIB32)
 else()
   message(STATUS "32-bit SDL3 not found; skipping the product melee target")
 endif()
+
+# The port seeds HSD_Rand from the host clock (PortRandomSeed), because the
+# virtual timebase made every playthrough identical -- see P-751.  Tests have
+# the opposite requirement: audio_determinism replays a run and diffs it, the
+# opening test replays the attract demo, and a harness that lands a hit has to
+# land it every time.  Pin the seed for every test rather than per test, so a
+# new test is deterministic by default; the shipped game keeps real entropy.
+#
+# "tick" is the bare virtual-timebase value the seed used to be, so each test
+# keeps the exact stream it was written against.  Other streams do find real
+# bugs -- MELEE_RNG_SEED=0x13371337 segfaults in HSD_Synth_80389334, P-752 --
+# but those belong in their own issue with their own repro, not in a blanket
+# reseed of every harness.
+get_property(melee_all_tests DIRECTORY PROPERTY TESTS)
+if(melee_all_tests)
+  set_property(TEST ${melee_all_tests} APPEND PROPERTY
+      ENVIRONMENT_MODIFICATION "MELEE_RNG_SEED=set:tick")
+endif()

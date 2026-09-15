@@ -3241,6 +3241,38 @@ skipped, which is right; `mark()` would refuse it anyway.
 Fourth member of the "reached only through `ftData`" family, after `x1C`
 (P-630), `x40`/`x4C` (P-655), `x48` (P-656) and `x20` (P-747).
 
+## G-185: a deterministic clock froze the game's only source of randomness
+
+**Symptom (owner):** after G-184 fixed the Classic shuffle, every 1P run still
+played out identically -- "now it is always just link and hyrule."
+
+**Cause:** Melee seeds `HSD_Rand` exactly once, at `gmmain.c:156`:
+`*HSD_RandSeedPtr = OSGetTick()`.  Everything else is the fixed LCG
+`seed * 214013 + 2531011`.  The port's `OSGetTick` reads a virtual timebase
+that starts at zero and advances in fixed steps, which is *correct and
+deliberate* -- tick deltas and the boot log have to be reproducible -- but it
+also makes that one sample a constant, so the whole stream repeats.
+
+**Fix:** put the entropy at the seed, not in the clock (`PortRandomSeed`,
+`PORT_PC`-gated).  The tick is still read, so its clock side effect survives;
+`HSD_Rand` is untouched, because it is console-exact and "fixing" it would be
+a reinterpretation.
+
+**The general shape:** a port replaces hardware with something deterministic
+for good reasons, and a *single* place where the game harvested hardware
+noise quietly becomes a constant.  When the owner reports "it is always the
+same X", look for the one call that samples the machine, not for the
+generator.
+
+**Corollary -- a frozen stream hides bugs.**  Unfreezing it immediately
+segfaulted the sound engine (P-752) on a path CI had never taken in months of
+runs.  So tests must pin the seed rather than inherit the game's entropy:
+`MELEE_RNG_SEED=tick` is the old value, applied to the whole suite with one
+`ENVIRONMENT_MODIFICATION`, so a new harness is deterministic by default and
+nobody has to remember.  Pinning to a *new* arbitrary constant instead would
+have moved every harness onto an untested stream at once -- three tests fail
+at `0x13371337` -- which is a bug report, not a baseline.
+
 ## G-184: the Classic matchup shuffle wrote past the intro buffer
 
 **Symptom (owner):** "every single time I go in single player it's always
