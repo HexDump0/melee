@@ -1,8 +1,54 @@
 diff --git a/src/melee/gm/gmclassic.c b/src/melee/gm/gmclassic.c
-index 1cd625586..9f47171ce 100644
+index 1cd625586..504bd586c 100644
 --- a/src/melee/gm/gmclassic.c
 +++ b/src/melee/gm/gmclassic.c
-@@ -606,11 +606,22 @@ static gm_803DDEC8Struct* gmClassic_801B2D54(gm_803DDEC8Struct* arg0)
+@@ -13,7 +13,9 @@ extern UNK_T gmClassic_80470708[];
+ extern DebugGameOverData gmClassic_80470850;
+ extern UNK_T gmClassic_8047086C;
+ extern UNK_T gmClassic_80472AF8;
++#ifndef PORT_PC
+ u8 gm_804908A0[112];
++#endif
+ UNK_T gmClassic_804D68D0;
+ 
+ typedef struct gmClassicMatchup {
+@@ -92,7 +94,35 @@ typedef struct gmClassicSceneData {
+ } gmClassicSceneData;
+ ASSERT_SIZE(gmClassicSceneData, 0x560);
+ 
++#ifdef PORT_PC
++/* These two are one region on the console -- `gmClassicIntroDataBuffer` at
++ * 0x80490880 (0x20) then `gm_804908A0` at 0x804908A0 (0x70), adjacent with
++ * nothing between -- and `gmClassicRuntimeData` (0x90) is that region typed.
++ * `gm_Mode_Classic_OnLoad` casts `&gmClassicIntroDataBuffer` to it and then
++ * shuffles the matchup order through `runtime[order_offset]`, where e.g.
++ * offset 0x80 is `gm_804908A0[0x60]` -- the same bytes as the `order`
++ * argument.  That is an ordinary Fisher-Yates written through the overlay.
++ *
++ * With `-fdata-sections` the two are separate objects, so the swap read and
++ * wrote 0x60 bytes past the intro buffer instead of the order array.  The
++ * order therefore stayed as `order[i].idx = i` and every playthrough drew the
++ * same opponent on the same stage -- and the writes landed in whatever the
++ * linker put after the buffer (P-750).
++ *
++ * Reproduce the layout: one block with both at the console's offsets.  Both
++ * names are file-local in use, so macros suffice. */
++struct gmClassic_block_80490880 {
++    /* +0x00 */ gmClassicIntroData intro;
++    /* +0x20 */ u8 state[112];
++};
++static struct gmClassic_block_80490880 gmClassic_block_80490880;
++STATIC_ASSERT(offsetof(struct gmClassic_block_80490880, state) == 0x20);
++STATIC_ASSERT(sizeof(struct gmClassic_block_80490880) == 0x90);
++#define gmClassicIntroDataBuffer (gmClassic_block_80490880.intro)
++#define gm_804908A0 (gmClassic_block_80490880.state)
++#else
+ gmClassicIntroData gmClassicIntroDataBuffer;
++#endif
+ 
+ GameModeState gm_Mode_Classic_States[] = {
+     {
+@@ -606,11 +636,22 @@ static gm_803DDEC8Struct* gmClassic_801B2D54(gm_803DDEC8Struct* arg0)
      gm_803DDEC8Struct* ptr;
      gmClassicSceneData* scene_data =
          (gmClassicSceneData*) gm_Mode_Classic_States;
@@ -25,7 +71,7 @@ index 1cd625586..9f47171ce 100644
              if (result != NULL) {
                  ptr->xC = result;
              } else {
-@@ -623,8 +634,13 @@ static gm_803DDEC8Struct* gmClassic_801B2D54(gm_803DDEC8Struct* arg0)
+@@ -623,8 +664,13 @@ static gm_803DDEC8Struct* gmClassic_801B2D54(gm_803DDEC8Struct* arg0)
      for (ptr = arg0; ptr->x0 != 0xD; ptr++) {
          u8 flags = ptr->x1;
          if ((flags & 2) && !(flags & 0x20)) {
@@ -39,7 +85,7 @@ index 1cd625586..9f47171ce 100644
              if (result != NULL) {
                  ptr->xC = result;
              } else {
-@@ -637,8 +653,13 @@ static gm_803DDEC8Struct* gmClassic_801B2D54(gm_803DDEC8Struct* arg0)
+@@ -637,8 +683,13 @@ static gm_803DDEC8Struct* gmClassic_801B2D54(gm_803DDEC8Struct* arg0)
      for (ptr = arg0; ptr->x0 != 0xD; ptr++) {
          u8 flags = ptr->x1;
          if ((flags & 0x10) && !(flags & 0x20)) {
@@ -53,7 +99,7 @@ index 1cd625586..9f47171ce 100644
              if (result != NULL) {
                  ptr->xC = result;
              } else {
-@@ -651,8 +672,13 @@ static gm_803DDEC8Struct* gmClassic_801B2D54(gm_803DDEC8Struct* arg0)
+@@ -651,8 +702,13 @@ static gm_803DDEC8Struct* gmClassic_801B2D54(gm_803DDEC8Struct* arg0)
      for (ptr = arg0; ptr->x0 != 0xD; ptr++) {
          u8 flags = ptr->x1;
          if (flags == 0 || flags == 4) {
@@ -67,7 +113,7 @@ index 1cd625586..9f47171ce 100644
              if (result != NULL) {
                  ptr->xC = result;
              } else {
-@@ -681,7 +707,11 @@ static gm_803DDEC8Struct* gmClassic_801B2D54(gm_803DDEC8Struct* arg0)
+@@ -681,7 +737,11 @@ static gm_803DDEC8Struct* gmClassic_801B2D54(gm_803DDEC8Struct* arg0)
  
      for (ptr = arg0; ptr->x0 != 0xD; ptr++) {
          if (ptr->x1 & 0x20) {
@@ -79,7 +125,7 @@ index 1cd625586..9f47171ce 100644
              return ptr;
          }
      }
-@@ -693,15 +723,39 @@ void gm_Mode_Classic_OnLoad(void)
+@@ -693,15 +753,39 @@ void gm_Mode_Classic_OnLoad(void)
      UnkAllstarData* data;
      gmClassicSceneData* scene_data =
          (gmClassicSceneData*) gm_Mode_Classic_States;
@@ -119,7 +165,7 @@ index 1cd625586..9f47171ce 100644
      gmClassic_InitMatchupOrder(scene_data->matchups.x2B0,
                                 (gmClassicOrderIndex*) &gm_804908A0[0x60],
                                 (gmClassicOrderIndex*) o, 0x80);
-@@ -714,6 +768,7 @@ void gm_Mode_Classic_OnLoad(void)
+@@ -714,6 +798,7 @@ void gm_Mode_Classic_OnLoad(void)
      gmClassic_InitMatchupOrder(scene_data->matchups.x0CC,
                                 (gmClassicOrderIndex*) &gm_804908A0[0x0C],
                                 (gmClassicOrderIndex*) o, 0x2C);

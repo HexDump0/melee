@@ -39,6 +39,8 @@
 #include <sysdolphin/baselib/tobj.h>
 
 #include <sysdolphin/baselib/gobj.h>
+#include <sysdolphin/baselib/initialize.h>
+#include <dolphin/os/OSAlloc.h>
 
 #include <dolphin/mtx.h>
 #include <dolphin/pad.h>
@@ -65,6 +67,7 @@ static int stadium_trace;
 static int item_trace;
 static int item_verbose;
 static int shield_test;
+static int heap_trace;
 static void log_shield_state(void);
 static int shield_ok_said;
 static int shield_bad_said;
@@ -519,6 +522,15 @@ static void match_boot_frame(void)
     log_stadium_display();
     log_item_trace();
     log_shield_state();
+    /* P-749: HSD_ShadowSetSize asks for a fixed 32 KB and the owner sees it
+     * fail after a 1P stage ends, so the question is whether the HSD heap
+     * shrinks across scene changes.  Print the free total next to the mode
+     * and scene so a leak shows up as a staircase. */
+    if (heap_trace && (frame % 60) == 0) {
+        fprintf(stderr, "[heap] frame=%u mode=%u free=%ld\n", frame,
+                (unsigned) gm_GetCurrentGameMode(),
+                (long) OSCheckHeap(HSD_GetHeap()));
+    }
     if (title_test) {
         unsigned deadline = start_frame != 0 ? start_frame : 1200;
         log_title_state(0);
@@ -799,6 +811,9 @@ void match_boot_init(unsigned frame_in)
         } else {
             shield_test = getenv("MELEE_SHIELD_TEST") != NULL;
             build_match_input();
+        }
+        if (getenv("MELEE_HEAP_TRACE") != NULL) {
+            heap_trace = 1;
         }
         if (getenv("MELEE_ICON_TEST") != NULL) {
             icon_test = 1;

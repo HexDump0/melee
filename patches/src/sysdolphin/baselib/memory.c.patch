@@ -1,0 +1,49 @@
+diff --git a/src/sysdolphin/baselib/memory.c b/src/sysdolphin/baselib/memory.c
+index c544a9184..0c495ac7b 100644
+--- a/src/sysdolphin/baselib/memory.c
++++ b/src/sysdolphin/baselib/memory.c
+@@ -1,5 +1,10 @@
+ #include "memory.h"
+ 
++#ifdef PORT_PC
++#include <stdio.h>
++#include <stdlib.h>
++#endif
++
+ #include <Runtime/platform.h>
+ 
+ #include "debug.h"
+@@ -20,6 +25,33 @@ void* HSD_MemAlloc(ssize_t size)
+     }
+ 
+     adr = OSAllocFromHeap(HSD_GetHeap(), size);
++#ifdef PORT_PC
++    /* This assert has fired twice for two unrelated reasons and said nothing
++     * useful either time: once because a byte-swapped generator descriptor
++     * asked for ~4e8 particles and emptied the heap (P-742), once on a fixed
++     * 32 KB shadow buffer late in a 1P run (P-749).  "assertion adr failed"
++     * cannot tell those apart; the request size and the free total can, and
++     * they are the first two things anyone debugging this needs.  Say them.
++     *
++     * MELEE_ALLOC_TRACE additionally reports every large allocation, which is
++     * how a runaway is caught before it exhausts anything. */
++    {
++        static int trace = -1;
++        static int failures;
++        if (trace < 0) {
++            trace = getenv("MELEE_ALLOC_TRACE") != NULL;
++        }
++        if (adr == NULL && failures < 4) {
++            failures++;
++            fprintf(stderr,
++                    "HSD_MemAlloc: %ld bytes FAILED, heap free = %ld\n",
++                    (long) size, (long) OSCheckHeap(HSD_GetHeap()));
++        } else if (trace && size >= 0x40000) {
++            fprintf(stderr, "HSD_MemAlloc: %ld bytes, heap free = %ld\n",
++                    (long) size, (long) OSCheckHeap(HSD_GetHeap()));
++        }
++    }
++#endif
+     HSD_ASSERT(52, adr);
+ 
+     return adr;

@@ -3240,3 +3240,40 @@ skipped, which is right; `mark()` would refuse it anyway.
 
 Fourth member of the "reached only through `ftData`" family, after `x1C`
 (P-630), `x40`/`x4C` (P-655), `x48` (P-656) and `x20` (P-747).
+
+## G-184: the Classic matchup shuffle wrote past the intro buffer
+
+**Symptom (owner):** "every single time I go in single player it's always
+Yoshi on Yoshi's Island."
+
+**Cause:** `gmClassicIntroDataBuffer` (0x80490880, 0x20) and `gm_804908A0`
+(0x804908A0, 0x70) are adjacent on the console with nothing between, and
+`gmClassicRuntimeData` (0x90) is exactly that region typed.
+`gm_Mode_Classic_OnLoad` casts `&gmClassicIntroDataBuffer` to it and shuffles
+the matchup order through `runtime[order_offset]`, where offset 0x80 is
+`gm_804908A0[0x60]` -- the same bytes as the `order` argument.  It is an
+ordinary Fisher-Yates written through the overlay.
+
+`-fdata-sections` separates the two objects, so the swap read and wrote 0x60
+bytes **past** the intro buffer instead of into the order array.  The order
+stayed at its initial `order[i].idx = i`, so the same matchup came out every
+time, and the writes landed in whatever the linker put next.
+
+Measured: before, `order[0x60..]` reads `0 0 0 0 3 4 0 0 …`; after, a real
+permutation (`5 3 6 8 0 4 7 1 2`).
+
+**Fix:** the block treatment -- one struct with both at the console's offsets,
+`STATIC_ASSERT`ed.  The assertion is the regression here: it makes the
+adjacency a compile-time property, which no runtime test can do as well.
+
+**Why this one hid.** `gmclassic.c` already had a `PORT_PC` patch for a
+*different* overlay in the same file (the `scene_data` matchup tables), so it
+looked handled.  A file having a patch says nothing about a second overlay in
+it -- and this one has no `-Warray-bounds` signature either, because the cast
+is to a complete type (G-176, P-745).
+
+**The RNG is not the bug and should not be "fixed".** `HSD_Rand` starts at
+seed 1 and advances per call, with no entropy; that is console-faithful, and
+Melee's apparent randomness comes from how many calls have happened by the
+time you get there.  A port that boots deterministically will repeat a
+sequence when the input timing repeats, and that is correct.
