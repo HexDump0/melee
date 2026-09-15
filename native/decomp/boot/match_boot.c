@@ -25,6 +25,8 @@
 #include <melee/lb/lblanguage.h>
 #include <melee/gm/gmscene.h>
 #include <melee/gm/gmvs.h>
+#include <melee/gm/gmvsmelee.h>
+#include <melee/gm/gmvsmode.h>
 #include <melee/ft/fighter.h>
 #include <melee/ft/ftlib.h>
 #include <melee/ft/ftcpuattack.h>
@@ -64,6 +66,11 @@ static int title_logged;
 static int title_seen;
 static int gameover_test;
 static int gameover_stage;
+/* P-759 matrix mode: -1 means "leave onEnterDebugVs's own choice alone". */
+static int select_p0 = -1;
+static int select_p1 = -1;
+static int select_stage = -1;
+static int select_logged;
 static int stadium_trace;
 static int item_trace;
 static int item_verbose;
@@ -331,6 +338,88 @@ static void build_match_input(void)
     }
     pad_set_input_script(&match_input[0][0], MATCH_INPUT_CHANNELS,
                          MATCH_INPUT_FRAMES);
+}
+
+/* P-759: pick the fighters and the stage, so the soak can sweep a matrix
+ * instead of re-running one scenario.
+ *
+ * `onEnterDebugVs` (gmvsmode.c:161) hardcodes Link vs Mario and leaves
+ * `rules.stkind` at `St_Kind_Last`, writing into `gmVsMelee_StartData` --
+ * which is what `gm_Mode_DebugVs_States[0]` names as its enter data and what
+ * `gm_Scene_Vs_OnEnter` then reads.
+ *
+ * **Rewriting that global from the VI-frame hook does not work**, and the
+ * trace says why: `onEnterDebugVs` and `gm_Scene_Vs_OnEnter` run in the *same*
+ * game frame, so the hook only ever sees the value before the transition or
+ * after the fighters have already loaded.  It looks like it works -- the
+ * global does hold the selection from the next frame on -- while the match
+ * that actually loaded is the stock one.
+ *
+ * So wrap the mode state's own `on_enter` instead.  The table is ordinary
+ * writable data, the wrapper runs `onEnterDebugVs` first and then overrides
+ * its choices, and the scene reads the result in the same frame.  Nothing
+ * under `src/` changes. */
+static void (*debug_vs_on_enter)(GameModeState*);
+
+static void match_boot_on_enter_debug_vs(GameModeState* state)
+{
+    if (debug_vs_on_enter != NULL) {
+        debug_vs_on_enter(state);
+    }
+    {
+        StartMeleeData* start = gm_GetGameModeStateEnterData(state);
+        if (start == NULL) {
+            return;
+        }
+        if (select_p0 >= 0) {
+            start->players[0].ckind = (s8) select_p0;
+        }
+        if (select_p1 >= 0) {
+            start->players[1].ckind = (s8) select_p1;
+        }
+        if (select_stage >= 0) {
+            start->rules.stkind = (u16) select_stage;
+        }
+    }
+}
+
+static void install_match_selection(void)
+{
+    if (select_p0 < 0 && select_p1 < 0 && select_stage < 0) {
+        return;
+    }
+    if (gm_Mode_DebugVs_States[0].on_enter == match_boot_on_enter_debug_vs) {
+        return;
+    }
+    debug_vs_on_enter = gm_Mode_DebugVs_States[0].on_enter;
+    gm_Mode_DebugVs_States[0].on_enter = match_boot_on_enter_debug_vs;
+}
+
+/* Report what actually loaded, not what was asked for.  A selection that
+ * silently does not take would make a matrix sweep look like broad coverage
+ * while re-running one scenario, which is worse than not sweeping. */
+static void log_match_selection(void)
+{
+    HSD_GObj* g0;
+    HSD_GObj* g1;
+
+    /* Only once the DebugVs match is the live one.  The boot sequence loads
+     * fighters of its own before the mode sticks, and reporting those would
+     * describe a match the selection never applied to. */
+    if (select_logged || gm_GetCurrentGameMode() != GM_DEBUG_VS) {
+        return;
+    }
+    g0 = Player_GetEntity(0);
+    g1 = Player_GetEntity(1);
+    if (g0 == NULL || g1 == NULL) {
+        return;
+    }
+    select_logged = 1;
+    boot_triage_note(
+        "[match] loaded p0=%d p1=%d grkind=%d (asked p0=%d p1=%d stage=%d)\n",
+        (int) ((Fighter*) g0->user_data)->kind,
+        (int) ((Fighter*) g1->user_data)->kind, (int) stage_info.grkind,
+        select_p0, select_p1, select_stage);
 }
 
 static void log_match_state(void)
@@ -632,6 +721,10 @@ static void match_boot_frame(void)
         }
         return;
     }
+    /* Before anything else: whatever `onEnterDebugVs` just wrote into
+     * `gmVsMelee_StartData`, put the matrix selection back (P-759). */
+    install_match_selection();
+    log_match_selection();
     /* `onEnterDebugVs` starts every player with 0 stocks (the debug menu
      * usually overrides this) and the current game mode only flips to
      * GM_DEBUG_VS one scene later, so top the human players up while the VS
@@ -815,6 +908,18 @@ void match_boot_init(unsigned frame_in)
     if (getenv("MELEE_CPU_TEST") != NULL) {
         cpu_test = 1;
         boot_platform_set_frame_hook(match_boot_frame);
+    }
+    {
+        const char* e;
+        if ((e = getenv("MELEE_MATCH_P0")) != NULL) {
+            select_p0 = (int) strtol(e, NULL, 0);
+        }
+        if ((e = getenv("MELEE_MATCH_P1")) != NULL) {
+            select_p1 = (int) strtol(e, NULL, 0);
+        }
+        if ((e = getenv("MELEE_MATCH_STAGE")) != NULL) {
+            select_stage = (int) strtol(e, NULL, 0);
+        }
     }
     if (frame_in != 0) {
         if (getenv("MELEE_ITEM_TEST") != NULL) {
