@@ -1,8 +1,8 @@
 diff --git a/src/melee/gm/types.h b/src/melee/gm/types.h
-index 5c4a5e2ec..dbca3a40a 100644
+index 5c4a5e2ec..fddd6fc60 100644
 --- a/src/melee/gm/types.h
 +++ b/src/melee/gm/types.h
-@@ -19,8 +19,32 @@
+@@ -19,9 +19,21 @@
  #include <melee/mn/types.h>
  
  /// @deprecated Replace with inline bitfields
@@ -20,26 +20,8 @@ index 5c4a5e2ec..dbca3a40a 100644
 + * the cause was understood to be this union; it is left alone. */
  typedef union UnkFlagStruct {
      u8 byte;
-+#ifdef PORT_PC
-+    struct {
-+        u8 b7 : 1;
-+        u8 b6 : 1;
-+        u8 b5 : 1;
-+        u8 b4 : 1;
-+        u8 b3 : 1;
-+        u8 b2 : 1;
-+        u8 b1 : 1;
-+        u8 b0 : 1;
-+    };
-+#else
-     struct {
+-    struct {
++    struct PORT_BF_BE {
          u8 b0 : 1;
          u8 b1 : 1;
-@@ -31,6 +55,7 @@ typedef union UnkFlagStruct {
-         u8 b6 : 1;
-         u8 b7 : 1;
-     };
-+#endif
- } UnkFlagStruct;
- 
- struct UnkMultimanData {
+         u8 b2 : 1;

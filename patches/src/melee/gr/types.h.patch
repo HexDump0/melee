@@ -1,5 +1,5 @@
 diff --git a/src/melee/gr/types.h b/src/melee/gr/types.h
-index 6cd651a9f..e53f45588 100644
+index 6cd651a9f..cb6711559 100644
 --- a/src/melee/gr/types.h
 +++ b/src/melee/gr/types.h
 @@ -131,9 +131,26 @@ typedef struct StageCallbacks {
@@ -38,3 +38,18 @@ index 6cd651a9f..e53f45588 100644
      };
  } StageCallbacks;
  
+@@ -365,8 +383,13 @@ typedef struct grZakoGenerator_Data {
+ } grZakoGenerator_Data;
+ 
+ struct grCorneria_GroundVars {
++    /* `grcorneria.c:501-503` set `xC4.value = 1` and the rest of the file
++     * reads `xC4.flags.b0/b1/b2`.  MWCC puts b0 at 0x80, so on the console
++     * `value = 1` sets an unnamed bit and leaves all three named ones clear;
++     * GCC would put b0 at 0x01 and set it.  PORT_BF_BE keeps the two views
++     * agreeing (G-181). */
+     union {
+-        struct {
++        struct PORT_BF_BE {
+             u8 b0 : 1;
+             u8 b1 : 1;
+             u8 b2 : 1;

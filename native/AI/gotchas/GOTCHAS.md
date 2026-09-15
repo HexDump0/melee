@@ -3108,3 +3108,47 @@ every pass.  What settled it was scaling the model 30x from outside and
 diffing the frame against an unscaled run: **zero differing pixels** says
 "never drawn", not "drawn wrong", and that turned the search from the renderer
 to the caller.  Then one print at the top of `it_8026EECC` showed `b7=0`.
+
+## G-181: use `PORT_BF_BE`, not a reversed field order
+
+G-180 fixed `UnkFlagStruct` by writing its eight bits out backwards.  That
+works, but only because the group fills its storage unit exactly.  **Reversing
+a partial group is wrong:**
+
+```c
+struct { u8 b2 : 1; u8 b1 : 1; u8 b0 : 1; } f;  /* three bits, reversed */
+f.b0 = 1;   /* -> 0x04, not 0x80 */
+```
+
+Five bits of padding are needed to push `b0` to the top, and nothing in the
+declaration reminds you.  `grCorneria_GroundVars::xC4` is exactly that shape.
+
+GCC's `scalar_storage_order("big-endian")` gives MWCC's allocation directly,
+with the fields still declared in their natural order and no padding to get
+right.  `Runtime/platform.h` now carries it as `PORT_BF_BE`:
+
+```c
+union {
+    struct PORT_BF_BE { u8 b0 : 1; u8 b1 : 1; u8 b2 : 1; } flags;
+    u8 value;
+} xC4;
+```
+
+It is the same mechanism as `CMD_BE` in `melee/lb/types.h`, which the
+subaction command structs have used since G-082; `PORT_BF_BE` is reachable
+from everywhere because `Runtime/platform.h` is.  Note the attribute also
+byte-swaps *scalar* members of the struct it is applied to, so put it on the
+bit-field struct inside the union, never on the union itself.
+
+**Which groups need it.** Only those whose storage is also touched as a whole:
+a union alias written or read as a non-zero scalar, or bytes that came out of
+a `.dat`.  A group that is only ever accessed by field name is self-consistent
+either way, and `= 0` is order-independent, so most are fine.  The scan that
+found Corneria was: collect every union that pairs a scalar with a bit-field
+group, then look for a **non-zero** whole-scalar read or write of that member.
+Beware member-name collisions when you do this -- `value`, `flags`, `x3` and
+`xC4` appear in dozens of unrelated structs, and most of the hits are noise.
+
+Fixed so far: `ItemAttr` (P-654), `Fighter::x21FC_flag` (`FtStatusFlags`),
+`UnkFlagStruct` (G-180), `grCorneria_GroundVars::xC4` (G-181).
+`decomp_assets` asserts the first, third and fourth, and needs no disc image.

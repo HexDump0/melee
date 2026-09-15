@@ -1,0 +1,30 @@
+diff --git a/src/Runtime/platform.h b/src/Runtime/platform.h
+index 3e752d28e..c68046d2f 100644
+--- a/src/Runtime/platform.h
++++ b/src/Runtime/platform.h
+@@ -24,6 +24,25 @@
+ /// @deprecated Use #true instead.
+ #undef TRUE
+ 
++/// Lay a bit-field group out the way MWCC does.
++///
++/// MWCC allocates the first bit-field at the **most** significant bit of the
++/// storage unit; GCC allocates at the least significant one.  Any group that
++/// is also written or read as a whole scalar -- through a union alias, or
++/// because the bytes came out of a `.dat` -- therefore lands on different bits
++/// on the two compilers, and the port silently disagrees with the console.
++///
++/// Prefer this over hand-reversing the field order.  Reversing only gives the
++/// right answer for a group that fills its storage unit exactly: reversing
++/// three `u8` bit-fields without adding five bits of padding puts `b0` at
++/// 0x04 rather than 0x80.  The attribute has no such trap and leaves the
++/// declaration readable.  See G-180/G-181.
++#ifdef PORT_PC
++#define PORT_BF_BE __attribute__((scalar_storage_order("big-endian")))
++#else
++#define PORT_BF_BE
++#endif
++
+ /// The underlying type of an @c enum, used as a placeholder
+ typedef int enum_t;
+ 

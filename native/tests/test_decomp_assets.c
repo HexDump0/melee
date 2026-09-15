@@ -19,6 +19,7 @@
 
 #include <dolphin/os.h>
 #include <math.h>
+#include <melee/gr/types.h>
 #include <melee/it/types.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -773,6 +774,23 @@ static int check_unk_flag_bit_order(void)
                 "(want b0=1 b7=0)\n",
                 (unsigned) f.b0, (unsigned) f.b7);
         failed = 1;
+    }
+    /* A group that does NOT fill its storage unit is the case hand-reversing
+     * the field order gets wrong: reversed without five bits of padding, b0
+     * lands at 0x04 instead of 0x80.  grCorneria_GroundVars::xC4 is exactly
+     * that shape, and `grcorneria.c:501` writes the whole byte (G-181). */
+    {
+        struct grCorneria_GroundVars g;
+        memset(&g, 0, sizeof(g));
+        g.xC4.flags.b0 = 1;
+        if (g.xC4.value != 0x80) {
+            fprintf(stderr,
+                    "decomp_assets: grCorneria xC4.b0 -> 0x%02x (want 0x80; "
+                    "a partial bit-field group needs PORT_BF_BE, not a "
+                    "reversed field order)\n",
+                    (unsigned) g.xC4.value);
+            failed = 1;
+        }
     }
     if (!failed) {
         printf("decomp_assets: UnkFlagStruct bit order MSB-first ok\n");
