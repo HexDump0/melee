@@ -3241,6 +3241,38 @@ skipped, which is right; `mark()` would refuse it anyway.
 Fourth member of the "reached only through `ftData`" family, after `x1C`
 (P-630), `x40`/`x4C` (P-655), `x48` (P-656) and `x20` (P-747).
 
+## G-187: find the shape when you cannot find the root
+
+**Symptom:** `HSD_TlutLoadDesc` segfaults on a pointer like `0x03000300`
+hundreds of frames into a match, and only on some RNG streams.
+
+**Cause:** an `HSD_TexAnim` whose *pointers* were all relocated correctly but
+whose `u16` counts at +0x14 were never byte-swapped, so `n_tluttbl` read 768
+instead of 3 and `HSD_TObjAddAnim` walked 765 entries past the end of the
+table. Correct pointers with a wrong count is the signature of a descriptor
+the **relocation pass reached but the descriptor walk did not**.
+
+**What made it hard:** the owning `Article` in `ItCo.usd` is named by nothing
+in the archive -- not in any of `itPublicData`'s three article arrays, and a
+relocation-table search for its offset finds no referrer at all. The game
+reaches it by arithmetic the converter cannot model, so there is no root to
+add.
+
+**Fix:** when the root cannot be found, match the *shape* instead. Every
+relocation target is a plausible struct start, so test the unwalked ones
+against a multi-level signature -- here `MatAnimJoint` -> `MatAnim` ->
+`TexAnim`, each pointer word null-or-relocation, ending in counts that are
+small read big-endian with a zero low byte -- and walk the matches. Three
+chained layouts agreeing by accident is not a real risk; one layout is.
+A blanket "convert every relocation target" is **not** safe (P-748 showed
+`conv_joint` does not validate its argument), a validated scan is.
+
+**Pin the count, not just the absence of a crash.** The failure mode is
+silence: without the scan the archive converts "successfully" and the damage
+only appears in a match. `check_orphan_matanims` asserts the scan still finds
+its three trees in `ItCo.usd`, so deleting it fails a test rather than a
+playthrough.
+
 ## G-186: zero-latency I/O let a completion callback run before its caller finished
 
 **Symptom:** SIGSEGV deep in the sound engine (`HSD_Synth_80389334`, a NULL

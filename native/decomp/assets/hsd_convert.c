@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 97u
+#define HSD_CONVERTER_VERSION 98u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -4345,6 +4345,113 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
     }
 }
 
+
+/* P-753: material-animation trees the descriptor walk cannot reach.
+ *
+ * ItCo.usd holds `Article` records that none of `itPublicData`'s three
+ * pointer arrays name -- nothing in the archive points at them at all, so the
+ * game reaches their `ItemStateArray` some other way -- and their state
+ * descriptors' `HSD_MatAnimJoint` trees therefore stay big-endian.  The
+ * damage lands in `HSD_TObjAddAnim`, which reads `n_tluttbl` and loops that
+ * many times: a table of 3 read big-endian is 768, so it walks 765 entries
+ * past the end and hands the garbage to `HSD_TlutLoadDesc`.
+ *
+ * Rather than guess the missing root, look for the shape.  Every relocation
+ * target is a plausible struct start, so test the unwalked ones against a
+ * three-level signature -- MatAnimJoint -> MatAnim -> TexAnim, each of whose
+ * pointer words must be null or a relocation target, ending in counts that
+ * are small when read big-endian and have a zero low byte.  Three chained
+ * layouts agreeing by accident is not a real risk, and `conv_matanim_joint`
+ * marks what it walks, so a tree the descriptor pass already reached is
+ * skipped.  Same precedent as the article-joint scan (P-748/G-183): a
+ * blanket "convert every relocation target" is not safe, a validated one is.
+ */
+static int null_or_pointer(const Conv* c, uint32_t off)
+{
+    if (!in_data(c, off, 4)) {
+        return 0;
+    }
+    return c->reloc[off] || rd32(c, off) == 0;
+}
+
+static int looks_like_unconverted_texanim(const Conv* c, uint32_t off)
+{
+    uint16_t n_images;
+    uint16_t n_tluts;
+
+    if (!in_data(c, off, HSD_TEXANIM_SIZE) || c->seen[off]) {
+        return 0;
+    }
+    if (!null_or_pointer(c, off + 0x00) || !null_or_pointer(c, off + 0x08) ||
+        !null_or_pointer(c, off + 0x0C) || !null_or_pointer(c, off + 0x10))
+    {
+        return 0;
+    }
+    /* Still big-endian, so a real count has its low byte clear and its high
+     * byte small.  Requiring one of the two to be non-zero keeps an all-zero
+     * run of padding from matching. */
+    n_images = rd16(c, off + 0x14);
+    n_tluts = rd16(c, off + 0x16);
+    if ((n_images & 0x00FFu) != 0 || (n_tluts & 0x00FFu) != 0) {
+        return 0;
+    }
+    if (n_images == 0 && n_tluts == 0) {
+        return 0;
+    }
+    return (n_images >> 8) <= HSD_MAX_LIST && (n_tluts >> 8) <= HSD_MAX_LIST;
+}
+
+static int looks_like_unconverted_matanim(const Conv* c, uint32_t off)
+{
+    uint32_t texanim;
+
+    if (!in_data(c, off, HSD_MATANIM_SIZE) || c->seen[off]) {
+        return 0;
+    }
+    if (!null_or_pointer(c, off + 0x00) || !null_or_pointer(c, off + 0x04) ||
+        !null_or_pointer(c, off + 0x08) || !null_or_pointer(c, off + 0x0C))
+    {
+        return 0;
+    }
+    texanim = rd32(c, off + 0x08);
+    return texanim != 0 && looks_like_unconverted_texanim(c, texanim);
+}
+
+static int looks_like_unconverted_matanim_joint(const Conv* c, uint32_t off)
+{
+    uint32_t matanim;
+
+    if (!in_data(c, off, HSD_MATANIMJOINT_SIZE) || c->seen[off]) {
+        return 0;
+    }
+    if (!null_or_pointer(c, off + 0x00) || !null_or_pointer(c, off + 0x04) ||
+        !null_or_pointer(c, off + 0x08))
+    {
+        return 0;
+    }
+    matanim = rd32(c, off + 0x08);
+    return matanim != 0 && looks_like_unconverted_matanim(c, matanim);
+}
+
+static void conv_orphan_matanim_trees(Conv* c)
+{
+    uint32_t i;
+
+    for (i = 0; i < c->nb_reloc; i++) {
+        uint32_t field = rd32_abs(c, c->reloc_off + i * 4);
+        uint32_t target;
+
+        if (!in_data(c, field, 4)) {
+            continue;
+        }
+        target = rd32(c, field);
+        if (target != 0 && looks_like_unconverted_matanim_joint(c, target)) {
+            c->st.orphan_matanims++;
+            conv_matanim_joint(c, target);
+        }
+    }
+}
+
 static int convert_archive(unsigned char* data, size_t size, Conv* c)
 {
     uint32_t file_size = be32(data);
@@ -4396,6 +4503,7 @@ static int convert_archive(unsigned char* data, size_t size, Conv* c)
     c->nb_reloc = nb_reloc;
     convert_relocs(c, reloc_off, nb_reloc);
     convert_roots(c, public_off, nb_public, symbols_off);
+    conv_orphan_matanim_trees(c);
 
     c->st.ok = c->st.reloc_valid == c->st.reloc_total;
     free(c->reloc);

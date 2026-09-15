@@ -751,6 +751,44 @@ static int check_ft_data_tables(const char* image, const char* path,
  * reads 0x96000000 rather than 150.  Pin the actual values, the way
  * `check_castle_param` and `check_pstadium_param` do, so a layout that merely
  * "looks converted" still fails. */
+/* P-753: ItCo.usd holds material-animation trees that no descriptor walk
+ * reaches -- their owning Article is named by nothing in the archive -- so
+ * they stayed big-endian and HSD_TObjAddAnim read n_tluttbl as 768 instead of
+ * 3, walking 765 entries past the end of the table.  The relocation-target
+ * scan finds them by shape; assert it still finds them, because the failure
+ * mode is silence: with the scan removed the file converts "successfully" and
+ * the crash only appears in a match where those animations are played. */
+static int check_orphan_matanims(const char* image)
+{
+    char error[256];
+    size_t size = 0;
+    unsigned char* buffer = load_archive(image, "ItCo.usd", NULL, &size, error,
+                                         sizeof(error));
+    HsdConvertStats stats;
+    int failed = 0;
+
+    if (buffer == NULL) {
+        printf("decomp_assets: ItCo.usd SKIP (%s)\n", error);
+        return 0;
+    }
+    if (!hsd_asset_convert(buffer, size, &stats)) {
+        fprintf(stderr, "decomp_assets: ItCo.usd conversion failed\n");
+        free(buffer);
+        return 1;
+    }
+    if (stats.orphan_matanims == 0) {
+        fprintf(stderr,
+                "decomp_assets: ItCo.usd reached no orphan matanim trees "
+                "(expected at least one; P-753)\n");
+        failed = 1;
+    } else {
+        printf("decomp_assets: ItCo.usd orphan matanim trees = %u\n",
+               stats.orphan_matanims);
+    }
+    free(buffer);
+    return failed;
+}
+
 static int check_kraid_param(const char* image)
 {
     static const uint32_t want[3] = { 150, 240, 180 };
@@ -3242,6 +3280,7 @@ int main(int argc, char** argv)
     failures += check_pstadium_param(image, "GrPs3.dat");
     failures += check_unk_flag_bit_order();
     failures += check_kraid_param(image);
+    failures += check_orphan_matanims(image);
     failures += check_scene_root(image, "GmRgStnd.dat", "standScene");
     failures += check_scene_root(image, "GmRegEnd.dat", "cut1CanimScene");
     failures += check_intro_easy(image);

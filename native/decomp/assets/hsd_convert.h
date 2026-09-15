@@ -33,6 +33,9 @@ typedef struct HsdConvertStats {
     unsigned roots_anim;
     unsigned roots_figatree;
     unsigned roots_unknown;
+    /* Material-animation trees the descriptor walk never reached, found by
+     * the relocation-target scan (P-753). */
+    unsigned orphan_matanims;
     unsigned joints;
     unsigned dobjs;
     unsigned mobjs;
