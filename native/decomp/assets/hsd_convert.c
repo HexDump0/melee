@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 100u
+#define HSD_CONVERTER_VERSION 101u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -3064,8 +3064,9 @@ static void conv_ft_data(Conv* c, uint32_t off)
         {
             uint32_t vis_table = rd32(c, x8 + 0x04);
             int costume;
+            int ended = 0;
             if (vis_table != 0) {
-                for (costume = 0; costume < 8; costume++) {
+                for (costume = 0; costume < 8 && !ended; costume++) {
                     int col;
                     for (col = 0; col < 4; col++) {
                         uint32_t p = vis_table +
@@ -3073,6 +3074,7 @@ static void conv_ft_data(Conv* c, uint32_t off)
                                       (uint32_t) col) * 4;
                         uint32_t lookup;
                         if (!in_data(c, p, 4)) {
+                            ended = 1;
                             break;
                         }
                         lookup = rd32(c, p);
@@ -3081,8 +3083,23 @@ static void conv_ft_data(Conv* c, uint32_t off)
                         }
                         /* Every real vis_table slot is a relocation target;
                          * the first non-pointer word is past the table (the
-                         * costume TObj array follows it). */
+                         * costume TObj array follows it).
+                         *
+                         * `ended` stops the *outer* loop too.  Breaking only
+                         * the inner one left `costume` free to advance past
+                         * the end of the table and find a later word that
+                         * happened to be a relocation target -- for Pichu the
+                         * `ftData_x8_x8.xC` costume table, three words on.
+                         * conv_ft_vis_lookup then read those TObj-index
+                         * arrays as FtPartsVisLookup entries and `conv_u32`
+                         * byte-swapped the words that hold two u16 indices
+                         * each, so index 2 came back as 0x0200 = 512 and
+                         * `ftParts_80075240` asserted "can't find tobj!"
+                         * before the match started (P-764).  Fighters with
+                         * fewer costumes have shorter tables, which is why
+                         * only Roy, Pichu and Ganondorf hit it. */
                         if (!c->reloc[p]) {
+                            ended = 1;
                             break;
                         }
                         conv_ft_vis_lookup(c, lookup, n_models);
