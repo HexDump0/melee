@@ -201,6 +201,10 @@ int gx_hle_get_frame(const GxHleVertex** vertices, size_t* vertex_count,
                      const GxHleDraw** draws, size_t* draw_count,
                      GxHleTexture** textures, size_t* texture_count);
 
+/* Returns true when this frame ended in a vertically filtered GXCopyDisp and
+ * copies the seven unsigned hardware coefficients into weights. */
+int gx_hle_get_display_filter(unsigned char weights[7]);
+
 /* Stats for tests/logs. */
 size_t gx_hle_display_list_count(void);
 size_t gx_hle_primitive_count(void);

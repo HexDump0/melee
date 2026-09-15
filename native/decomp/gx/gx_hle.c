@@ -126,6 +126,9 @@ static int begin_overflow;
 
 static size_t stat_display_lists;
 static size_t stat_primitives;
+static unsigned char copy_vfilter[7];
+static int copy_vfilter_enabled;
+static int display_copy_pending;
 static size_t stat_skipped;
 
 /* ------------------------------------------------------------ byte order */
@@ -2468,14 +2471,18 @@ void GXSetCopyFilter(GXBool aa, const u8 sample_pattern[12][2], GXBool vf,
 {
     (void) aa;
     (void) sample_pattern;
-    (void) vf;
-    (void) vfilter;
+    copy_vfilter_enabled = vf != GX_FALSE;
+    if (vfilter != NULL) {
+        memcpy(copy_vfilter, vfilter, sizeof(copy_vfilter));
+    }
 }
 
 void GXCopyDisp(void* dest, GXBool clear)
 {
     (void) dest;
     (void) clear;
+    flush_direct();
+    display_copy_pending = 1;
 }
 
 void GXCopyTex(void* dest, GXBool clear)
@@ -2674,6 +2681,7 @@ void gx_hle_begin_frame(void)
     stat_primitives = 0;
     stat_skipped = 0;
     stat_degenerate = 0;
+    display_copy_pending = 0;
     memset(gx.tluts, 0, sizeof(gx.tluts));
     reset_state();
 }
@@ -2728,6 +2736,17 @@ int gx_hle_get_frame(const GxHleVertex** vertices, size_t* vertex_count,
     }
     if (texture_count) {
         *texture_count = frame_tcount;
+    }
+    return 1;
+}
+
+int gx_hle_get_display_filter(unsigned char weights[7])
+{
+    if (!display_copy_pending || !copy_vfilter_enabled) {
+        return 0;
+    }
+    if (weights != NULL) {
+        memcpy(weights, copy_vfilter, sizeof(copy_vfilter));
     }
     return 1;
 }

@@ -99,6 +99,13 @@ static GLint u_ztex_sampler;
 static GLint u_ztex_op_loc;
 static GLint u_ztex_bias_loc;
 static GLint u_ztex_color_loc;
+static GLuint display_filter_program;
+static GLint u_display_filter_sampler;
+static GLint u_display_filter_step;
+static GLint u_display_filter_weights;
+static GLuint display_filter_texture;
+static int display_filter_width;
+static int display_filter_height;
 static GLint u_tex_lod_bias;
 static GLint u_tex_dynamic_i4;
 static GLint u_dst_alpha_enable;
@@ -469,6 +476,37 @@ static const char* ZTEX_FRAGMENT_SRC =
     "     * colour-writing Z-texture draws use mat_src = VTX with a passthrough\n"
     "     * TEV, so the vertex colour is the TEV output there. */\n"
     "    frag = u_ztex_color != 0 ? vec4(v_color.rgb, 1.0) : vec4(0.0);\n"
+    "}\n";
+
+/* Melee renders a deliberately dithered EFB, then asks GXCopyDisp for the
+ * NTSC deflicker filter.  GX groups its seven coefficients as 2/3/2 weights
+ * over the previous/current/next rows.  Keeping that in a post-pass preserves
+ * the EFB/XFB boundary without perturbing mid-frame GXCopyTex captures. */
+static const char* DISPLAY_FILTER_VERTEX_SRC =
+    "#version 300 es\n"
+    "precision highp float;\n"
+    "out vec2 v_uv;\n"
+    "void main() {\n"
+    "    vec2 p = gl_VertexID == 0 ? vec2(-1.0, -1.0) :\n"
+    "             gl_VertexID == 1 ? vec2(3.0, -1.0) : vec2(-1.0, 3.0);\n"
+    "    gl_Position = vec4(p, 0.0, 1.0);\n"
+    "    v_uv = p * 0.5 + 0.5;\n"
+    "}\n";
+
+static const char* DISPLAY_FILTER_FRAGMENT_SRC =
+    "#version 300 es\n"
+    "precision highp float;\n"
+    "uniform sampler2D u_image;\n"
+    "uniform float u_step;\n"
+    "uniform float u_weights[3];\n"
+    "in vec2 v_uv;\n"
+    "out vec4 frag;\n"
+    "void main() {\n"
+    "    vec4 current = texture(u_image, v_uv);\n"
+    "    vec3 rgb = texture(u_image, v_uv - vec2(0.0, u_step)).rgb * u_weights[0] +\n"
+    "               current.rgb * u_weights[1] +\n"
+    "               texture(u_image, v_uv + vec2(0.0, u_step)).rgb * u_weights[2];\n"
+    "    frag = vec4(rgb, current.a);\n"
     "}\n";
 
 static const char* FRAGMENT_SRC =
@@ -960,6 +998,37 @@ static int build_program(char* error, size_t error_size)
                 glGetUniformLocation(ztex_program, "u_ztex_color");
         }
     }
+    {
+        GLuint dvs =
+            compile_shader(GL_VERTEX_SHADER, DISPLAY_FILTER_VERTEX_SRC);
+        GLuint dfs =
+            compile_shader(GL_FRAGMENT_SHADER, DISPLAY_FILTER_FRAGMENT_SRC);
+        if (dvs == 0 || dfs == 0) {
+            snprintf(error, error_size, "display-filter shader compile failed");
+            return 0;
+        }
+        display_filter_program = glCreateProgram();
+        glAttachShader(display_filter_program, dvs);
+        glAttachShader(display_filter_program, dfs);
+        glLinkProgram(display_filter_program);
+        glGetProgramiv(display_filter_program, GL_LINK_STATUS, &ok);
+        glDeleteShader(dvs);
+        glDeleteShader(dfs);
+        if (!ok) {
+            char log[2048];
+            glGetProgramInfoLog(display_filter_program, sizeof(log), NULL,
+                                log);
+            snprintf(error, error_size, "display-filter link failed: %.200s",
+                     log);
+            return 0;
+        }
+        u_display_filter_sampler =
+            glGetUniformLocation(display_filter_program, "u_image");
+        u_display_filter_step =
+            glGetUniformLocation(display_filter_program, "u_step");
+        u_display_filter_weights =
+            glGetUniformLocation(display_filter_program, "u_weights");
+    }
     glUseProgram(program);
     for (i = 0; i < 8; ++i) {
         glUniform1i(u_tex[i], i);
@@ -1200,6 +1269,39 @@ static GLenum min_filter_to_gl(unsigned char f, unsigned char mipmap,
     }
 }
 
+static int texture_max_level(const GxHleTexture* t)
+{
+    int dimensions = t->width > t->height ? t->width : t->height;
+    int available = 0;
+    int requested = (int) floorf(t->max_lod + 0.0001f);
+
+    while (dimensions > 1) {
+        dimensions >>= 1;
+        available++;
+    }
+    if (requested < 0) {
+        requested = 0;
+    }
+    return requested < available ? requested : available;
+}
+
+static int decode_texture_level(const GxHleTexture* t,
+                                const unsigned char* image, size_t size,
+                                int width, int height,
+                                const unsigned char* palette,
+                                unsigned char** rgba, char* error,
+                                size_t error_size)
+{
+    if (t->format == TEX_FMT_CI4 || t->format == TEX_FMT_CI8) {
+        return gx_texture_decode_ci(image, size, width, height,
+                                    (int) t->format, palette,
+                                    t->palette_entries, rgba, error,
+                                    error_size);
+    }
+    return gx_texture_decode(image, size, width, height, (int) t->format,
+                             rgba, error, error_size);
+}
+
 /* EFB-copied textures are updated in place at a fixed address; the cache key
  * is the source pointer, so a copy must drop any entry decoded from that
  * buffer or the map stays at the first frame's content (stale/black shadow). */
@@ -1279,6 +1381,7 @@ static GLuint texture_for(const GxHleTexture* t)
 {
     size_t i;
     unsigned char* rgba = NULL;
+    unsigned char* expanded_palette = NULL;
     char error[128];
     size_t bound;
     const void* image = t->image;
@@ -1364,8 +1467,7 @@ static GLuint texture_for(const GxHleTexture* t)
             bound = 64 * 1024;
         }
     }
-    if (t->format == 8 || t->format == 9) {
-        unsigned char* pal = NULL;
+    if (t->format == TEX_FMT_CI4 || t->format == TEX_FMT_CI8) {
         if (palette == NULL || t->palette_entries == 0) {
             /* A CI texture with no TLUT bound.  This returned 0 silently,
              * which makes the draw fall back to untextured -- a flat quad of
@@ -1386,44 +1488,29 @@ static GLuint texture_for(const GxHleTexture* t)
             }
             return 0;
         }
-        pal = expand_palette((const unsigned char*) palette,
-                             t->palette_format, t->palette_entries);
-        if (pal == NULL) {
+        expanded_palette = expand_palette((const unsigned char*) palette,
+                                          t->palette_format,
+                                          t->palette_entries);
+        if (expanded_palette == NULL) {
             return 0;
         }
-        if (gx_texture_decode_ci(image, bound, t->width, t->height,
-                                 (int) t->format, pal, t->palette_entries,
-                                 &rgba, error, sizeof(error)) != 0) {
-            free(pal);
-            {
-                const char* origin = melee_dvd_origin(image);
-                fprintf(stderr,
-                        "gx_gl: CI texture decode failed: %s (%dx%d fmt=%u "
-                        "avail=%zu from=%s)\n",
-                        error, t->width, t->height, (unsigned) t->format,
-                        bound, origin != NULL ? origin : "?");
-            }
-            return 0;
-        }
-        free(pal);
-    } else {
-        if (gx_texture_decode(image, bound, t->width, t->height,
-                              (int) t->format, &rgba, error,
-                              sizeof(error)) != 0) {
-            {
-                const char* origin = melee_dvd_origin(image);
-                fprintf(stderr,
-                        "gx_gl: texture decode failed: %s (%dx%d fmt=%u "
-                        "avail=%zu from=%s)\n",
-                        error, t->width, t->height, (unsigned) t->format,
-                        bound, origin != NULL ? origin : "?");
-            }
-            return 0;
-        }
+    }
+    if (decode_texture_level(t, image, bound, t->width, t->height,
+                             expanded_palette, &rgba, error,
+                             sizeof(error)) != 0) {
+        const char* origin = melee_dvd_origin(image);
+        fprintf(stderr,
+                "gx_gl: texture decode failed: %s (%dx%d fmt=%u "
+                "avail=%zu from=%s)\n",
+                error, t->width, t->height, (unsigned) t->format, bound,
+                origin != NULL ? origin : "?");
+        free(expanded_palette);
+        return 0;
     }
 
     {
         GlTextureCache* e;
+        int uploaded_max_level = 0;
         if (tex_cache_count >= MAX_GL_TEXTURES) {
             /* Evict the least-recently-used entry: a match frame uses ~150
              * textures and the game keeps loading more, so overflowing the
@@ -1448,10 +1535,58 @@ static GLuint texture_for(const GxHleTexture* t)
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, t->width, t->height, 0,
                      GL_RGBA, GL_UNSIGNED_BYTE, rgba);
         if (t->mipmap) {
-            glGenerateMipmap(GL_TEXTURE_2D);
+            size_t remaining = gx_hle_asset_remaining(image);
+            size_t offset = bound;
+            int max_level = texture_max_level(t);
+            int width = t->width;
+            int height = t->height;
+            int level;
+
+            /* GX archives store each tiled mip level immediately after the
+             * previous one.  Those authored levels preserve coverage in
+             * alpha-cutout art (foliage, waves and background sprites);
+             * generating them from level zero turns that coverage into a
+             * sparse stipple when the alpha compare runs. */
+            for (level = 1; level <= max_level &&
+                            remaining != (size_t) -1;
+                 ++level) {
+                unsigned char* level_rgba = NULL;
+                size_t level_size;
+
+                width = width > 1 ? width >> 1 : 1;
+                height = height > 1 ? height >> 1 : 1;
+                level_size = gx_texture_min_size((int) t->format, width,
+                                                 height);
+                if (level_size == 0 || offset > remaining ||
+                    level_size > remaining - offset ||
+                    decode_texture_level(
+                        t, (const unsigned char*) image + offset, level_size,
+                        width, height, expanded_palette, &level_rgba, error,
+                        sizeof(error)) != 0)
+                {
+                    free(level_rgba);
+                    break;
+                }
+                glTexImage2D(GL_TEXTURE_2D, level, GL_RGBA, width, height, 0,
+                             GL_RGBA, GL_UNSIGNED_BYTE, level_rgba);
+                free(level_rgba);
+                offset += level_size;
+                uploaded_max_level = level;
+            }
+            if (uploaded_max_level == 0 && max_level > 0) {
+                /* Runtime textures do not belong to a registered archive,
+                 * so their readable extent is unknown.  Retain the old safe
+                 * fallback rather than reading past their allocation. */
+                glGenerateMipmap(GL_TEXTURE_2D);
+                uploaded_max_level = max_level;
+            }
         }
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL,
+                        uploaded_max_level);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
-                        min_filter_to_gl(t->min_filt, t->mipmap, t->format));
+                        min_filter_to_gl(t->min_filt,
+                                         uploaded_max_level != 0,
+                                         t->format));
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
                         t->mag_filt == 0 ? GL_NEAREST : GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,
@@ -1483,6 +1618,7 @@ static GLuint texture_for(const GxHleTexture* t)
         e->anisotropy = t->anisotropy;
         e->last_used = ++tex_clock;
         free(rgba);
+        free(expanded_palette);
         return e->name;
     }
 }
@@ -2371,6 +2507,62 @@ static void draw_ztex(const GxHleDraw* d, const GxHleDrawState* s,
                  (GLsizei) d->vertex_count);
 }
 
+static void apply_display_filter(void)
+{
+    unsigned char gx_weights[7];
+    GLfloat weights[3];
+
+    if (display_filter_program == 0 ||
+        !gx_hle_get_display_filter(gx_weights))
+    {
+        return;
+    }
+    weights[0] = (GLfloat) (gx_weights[0] + gx_weights[1]) / 64.0f;
+    weights[1] =
+        (GLfloat) (gx_weights[2] + gx_weights[3] + gx_weights[4]) / 64.0f;
+    weights[2] = (GLfloat) (gx_weights[5] + gx_weights[6]) / 64.0f;
+    if (weights[0] + weights[1] + weights[2] == 0.0f) {
+        return;
+    }
+
+    if (display_filter_texture == 0) {
+        glGenTextures(1, &display_filter_texture);
+    }
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, display_filter_texture);
+    if (display_filter_width != gl_width ||
+        display_filter_height != gl_height)
+    {
+        display_filter_width = gl_width;
+        display_filter_height = gl_height;
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, gl_width, gl_height, 0,
+                     GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+
+    /* GXCopyDisp filters the completed EFB.  Copying at this point leaves
+     * all earlier EFB texture copies raw, as they are on the console. */
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, gl_width, gl_height);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_BLEND);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glViewport(0, 0, gl_width, gl_height);
+    glUseProgram(display_filter_program);
+    glUniform1i(u_display_filter_sampler, 0);
+    /* One unit is one 480-line EFB scanline even when the host window is
+     * larger; the scene itself is likewise scaled from the 640x480 EFB. */
+    glUniform1f(u_display_filter_step, 1.0f / 480.0f);
+    glUniform1fv(u_display_filter_weights, 3, weights);
+    glBindVertexArray(vertex_vao);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+}
+
 int gx_gl_render_frame(void)
 {
     const GxHleVertex* vertices = NULL;
@@ -2557,6 +2749,7 @@ int gx_gl_render_frame(void)
                          (GLsizei) d->vertex_count);
         }
     }
+    apply_display_filter();
     glBindTexture(GL_TEXTURE_2D, 0);
     glBindVertexArray(0);
     return (int) draw_count;

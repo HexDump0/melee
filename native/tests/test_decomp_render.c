@@ -2175,6 +2175,127 @@ static int efb_test(void)
         }
     }
 
+    /* P-763: the display copy folds seven coefficients into the adjacent
+     * EFB rows (2/3/2).  Melee's 8/8/10/12/10/8/8 filter turns alternating
+     * screen-door scanlines into half intensity instead of exposing dots. */
+    {
+        static const u8 vfilter[7] = { 8, 8, 10, 12, 10, 8, 8 };
+        unsigned char captured[7];
+        int y;
+
+        gx_hle_begin_frame();
+        gx_hle_reset_state();
+        GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
+        GXSetNumChans(1);
+        GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX,
+                      GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
+        GXSetNumTexGens(0);
+        GXSetNumTevStages(1);
+        GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL,
+                      GX_COLOR0A0);
+        GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+        GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
+        GXSetCullMode(GX_CULL_NONE);
+        GXClearVtxDesc();
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+        GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+        GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+        for (y = 0; y < 480; ++y) {
+            float y0 = -1.0f + (float) y / 240.0f;
+            float y1 = -1.0f + (float) (y + 1) / 240.0f;
+            u8 c = (y & 1) ? 0xFF : 0;
+            GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+            GXPosition3f32(-1.0f, y0, 0.0f);
+            GXColor4u8(c, c, c, 0xFF);
+            GXPosition3f32(1.0f, y0, 0.0f);
+            GXColor4u8(c, c, c, 0xFF);
+            GXPosition3f32(1.0f, y1, 0.0f);
+            GXColor4u8(c, c, c, 0xFF);
+            GXPosition3f32(-1.0f, y1, 0.0f);
+            GXColor4u8(c, c, c, 0xFF);
+        }
+        GXSetCopyFilter(GX_FALSE, NULL, GX_TRUE, vfilter);
+        GXCopyDisp(NULL, GX_FALSE);
+        if (!gx_hle_get_display_filter(captured) ||
+            memcmp(captured, vfilter, sizeof(vfilter)) != 0)
+        {
+            printf("efb: FAIL display filter capture\n");
+            fail = 1;
+        }
+        if (gx_gl_render_frame() < 0) {
+            printf("efb: FAIL render_frame (display filter)\n");
+            return 0;
+        }
+        glReadPixels(320, 240, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+        if (pixel[0] < 120 || pixel[0] > 135 || pixel[1] < 120 ||
+            pixel[1] > 135 || pixel[2] < 120 || pixel[2] > 135)
+        {
+            printf("efb: FAIL display filter pixel=%u,%u,%u (want ~128)\n",
+                   pixel[0], pixel[1], pixel[2]);
+            fail = 1;
+        }
+    }
+
+    /* P-763: archive mip levels are authored after level zero.  A black 8x8
+     * base followed by a white 4x4 level must sample white at forced LOD 1;
+     * glGenerateMipmap would synthesize a black level and fail this probe. */
+    {
+        static unsigned char mip_image[96]; /* 8x8 base + padded 4x4 GX I8 */
+        GXTexObj mip_tex;
+
+        memset(mip_image, 0, 64);
+        memset(mip_image + 64, 0xFF, 32);
+        gx_hle_reset_assets();
+        gx_hle_register_asset(mip_image, sizeof(mip_image));
+        gx_hle_begin_frame();
+        gx_hle_reset_state();
+        GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
+        GXSetNumChans(1);
+        GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX,
+                      GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
+        GXSetNumTexGens(1);
+        GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0,
+                          GX_IDENTITY, GX_FALSE, GX_PTIDENTITY);
+        GXSetNumTevStages(1);
+        GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0,
+                      GX_COLOR_NULL);
+        GXSetTevOp(GX_TEVSTAGE0, GX_REPLACE);
+        GXSetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_COPY);
+        GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
+        GXSetCullMode(GX_CULL_NONE);
+        GXInitTexObj(&mip_tex, mip_image, 8, 8, GX_TF_I8, GX_CLAMP,
+                     GX_CLAMP, GX_TRUE);
+        GXInitTexObjLOD(&mip_tex, GX_LIN_MIP_LIN, GX_LINEAR, 0.0f, 1.0f,
+                        10.0f, GX_FALSE, GX_FALSE, GX_ANISO_1);
+        GXLoadTexObj(&mip_tex, GX_TEXMAP0);
+        GXClearVtxDesc();
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
+        GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+        GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+        GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+        GXPosition3f32(-1.0f, -1.0f, 0.0f);
+        GXTexCoord2f32(0.0f, 0.0f);
+        GXPosition3f32(1.0f, -1.0f, 0.0f);
+        GXTexCoord2f32(1.0f, 0.0f);
+        GXPosition3f32(1.0f, 1.0f, 0.0f);
+        GXTexCoord2f32(1.0f, 1.0f);
+        GXPosition3f32(-1.0f, 1.0f, 0.0f);
+        GXTexCoord2f32(0.0f, 1.0f);
+        if (gx_gl_render_frame() < 0) {
+            printf("efb: FAIL render_frame (authored mip)\n");
+            return 0;
+        }
+        glReadPixels(320, 240, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+        if (pixel[0] < 240 || pixel[1] < 240 || pixel[2] < 240) {
+            printf("efb: FAIL authored mip pixel=%u,%u,%u (want white)\n",
+                   pixel[0], pixel[1], pixel[2]);
+            fail = 1;
+        }
+        gx_hle_reset_assets();
+    }
+
     printf("efb: %s\n", fail ? "FAIL" : "PASS");
     return !fail;
 }
@@ -2376,6 +2497,9 @@ int main(int argc, char** argv)
     if (no_gl) {
         rendered = 0;
     } else {
+        static const u8 vfilter[7] = { 8, 8, 10, 12, 10, 8, 8 };
+        GXSetCopyFilter(GX_FALSE, NULL, GX_TRUE, vfilter);
+        GXCopyDisp(NULL, GX_FALSE);
         if (!gx_gl_init(opt.width, opt.height, error, sizeof(error))) {
             fprintf(stderr, "decomp_render: GL init failed: %s\n", error);
             return 1;

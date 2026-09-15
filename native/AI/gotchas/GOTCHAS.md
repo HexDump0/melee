@@ -3418,3 +3418,34 @@ seed 1 and advances per call, with no entropy; that is console-faithful, and
 Melee's apparent randomness comes from how many calls have happened by the
 time you get there.  A port that boots deterministically will repeat a
 sequence when the input timing repeats, and that is correct.
+
+## G-189: screen-door art belongs to the display copy, not the texture decoder
+
+**Symptom:** foliage and waves on Yoshi's Story/Yoshi's Island, plus moving
+background sprites such as the Bullet Bill, look transparent and break into
+individual coloured dots. The same pattern appears across unrelated textures
+and stages.
+
+**Misleading first lead:** some affected CMPR textures have authored mip
+chains, while the GL backend generated its own. That mismatch was real, but
+`GrYt.dat` reproduced the defect with mipmapping disabled on every affected
+texture. A cause that cannot explain the non-mipped case is not the common
+cause.
+
+**Cause:** the dots are deliberate EFB screen-door coverage. Melee enables
+the NTSC vertical filter on every display copy, but the port stubbed both
+`GXSetCopyFilter` and `GXCopyDisp` and presented the raw EFB. The missing
+operation was downstream of every material and texture, explaining why the
+same visual signature crossed stages and dynamic background objects.
+
+**Fix:** capture the seven GX coefficients at `GXCopyDisp` and resolve the
+completed EFB before presentation. The seven coefficients do **not** mean
+seven separately sampled scanlines: hardware groups them 2/3/2 over the row
+above/current/row below and divides by 64. Melee's
+`8/8/10/12/10/8/8` becomes `16/32/16`. Filter RGB only; keep the current
+row's alpha, and do not filter mid-frame `GXCopyTex` captures.
+
+**Regression:** `decomp_efb` feeds alternating black/white scanlines through
+the display copy and requires a grey (~128) center pixel. The same test forces
+LOD 1 on a black base plus white authored mip level, preventing the genuine
+mipmap bug from being lost behind the display-filter diagnosis.
