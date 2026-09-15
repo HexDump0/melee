@@ -746,6 +746,70 @@ static int check_ft_data_tables(const char* image, const char* path,
     return failed != 0;
 }
 
+/* P-746: Brinstar Depths' `yakumono_param` drives how often the stage rotates
+ * and how long Kraid waits between roars.  Left big-endian, `map_time_min`
+ * reads 0x96000000 rather than 150.  Pin the actual values, the way
+ * `check_castle_param` and `check_pstadium_param` do, so a layout that merely
+ * "looks converted" still fails. */
+static int check_kraid_param(const char* image)
+{
+    static const uint32_t want[3] = { 150, 240, 180 };
+    static const float want_pos[6] = { -60.0f, -30.0f, 0.0f,
+                                       30.0f,  60.0f,  0.0f };
+    char error[256];
+    size_t size = 0;
+    unsigned char* buffer =
+        load_archive(image, "GrKr.dat", NULL, &size, error, sizeof(error));
+    HSD_Archive archive;
+    HsdConvertStats stats;
+    unsigned char* p;
+    int failed = 0;
+    int i;
+
+    if (buffer == NULL) {
+        printf("decomp_assets: GrKr.dat SKIP (%s)\n", error);
+        return 0;
+    }
+    if (!hsd_asset_convert(buffer, size, &stats) ||
+        HSD_ArchiveParse(&archive, buffer, size) != 0)
+    {
+        fprintf(stderr, "decomp_assets: GrKr.dat conversion failed\n");
+        free(buffer);
+        return 1;
+    }
+    p = HSD_ArchiveGetPublicAddress(&archive, "yakumono_param");
+    if (p == NULL || !ptr_in_buffer(p, buffer, size)) {
+        fprintf(stderr, "decomp_assets: GrKr.dat yakumono_param missing\n");
+        free(buffer);
+        return 1;
+    }
+    for (i = 0; i < 3; i++) {
+        uint32_t got = read_host_u32(p + i * 4);
+        if (got != want[i]) {
+            fprintf(stderr, "decomp_assets: GrKr.dat param+0x%02X=%u want=%u\n",
+                    (unsigned) (i * 4), got, want[i]);
+            failed++;
+        }
+    }
+    for (i = 0; i < 6; i++) {
+        uint32_t bits = read_host_u32(p + 0x1C + (uint32_t) i * 4);
+        float got;
+        memcpy(&got, &bits, sizeof(got));
+        if (got != want_pos[i]) {
+            fprintf(stderr,
+                    "decomp_assets: GrKr.dat kraid_pos_x[%d]=%g want=%g\n", i,
+                    (double) got, (double) want_pos[i]);
+            failed++;
+        }
+    }
+    if (failed == 0) {
+        printf("decomp_assets: GrKr.dat yakumono_param times=150/240/180 "
+               "kraid_pos_x=-60..60 ok\n");
+    }
+    free(buffer);
+    return failed != 0 ? 1 : 0;
+}
+
 /* P-743/G-180: `UnkFlagStruct` is written as a whole byte and read as
  * individual bN bits across the codebase.  MWCC allocates the first bitfield
  * at the MSB, so retail's `byte = 1` sets b7 -- `item.c:719` does exactly
@@ -1452,6 +1516,21 @@ static const ParamRange pstadium_ranges[] = {
     { 0x00, 7, 4 }, { 0x20, 10, 4 }, { 0x48, 5, 2 },
 };
 
+/* P-746: the three P-708 priority stages -- the ones whose intro countdown
+ * drives the looping ambient, the shape that made Peach's Castle drone
+ * (P-707) and Pokemon Stadium show noise (P-738).  Every field in all three
+ * is 4-byte; Mute City's first four words are pointers, which the relocation
+ * pass owns and `conv_u32` skips. */
+static const ParamRange kraid_ranges[] = {
+    { 0x00, 13, 4 },
+};
+static const ParamRange mutecity_ranges[] = {
+    { 0x10, 16, 4 },
+};
+static const ParamRange bigblue_ranges[] = {
+    { 0x00, 0x144 / 4, 4 },
+};
+
 static const StageParamCase stage_param_cases[] = {
     { "GrCn.dat", corneria_ranges,
       (unsigned) (sizeof(corneria_ranges) / sizeof(corneria_ranges[0])) },
@@ -1473,6 +1552,12 @@ static const StageParamCase stage_param_cases[] = {
       (unsigned) (sizeof(pstadium_ranges) / sizeof(pstadium_ranges[0])) },
     { "GrPs3.dat", pstadium_ranges,
       (unsigned) (sizeof(pstadium_ranges) / sizeof(pstadium_ranges[0])) },
+    { "GrKr.dat", kraid_ranges,
+      (unsigned) (sizeof(kraid_ranges) / sizeof(kraid_ranges[0])) },
+    { "GrMc.dat", mutecity_ranges,
+      (unsigned) (sizeof(mutecity_ranges) / sizeof(mutecity_ranges[0])) },
+    { "GrBb.dat", bigblue_ranges,
+      (unsigned) (sizeof(bigblue_ranges) / sizeof(bigblue_ranges[0])) },
 };
 
 static int check_stage_params(const char* image)
@@ -3156,6 +3241,7 @@ int main(int argc, char** argv)
     failures += check_pstadium_param(image, "GrPs.dat");
     failures += check_pstadium_param(image, "GrPs3.dat");
     failures += check_unk_flag_bit_order();
+    failures += check_kraid_param(image);
     failures += check_scene_root(image, "GmRgStnd.dat", "standScene");
     failures += check_scene_root(image, "GmRegEnd.dat", "cut1CanimScene");
     failures += check_intro_easy(image);

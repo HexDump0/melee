@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 93u
+#define HSD_CONVERTER_VERSION 94u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -103,6 +103,9 @@ enum {
     STAGE_PARAM_INISHIE1,
     STAGE_PARAM_CASTLE,
     STAGE_PARAM_PSTADIUM,
+    STAGE_PARAM_KRAID,
+    STAGE_PARAM_MUTECITY,
+    STAGE_PARAM_BIGBLUE,
 };
 
 typedef struct StageParamMarker {
@@ -130,6 +133,14 @@ static const StageParamMarker stage_param_markers[] = {
      * not, this is one; checked against every Gr*.dat on the disc.  Kept last
      * so GrHr keeps matching `GrdYorster` exactly as it does today. */
     { "GrdPStadiumSteelK", STAGE_PARAM_PSTADIUM },
+    /* P-708's priority three: the stages whose intro countdown drives the
+     * looping ambient (`Ground_801C5440`), the same shape as Peach's Castle
+     * (P-707) and Pokemon Stadium (P-738).  Each marker is a **public** and
+     * was checked to be unique across every Gr*.dat that has a
+     * `yakumono_param`. */
+    { "GrdKraidAntenna1", STAGE_PARAM_KRAID },
+    { "GrdFzeroAdver1", STAGE_PARAM_MUTECITY },
+    { "GrdBigBlueArch2", STAGE_PARAM_BIGBLUE },
 };
 
 typedef struct Conv {
@@ -1851,6 +1862,45 @@ static void conv_pstadium_param(Conv* c, uint32_t off)
     conv_u16_range(c, off + 0x48, 5);
 }
 
+/* GrKr.dat (Brinstar Depths / Kraid) `yakumono_param`
+ * (`grKraid_YakumonoParam`, grkraid.c:12): thirteen 4-byte fields --
+ * `map_time_min/max/acl`, `map_rot_spd_min/max`, `kraid_wait_time(_add)` and
+ * `kraid_pos_x[6]`.  Verified against the raw archive: 150/240/180,
+ * 0.2/0.3, 120/300, then -60/-30/0/30/60/0. */
+static void conv_kraid_param(Conv* c, uint32_t off)
+{
+    if (!in_data(c, off, 0x34) || !mark(c, off)) {
+        return;
+    }
+    conv_u32_range(c, off, 13);
+}
+
+/* GrMc.dat (Mute City) `yakumono_param` (`grMc_YakumonoParam`,
+ * grmutecity.c:341): four pointers, then 4-byte fields to +0x4C.  The
+ * pointers are relocation targets and `conv_u32` leaves those alone, so the
+ * range can simply cover the whole block.  The decomp names only +0x2C..0x4C
+ * and calls +0x10..0x2B padding, but the raw bytes there are floats
+ * (-12, 2, 15) like the rest, and nothing reads them either way. */
+static void conv_mutecity_param(Conv* c, uint32_t off)
+{
+    if (!in_data(c, off, 0x50) || !mark(c, off)) {
+        return;
+    }
+    conv_u32_range(c, off, 20);
+}
+
+/* GrBb.dat (Big Blue) `yakumono_param` (`grBb_YakumonoParam`,
+ * grbigblue.static.h:20): 0x144 of 4-byte fields, ending at `x140_scale`,
+ * which is exactly where the next pointed-at object starts.  Two small
+ * unnamed gaps (+0x64, +0x114) are 4-byte aligned and unread. */
+static void conv_bigblue_param(Conv* c, uint32_t off)
+{
+    if (!in_data(c, off, 0x144) || !mark(c, off)) {
+        return;
+    }
+    conv_u32_range(c, off, 0x144 / 4);
+}
+
 /* Gr*.dat `yakumono_param` fallback: stage-specific dynamic-object parameters
  * whose layout this converter does not know yet.  For Zebes the word at +0x2C
  * is a relocation target to a bury DynamicsDesc stored directly before the
@@ -1921,6 +1971,15 @@ static void conv_stage_yakumono(Conv* c, uint32_t off)
         break;
     case STAGE_PARAM_PSTADIUM:
         conv_pstadium_param(c, off);
+        break;
+    case STAGE_PARAM_KRAID:
+        conv_kraid_param(c, off);
+        break;
+    case STAGE_PARAM_MUTECITY:
+        conv_mutecity_param(c, off);
+        break;
+    case STAGE_PARAM_BIGBLUE:
+        conv_bigblue_param(c, off);
         break;
     default:
         conv_yakumono_param(c, off);
