@@ -276,6 +276,38 @@ target_compile_options(test_decomp_assets PRIVATE
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
 target_link_libraries(test_decomp_assets PRIVATE m)
 target_link_options(test_decomp_assets PRIVATE -m32 "LINKER:--gc-sections")
+# P-757, the DWARF cross-check.  The converter's walkers hand-transcribe field
+# offsets the compiler already knows exactly, and a wrong one is silent -- it
+# swaps the wrong four bytes and corrupts a struct in whatever scene happens to
+# use it (P-746).  `tools/dwarf_types.c` exists only so the compiler emits
+# debug info for every type the converter walks; it must carry the *same*
+# layout flags as the rest of the port, or the offsets it reports are not the
+# ones the running game uses.  `-g3 -fno-eliminate-unused-debug-types` is what
+# makes the set of types explicit instead of "whatever this TU happened to
+# reference".
+add_library(melee_dwarf_types OBJECT tools/dwarf_types.c)
+target_include_directories(melee_dwarf_types PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/include)
+target_compile_options(melee_dwarf_types PRIVATE
+    -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS} ${MELEE_DECOMP_UB_OPTIONS} ${MELEE_DECOMP_LAYOUT_OPTIONS}
+    -w -g3 -fno-eliminate-unused-debug-types -DPORT_PC=1
+    -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
+add_test(NAME decomp_layout
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/dwarf_check.sh
+            $<TARGET_OBJECTS:melee_dwarf_types>
+            ${CMAKE_CURRENT_BINARY_DIR}/dwarf-layout.json
+            ${CMAKE_CURRENT_SOURCE_DIR}/decomp/assets/hsd_convert.c
+            # Ratchet, like MELEE_COVERAGE_FLOOR: the number of walkers with a
+            # `DWARF:` annotation may only go up.  49 as of 2026-09-15.
+            49)
+set_tests_properties(decomp_layout PROPERTIES
+    PASS_REGULAR_EXPRESSION "dwarf_check: (PASS|SKIP)"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    TIMEOUT 120)
+
 add_test(NAME decomp_assets COMMAND test_decomp_assets)
 set_tests_properties(decomp_assets PROPERTIES
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..

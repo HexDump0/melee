@@ -1319,3 +1319,62 @@ unwalked descriptors, concentrated in `Pl*` (56.8%, 35,157 of the gap),
 contain descriptors are fully walked. Publishing a number invites
 gaming it, so the rule is explicit: **never lower the floor to make a change
 pass**, and coverage counts only descriptors a walker genuinely visited.
+
+
+## ADR-0024: Cross-check walker offsets against the *native* build's DWARF, and exclude bit-fields
+
+**Context.** P-757 needs authoritative `type -> size, field offsets` to check
+the converter's 130 hand-transcribed walkers against. There were two candidate
+sources, and the task row named both:
+
+1. **The native build's DWARF.** It compiles `src/` with `-m32 -malign-double`
+   and the layout options, and the objects carry full debug info today.
+2. **The GameCube build with `-g`.** `build/GALE01/main.elf` has zero debug
+   sections, so this means changing how the matched build is compiled -- and
+   MWCC debug flags can change codegen, which puts the `100.00%` match at risk
+   for a gate that is supposed to protect it.
+
+The stated worry about (1) is real but narrower than it looks: **GCC and MWCC
+differ in *bit-field* allocation** (MWCC puts the first bit-field at the MSB,
+GCC at the LSB -- G-180/G-181/G-188), not in the byte offsets of ordinary
+fields.
+
+**Decision.** Use the native build's DWARF, and put bit-fields explicitly out
+of scope.
+
+The reasoning is that the native DWARF is not an approximation of the right
+answer, it *is* the right answer for this check. The converter's job is to
+produce data that the **running port** reads, and the running port reads it
+through GCC-compiled structs. If GCC and MWCC ever disagreed about a byte
+offset, the converter and the runtime would be wrong together and the game
+would visibly break -- that is a different bug, and the `100.00%` GameCube
+match plus the disc data itself already constrain it.
+
+The evidence is also empirical rather than assumed: 232 offsets across 49
+walkers, transcribed by hand from console behaviour over months of work,
+agree with GCC's DWARF exactly. A layout divergence would have shown up as
+dozens of mismatches on the first run.
+
+`native/tools/dwarf_types.c` exists so the set of types is explicit: GCC emits
+debug info only for types a TU *uses*, so scraping ordinary objects yields
+whichever layouts happened to be referenced, and the set changes silently as
+unrelated code changes. That file includes the headers and builds with
+`-g3 -fno-eliminate-unused-debug-types`, carrying the same layout flags as the
+rest of the port -- if those flags ever diverge, the check is measuring the
+wrong thing.
+
+**Consequences.** Bit-field *bit* numbering is not covered here and must not be
+assumed to be. `check_unk_flag_bit_order` and the `PORT_BF_BE` sites own that,
+and an access landing on a bit-field storage unit is counted separately in the
+tool's output so the hole stays visible rather than implied. Building the
+GameCube target with `-g` is still the stronger check if bit-fields ever need
+covering this way; it is not needed for byte offsets, and the match should not
+be risked for them.
+
+The check is a ratchet like `MELEE_COVERAGE_FLOOR`: walkers opt in with a
+`DWARF: <Type>` comment, the count may only go up, and `DWARF: <Type> partial`
+is how a walker that deliberately stops short of `sizeof` (a trailing byte
+stream, a union variant) puts that on the record. 49 of 106 walkers are
+cross-checked at the time of writing; the rest either walk arrays through a
+computed base, which this cannot check, or name a type no header defines
+(`ftCo_AttackEntry` lives in a `.c`).

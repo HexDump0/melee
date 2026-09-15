@@ -15,3 +15,4 @@
 *.rej
 /aurora-reference/
 .vscode/settings.json
+__pycache__/

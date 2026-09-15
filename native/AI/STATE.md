@@ -2,6 +2,23 @@
 
 Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716, P-718, P-719, P-720, P-737, P-738, P-739, P-742 and P-743 fixed, P-699/P-702/P-711/P-715/P-717/P-740/P-741 open)
 
+> **The DWARF cross-check (2026-09-15, P-757, ADR-0024).** ctest
+> `decomp_layout` reads `type -> size, field offsets` out of the debug info of
+> an object built with the port's own layout flags, then asserts each opted-in
+> walker in `hsd_convert.c` agrees: its `in_data` bound equals `sizeof`, every
+> `conv_u32/conv_u16/rd32/rd16(c, off + N)` lands on a real field of matching
+> width, and no **swapping** access lands on a pointer field -- on-disc
+> pointers are relocation targets and are already host order, which is the
+> P-746 shape of bug. 49 of 106 walkers and 232 offsets are cross-checked, on
+> a ratchet that may only be raised; `--list-unannotated` prints the rest.
+> Proven by injection: a wrong offset, a swapped pointer field, a wrong access
+> width, a wrong size macro and a removed annotation each fail it.
+> **Bit-fields are deliberately out of scope** -- the native build's DWARF is
+> GCC's LSB-first allocation and the disc is MWCC's MSB-first, so the byte
+> offset is right and the bit numbering is not; `check_unk_flag_bit_order` and
+> the `PORT_BF_BE` sites own that. ADR-0024 has why the native DWARF is the
+> right source rather than a `-g` GameCube build.
+
 > **The soak harness (2026-09-15, P-759).** `native/tests/soak.sh` runs
 > `melee_decomp_boot` over N seeds in parallel and prints
 > `failure -> count -> example seeds`. Two traps it exists to avoid, both hit

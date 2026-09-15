@@ -290,6 +290,7 @@ static void conv_regclear_spawn_table(Conv* c, uint32_t off);
 static void conv_yorster_param(Conv* c, uint32_t off);
 static void conv_article(Conv* c, uint32_t off, int item_kind);
 
+/* DWARF: HSD_ImageDesc */
 static void conv_imagedesc(Conv* c, uint32_t off)
 {
     if (!in_data(c, off, HSD_IMAGEDESC_SIZE) || !mark(c, off)) {
@@ -303,6 +304,7 @@ static void conv_imagedesc(Conv* c, uint32_t off)
     conv_u32(c, off + 0x14);
 }
 
+/* DWARF: HSD_TlutDesc */
 static void conv_tlutdesc(Conv* c, uint32_t off)
 {
     if (!in_data(c, off, HSD_TLUTDESC_SIZE) || !mark(c, off)) {
@@ -313,6 +315,7 @@ static void conv_tlutdesc(Conv* c, uint32_t off)
     conv_u16(c, off + 0x0C);
 }
 
+/* DWARF: HSD_TexLODDesc */
 static void conv_texloddesc(Conv* c, uint32_t off)
 {
     if (!in_data(c, off, HSD_TEXLODDESC_SIZE) || !mark(c, off)) {
@@ -324,6 +327,7 @@ static void conv_texloddesc(Conv* c, uint32_t off)
     conv_u32(c, off + 0x0C);
 }
 
+/* DWARF: HSD_TObjTevDesc */
 static void conv_tobjtevdesc(Conv* c, uint32_t off)
 {
     if (!in_data(c, off, HSD_TOBJTEVDESC_SIZE) || !mark(c, off)) {
@@ -333,6 +337,7 @@ static void conv_tobjtevdesc(Conv* c, uint32_t off)
     conv_u32(c, off + 0x1C);
 }
 
+/* DWARF: HSD_TObjDesc */
 static void conv_tobj(Conv* c, uint32_t off)
 {
     uint32_t next;
@@ -380,6 +385,7 @@ static void conv_tobj(Conv* c, uint32_t off)
     }
 }
 
+/* DWARF: HSD_MObjDesc */
 static void conv_mobj(Conv* c, uint32_t off)
 {
     uint32_t texdesc;
@@ -402,6 +408,7 @@ static void conv_mobj(Conv* c, uint32_t off)
     }
 }
 
+/* DWARF: HSD_VtxDescList */
 static void conv_vtxdesc(Conv* c, uint32_t off)
 {
     int i;
@@ -455,6 +462,7 @@ static void conv_envelopes(Conv* c, uint32_t off)
 
 /* HSD_ShapeSetDesc (pobj.h:89): flags/nb_shape/vertex count + VtxDesc lists.
  * The vertex/normal index lists are byte arrays and stay big-endian. */
+/* DWARF: HSD_ShapeSetDesc */
 static void conv_shapesetdesc(Conv* c, uint32_t off)
 {
     uint32_t vtxdesc;
@@ -477,6 +485,7 @@ static void conv_shapesetdesc(Conv* c, uint32_t off)
     }
 }
 
+/* DWARF: HSD_PObjDesc */
 static void conv_pobj(Conv* c, uint32_t off)
 {
     uint32_t next;
@@ -508,6 +517,7 @@ static void conv_pobj(Conv* c, uint32_t off)
     }
 }
 
+/* DWARF: HSD_DObjDesc */
 static void conv_dobj(Conv* c, uint32_t off)
 {
     uint32_t next;
@@ -532,6 +542,7 @@ static void conv_dobj(Conv* c, uint32_t off)
     }
 }
 
+/* DWARF: HSD_RvalueList */
 static void conv_rvalue_list(Conv* c, uint32_t off)
 {
     int i;
@@ -549,6 +560,7 @@ static void conv_rvalue_list(Conv* c, uint32_t off)
     }
 }
 
+/* DWARF: HSD_RObjDesc */
 static void conv_robjdesc(Conv* c, uint32_t off)
 {
     uint32_t flags;
@@ -593,6 +605,7 @@ static void conv_robjdesc(Conv* c, uint32_t off)
     c->depth--;
 }
 
+/* DWARF: HSD_Joint */
 static void conv_joint(Conv* c, uint32_t off)
 {
     uint32_t flags;
@@ -639,6 +652,7 @@ static void conv_joint(Conv* c, uint32_t off)
     c->depth--;
 }
 
+/* DWARF: HSD_AObjDesc */
 static void conv_aobjdesc(Conv* c, uint32_t off)
 {
     uint32_t fobj;
@@ -676,6 +690,7 @@ static void conv_aobjdesc(Conv* c, uint32_t off)
  * tree as well; its MObjs are otherwise left big-endian (GrNLa light anims
  * crashed there).  Relocation targets are still data-relative offsets at
  * conversion time (the loader adds the base in `Locate`). */
+/* DWARF: HSD_AObjDesc */
 static void conv_aobjdesc_ref(Conv* c, uint32_t off)
 {
     uint32_t obj;
@@ -697,6 +712,7 @@ static void conv_aobjdesc_ref(Conv* c, uint32_t off)
 
 /* HSD_TexAnim: next; id; aobjdesc; ImageDesc** imagetbl; TlutDesc** tluttbl;
  * u16 n_imagetbl; u16 n_tluttbl (0x18). */
+/* DWARF: HSD_TexAnim */
 static void conv_texanim(Conv* c, uint32_t off)
 {
     uint32_t next;
@@ -757,6 +773,7 @@ static void conv_texanim(Conv* c, uint32_t off)
 }
 
 /* HSD_ChanAnim / HSD_TevRegAnim: next; aobjdesc. */
+/* DWARF: HSD_ChanAnim */
 static void conv_chananim(Conv* c, uint32_t off)
 {
     uint32_t next;
@@ -776,6 +793,7 @@ static void conv_chananim(Conv* c, uint32_t off)
 }
 
 /* HSD_RenderAnim: ChanAnim* chananim; TevRegAnim* reganim (same layout). */
+/* DWARF: HSD_RenderAnim */
 static void conv_renderanim(Conv* c, uint32_t off)
 {
     uint32_t chananim;
@@ -795,6 +813,7 @@ static void conv_renderanim(Conv* c, uint32_t off)
 }
 
 /* HSD_MatAnim: next; aobjdesc; texanim; renderanim. */
+/* DWARF: HSD_MatAnim */
 static void conv_matanim(Conv* c, uint32_t off)
 {
     uint32_t next;
@@ -824,6 +843,7 @@ static void conv_matanim(Conv* c, uint32_t off)
 }
 
 /* HSD_MatAnimJoint: child; next; MatAnim* matanim. */
+/* DWARF: HSD_MatAnimJoint */
 static void conv_matanim_joint(Conv* c, uint32_t off)
 {
     uint32_t child;
@@ -903,6 +923,7 @@ static void conv_dynamic_models(Conv* c, uint32_t off)
 }
 
 /* HSD_ShapeAnimDObj: next; ShapeAnim* shapeanim. */
+/* DWARF: HSD_ShapeAnimDObj */
 static void conv_shapeanim_dobj(Conv* c, uint32_t off)
 {
     uint32_t next;
@@ -930,6 +951,7 @@ static void conv_shapeanim_dobj(Conv* c, uint32_t off)
 }
 
 /* HSD_ShapeAnimJoint: child; next; ShapeAnimDObj*. */
+/* DWARF: HSD_ShapeAnimJoint */
 static void conv_shapeanim_joint(Conv* c, uint32_t off)
 {
     uint32_t child;
@@ -953,6 +975,7 @@ static void conv_shapeanim_joint(Conv* c, uint32_t off)
     }
 }
 
+/* DWARF: HSD_AnimJoint */
 static void conv_anim_joint(Conv* c, uint32_t off)
 {
     uint32_t child;
@@ -986,6 +1009,7 @@ static void conv_anim_joint(Conv* c, uint32_t off)
     c->depth--;
 }
 
+/* DWARF: HSD_RObjAnimJoint */
 static void conv_robj_anim(Conv* c, uint32_t off)
 {
     uint32_t next;
@@ -1004,6 +1028,7 @@ static void conv_robj_anim(Conv* c, uint32_t off)
     }
 }
 
+/* DWARF: FigaTrack */
 static void conv_figatrack(Conv* c, uint32_t off)
 {
     if (!in_data(c, off, HSD_FIGATRACK_SIZE) || !mark(c, off)) {
@@ -1014,6 +1039,7 @@ static void conv_figatrack(Conv* c, uint32_t off)
     /* obj_type/frac_value/frac_slope bytes and the ad stream stay. */
 }
 
+/* DWARF: FigaTree */
 static void conv_figatree(Conv* c, uint32_t off)
 {
     uint32_t nodes;
@@ -1056,6 +1082,7 @@ static void conv_figatree(Conv* c, uint32_t off)
 
 /* --------------------------------------------------------------- scene data */
 
+/* DWARF: HSD_WObjDesc */
 static void conv_wobjdesc(Conv* c, uint32_t off)
 {
     uint32_t robj;
@@ -1072,6 +1099,9 @@ static void conv_wobjdesc(Conv* c, uint32_t off)
     }
 }
 
+/* DWARF: HSD_CObjDesc partial -- the union's largest variant is the 0x40
+ * frustum descriptor; the common header is 0x30 and the projection-specific
+ * tail is read only once `projection` says which variant this is. */
 static void conv_cobjdesc(Conv* c, uint32_t off)
 {
     uint32_t w;
@@ -1115,6 +1145,7 @@ static void conv_cobjdesc(Conv* c, uint32_t off)
     }
 }
 
+/* DWARF: HSD_LightDesc */
 static void conv_lightdesc(Conv* c, uint32_t off)
 {
     uint32_t u;
@@ -1163,6 +1194,7 @@ static void conv_lightdesc(Conv* c, uint32_t off)
 }
 
 /* HSD_WObjAnim { HSD_AObjDesc* aobjdesc; HSD_RObjAnimJoint* robjanim; } */
+/* DWARF: HSD_WObjAnim */
 static void conv_wobjanim(Conv* c, uint32_t off)
 {
     uint32_t aobj;
@@ -1183,6 +1215,7 @@ static void conv_wobjanim(Conv* c, uint32_t off)
 
 /* HSD_LightAnim { next; aobjdesc; position_anim; interest_anim; } — the chain
  * `lb_80011AC4` feeds to HSD_LObjAddAnimAll for stage/scene light lists. */
+/* DWARF: HSD_LightAnim */
 static void conv_lightanim(Conv* c, uint32_t off)
 {
     uint32_t next;
@@ -1213,6 +1246,7 @@ static void conv_lightanim(Conv* c, uint32_t off)
 
 /* LightList { HSD_LightDesc* desc; HSD_LightAnim** anims; }; both
  * lb_80011AC4 (stages/scenes) and the game's light setup read anims[0]. */
+/* DWARF: LightList */
 static void conv_lightlist(Conv* c, uint32_t off)
 {
     uint32_t desc;
@@ -1285,6 +1319,8 @@ static void conv_lightlist_array(Conv* c, uint32_t off)
  * trade this crash for silently wrong particle behaviour. */
 #define HSD_PSCMDLIST_HEADER 0x3C
 
+/* DWARF: HSD_PSCmdList partial -- the trailing cmdList[] byte stream at
+ * +0x3C must stay raw, see HSD_PSCMDLIST_HEADER above. */
 static void conv_ps_cmd_list(Conv* c, uint32_t cmd)
 {
     int i;
@@ -1436,6 +1472,7 @@ static void conv_ps_tex_bank(Conv* c, uint32_t off)
 #define MAPLINE_SIZE 0x10
 #define MAPJOINT_SIZE 0x28
 
+/* DWARF: MapLine */
 static void conv_map_line(Conv* c, uint32_t off)
 {
     int i;
@@ -1444,6 +1481,7 @@ static void conv_map_line(Conv* c, uint32_t off)
     }
 }
 
+/* DWARF: MapJoint */
 static void conv_map_joint(Conv* c, uint32_t off)
 {
     int i;
@@ -1457,6 +1495,7 @@ static void conv_map_joint(Conv* c, uint32_t off)
     conv_u16(c, off + 0x26);
 }
 
+/* DWARF: MapCollData */
 static void conv_coll_data(Conv* c, uint32_t off)
 {
     uint32_t verts;
@@ -1527,6 +1566,7 @@ static void conv_coll_data(Conv* c, uint32_t off)
 #define STAGEPARAM_SIZE 0x64
 #define STAGEPARAM_S16 37
 
+/* DWARF: StageParam */
 static void conv_stage_param(Conv* c, uint32_t off)
 {
     int i;
@@ -1544,6 +1584,7 @@ static void conv_stage_param(Conv* c, uint32_t off)
     }
 }
 
+/* DWARF: GroundParam */
 static void conv_ground_param(Conv* c, uint32_t off)
 {
     uint32_t rows;
@@ -1831,6 +1872,7 @@ static void conv_castle_param(Conv* c, uint32_t off)
  * 0x3C-byte source records.  lb_80011710 copies the record floats into the
  * runtime list; left big-endian, `count` reads as 0x0n000000 and
  * lb_8000FD48 walks the whole dynamics pool (grCastle_801CD658). */
+/* DWARF: DynamicsDesc */
 static void conv_dynamics_desc(Conv* c, uint32_t off)
 {
     uint32_t data;
@@ -2187,6 +2229,7 @@ static void conv_intro_easy_table(Conv* c, uint32_t off)
  * source `data` is not a runtime DynamicsData linked list: lb_80011710 views
  * it as `count` packed lb_00F9_UnkDesc1Inner records (15 f32 words each) and
  * copies their solver parameters into the runtime list. */
+/* DWARF: BoneDynamicsDesc */
 static void conv_bone_dynamics_desc(Conv* c, uint32_t off)
 {
     uint32_t data;
@@ -2220,6 +2263,7 @@ static void conv_bone_dynamics_desc(Conv* c, uint32_t off)
 
 /* ItemAttr: two bytes of bitfields, then a dense run of 4-byte fields from
  * +0x04 to +0x80 (floats, count/type ints, two itECBs and two Vec2s). */
+/* DWARF: ItemAttr */
 static void conv_item_attr(Conv* c, uint32_t off)
 {
     uint32_t i;
@@ -2234,6 +2278,7 @@ static void conv_item_attr(Conv* c, uint32_t off)
 
 /* ItHurtBoneList { s32 count; ItHurtBoneDesc* descs; }, desc =
  * { enum_t bone_id; Vec3 a; Vec3 b; f32 scale; } (0x20). */
+/* DWARF: ItHurtBoneList */
 static void conv_it_hurtbone_list(Conv* c, uint32_t off)
 {
     uint32_t descs;
@@ -2262,6 +2307,7 @@ static void conv_it_hurtbone_list(Conv* c, uint32_t off)
 }
 
 /* ItemModelDesc { HSD_Joint* joint; u32 bone_count; s32 attach_id; u8 bits }. */
+/* DWARF: ItemModelDesc */
 static void conv_item_model_desc(Conv* c, uint32_t off)
 {
     uint32_t joint;
@@ -2278,6 +2324,7 @@ static void conv_item_model_desc(Conv* c, uint32_t off)
 }
 
 /* ItemDynamics { int count; BoneDynamicsDesc* dyn_descs }. */
+/* DWARF: ItemDynamics */
 static void conv_item_dynamics(Conv* c, uint32_t off)
 {
     uint32_t descs;
@@ -2559,6 +2606,7 @@ static void conv_article_special_attrs(Conv* c, uint32_t special,
     }
 }
 
+/* DWARF: Article */
 static void conv_article(Conv* c, uint32_t off, int item_kind)
 {
     uint32_t attr;
@@ -3442,6 +3490,7 @@ static void conv_ft_data(Conv* c, uint32_t off)
  * spawn budget; big-endian limits make it reject every spawn. */
 #define ITEMCOMMON_SIZE 0x160
 
+/* DWARF: ItemCommonData */
 static void conv_item_common_data(Conv* c, uint32_t off)
 {
     uint32_t i;
@@ -3553,6 +3602,7 @@ static void conv_ef_dat(Conv* c, uint32_t off)
     }
 }
 
+/* DWARF: HSD_FogDesc */
 static void conv_fogdesc(Conv* c, uint32_t off)
 {
     uint32_t adj;
@@ -3653,6 +3703,7 @@ static void conv_scene_desc(Conv* c, uint32_t off)
 
 /* StaticModelDesc (sc/types.h): joint + animjoint + matanim_joint +
  * shapeanim_joint.  Used by the EF_EffectDesc model table. */
+/* DWARF: StaticModelDesc */
 static void conv_static_model_full(Conv* c, uint32_t off)
 {
     uint32_t joint;
@@ -3712,6 +3763,7 @@ static void conv_toy_model_file_table(Conv* c, uint32_t off, int count)
  * HSD_SObjLib_803A477C.  No branch claimed the root, so the ImageDescs behind
  * it stayed big-endian and the GX draw read 320x240 as 16385x61440 and format
  * 6 as 0x06000000, which the texture decoder rejects. */
+/* DWARF: HSD_SObjDesc */
 static void conv_sobjdesc(Conv* c, uint32_t off)
 {
     uint32_t image;
