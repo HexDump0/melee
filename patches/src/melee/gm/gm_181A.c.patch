@@ -1,0 +1,39 @@
+diff --git a/src/melee/gm/gm_181A.c b/src/melee/gm/gm_181A.c
+index 3616de5cd..37ab256e4 100644
+--- a/src/melee/gm/gm_181A.c
++++ b/src/melee/gm/gm_181A.c
+@@ -118,8 +118,34 @@ static RecordBlock lbl_803D8D08[6] = {
+         0x0FFFFFFF, 0x0FFFFFFF } },
+ };
+ 
++#ifdef PORT_PC
++/* These two are one region on the console -- 0x80472ED8 + 0x6BC == 0x80473594
++ * -- and this file depends on it.  `lbl_80472ED8_t` ends with
++ * `RegClearRecordState record[0]` at +0x6BC, and the code reaches `record[0]`
++ * through two casts (`RegClearRecordOverlay` at :693 and :924, and the local
++ * `regclear_record_state` in `gm_80182554`), which is `lbl_80473594`.  The
++ * `@todo` above `gm_80182554` says as much.
++ *
++ * `gm_80182554` **writes** five fields through that overlay and is called from
++ * `gmmultiman.c` for every Multi-Man mode, so with `-fdata-sections` -- where
++ * the linker may put `lbl_80473594` anywhere -- those are twenty bytes of wild
++ * write into whatever happens to follow.  Reproduce the console's layout
++ * instead of reinterpreting anything: one block with both bound to members at
++ * the console's own offsets.  This is the `hsd_4D11.c`/`toy.c` treatment
++ * (P-646, P-721).  Both names are file-local, so plain macros suffice.
++ */
++struct RegClear_block_80472ED8 {
++    /* +0x000 */ lbl_80472ED8_t base;
++    /* +0x6BC */ RegClearRecordState record;
++};
++static struct RegClear_block_80472ED8 RegClear_block_80472ED8;
++STATIC_ASSERT(offsetof(struct RegClear_block_80472ED8, record) == 0x6BC);
++#define lbl_80472ED8 (RegClear_block_80472ED8.base)
++#define lbl_80473594 (RegClear_block_80472ED8.record)
++#else
+ lbl_80472ED8_t lbl_80472ED8;
+ RegClearRecordState lbl_80473594;
++#endif
+ 
+ int gm_80181A14(void)
+ {

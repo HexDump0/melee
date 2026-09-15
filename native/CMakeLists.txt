@@ -131,6 +131,15 @@ target_link_libraries(melee_prototype PRIVATE PkgConfig::SDL2 OpenGL::GL m melee
 target_link_options(melee_prototype PRIVATE "LINKER:--gc-sections")
 option(MELEE_SANITIZE "Enable memory and undefined behavior checks" OFF)
 if(MELEE_SANITIZE)
+  # The sanitizer build is a Debug build, and Debug means -O0.  At -O0 GCC's C
+  # front end will not fold a `const` integer into an integer constant
+  # expression, so `src/MSL/math.h`'s `__fpclassifyf` -- `const s32 exp_mask`
+  # used as a `case` label -- fails to compile, and the whole documented
+  # ASan/UBSan workflow in TESTING.md has been unbuildable.  -O1 folds it, is
+  # what the sanitizer documentation recommends anyway, and keeps the frame
+  # pointers and line numbers the reports need.  Applied to every sanitized
+  # target so they cannot drift apart.
+  add_compile_options(-O1)
   target_compile_options(melee_prototype PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
   target_link_options(melee_prototype PRIVATE -fsanitize=address,undefined)
 endif()
