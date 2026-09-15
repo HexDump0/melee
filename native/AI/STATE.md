@@ -2,6 +2,23 @@
 
 Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716, P-718, P-719, P-720, P-737, P-738, P-739, P-742 and P-743 fixed, P-699/P-702/P-711/P-715/P-717/P-740/P-741 open)
 
+> **Matrix status, end of 2026-09-15: 81 of 754 runs fail (10.7%), nine
+> distinct.** It was 240/780 when the fighter x stage sweep first ran. Fixed
+> since: P-767 and P-774 (cross-symbol overlays, G-176 class), P-764 (the
+> `vis_table` walk running off the end) and P-765 (G&W's fifth
+> part-visibility group). Withdrawn as harness error: P-766, P-768 and the
+> `St_Kind_Dummy` row -- the sweep was taking its stage axis from the `StKind`
+> enum instead of the game's own stage-select table. Remaining: `mplib.c:4804`
+> on Mute City (26), `memory.c:55` on Dream Land (26), `HSD_JObjAddAnim` on
+> Venom/Corneria (10), `lbvector.c:383` position sanity (8), and five smaller
+> ones including two new Icicle Mountain hangs.
+>
+> **Note what this did *not* move: descriptor coverage.** P-764 cost 0.01
+> points and P-765 cost none. The soak and the coverage ratchet find different
+> bugs -- **neither P-764 nor P-765 would have been caught by reaching 95%
+> coverage**, because in both cases the data *was* being walked, just wrongly.
+> They are complementary instruments, not sequential ones.
+
 > **The soak matrix, and ten bugs that were hiding behind Link vs Mario
 > (2026-09-15, P-759, P-764..P-773).** `onEnterDebugVs` hardcodes Link vs
 > Mario, so seeds varied the *stage* and never the fighters -- which is why
