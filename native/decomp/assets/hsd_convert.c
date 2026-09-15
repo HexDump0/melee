@@ -28,10 +28,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 99u
+#define HSD_CONVERTER_VERSION 100u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -287,6 +288,7 @@ static void conv_shapeanim_joint(Conv* c, uint32_t off);
 static void conv_dynamic_models(Conv* c, uint32_t off);
 static void conv_regclear_spawn_table(Conv* c, uint32_t off);
 static void conv_yorster_param(Conv* c, uint32_t off);
+static void conv_article(Conv* c, uint32_t off, int item_kind);
 
 static void conv_imagedesc(Conv* c, uint32_t off)
 {
@@ -1600,7 +1602,19 @@ static void conv_ground_param(Conv* c, uint32_t off)
 /* Gr*.dat `itemdata`: NULL-terminated GroundItemData* array
  * ({ s32 unk0; Article* unk4 }, src/melee/gr/types.h).  The `unk4` pointer is
  * a relocation target (already host order); `unk0` is the item kind and must
- * be swapped or it_8026B40C receives 0xnn000000. */
+ * be swapped or it_8026B40C receives 0xnn000000.
+ *
+ * `unk4` is the stage's own Article, and it has to be walked like any other
+ * (P-762).  ground.c:488 hands each one to it_8026B40C, which files it in
+ * it_804A0F60[kind - It_Kind_Old_Kuri]; the item spawn path then reads
+ * `article->x10_modelDesc->x0_joint` (item.c:578) and loads that joint tree.
+ * Nothing else in the archive points at those Articles, so leaving them here
+ * left an entire model tree big-endian: on Great Bay the Tingle balloon's
+ * HSD_PObjDesc kept its `n_display`/`flags` u16 pair swapped, `flags` lost
+ * POBJ_ENVELOPE (0x2000), and since POBJ_SKIN is `0 << 12` a PObj with no
+ * type bits *is* a skin -- so HSD_PObjResolveRefs took the skin branch, passed
+ * the envelope-list pointer to HSD_IDGetData as a joint ID, got NULL and
+ * asserted at pobj.c:411.  Roughly 1 match in 6 picked the stage. */
 static void conv_itemdata(Conv* c, uint32_t off)
 {
     int i;
@@ -1612,6 +1626,7 @@ static void conv_itemdata(Conv* c, uint32_t off)
     for (i = 0; i < 256; i++) {
         uint32_t entry = off + (uint32_t) i * 4;
         uint32_t p;
+        uint32_t article;
         if (!in_data(c, entry, 4)) {
             break;
         }
@@ -1620,6 +1635,13 @@ static void conv_itemdata(Conv* c, uint32_t off)
             break;
         }
         conv_u32(c, p + 0x00);
+        article = rd32(c, p + 0x04);
+        if (article != 0) {
+            /* unk0 is host order by now, so it is the It_Kind the article is
+             * registered under -- which is what conv_article needs to
+             * recognise per-kind special attributes. */
+            conv_article(c, article, (int) rd32(c, p + 0x00));
+        }
     }
 }
 
@@ -4719,7 +4741,14 @@ static void cache_store(const char* path, const unsigned char* data,
     FILE* f;
     int n;
 
-    n = snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    /*
+     * The temporary name carries the pid: the soak harness (P-759) runs many
+     * boots in parallel against one shared cache directory, and a fixed
+     * "<path>.tmp" let two converters interleave writes into the same file
+     * before both renamed it into place.  The rename is atomic; the bytes
+     * going into it were not.
+     */
+    n = snprintf(tmp, sizeof(tmp), "%s.tmp.%ld", path, (long) getpid());
     if (n < 0 || (size_t) n >= sizeof(tmp)) {
         return;
     }

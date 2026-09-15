@@ -71,9 +71,10 @@ int check_unk_flag_bit_order(void)
 }
 
 /* Descriptor-walk coverage floor, disc-wide (P-756).  Measured 2026-09-15 at
- * converter v99: 154019/209261 = 73.60%.  Ratchet it upward as walkers land;
- * never lower it to make a change pass. */
-#define MELEE_COVERAGE_FLOOR 73.60
+ * converter v100: 160885/209261 = 76.88%, up from 73.60% at v99 when
+ * conv_itemdata started following each stage's Article (P-762).  Ratchet it
+ * upward as walkers land; never lower it to make a change pass. */
+#define MELEE_COVERAGE_FLOOR 76.88
 
 int check_converter_sweep(const char* image)
 {
@@ -403,6 +404,13 @@ int main(int argc, char** argv)
     failures += check_converter_sweep(image);
     failures += check_stage_matanims(image, "GrNBa.dat");
     failures += check_stage_matanims(image, "GrNLa.dat");
+    /* P-762: the stage Articles `itemdata` names, and the model trees behind
+     * them.  GrGb is where the crash was; the other three are stages with
+     * their own articles, so the walk is checked on more than its one case. */
+    failures += check_stage_item_articles(image, "GrGb.dat", 1);
+    failures += check_stage_item_articles(image, "GrNBa.dat", 0);
+    failures += check_stage_item_articles(image, "GrIz.dat", 0);
+    failures += check_stage_item_articles(image, "GrSh.dat", 0);
 
     /* One stage and the common archives. */
     {

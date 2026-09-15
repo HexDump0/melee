@@ -77,6 +77,7 @@ int check_ty_datai_tables(const char* image);
 int check_ty_data_tables(const char* image);
 int check_item_models(const char* image);
 int check_stage_matanims(const char* image, const char* name);
+int check_stage_item_articles(const char* image, const char* path, unsigned min_articles);
 unsigned pose_tree(HSD_JObj* root, float* out_min, float* out_max);
 int check_converted_joint(const char* tag, const unsigned char* rdata, const unsigned char* cdata, uint32_t host_base, uint32_t field_off, uint32_t raw_joint);
 int check_respawn_platform(const char* image);

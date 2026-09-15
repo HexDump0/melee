@@ -777,3 +777,210 @@ int check_stage_matanims(const char* image, const char* name)
     free(buffer);
     return failed;
 }
+
+/* P-762: `itemdata` names each stage's own Articles, and the item spawn path
+ * loads `article->x10_modelDesc->x0_joint` (item.c:578) after ground.c:488
+ * files the article in it_804A0F60.  Nothing else in the archive points at
+ * those Articles, so until conv_itemdata followed `unk4` the entire model tree
+ * behind them stayed big-endian.
+ *
+ * On Great Bay that tree is the Tingle balloon, and the visible symptom was an
+ * HSD_PObjDesc whose flags/n_display u16 pair was still swapped: `flags` read
+ * 0x01a0 instead of 0xa001 and so lost POBJ_ENVELOPE (0x2000).  POBJ_SKIN is
+ * `0 << 12`, so a PObj with no type bits *is* a skin -- HSD_PObjResolveRefs
+ * took the skin branch, passed the envelope-array pointer to HSD_IDGetData as
+ * a joint ID, got NULL and asserted at pobj.c:411.  Roughly one match in six
+ * picked the stage, which is how the soak (P-759) found it.
+ *
+ * The check is structural rather than a crash reproduction.  A POBJ_SKIN
+ * stores an *ID* in the union at +0x14, not a pointer, so that field is never
+ * a relocation target for a skin; an envelope's is.  A union field the
+ * relocation table names while the type bits say skin therefore means the
+ * flags word never got converted -- exactly the corruption above, and it would
+ * catch it in any archive, at any offset. */
+static int check_stage_item_pobjs(const char* path, const unsigned char* pobj,
+                                  const unsigned char* buffer, size_t size,
+                                  const HSD_Archive* archive, unsigned* seen)
+{
+    int failed = 0;
+    int guard;
+
+    for (guard = 0; pobj != NULL && guard < 4096; guard++) {
+        uint16_t flags = read_host_u16(pobj + 0x0C);
+        uint16_t n_display = read_host_u16(pobj + 0x0E);
+
+        (*seen)++;
+        if ((flags & 0x3000) == POBJ_SKIN &&
+            archive_has_reloc(archive, pobj + 0x14))
+        {
+            fprintf(stderr,
+                    "decomp_assets: %s PObj +0x%lx flags=0x%04x says SKIN but "
+                    "its union is a relocation target (unconverted? P-762)\n",
+                    path, (unsigned long) (pobj - buffer), flags);
+            failed = 1;
+        }
+        /* n_display counts display-list bytes in 32-byte units, so real
+         * values are tens.  A swapped pair drags the other half in. */
+        if (n_display > 4096) {
+            fprintf(stderr,
+                    "decomp_assets: %s PObj +0x%lx n_display=%u "
+                    "(unconverted? P-762)\n",
+                    path, (unsigned long) (pobj - buffer),
+                    (unsigned) n_display);
+            failed = 1;
+        }
+        pobj = read_host_ptr(pobj + 0x04);
+        if (pobj != NULL && !ptr_in_buffer(pobj, buffer, size)) {
+            fprintf(stderr, "decomp_assets: %s PObj next out of archive\n",
+                    path);
+            return 1;
+        }
+    }
+    return failed;
+}
+
+static int check_stage_item_joints(const char* path,
+                                   const unsigned char* joint,
+                                   const unsigned char* buffer, size_t size,
+                                   const HSD_Archive* archive, unsigned* joints,
+                                   unsigned* pobjs, int depth)
+{
+    int failed = 0;
+    int guard;
+
+    if (depth > 64) {
+        return 0;
+    }
+    for (guard = 0; joint != NULL && guard < 1024; guard++) {
+        const unsigned char* dobj = read_host_ptr(joint + 0x10);
+        const unsigned char* child = read_host_ptr(joint + 0x08);
+        int dguard;
+
+        (*joints)++;
+        /* +0x10 is a union: only a joint whose flags say JOBJ_PTCL/SPLINE
+         * puts something other than an HSD_DObjDesc* there, and neither is
+         * reachable from an item model. */
+        for (dguard = 0;
+             dobj != NULL && ptr_in_buffer(dobj, buffer, size) &&
+             dguard < 4096;
+             dguard++)
+        {
+            const unsigned char* pobj = read_host_ptr(dobj + 0x0C);
+            if (pobj != NULL && ptr_in_buffer(pobj, buffer, size)) {
+                failed |= check_stage_item_pobjs(path, pobj, buffer, size,
+                                                 archive, pobjs);
+            }
+            dobj = read_host_ptr(dobj + 0x04);
+        }
+        if (child != NULL && ptr_in_buffer(child, buffer, size)) {
+            failed |= check_stage_item_joints(path, child, buffer, size,
+                                              archive, joints, pobjs,
+                                              depth + 1);
+        }
+        joint = read_host_ptr(joint + 0x0C);
+        if (joint != NULL && !ptr_in_buffer(joint, buffer, size)) {
+            break;
+        }
+    }
+    return failed;
+}
+
+int check_stage_item_articles(const char* image, const char* path,
+                              unsigned min_articles)
+{
+    char error[256];
+    size_t size = 0;
+    unsigned char* buffer =
+        load_archive(image, path, NULL, &size, error, sizeof(error));
+    HSD_Archive archive;
+    HsdConvertStats stats;
+    unsigned char* itemdata;
+    unsigned entries = 0;
+    unsigned articles = 0;
+    unsigned joints = 0;
+    unsigned pobjs = 0;
+    int failed = 0;
+    int i;
+
+    if (buffer == NULL) {
+        printf("decomp_assets: %s SKIP (%s)\n", path, error);
+        return 0;
+    }
+    if (!hsd_asset_convert(buffer, size, &stats) ||
+        HSD_ArchiveParse(&archive, buffer, size) != 0)
+    {
+        fprintf(stderr, "decomp_assets: %s conversion failed\n", path);
+        free(buffer);
+        return 1;
+    }
+    itemdata = HSD_ArchiveGetPublicAddress(&archive, "itemdata");
+    if (itemdata == NULL) {
+        printf("decomp_assets: %s has no itemdata\n", path);
+        free(buffer);
+        return 0;
+    }
+    /* GroundItemData**, NULL-terminated (gr/types.h +6A8). */
+    for (i = 0; i < 256; i++) {
+        unsigned char* entry = read_host_ptr(itemdata + (size_t) i * 4);
+        unsigned char* article;
+        unsigned char* model;
+        unsigned char* joint;
+        uint32_t kind;
+        uint32_t bones;
+
+        if (entry == NULL || !ptr_in_buffer(entry, buffer, size)) {
+            break;
+        }
+        entries++;
+        kind = read_host_u32(entry + 0x00);
+        article = read_host_ptr(entry + 0x04);
+        if (kind > 0x400) {
+            fprintf(stderr,
+                    "decomp_assets: %s itemdata[%d] kind = 0x%x "
+                    "(unconverted?)\n",
+                    path, i, (unsigned) kind);
+            failed = 1;
+            continue;
+        }
+        if (article == NULL || !ptr_in_buffer(article, buffer, size)) {
+            continue;
+        }
+        articles++;
+        model = read_host_ptr(article + 0x10); /* Article::x10_modelDesc */
+        if (model == NULL || !ptr_in_buffer(model, buffer, size)) {
+            continue;
+        }
+        /* A count still big-endian reads as 0xnn000000, so this alone proves
+         * conv_item_model_desc ran on the article. */
+        bones = read_host_u32(model + 0x04);
+        if (bones > 1024) {
+            fprintf(stderr,
+                    "decomp_assets: %s itemdata[%d] model bone_count = %u "
+                    "(unconverted? P-762)\n",
+                    path, i, (unsigned) bones);
+            failed = 1;
+        }
+        joint = read_host_ptr(model + 0x00);
+        if (joint != NULL && ptr_in_buffer(joint, buffer, size)) {
+            failed |= check_stage_item_joints(path, joint, buffer, size,
+                                              &archive, &joints, &pobjs, 0);
+        }
+    }
+    /* Most stages declare `itemdata` and leave it empty, so an empty array is
+     * not a failure on its own -- but GrGb's one article is the P-762 case and
+     * has to stay reachable, so the caller states what it expects. */
+    if (articles < min_articles) {
+        fprintf(stderr,
+                "decomp_assets: %s itemdata entries=%u articles=%u, expected "
+                "at least %u (P-762)\n",
+                path, entries, articles, min_articles);
+        failed = 1;
+    }
+    if (failed == 0) {
+        printf("decomp_assets: %-14s itemdata entries=%u articles=%u model "
+               "joints=%u pobjs=%u ok\n",
+               path, entries, articles, joints, pobjs);
+    }
+    free(buffer);
+    return failed;
+}

@@ -2,6 +2,26 @@
 
 Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716, P-718, P-719, P-720, P-737, P-738, P-739, P-742 and P-743 fixed, P-699/P-702/P-711/P-715/P-717/P-740/P-741 open)
 
+> **Great Bay crashed one match in six, and the stage's Articles were never
+> converted (2026-09-15, P-762).** `Gr*.dat`'s `itemdata` names the stage's own
+> `Article*`s; `ground.c:488` files each one in `it_804A0F60`, and the item
+> spawn path then loads `article->x10_modelDesc->x0_joint` (`item.c:578`).
+> `conv_itemdata` swapped the item kind beside each pointer but never followed
+> the pointer, and nothing else in the archive points at those Articles -- so
+> an entire model tree stayed big-endian. On Great Bay that is the Tingle
+> balloon: an `HSD_PObjDesc` kept its `flags`/`n_display` `u16` pair swapped,
+> `flags` read `0x01a0` instead of `0xa001` and lost `POBJ_ENVELOPE` (0x2000),
+> and because `POBJ_SKIN` is `0 << 12` a PObj with **no** type bits *is* a
+> skin -- so `HSD_PObjResolveRefs` took the skin branch, handed the
+> envelope-array pointer to `HSD_IDGetData` as a joint ID, got NULL and
+> asserted at `pobj.c:411`. Converter **v100**. Descriptor coverage
+> **73.60% -> 76.88%** (6,866 descriptors) from that one walker, and the floor
+> is ratcheted to match. The regression test is structural rather than a crash
+> replay: a `POBJ_SKIN` stores an *ID* in its union, never a pointer, so a
+> union field the relocation table names while the type bits say skin is the
+> corruption itself -- it would catch this in any archive at any offset.
+> Found by the P-759 soak, not by playing.
+
 > **Projectiles work end to end (2026-09-15, P-739/P-742/P-743, G-178/G-179).**
 > Four bugs stacked on one another, each invisible until the one above it was
 > fixed, and each new symptom pointing at the wrong subsystem: the fighter
