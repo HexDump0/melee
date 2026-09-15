@@ -1,0 +1,26 @@
+diff --git a/src/melee/gr/grvenom.c b/src/melee/gr/grvenom.c
+index cf91ad2a8..3bb3f68e3 100644
+--- a/src/melee/gr/grvenom.c
++++ b/src/melee/gr/grvenom.c
+@@ -557,9 +557,21 @@ Ground_GObj* grVenom_80203EAC(int gobj_id)
+ {
+     Ground_GObj* gobj;
+     Ground* gp;
++#ifdef PORT_PC
++    /* G-176, seventh instance.  `grVe_803E5348` is 0x38 bytes and
++     * `grVe_803E5380` the 0xC after it, so `base + 0x44` is exactly
++     * `grVe_StageCallbacks` -- but only because the console linker emitted the
++     * three back to back.  The port builds with `-fdata-sections`, so +0x44
++     * lands in unrelated data and `callbacks->on_init(gobj)` jumps into it:
++     * every match on Venom segfaulted before the fighters loaded (P-767).
++     * Name the table instead of computing it; the console path is unchanged.
++     */
++    StageCallbacks* callbacks = &grVe_StageCallbacks[gobj_id];
++#else
+     grVe_Data* base = &grVe_803E5348;
+     StageCallbacks* callbacks =
+         &((StageCallbacks*) ((char*) base + 0x44))[gobj_id];
++#endif
+ 
+     gobj = Ground_GetStageGObj(gobj_id);
+ 

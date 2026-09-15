@@ -233,15 +233,28 @@ if [ ${#seeds[@]} -eq 0 ]; then
 fi
 
 # The matrix.  `all` for fighters is the 26 playable CKinds (ft/forward.h:130,
-# CKind_Playable_Count = 0x1A); for stages it is St_Kind_Izumi..St_Kind_Battle
-# (gr/forward.h:144), skipping Dummy and Test, which are not real stages.
+# CKind_Playable_Count = 0x1A).
+#
+# For stages, `all` is **the 30 StKinds the VS stage-select screen actually
+# offers** -- the `stkind` column of `mnStageSel_803F06D0` in
+# mn/mnstagesel.static.h, which is the game's own list.  Do not substitute a
+# range over the StKind enum.  `St_Kind_Akaneia` (21) maps to `Gr_Kind_Unk26`
+# and `St_Kind_Icetop` (26) is not selectable, and `stage_datas[26]` is NULL in
+# the decompilation -- on the console too.  Sweeping the raw enum reports those
+# two as crashes in every run, which is the harness asking for a stage that
+# does not exist, not a port bug.  That mistake cost two bogus task rows.
+#
+# The table's last row carries `stkind` 0 (`St_Kind_Dummy`), which is a
+# placeholder rather than a stage: it has no BGM, so `ground.c:1474` asserts
+# `bgm != BGM_Undefined` for every fighter.  Excluded for the same reason, so
+# `all` is 29 stages.
 fighters=${MELEE_SOAK_FIGHTERS:-}
 stages=${MELEE_SOAK_STAGES:-}
 if [ "$fighters" = "all" ]; then
     fighters=$(seq 0 25)
 fi
 if [ "$stages" = "all" ]; then
-    stages=$(seq 2 31)
+    stages="2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 22 23 24 25 27 28 29 30 31 32"
 fi
 
 jobs_list=()
