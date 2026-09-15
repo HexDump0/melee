@@ -3241,6 +3241,46 @@ skipped, which is right; `mark()` would refuse it anyway.
 Fourth member of the "reached only through `ftData`" family, after `x1C`
 (P-630), `x40`/`x4C` (P-655), `x48` (P-656) and `x20` (P-747).
 
+## G-186: zero-latency I/O let a completion callback run before its caller finished
+
+**Symptom:** SIGSEGV deep in the sound engine (`HSD_Synth_80389334`, a NULL
+voice), hundreds of frames after anything audio-related happened, and only on
+some RNG streams.
+
+**Cause, from the bottom up:** the port's DVD read finishes in microseconds,
+so `platform_pump_completions` at the end of `HSD_SynthSFXLoad`'s own critical
+section delivers the load callback **inside the call**, before the caller
+stores the return value:
+
+```
+lbl_80433A64[slot] = HSD_SynthSFXLoad(...);   <- assignment has not happened
+                     +-- OSRestoreInterrupts
+                          +-- platform_pump_completions
+                               +-- fn_80026C04   <- searches lbl_80433A64
+```
+
+The callback marks the finished slot by *searching that table* for the
+entrynum, finds nothing, and the loader hands out the same slot again. The
+`.ssm` loads twice, both copies register the same SFX ids, and unloading one
+unlinks the other's nodes -- leaving a node linked into a freed block.
+
+**The shape to remember:** on console the read takes milliseconds, so the
+assignment always wins the race. Any port that makes I/O instant turns
+"obviously ordered" into "reordered", and the damage surfaces far away in
+both time and code.
+
+**Fix:** publish the entrynum before the call (`PORT_PC`), so the table is
+consistent whenever the callback runs.
+
+**What not to do:** the general fix -- hold every completion until a later
+pump -- is more faithful and *breaks the game*. The engine's synchronous
+loaders (`AXDriver_8038DA70`, `HSD_SynthSFXWaitForLoadCompletion`) spin on a
+flag with **no pump point inside the loop**; they only work because the
+completion is delivered inline by the call that issued the read. Both a
+virtual-tick deadline and a generation counter deadlocked the boot at
+`mode=40`. A platform whose waits have no pump point cannot also have deferred
+completions: fix the caller that races, not the delivery rule.
+
 ## G-185: a deterministic clock froze the game's only source of randomness
 
 **Symptom (owner):** after G-184 fixed the Classic shuffle, every 1P run still

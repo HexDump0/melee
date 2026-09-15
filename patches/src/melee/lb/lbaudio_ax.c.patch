@@ -1,0 +1,52 @@
+diff --git a/src/melee/lb/lbaudio_ax.c b/src/melee/lb/lbaudio_ax.c
+index 9103dd620..c1443ea47 100644
+--- a/src/melee/lb/lbaudio_ax.c
++++ b/src/melee/lb/lbaudio_ax.c
+@@ -12,6 +12,9 @@
+ #include <dolphin/ar.h>
+ #include <dolphin/ax.h>
+ #include <dolphin/axfx.h>
++#ifdef PORT_PC
++#include <dolphin/dvd.h>
++#endif
+ #include <melee/cm/camera.h>
+ #include <melee/ft/ftlib.h>
+ #include <melee/gm/gm_1601.h>
+@@ -1667,6 +1670,18 @@ static void fn_80026C04(int arg0, int unused)
+     slot = fn_80026650();
+     if (slot != -1) {
+         strcpy(&cur_ssm_file[ssm_stem_pos], ssm_files[slot]);
++#ifdef PORT_PC
++        /* The host's DVD read completes in microseconds, so fn_80026C04 can
++         * run from inside HSD_SynthSFXLoad -- before the assignment below
++         * publishes this slot's entrynum.  Its "mark the finished slot" loop
++         * then finds nothing, fn_80026650 hands out the same slot again, and
++         * the same .ssm is loaded twice; the second copy's SFX nodes are left
++         * dangling in HSD_Synth_804C29E0 when one of the two is unloaded, and
++         * a later lookup walks into freed memory (P-752).  Publishing the
++         * entrynum first is what the console gets for free from a read that
++         * takes milliseconds. */
++        lbl_80433A64[slot] = DVDConvertPathToEntrynum(cur_ssm_file);
++#endif
+         lbl_80433A64[slot] = HSD_SynthSFXLoad(cur_ssm_file, 2, fn_80026C04, 0);
+     }
+ }
+@@ -1782,6 +1797,18 @@ static inline void lbAudioAx_80027168_inline_2(void)
+     int slot = fn_80026650();
+     if (slot != -1) {
+         strcpy(&cur_ssm_file[ssm_stem_pos], ssm_files[slot]);
++#ifdef PORT_PC
++        /* The host's DVD read completes in microseconds, so fn_80026C04 can
++         * run from inside HSD_SynthSFXLoad -- before the assignment below
++         * publishes this slot's entrynum.  Its "mark the finished slot" loop
++         * then finds nothing, fn_80026650 hands out the same slot again, and
++         * the same .ssm is loaded twice; the second copy's SFX nodes are left
++         * dangling in HSD_Synth_804C29E0 when one of the two is unloaded, and
++         * a later lookup walks into freed memory (P-752).  Publishing the
++         * entrynum first is what the console gets for free from a read that
++         * takes milliseconds. */
++        lbl_80433A64[slot] = DVDConvertPathToEntrynum(cur_ssm_file);
++#endif
+         lbl_80433A64[slot] = HSD_SynthSFXLoad(cur_ssm_file, 2, fn_80026C04, 0);
+     }
+ }
