@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 89u
+#define HSD_CONVERTER_VERSION 90u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -102,6 +102,7 @@ enum {
     STAGE_PARAM_ONETT,
     STAGE_PARAM_INISHIE1,
     STAGE_PARAM_CASTLE,
+    STAGE_PARAM_PSTADIUM,
 };
 
 typedef struct StageParamMarker {
@@ -119,6 +120,16 @@ static const StageParamMarker stage_param_markers[] = {
     { "GrdInishie1", STAGE_PARAM_INISHIE1 },
     { "GrdYorster", STAGE_PARAM_YORSTER },
     { "GrdCastleCast", STAGE_PARAM_CASTLE },
+    /* GrPs.dat and GrPs3.dat, but NOT GrHr.dat.  Three archives on the disc
+     * carry `GrdPStadium*` names: the Home-Run Contest stage reuses Pokemon
+     * Stadium's textures, while its own `yakumono_param` is floats (30.0f,
+     * 8.0f, -10.18f) on a different struct.  Only the marker has to
+     * discriminate, and it must be a **public**, not an external -- the scan
+     * below walks `nb_public` only, so the obvious `GrdPStadiumRock_TopN_joint`
+     * would never match.  Of the three publics GrPs/GrPs3 have and GrHr does
+     * not, this is one; checked against every Gr*.dat on the disc.  Kept last
+     * so GrHr keeps matching `GrdYorster` exactly as it does today. */
+    { "GrdPStadiumSteelK", STAGE_PARAM_PSTADIUM },
 };
 
 typedef struct Conv {
@@ -1772,6 +1783,34 @@ static void conv_dynamics_desc(Conv* c, uint32_t off)
     }
 }
 
+/* GrPs.dat/GrPs3.dat (Pokemon Stadium) `yakumono_param`
+ * (`grPStadium_YakumonoParam`, grpstadium.c:40): seven s32, a
+ * { u8 r, g, b } monitor tint plus one pad byte, ten u32 and five s16.
+ *
+ * The u32 run at +0x20 is the jumbotron display state machine's dwell times,
+ * and +0x38/+0x3C are the `randi_between_2` bounds `grStadium_801D2528` uses
+ * for state 7, the 640x406 live feed.  Left big-endian, 600 and 1200 read as
+ * 0x58020000 and 0xB0040000, so the countdown `grStadium_801D2344` decrements
+ * starts negative and its `xE0-- < 0` branch is taken on the very first
+ * frame.  That branch picks a new state and `break`s **before** clearing the
+ * feed wrapper's `flag`, so `grStadium_801D2FD0` never runs its
+ * `GXCopyTex`, and the monitor samples the buffer `HSD_MemAlloc` returned --
+ * uninitialised heap decoded as RGB565 (P-738).  The same shape freezes the
+ * 124x80 close-up in state 8.
+ *
+ * +0x1C is three colour bytes (150, 180, 160) and must stay untouched; it is
+ * the diffuse colour `grStadium_801D21E4` gives the monitor material. */
+static void conv_pstadium_param(Conv* c, uint32_t off)
+{
+    if (!in_data(c, off, 0x52) || !mark(c, off)) {
+        return;
+    }
+    conv_u32_range(c, off + 0x00, 7);
+    /* +0x1C: u8 r, g, b and a pad byte -- no swap. */
+    conv_u32_range(c, off + 0x20, 10);
+    conv_u16_range(c, off + 0x48, 5);
+}
+
 /* Gr*.dat `yakumono_param` fallback: stage-specific dynamic-object parameters
  * whose layout this converter does not know yet.  For Zebes the word at +0x2C
  * is a relocation target to a bury DynamicsDesc stored directly before the
@@ -1839,6 +1878,9 @@ static void conv_stage_yakumono(Conv* c, uint32_t off)
         break;
     case STAGE_PARAM_CASTLE:
         conv_castle_param(c, off);
+        break;
+    case STAGE_PARAM_PSTADIUM:
+        conv_pstadium_param(c, off);
         break;
     default:
         conv_yakumono_param(c, off);

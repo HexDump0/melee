@@ -1,6 +1,18 @@
 # State of the port
 
-Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716, P-718, P-719, P-720 and P-737 fixed, P-699/P-702/P-711/P-715/P-717/P-738/P-739/P-740 open)
+Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716, P-718, P-719, P-720, P-737 and P-738 fixed, P-699/P-702/P-711/P-715/P-717/P-739/P-740/P-741 open)
+
+> **Pokemon Stadium ran on big-endian parameters (2026-09-15, P-738/G-177).**
+> `GrPs.dat`/`GrPs3.dat`'s `yakumono_param` had no converter descriptor, so
+> the jumbotron's display countdown started at a garbage negative, the state
+> machine changed state every frame, and its state-7 branch returned **before**
+> clearing the capture flag -- the 640x406 live feed was never captured once
+> and the monitor sampled uninitialised `HSD_MemAlloc` heap.  That is the
+> noise the owner reported.  The same block also carries the 3600/3800-frame
+> transformation interval, the rise/fall timings and the transformation
+> weights, so the whole stage was running on garbage.  Converter v90.  The
+> monitor was **not** a renderer bug, which is what P-736 spent a pass
+> assuming.
 
 > **VS matches start again (2026-09-15, P-737/G-176).**  Every VS match used
 > to panic on the character-name splash with `file isn't exist S<garbage>.usd`

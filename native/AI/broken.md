@@ -43,39 +43,31 @@ function pointer, so `lbArchive_LoadSymbols` got machine code as a filename
 (G-176, P-737).  **Please retest**: the scripted frontend flow does not reach
 that function, so the fix is verified by measurement, not by a repro run.
 
+Resolved 2026-09-15 (pending your eyes): the Pokemon Stadium jumbotron was
+noise because `GrPs.dat`'s `yakumono_param` was never byte-swapped, so the
+display countdown started at a garbage negative, the state machine changed
+state every frame and the live-feed capture never ran -- the monitor was
+showing uninitialised memory.  Converter v90 fixes it, and the same parameter
+block also drives how often the stage transforms and which transformation it
+picks, so **watch for those too** (transformations should come roughly every
+60 seconds).  G-177, P-738.
+
 ## What I need from you next
 
-**One more run, for B-23 (the Stadium monitor).**  Your first trace already
-narrowed it a long way: the 640x406 live feed the monitor is supposed to show
-is **never captured at all**, so it is displaying whatever `HSD_MemAlloc`
-handed back -- uninitialised heap decoded as pixels, which is the noise.  The
-close-up capture ran exactly once and froze, and the text-window capture reads
-fully black every frame.  All three point at the Stadium display **state
-machine**, not at the renderer.
+**Just play Pokemon Stadium for a minute** and tell me whether the big monitor
+shows the stage now instead of noise, and whether the stage transforms (fire /
+grass / rock) on its own after about a minute.  No environment variables
+needed.  `MELEE_STADIUM_TRACE=1` still exists if you want to see the state
+machine; the countdown should now be a sane positive number counting down
+rather than a large negative one.
 
-What is missing is what state the game thinks it is in.  The first attempt at
-this printed nothing, which was the probe's fault: the frontend only installs
-its frame hook for two named environment variables and `MELEE_STADIUM_TRACE`
-was not one of them.  Fixed, and it now says `[stadium] trace armed` on
-startup so you can tell straight away that it is running.
-
-You said the monitor is already noise at the start of the match, so **15-20
-seconds is enough** -- no need for a long run:
-
-```sh
-MELEE_STADIUM_TRACE=1 ./build/native/melee 2> /tmp/stadium.log
-```
-
-Then send the `[stadium]` lines and any `gx_gl: sampling UNWRITTEN` lines.
-The `[stadium]` line prints once every half second and says which of the three
-sources the monitor is actually pointed at.  You do not need to do anything
-in-game beyond standing on the stage with the monitor visible.
+Also still waiting on a retest for the VS-against-CPU crash fix (see above),
+and B-24 (projectiles) is untouched so far.
 
 ## Confirmed gaps (BROKEN / BLOCKED)
 
 | # | What you see | Status | Blocked on | Tracked as |
 |---|---|---|---|---|
-| B-23 | Pokemon Stadium's big monitor is dense coloured noise instead of the live feed of the stage | BROKEN | the display state machine: the live-feed capture never runs, so the buffer is uninitialised heap (your trace, 2026-09-15) | P-738 |
 | B-24 | Projectile specials do nothing: Link's bow animation plays with no bow or arrow, Fox's blaster fires nothing, no damage | BROKEN | the special-`Article` spawn path | P-739 |
 | B-3 | Characters never blink / no damage or angry faces | BROKEN | action-driven visibility events | P-207 |
 | B-4 | Feet/hands slip or float in landing and ledge clips (no IK) | BROKEN | IK joint port (`resolveIKJoint1/2`) | P-208 |

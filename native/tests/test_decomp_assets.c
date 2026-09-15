@@ -1391,6 +1391,14 @@ static const ParamRange castle_ranges[] = {
     { 0x12C, 4, 2 }, { 0x134, 4, 4 },
 };
 
+/* P-741: Pokemon Stadium (GrPs/GrPs3) `grPStadium_YakumonoParam`
+ * (grpstadium.c:40).  +0x1C is the { u8 r, g, b } monitor tint and is checked
+ * separately by `check_pstadium_param`, since a byte triple has no endianness
+ * and a range entry would wrongly demand one. */
+static const ParamRange pstadium_ranges[] = {
+    { 0x00, 7, 4 }, { 0x20, 10, 4 }, { 0x48, 5, 2 },
+};
+
 static const StageParamCase stage_param_cases[] = {
     { "GrCn.dat", corneria_ranges,
       (unsigned) (sizeof(corneria_ranges) / sizeof(corneria_ranges[0])) },
@@ -1408,6 +1416,10 @@ static const StageParamCase stage_param_cases[] = {
       (unsigned) (sizeof(inishie1_ranges) / sizeof(inishie1_ranges[0])) },
     { "GrCs.dat", castle_ranges,
       (unsigned) (sizeof(castle_ranges) / sizeof(castle_ranges[0])) },
+    { "GrPs.dat", pstadium_ranges,
+      (unsigned) (sizeof(pstadium_ranges) / sizeof(pstadium_ranges[0])) },
+    { "GrPs3.dat", pstadium_ranges,
+      (unsigned) (sizeof(pstadium_ranges) / sizeof(pstadium_ranges[0])) },
 };
 
 static int check_stage_params(const char* image)
@@ -1730,6 +1742,95 @@ static int check_castle_param(const char* image)
     if (failed == 0) {
         printf("decomp_assets: GrCs.dat yakumono_param entries[0..8].x0="
                "405/600/600/720/575/720/575/600/600 ok\n");
+    }
+    free(buffer);
+    return failed != 0 ? 1 : 0;
+}
+
+/* P-741: the Pokemon Stadium jumbotron.  `grStadium_801D2528` seeds the
+ * display countdown `gp->u.display.xE0` from this block -- state 7 (the
+ * 640x406 live feed) from `randi_between_2(x38, x3C)`, state 8 (the 124x80
+ * close-up) from `randi_between(x30, x34)`.  Left big-endian, 600 and 1200
+ * read as 0x58020000 and 0xB0040000, so the countdown starts at a garbage
+ * negative and `grStadium_801D2344`'s `xE0-- < 0` branch fires on the first
+ * frame.  That branch picks a new state and breaks **before** clearing the
+ * feed wrapper's flag, so the capture never runs and the monitor samples
+ * uninitialised heap -- the noise in B-23.
+ *
+ * +0x1C is checked too, from the other direction: it is three colour bytes
+ * and must come back unswapped, or the walk has run off its layout. */
+static int check_pstadium_param(const char* image, const char* file)
+{
+    char error[256];
+    size_t size = 0;
+    unsigned char* buffer = load_archive(image, file, NULL, &size, error,
+                                         sizeof(error));
+    HSD_Archive archive;
+    HsdConvertStats stats;
+    unsigned char* param;
+    unsigned char* p;
+    int failed = 0;
+    unsigned i;
+    /* x00..x18, then x20..x44. */
+    static const uint32_t want_head[7] = { 3600, 3800, 1200, 1800,
+                                           300,  120,  60 };
+    static const uint32_t want_dwell[10] = { 600, 240, 600,  300, 600,
+                                             1200, 600, 1200, 600, 800 };
+    static const int want_s16[5] = { 5, 2, 2, 0, 7 };
+
+    if (buffer == NULL) {
+        printf("decomp_assets: %s SKIP (%s)\n", file, error);
+        return 0;
+    }
+    if (!hsd_asset_convert(buffer, size, &stats) ||
+        HSD_ArchiveParse(&archive, buffer, size) != 0)
+    {
+        fprintf(stderr, "decomp_assets: %s conversion failed\n", file);
+        free(buffer);
+        return 1;
+    }
+    param = HSD_ArchiveGetPublicAddress(&archive, "yakumono_param");
+    if (param == NULL || !ptr_in_buffer(param, buffer, size)) {
+        fprintf(stderr, "decomp_assets: %s yakumono_param missing\n", file);
+        free(buffer);
+        return 1;
+    }
+    p = param;
+    for (i = 0; i < 7; i++) {
+        uint32_t host = read_host_u32(p + i * 4);
+        if (host != want_head[i]) {
+            fprintf(stderr, "decomp_assets: %s param+0x%02X=%u want=%u\n",
+                    file, (unsigned) (i * 4), host, want_head[i]);
+            failed++;
+        }
+    }
+    if (p[0x1C] != 150 || p[0x1D] != 180 || p[0x1E] != 160) {
+        fprintf(stderr,
+                "decomp_assets: %s monitor tint=%u,%u,%u want=150,180,160 "
+                "(colour bytes must not be swapped)\n",
+                file, p[0x1C], p[0x1D], p[0x1E]);
+        failed++;
+    }
+    for (i = 0; i < 10; i++) {
+        uint32_t host = read_host_u32(p + 0x20 + i * 4);
+        if (host != want_dwell[i]) {
+            fprintf(stderr, "decomp_assets: %s param+0x%02X=%u want=%u\n",
+                    file, (unsigned) (0x20 + i * 4), host, want_dwell[i]);
+            failed++;
+        }
+    }
+    for (i = 0; i < 5; i++) {
+        int host = (int) (int16_t) read_host_u16(p + 0x48 + i * 2);
+        if (host != want_s16[i]) {
+            fprintf(stderr, "decomp_assets: %s param+0x%02X=%d want=%d\n",
+                    file, (unsigned) (0x48 + i * 2), host, want_s16[i]);
+            failed++;
+        }
+    }
+    if (failed == 0) {
+        printf("decomp_assets: %s yakumono_param feed dwell x38/x3C=600/1200,"
+               " tint=150,180,160 ok\n",
+               file);
     }
     free(buffer);
     return failed != 0 ? 1 : 0;
@@ -2999,6 +3100,8 @@ int main(int argc, char** argv)
     failures += check_stage_params(image);
     failures += check_castle_dynamics(image);
     failures += check_castle_param(image);
+    failures += check_pstadium_param(image, "GrPs.dat");
+    failures += check_pstadium_param(image, "GrPs3.dat");
     failures += check_scene_root(image, "GmRgStnd.dat", "standScene");
     failures += check_scene_root(image, "GmRegEnd.dat", "cut1CanimScene");
     failures += check_intro_easy(image);

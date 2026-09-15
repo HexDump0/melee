@@ -2891,3 +2891,61 @@ back-to-back" is a defect report, not a reassurance.  When auditing P-721,
 grep for that phrasing as well as for `-Warray-bounds`: this site produces no
 warning at all, because the cast is to a complete type and GCC cannot see
 that the object it points at is smaller.
+
+## G-177: Pokémon Stadium's whole stage ran on big-endian parameters
+
+**Symptom:** the jumbotron is dense coloured noise from the moment the match
+starts.  `MELEE_EFB_TRACE` shows the 640x406 live feed is **never captured**;
+`MELEE_STADIUM_TRACE` shows the display state flipping between 7 and 8 every
+frame with `timer=-1341904928`, a different garbage value each time.
+
+**Cause:** `GrPs.dat`/`GrPs3.dat`'s `yakumono_param` had no converter
+descriptor (P-708's list), so `grPStadium_YakumonoParam` was read
+big-endian.  `grStadium_801D2528` seeds the display countdown from
+`randi_between_2(x38, x3C)`; 600 and 1200 read as `0x58020000` and
+`0xB0040000`, so the countdown starts at a garbage negative.
+`grStadium_801D2344`'s state 7 is:
+
+```c
+case 7:
+    if (gp->u.display.xE0-- < 0) {
+        grStadium_801D2A60(gobj);   /* pick a new state */
+        break;                      /* <-- before clearing the flag */
+    }
+    GET_WRAPPER(gp->u.display.xD8)->flag = false;
+```
+
+The early branch fires on the first frame and **breaks before clearing the
+flag**, so `grStadium_801D2FD0` never reaches its `GXCopyTex` and the monitor
+samples the buffer `HSD_MemAlloc` returned -- uninitialised heap decoded as
+RGB565.  State 8 has the same shape, which is why the 124x80 close-up
+captured once (its wrapper is created with `flag = false`) and then froze.
+
+**Fix:** converter v90 walks the layout: seven s32, the `{ u8 r, g, b }`
+monitor tint plus a pad byte at +0x1C (**must not** be swapped), ten u32 and
+five s16.  Marker `GrdPStadiumSteelK`, which is a **public**; the scan walks
+`nb_public` only, so the obvious `GrdPStadiumRock_TopN_joint` is invisible to
+it.  `GrHr.dat` also carries `GrdPStadium*` names -- the Home-Run Contest
+reuses the textures -- and keeps its existing `GrdYorster` match.
+
+**Scope is the whole stage, not the monitor.** The same block carries the
+3600/3800-frame interval between transformations (`x0`/`x4`), the
+transformation rise/fall timings (`x10`/`x14`/`x18`) and the 5/2/2/0 weights
+that choose which transformation runs (`x48`..`x50`).  All of them were
+garbage.
+
+**Two rules.**
+
+1. **An unconverted parameter block does not look like an endianness bug.** It
+   looks like a renderer bug, and it cost P-736 a whole pass at the GX layer
+   (rounded-up tile counts, copy-clear semantics -- both real fixes, neither
+   related).  When a stage misbehaves, check `P-708`'s list of stages with no
+   `yakumono_param` descriptor *first*: PStadium is now done, but MuteCity,
+   Icemt, RCruise, Garden, Shrine, Kraid, Pura, BigBlue, Inishie2, Battle,
+   OldPupupu, OldYoshi and OldKongo are still raw.
+2. **Editing a converter without bumping `HSD_CONVERTER_VERSION` poisons the
+   cache**, and so does running the tests against a half-built binary: the
+   `build/native/asset-cache` entry is written from whatever the converter did
+   at that moment and read back forever after.  A converter change that seems
+   not to take effect is this, every time; `rm -rf build/native/asset-cache`
+   before concluding anything.
