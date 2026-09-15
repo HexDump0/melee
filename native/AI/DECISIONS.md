@@ -1185,3 +1185,101 @@ endianness divergence (G-164).  Read those first.
 **Re-run after every submodule re-pin.**  The recipe is in
 `learnings/decomp_port.md` under the missing-`return` census; substitute the
 warning set above.
+
+## ADR-0022: Keep convert-on-load; do not adopt `scalar_storage_order` for disc data
+
+**Context.** `999sian/melee-pc` builds from the same decompilation but keeps
+disc data big-endian in memory: every on-disc struct is declared with
+`__attribute__((scalar_storage_order("big-endian")))`, on-disc pointers become
+`DISC_PTR(T)` slots read through a `DP()` accessor, and MEM1 is mapped below
+4 GB so 32-bit pointers stay valid. The attraction is real -- the entire class
+of "the converter never walked this struct" (P-742/743/746/747/748/753/754,
+seven of our last fourteen issues) becomes impossible, because there is
+nothing to forget.
+
+We measured the trade rather than assuming it:
+
+- **`scalar_storage_order` is GCC-only, and clang does not reject it -- it
+  ignores it.** `clang 22.1.8` compiles a struct carrying the attribute with
+  only `-Wunknown-attributes`, producing native-endian layout silently. A
+  clang build of an annotated tree would not fail; it would misbehave.
+- **It forecloses WebAssembly.** emscripten is clang-based, so an annotated
+  tree cannot target wasm at all. melee-pc's own Android notes say the NDK
+  ships only clang and that their build requires a hand-configured GCC
+  cross-compiler with an Android sysroot; Windows is MinGW GCC, not MSVC.
+  Their portability is "everywhere GCC goes".
+- **It costs source divergence.** `DP()` in place of `->`, parallel disc/native
+  type pairs, and no address-of on disc fields, spread through the headers and
+  call sites. That is incompatible with ADR-0011, which keeps `src/`
+  read-only behind a patch series.
+- We already carry 81 `CMD_BE` and 6 `PORT_BF_BE` sites, which are the same
+  hazard in miniature.
+
+**Decision.** Keep converting archives to host byte order at load.
+`scalar_storage_order` stays confined to the existing sites and no new ones are
+added. The conversion bug class is closed by **measurement and generation**
+(ADR-0023), not by changing the data model.
+
+**Consequences.** The converter stays a permanent, growing component, and
+missing descriptors stay a real failure mode -- ADR-0023 exists to bound it.
+In exchange the port keeps a pristine `src/`, plain native structs at runtime
+(so mods and tools use `x->field` normally), no compiler lock-in, and wasm
+remains reachable. Any non-GCC build must set `-Werror=unknown-attributes`
+so the existing annotated sites cannot silently no-op; `check_unk_flag_bit_order`
+also fails in that case.
+
+
+## ADR-0023: Close bug classes by measurement, not by playtesting
+
+**Context.** Bugs were arriving faster than they could be diagnosed, and there
+was no way to tell whether the tail was 10 bugs or 1000 -- the only detector
+was the owner playing the game. Reviewing the last fourteen issues shows three
+distinct classes that need three different instruments:
+
+| Class | What it is | Examples | Instrument |
+|---|---|---|---|
+| **A. Data representation** | a struct the converter never walked, or walked with the wrong layout | P-742/743/746/747/748/753/754 | coverage sweep + DWARF cross-check + generation |
+| **B. Platform semantics** | our OS/DVD/AX/GX behaves differently from console | P-749/751/752/740/741 | differential trace against the matched GameCube build |
+| **C. Compiler/linker divergence** | MWCC vs GCC bit-fields; `-fdata-sections` breaking symbol adjacency | P-744/745/750, G-188 | static scans promoted to CI tests |
+
+Class A is about half the volume; class B is where the diagnosis hours go;
+class C is rare and produces the strangest bugs. Class C also produces **no
+compiler warning** in its worst form (G-176), which is why it must be scanned
+for deliberately.
+
+**Decision.** Run a four-phase program, each phase ending in a measurement
+that CI enforces rather than a feeling.
+
+- **Phase 0 -- get a denominator.** Descriptor-walk coverage over every disc
+  file, plus a seeded soak matrix, plus automatic crash triage. (P-756, P-759)
+- **Phase 1 -- close class A.** Cross-check every walker against DWARF, burn
+  down the uncovered descriptors worst-family-first, and generate walkers from
+  type information rather than hand-transcribing offsets. (P-757, P-758)
+- **Phase 2 -- close class B.** Diff the port against our own
+  `100.00% matched` GameCube build: same input script, same `MELEE_RNG_SEED`,
+  per-frame state hash from both, first divergent frame names the bug. (P-760)
+- **Phase 3 -- close class C.** Promote the ad-hoc sweeps to CI tests. (P-761)
+- **Phase 4 -- hold the line.** Nightly full-matrix soak; every fix ships with
+  a repro and a regression test.
+
+**The primary metric is descriptor coverage.** The relocation table names
+every pointer in an archive, so its targets enumerate every object the game
+can reach. An object whose own first word is a pointer is a *descriptor*
+rather than payload (image data, display lists and vertex buffers are pointed
+at and deliberately never walked, so raw target coverage understates the
+position). `walked / descriptors` is therefore the measurable size of class A.
+
+Baseline at converter v99, 2026-09-15, over 861 archives:
+
+```
+targets      774413   walked 457693   59.10%   roots 7030  unhandled 4806
+descriptors  209261   walked 154019   73.60%   struct-roots 1964  unhandled 833
+```
+
+**Consequences.** `decomp_assets` measures coverage on every run and fails
+below `MELEE_COVERAGE_FLOOR` -- a ratchet that may only be raised. The
+remaining work is now a burn-down list rather than an unknown: 55,242
+unwalked descriptors, concentrated in `Pl*` (56.8%, 35,157 of the gap),
+`Gr*` (77.0%), `It*` (86.2%) and `Vi*` (0.9%). Publishing a number invites
+gaming it, so the rule is explicit: **never lower the floor to make a change
+pass**, and coverage counts only descriptors a walker genuinely visited.

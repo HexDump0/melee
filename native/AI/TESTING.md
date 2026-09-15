@@ -261,6 +261,30 @@ The first line catches byte-order regressions in `PlCo.dat` pData[22]
 executed an attack without scripted PAD input. The run disables the asset
 cache so a stale converter-v86 file cannot hide a flipped test.
 
+## Descriptor-walk coverage (P-756)
+
+The primary metric for the conversion bug class (ADR-0023).  `decomp_assets`
+measures it on every run:
+
+```sh
+MELEE_COVERAGE_JSON=/tmp/cov.json MELEE_NO_ASSET_CACHE=1 \
+  ./build/native/test_decomp_assets "iso/<image>.ciso"
+```
+
+```
+coverage archives=861 targets=774413 walked=457693 (59.10%) roots=7030 unhandled=4806
+coverage descriptors=209261 walked=154019 (73.60%) struct-roots=1964 unhandled=833
+```
+
+**Use the second line.**  Raw targets include image data, display lists and
+vertex buffers, which are pointed at and correctly never walked.  A
+*descriptor* is a target whose own first word is a pointer, so it points at
+something else -- leaving one big-endian corrupts a graph, not a texture.
+
+`MELEE_COVERAGE_FLOOR` in `test_decomp_assets.c` fails the test on regression.
+It is a ratchet: raise it when coverage climbs, never lower it to make a change
+pass.  `MELEE_COVERAGE_JSON` writes per-file JSON for the dashboard.
+
 ## Pinning the RNG
 
 The game seeds `HSD_Rand` from the host clock (P-751), so a 1P run draws a

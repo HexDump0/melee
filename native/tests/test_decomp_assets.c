@@ -1316,6 +1316,11 @@ static int check_kumite_tables(const char* image)
  *      up to 1024 entries into unrelated data).
  * Both fail before the converter hardening (167 corrupted reloc fields and
  * a heap overflow on the old code path). */
+/* Descriptor-walk coverage floor, disc-wide (P-756).  Measured 2026-09-15 at
+ * converter v99: 154019/209261 = 73.60%.  Ratchet it upward as walkers land;
+ * never lower it to make a change pass. */
+#define MELEE_COVERAGE_FLOOR 73.60
+
 static int check_converter_sweep(const char* image)
 {
     char error[256];
@@ -1327,7 +1332,25 @@ static int check_converter_sweep(const char* image)
     unsigned converted = 0;
     unsigned parsed = 0;
     int failed = 0;
+    /* P-756: MELEE_COVERAGE_JSON=<path> writes per-file descriptor-walk
+     * coverage.  The relocation table enumerates every object the game can
+     * reach, so "targets a walker visited / targets that exist" is the exact
+     * size of the conversion bug class.  See AI/DECISIONS.md ADR-0013. */
+    const char* cov_path = getenv("MELEE_COVERAGE_JSON");
+    FILE* cov = cov_path != NULL ? fopen(cov_path, "w") : NULL;
+    unsigned long cov_targets = 0;
+    unsigned long cov_walked = 0;
+    unsigned long cov_roots = 0;
+    unsigned long cov_unhandled = 0;
+    unsigned long cov_struct = 0;
+    unsigned long cov_struct_walked = 0;
+    unsigned long cov_sroots = 0;
+    unsigned long cov_sroots_unhandled = 0;
+    int cov_first = 1;
 
+    if (cov != NULL) {
+        fprintf(cov, "[\n");
+    }
     if (disc_list(image, NULL, NULL, &list, error, sizeof(error)) != DISC_OK) {
         fprintf(stderr, "decomp_assets: sweep list: %s\n", error);
         return 1;
@@ -1378,6 +1401,30 @@ static int check_converter_sweep(const char* image)
         }
         parsed++;
         archives++;
+        if (cov != NULL) {
+            fprintf(cov,
+                    "%s  {\"file\":\"%s\",\"bytes\":%u,\"targets\":%u,"
+                    "\"walked\":%u,\"roots\":%u,\"unhandled\":%u,"
+                    "\"orphans\":%u,\"structs\":%u,\"structs_walked\":%u,"
+                    "\"sroots\":%u,\"sroots_unhandled\":%u}",
+                    cov_first ? "" : ",\n", list.names[i], stats.data_size,
+                    stats.reloc_targets, stats.reloc_targets_walked,
+                    stats.roots_total, stats.roots_unhandled,
+                    stats.orphan_matanims, stats.struct_targets,
+                    stats.struct_targets_walked, stats.roots_struct,
+                    stats.roots_struct_unhandled);
+            cov_first = 0;
+        }
+        {
+            cov_targets += stats.reloc_targets;
+            cov_walked += stats.reloc_targets_walked;
+            cov_roots += stats.roots_total;
+            cov_unhandled += stats.roots_unhandled;
+            cov_struct += stats.struct_targets;
+            cov_struct_walked += stats.struct_targets_walked;
+            cov_sroots += stats.roots_struct;
+            cov_sroots_unhandled += stats.roots_struct_unhandled;
+        }
         if (check_reloc_integrity(list.names[i], raw, buffer, &archive)) {
             failed++;
         }
@@ -1468,6 +1515,41 @@ static int check_converter_sweep(const char* image)
         free(buffer);
     }
     disc_list_free(&list);
+    if (cov != NULL) {
+        fprintf(cov, "\n]\n");
+        fclose(cov);
+    }
+    {
+        printf("decomp_assets: coverage archives=%u targets=%lu walked=%lu "
+               "(%.2f%%) roots=%lu unhandled=%lu\n",
+               archives, cov_targets, cov_walked,
+               cov_targets != 0 ? 100.0 * (double) cov_walked /
+                                      (double) cov_targets
+                                : 0.0,
+               cov_roots, cov_unhandled);
+        printf("decomp_assets: coverage descriptors=%lu walked=%lu (%.2f%%) "
+               "struct-roots=%lu unhandled=%lu\n",
+               cov_struct, cov_struct_walked,
+               cov_struct != 0
+                   ? 100.0 * (double) cov_struct_walked / (double) cov_struct
+                   : 0.0,
+               cov_sroots, cov_sroots_unhandled);
+    }
+    if (cov_struct != 0) {
+        /* P-756: a ratchet.  Descriptor coverage is the measurable size of
+         * the conversion bug class, so it may go up and must never go down:
+         * a walker deleted or a root rule broken shows up here instead of in
+         * a player's crash log.  Raise the floor when it climbs. */
+        double pct =
+            100.0 * (double) cov_struct_walked / (double) cov_struct;
+        if (pct + 0.05 < MELEE_COVERAGE_FLOOR) {
+            fprintf(stderr,
+                    "decomp_assets: descriptor coverage %.2f%% below floor "
+                    "%.2f%% (P-756)\n",
+                    pct, MELEE_COVERAGE_FLOOR);
+            failed++;
+        }
+    }
     if (failed == 0) {
         printf("decomp_assets: converter sweep archives=%u (loaded=%u converted=%u parsed=%u) ok\n",
                archives, loaded, converted, parsed);

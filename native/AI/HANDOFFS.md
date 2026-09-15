@@ -29,6 +29,7 @@ something the next agent must know, or finish a task that changes interfaces.
 
 | Date | Task | Agent | File |
 |---|---|---|---|
+| 2026-09-15 | Stability program (P-756..P-761) | claude (opus-5) | [`2026-09-15-stability-program.md`](handoffs/2026-09-15-stability-program.md) — three bug classes, the coverage denominator, and what is already settled |
 | 2026-09-10 | P-107 bind-pose fix | follow-up | _this entry is the code itself; no separate note_ |
 | 2026-09-10 | P-201 animation start | opencode (deepseek-flash) | [`2026-09-10-P-201-animation-start.md`](handoffs/2026-09-10-P-201-animation-start.md) |
 | 2026-09-10 | P-201 animation landed | opencode (deepseek-flash) | [`2026-09-10-P-201-animation-done.md`](handoffs/2026-09-10-P-201-animation-done.md) |

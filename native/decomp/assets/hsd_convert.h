@@ -36,6 +36,30 @@ typedef struct HsdConvertStats {
     /* Material-animation trees the descriptor walk never reached, found by
      * the relocation-target scan (P-753). */
     unsigned orphan_matanims;
+
+    /* Descriptor-walk coverage (P-756).  The relocation table names every
+     * pointer in the archive, so its targets are every object the game can
+     * reach.  `reloc_targets_walked` counts the ones a descriptor walker
+     * actually visited; the rest are objects whose non-pointer fields are
+     * still big-endian and will misbehave whenever the game reads them.
+     * This is the measurable size of the conversion bug class -- see
+     * AI/DECISIONS.md ADR-0013. */
+    unsigned data_size;
+    unsigned reloc_targets;        /* distinct in-range relocation targets */
+    unsigned reloc_targets_walked; /* of those, visited by a walker */
+    unsigned roots_total;          /* public symbols in the archive */
+    unsigned roots_unhandled;      /* public symbols no rule claims */
+
+    /* The honest metric.  Most relocation targets are payload -- image data,
+     * display lists, vertex buffers, strings -- which a walker deliberately
+     * never touches, so raw coverage understates how well we are doing.  An
+     * object whose own first word is a pointer is a *descriptor*: it points
+     * at other objects, so leaving it big-endian corrupts a graph rather than
+     * a texture.  These two counters are the conversion bug class. */
+    unsigned struct_targets;
+    unsigned struct_targets_walked;
+    unsigned roots_struct;
+    unsigned roots_struct_unhandled;
     unsigned joints;
     unsigned dobjs;
     unsigned mobjs;

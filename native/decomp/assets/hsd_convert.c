@@ -4151,6 +4151,10 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
         size_t length;
         uint32_t limit;
 
+        if (in_data(c, data_off, 4) && c->reloc[data_off]) {
+            c->st.roots_struct++;
+        }
+
         if ((size_t) symbols_off + symbol_off >= c->size) {
             continue;
         }
@@ -4345,6 +4349,10 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
              * sub-graph big-endian, which surfaces far away as absurd
              * dimensions or garbage pointers (G-146). */
             c->st.roots_unknown++;
+            c->st.roots_unhandled++;
+            if (in_data(c, data_off, 4) && c->reloc[data_off]) {
+                c->st.roots_struct_unhandled++;
+            }
             if (getenv("MELEE_ROOT_TRACE") != NULL) {
                 fprintf(stderr, "[convert] unhandled root: %.*s\n",
                         (int) length, name);
@@ -4460,6 +4468,50 @@ static void conv_orphan_matanim_trees(Conv* c)
     }
 }
 
+/* P-756: measure how much of the archive the descriptor walk actually
+ * reached.  Every pointer in the file is named by the relocation table, so
+ * its targets enumerate every object the game can reach -- an exact
+ * denominator for "structures whose layout the converter knows".  A target
+ * that no walker visited still has big-endian scalars; it is a P-753 waiting
+ * to happen, and this counts them before a player does. */
+static void measure_coverage(Conv* c)
+{
+    unsigned char* counted;
+    uint32_t i;
+
+    c->st.data_size = (unsigned) c->data_size;
+    counted = calloc(c->data_size ? c->data_size : 1, 1);
+    if (counted == NULL) {
+        return;
+    }
+    for (i = 0; i < c->nb_reloc; i++) {
+        uint32_t field = rd32_abs(c, c->reloc_off + i * 4);
+        uint32_t target;
+
+        if (!in_data(c, field, 4)) {
+            continue;
+        }
+        target = rd32(c, field);
+        if (!in_data(c, target, 1) || counted[target]) {
+            continue;
+        }
+        counted[target] = 1;
+        c->st.reloc_targets++;
+        if (c->seen[target] || c->num[target]) {
+            c->st.reloc_targets_walked++;
+        }
+        /* A target whose own first word is a relocation points at something
+         * else, so it is a descriptor rather than payload. */
+        if (c->reloc[target]) {
+            c->st.struct_targets++;
+            if (c->seen[target] || c->num[target]) {
+                c->st.struct_targets_walked++;
+            }
+        }
+    }
+    free(counted);
+}
+
 static int convert_archive(unsigned char* data, size_t size, Conv* c)
 {
     uint32_t file_size = be32(data);
@@ -4510,8 +4562,10 @@ static int convert_archive(unsigned char* data, size_t size, Conv* c)
     c->reloc_off = reloc_off;
     c->nb_reloc = nb_reloc;
     convert_relocs(c, reloc_off, nb_reloc);
+    c->st.roots_total = nb_public;
     convert_roots(c, public_off, nb_public, symbols_off);
     conv_orphan_matanim_trees(c);
+    measure_coverage(c);
 
     c->st.ok = c->st.reloc_valid == c->st.reloc_total;
     free(c->reloc);
