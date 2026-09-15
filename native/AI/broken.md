@@ -53,26 +53,41 @@ block also drives how often the stage transforms and which transformation it
 picks, so **watch for those too** (transformations should come roughly every
 60 seconds).  G-177, P-738.
 
+Partly resolved 2026-09-15: no character could fire a projectile.  The
+per-fighter attribute walk in the asset converter used `0x424` -- the size of
+the runtime *backup* allocation -- instead of the `0x184` the struct actually
+is, and the extra bytes ran off the end and byte-swapped the special-move
+**command scripts** that sit right after it.  Every special's script decoded
+as opcode 0 and stopped on its first word, so no animation event in any
+special move ever ran.  That is also why the animation still played: the
+animation is separate data.  G-178, P-739.  **That fix works and is
+confirmed** -- the scripts run and the bow and arrow sounds play -- but it
+uncovered two bugs underneath it that nothing had ever been able to reach,
+both verified pre-existing: **B-25** (the particle bank is unconverted, so the
+effect commands the scripts now issue ask for hundreds of millions of
+particles and kill the heap) and **B-26** (articles spawn but draw nothing and
+deal no damage).
+
 ## What I need from you next
 
-**Try the projectiles.**  Link's arrow, Fox's and Falco's blaster, Samus's
-charge shot, Mario's fireball, Ness's PK Fire, Sheik's needles.  They should
-appear and deal damage now.  Worth checking a couple of specials that do not
-spawn anything visible too -- Mario's cape, Yoshi's egg lay -- because the
-same scripts drive those: *anything* a special's animation was supposed to
-trigger was broken, not only the projectiles.
+**Nothing to run for me right now.**  You have already told me what I needed:
+the specials run their scripts (the sounds prove it), and what is left is B-25
+and B-26 above.  Both are understood and reproduce headlessly, so the next
+session can work on them without you.
+
+If you want to keep playing in the meantime, avoid neutral-B -- B-25 is a hard
+crash, and it is the effect system rather than the projectile itself.
 
 Still open from the Stadium work: does the stage transform (fire / grass /
 rock) roughly every minute?  The interval came out of the same parameter block
 that was fixed there, so it should, but you are the only one who can see it.
 
-No environment variables needed for either.
-
 ## Confirmed gaps (BROKEN / BLOCKED)
 
 | # | What you see | Status | Blocked on | Tracked as |
 |---|---|---|---|---|
-| B-24 | Projectile specials do nothing: Link's bow animation plays with no bow or arrow, Fox's blaster fires nothing, no damage | BROKEN | the special-`Article` spawn path | P-739 |
+| B-25 | Holding B crashes with `assertion "adr" ... memory.c:23` (Mario), or the game freezes (other characters); also a half-second burst of loud noise when Link's bow is fully drawn | BROKEN | particle generator descriptors are big-endian, so one generator asks for ~4e8 particles and exhausts the heap in under a second | P-742 |
+| B-26 | Link's bow and arrow, and Samus's charge shot, make their sounds but are invisible and deal no damage | BROKEN | the articles spawn correctly; something downstream of the spawn | P-743 |
 | B-3 | Characters never blink / no damage or angry faces | BROKEN | action-driven visibility events | P-207 |
 | B-4 | Feet/hands slip or float in landing and ledge clips (no IK) | BROKEN | IK joint port (`resolveIKJoint1/2`) | P-208 |
 | B-5 | Textures/materials do not scroll, fade or swap during clips | BROKEN | `HSD_MatAnimJoint` evaluation | P-209 |

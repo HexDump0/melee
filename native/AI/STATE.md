@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716, P-718, P-719, P-720, P-737, P-738 and P-739 fixed, P-699/P-702/P-711/P-715/P-717/P-740/P-741 open)
+Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716, P-718, P-719, P-720, P-737, P-738 and P-739 fixed, P-699/P-702/P-711/P-715/P-717/P-740/P-741/P-742/P-743 open)
 
 > **No character could fire a projectile (2026-09-15, P-739/G-178).**
 > `conv_ft_data` byte-swapped 0x424 bytes from `ftData->x0`.  0x424 is the
@@ -13,7 +13,14 @@ Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by ow
 > Converter v91 clamps x0 to the struct size and converts x4 explicitly,
 > bounded by the next offset anything points at -- which reproduces the
 > decompilation's own struct sizes across all 32 fighter archives.
-> `ctest decomp_projectile` is the regression.
+> `ctest decomp_projectile` is the regression.  **Owner-confirmed as far as
+> it goes:** the scripts run and the specials make their sounds.  It then
+> exposed two pre-existing bugs nothing had ever been able to reach, both
+> confirmed against the pre-P-739 converter: the particle bank's
+> `HSD_PSCmdList` descriptors are big-endian, so a generator asks for ~4e8
+> particles and exhausts the heap in under a second (**P-742**, a hard
+> crash), and articles spawn but draw nothing and deal no damage
+> (**P-743**).
 
 > **Pokemon Stadium ran on big-endian parameters (2026-09-15, P-738/G-177).**
 > `GrPs.dat`/`GrPs3.dat`'s `yakumono_param` had no converter descriptor, so
