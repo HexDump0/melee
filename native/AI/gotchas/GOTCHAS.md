@@ -2859,3 +2859,35 @@ then scissored-clear the source rectangle.  Respect `GXSetColorUpdate`,
 `GXSetAlphaUpdate`, and the Z update bit when selecting clear components.
 `decomp_efb` asserts both the copied pre-clear pixels and the post-copy EFB
 clear colour.
+
+## G-176: `tydisplay.c` reaches its second and third name table by offset
+
+**Symptom:** every VS match dies just after the character-name splash with
+`file isn't exist S<garbage>.usd = -1` and
+`assertion "entry_num != -1" failed in .../lb/lbfile.c on line 114`.
+Backtrace: `lbArchive_LoadSymbols` <- `tyDisplay_8031C454` <-
+`Ground_801C0754` <- `Stage_802251E8` <- `gm_Scene_IntroEasy_OnEnter`.
+
+**Cause:** `ty/tydisplay.c` defines three 43-entry `TyDspArchNames` tables --
+joint names (803B8988), matanim names (803B8A34) and archive filenames
+(803B8AE0) -- each 0xAC bytes.  `tyDisplay_8031C454` and
+`tyDisplay_8031C5E4` cast the address of the *first* to `TyDspNameTables*`
+and read `->matanim_names` and `->arch_names`, i.e. 0xAC and 0x158 past it.
+That works only because the console linker emitted the three back-to-back.
+The port builds with `-fdata-sections`; in the linked binary, 0x158 past
+`_tyDisplay_803B8988` is a **function pointer**, so the filename handed to
+`lbArchive_LoadSymbols` was executable code read as a string.
+
+**Fix:** read each table through its own symbol (`TYDSP_*_TABLE` macros,
+`PORT_PC` only).  Exact rather than approximate: the console's two offsets
+land on precisely those two objects.  This is the `soundtest.c` treatment
+(P-718/G-166) rather than the `toy.c` one (P-721), because nothing here reads
+*across* a table boundary -- each access is wholly inside one table.
+
+**Rule.** This is the sixth instance of the class and the first one that was
+*fatal* rather than cosmetic.  The file even documents the adjacency in a
+comment above the tables; a doc comment saying "these are emitted
+back-to-back" is a defect report, not a reassurance.  When auditing P-721,
+grep for that phrasing as well as for `-Warray-bounds`: this site produces no
+warning at all, because the cast is to a complete type and GCC cannot see
+that the object it points at is smaller.

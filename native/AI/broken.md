@@ -3,7 +3,7 @@
 This file is for the **project owner**. Agents plan from `TASKS.md`; this page
 answers "what is visibly wrong today, and what is it waiting on?".
 
-**Last updated:** 2026-09-14
+**Last updated:** 2026-09-15
 
 Status meanings:
 - **BROKEN** — confirmed wrong, reproducible.
@@ -34,6 +34,14 @@ was the "STAGE CLEAR" banner collapsed to a point because its shape-anim
 morph targets were read little-endian (G-147, P-698).  Thanks for the Dolphin
 capture — it is what turned that one from "is the band even supposed to be
 there?" into a one-line answer.
+
+Resolved 2026-09-15: every VS match died on the character-name splash
+(`file isn't exist S<garbage>.usd`, `lbfile.c:114`).  `ty/tydisplay.c` reads
+its second and third name tables by offsetting 0xAC/0x158 past the first, and
+the port's linker does not put them there -- in the binary that offset is a
+function pointer, so `lbArchive_LoadSymbols` got machine code as a filename
+(G-176, P-737).  **Please retest**: the scripted frontend flow does not reach
+that function, so the fix is verified by measurement, not by a repro run.
 
 ## Confirmed gaps (BROKEN / BLOCKED)
 
