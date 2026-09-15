@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 91u
+#define HSD_CONVERTER_VERSION 93u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -1256,6 +1256,40 @@ static void conv_lightlist_array(Conv* c, uint32_t off)
 #define HSD_PSMAX_CMDS 8192
 #define HSD_PSMAX_GROUPS 4096
 
+/* One `HSD_PSCmdList` header (psstructs.h:58).
+ *
+ * Only `kind` used to be converted, so every other field reached
+ * `hsd_8039DAD4` big-endian: `life` 12 read as 0x0C00 = 3072, `size` and
+ * `random` as denormals, and `type`/`texGroup` as byte-swapped u16 -- and
+ * `texGroup` indexes `psTexGroupArray[bank][]`.  The generator seeds
+ * `gen->count` from `random`, and `generator.c:574` is
+ * `while (gen->count >= 1.0F)`, so one effect asked for ~4.3e8 particles;
+ * `HSD_ObjAllocAddFree` grows the pool 152 bytes at a time out of the HSD
+ * heap, which died in well under a second (P-742/G-179).
+ *
+ * The trailing `cmdList[]` at +0x3C is a **byte stream** and must stay raw,
+ * exactly like the fighter subaction scripts in G-178: swapping it would
+ * trade this crash for silently wrong particle behaviour. */
+#define HSD_PSCMDLIST_HEADER 0x3C
+
+static void conv_ps_cmd_list(Conv* c, uint32_t cmd)
+{
+    int i;
+
+    if (!in_data(c, cmd, HSD_PSCMDLIST_HEADER)) {
+        return;
+    }
+    conv_u16(c, cmd + 0x00); /* type */
+    conv_u16(c, cmd + 0x02); /* texGroup */
+    conv_u16(c, cmd + 0x04); /* genLife */
+    conv_u16(c, cmd + 0x06); /* life */
+    conv_u32(c, cmd + 0x08); /* kind */
+    /* grav, fric, vx, vy, vz, radius, angle, random, size, param1..3 */
+    for (i = 0; i < 12; i++) {
+        conv_u32(c, cmd + 0x0C + (uint32_t) i * 4);
+    }
+}
+
 static void conv_ps_cmd_bank(Conv* c, uint32_t off)
 {
     uint16_t version;
@@ -1282,9 +1316,11 @@ static void conv_ps_cmd_bank(Conv* c, uint32_t off)
                 break;
             }
             conv_u32(c, p);
-            cmd = off + rd32(c, p);
-            if (in_data(c, cmd, 12)) {
-                conv_u32(c, cmd + 8); /* HSD_PSCmdList.kind */
+            /* The runtime skips a zero entry (`if (ptr[3] != 0)`); without
+             * the same check `off + 0` would convert the bank header. */
+            if (rd32(c, p) != 0) {
+                cmd = off + rd32(c, p);
+                conv_ps_cmd_list(c, cmd);
             }
         }
     } else if (version == 0) {
@@ -1303,9 +1339,9 @@ static void conv_ps_cmd_bank(Conv* c, uint32_t off)
                 break;
             }
             conv_u32(c, p);
-            cmd = off + rd32(c, p);
-            if (in_data(c, cmd, 12)) {
-                conv_u32(c, cmd + 8);
+            if (rd32(c, p) != 0) {
+                cmd = off + rd32(c, p);
+                conv_ps_cmd_list(c, cmd);
             }
         }
     }
@@ -2247,6 +2283,72 @@ static void conv_it_food_attrs(Conv* c, uint32_t off)
     }
 }
 
+/* Item kinds whose special-attribute struct is not a dense run of 4-byte
+ * fields (it/itCommonItems.h).  Every other `*Attributes` struct in `it/` is
+ * f32/s32/u32 throughout -- checked over all of them. */
+#define ITEM_KIND_OCTAROCK 45
+#define ITEM_KIND_OCTAROCK_STONE 47
+#define ITEM_KIND_WHISPY_APPLE 225
+#define ITEM_KIND_WHISPY_HEAL_APPLE 226
+
+/* `Article::x4_specialAttributes`, the per-kind attribute block.
+ *
+ * Only the Foods layout used to be converted, so every projectile read its
+ * attributes big-endian.  Link's arrow took its launch velocity from them and
+ * got 2.67e23 -- it spawned, drew nothing anyone could see, flew nowhere and
+ * hit nothing (P-743).  The struct differs per item kind and most have no
+ * declared size here, so the block is bounded by `next_pointed_at_after()`,
+ * the same rule the fighter attribute blocks use (G-178), and converted as
+ * dense 4-byte fields.
+ *
+ * The two kinds with sub-word fields are spelled out rather than skipped,
+ * because a u32 walk over `u8 x0[4]` would reverse four independent bytes. */
+static void conv_article_special_attrs(Conv* c, uint32_t special,
+                                       int item_kind)
+{
+    uint32_t size;
+    uint32_t i;
+
+    if (item_kind == ITEM_KIND_FOODS) {
+        conv_it_food_attrs(c, special);
+        return;
+    }
+    if (item_kind == ITEM_KIND_WHISPY_APPLE ||
+        item_kind == ITEM_KIND_WHISPY_HEAL_APPLE)
+    {
+        /* itWhispyAppleAttributes: u8 x0[4], s32, s32, u8 xC[8], f32, f32. */
+        if (!in_data(c, special, 0x1C)) {
+            return;
+        }
+        conv_u32(c, special + 0x04);
+        conv_u32(c, special + 0x08);
+        conv_u32(c, special + 0x14);
+        conv_u32(c, special + 0x18);
+        return;
+    }
+    if (item_kind == ITEM_KIND_OCTAROCK ||
+        item_kind == ITEM_KIND_OCTAROCK_STONE)
+    {
+        /* itOctarockAttributes: s32* x0 (a relocation target, left alone by
+         * conv_u32), six f32, s16 x1C. */
+        if (!in_data(c, special, 0x20)) {
+            return;
+        }
+        for (i = 0x04; i <= 0x18; i += 4) {
+            conv_u32(c, special + i);
+        }
+        conv_u16(c, special + 0x1C);
+        return;
+    }
+    size = next_pointed_at_after(c, special) - special;
+    if (size > 0x400) {
+        size = 0x400;
+    }
+    for (i = 0; i + 4 <= size; i += 4) {
+        conv_u32(c, special + i);
+    }
+}
+
 static void conv_article(Conv* c, uint32_t off, int item_kind)
 {
     uint32_t attr;
@@ -2268,8 +2370,8 @@ static void conv_article(Conv* c, uint32_t off, int item_kind)
     if (attr != 0) {
         conv_item_attr(c, attr);
     }
-    if (special != 0 && item_kind == ITEM_KIND_FOODS) {
-        conv_it_food_attrs(c, special);
+    if (special != 0) {
+        conv_article_special_attrs(c, special, item_kind);
     }
     if (hurt != 0) {
         conv_it_hurtbone_list(c, hurt);

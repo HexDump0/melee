@@ -1,0 +1,57 @@
+diff --git a/src/melee/gm/gm_1832.c b/src/melee/gm/gm_1832.c
+index fd5f70634..6a6fb7d20 100644
+--- a/src/melee/gm/gm_1832.c
++++ b/src/melee/gm/gm_1832.c
+@@ -36,6 +36,21 @@
+ #include <sysdolphin/baselib/util.h>
+ #include <sysdolphin/baselib/wobj.h>
+ 
++#ifdef PORT_PC
++/* ADR-0011 patch: the write-gather FIFO at 0xCC008000 has no meaning on the
++ * host.  The `GXVert.h` shim already routes the SDK's inline vertex helpers
++ * (`GXPosition3f32`, `GXColor4u8`, ...) into the GX HLE, but these
++ * hand-inlined stores wrote the hardware address directly and segfaulted the
++ * moment particles started rendering (P-742/G-179).  The non-PORT_PC
++ * expansion is the original expression, so the GameCube build is unchanged.
++ */
++#define WGFIFO_F32(x) GXPortWGFifoF32(x)
++#define WGFIFO_U8(x) GXPortWGFifoU8(x)
++#else
++#define WGFIFO_F32(x) (GXWGFifo.f32 = (x))
++#define WGFIFO_U8(x) (GXWGFifo.u8 = (x))
++#endif
++
+ static struct {
+     int x0;
+     HSD_JObj* x4[13];
+@@ -635,18 +650,18 @@ void fn_80185408(int x, float arg8, float arg9, float argA, float argB)
+     MTXOrtho(sp1C, 0.0F, 480.0F, 0.0F, 640.0F, 0.0F, 5000.0F);
+     GXSetProjection(sp1C, GX_ORTHOGRAPHIC);
+     GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+-    GXWGFifo.f32 = argA;
+-    GXWGFifo.f32 = arg8;
+-    GXWGFifo.f32 = -4932.0F;
+-    GXWGFifo.f32 = argB;
+-    GXWGFifo.f32 = arg8;
+-    GXWGFifo.f32 = -4932.0F;
+-    GXWGFifo.f32 = argB;
+-    GXWGFifo.f32 = arg9;
+-    GXWGFifo.f32 = -4932.0F;
+-    GXWGFifo.f32 = argA;
+-    GXWGFifo.f32 = arg9;
+-    GXWGFifo.f32 = -4932.0F;
++    WGFIFO_F32(argA);
++    WGFIFO_F32(arg8);
++    WGFIFO_F32(-4932.0F);
++    WGFIFO_F32(argB);
++    WGFIFO_F32(arg8);
++    WGFIFO_F32(-4932.0F);
++    WGFIFO_F32(argB);
++    WGFIFO_F32(arg9);
++    WGFIFO_F32(-4932.0F);
++    WGFIFO_F32(argA);
++    WGFIFO_F32(arg9);
++    WGFIFO_F32(-4932.0F);
+     GXSetColorUpdate(1);
+     HSD_StateInvalidate(-1);
+     gm_1832_sdata2_order(0);

@@ -1,6 +1,19 @@
 # State of the port
 
-Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716, P-718, P-719, P-720, P-737, P-738 and P-739 fixed, P-699/P-702/P-711/P-715/P-717/P-740/P-741/P-742/P-743 open)
+Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716, P-718, P-719, P-720, P-737, P-738, P-739, P-742 and P-743 fixed, P-699/P-702/P-711/P-715/P-717/P-740/P-741 open)
+
+> **Projectiles work end to end (2026-09-15, P-739/P-742/P-743, G-178/G-179).**
+> Four bugs stacked on one another, each invisible until the one above it was
+> fixed, and each new symptom pointing at the wrong subsystem: the fighter
+> attribute walk overran into the special-move command scripts (no script ran,
+> no article spawned); the particle bank's `HSD_PSCmdList` headers were
+> big-endian (one effect asked for ~4.3e8 particles and killed the heap);
+> `psdisp.c`'s hand-inlined `GXWGFifo` stores wrote the hardware FIFO address
+> (SIGSEGV the moment particles rendered); and `Article::x4_specialAttributes`
+> was converted for food items only (the arrow launched at 2.67e23).
+> `ctest decomp_projectile` drives the whole chain and asserts **damage**,
+> with a `FAIL_REGULAR_EXPRESSION` for the panic.  GameCube build still
+> 100.00% matched with the three new `PORT_PC` patches applied.
 
 > **No character could fire a projectile (2026-09-15, P-739/G-178).**
 > `conv_ft_data` byte-swapped 0x424 bytes from `ftData->x0`.  0x424 is the

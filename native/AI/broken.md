@@ -63,31 +63,37 @@ special move ever ran.  That is also why the animation still played: the
 animation is separate data.  G-178, P-739.  **That fix works and is
 confirmed** -- the scripts run and the bow and arrow sounds play -- but it
 uncovered two bugs underneath it that nothing had ever been able to reach,
-both verified pre-existing: **B-25** (the particle bank is unconverted, so the
-effect commands the scripts now issue ask for hundreds of millions of
-particles and kill the heap) and **B-26** (articles spawn but draw nothing and
-deal no damage).
+both verified pre-existing: B-25 (the particle bank) and B-26 (inert
+articles).  **Both are now fixed too** -- see below.
+
+Resolved 2026-09-15: the two bugs that the projectile fix uncovered.  There
+were three more layers under it, and none of them looked like what it was.
+The particle bank's generator descriptors were big-endian, so one effect asked
+for ~430 million particles and emptied the heap in under a second -- that was
+your `assertion "adr"` crash, and the loud half-second noise.  With those
+fixed, particles rendered for the first time and immediately segfaulted,
+because `psdisp.c` writes the GameCube's hardware vertex FIFO address directly
+and the port only routed the SDK's inline helpers.  And the per-item attribute
+block was being byte-swapped for food items only, so Link's arrow launched at
+2.67e23 -- it existed, but flew nowhere and hit nothing.  It now launches at
+1.36, arcs under gravity and deals 5%.  G-179, P-742, P-743.
 
 ## What I need from you next
 
-**Nothing to run for me right now.**  You have already told me what I needed:
-the specials run their scripts (the sounds prove it), and what is left is B-25
-and B-26 above.  Both are understood and reproduce headlessly, so the next
-session can work on them without you.
+**Please try the specials again.**  Link's arrow, Samus's charge shot, Fox and
+Falco's blaster, Mario's fireball, Ness's PK Fire, Sheik's needles.  They
+should now appear, fly and damage, and holding B should not crash or freeze.
+Also worth a look: the effects generally (hit sparks, smoke, explosions) --
+they were all running on the same big-endian generator descriptors, so more
+than projectiles should have changed.
 
-If you want to keep playing in the meantime, avoid neutral-B -- B-25 is a hard
-crash, and it is the effect system rather than the projectile itself.
-
-Still open from the Stadium work: does the stage transform (fire / grass /
-rock) roughly every minute?  The interval came out of the same parameter block
-that was fixed there, so it should, but you are the only one who can see it.
+And still open from the Stadium work: does the stage transform (fire / grass /
+rock) roughly every minute?
 
 ## Confirmed gaps (BROKEN / BLOCKED)
 
 | # | What you see | Status | Blocked on | Tracked as |
 |---|---|---|---|---|
-| B-25 | Holding B crashes with `assertion "adr" ... memory.c:23` (Mario), or the game freezes (other characters); also a half-second burst of loud noise when Link's bow is fully drawn | BROKEN | particle generator descriptors are big-endian, so one generator asks for ~4e8 particles and exhausts the heap in under a second | P-742 |
-| B-26 | Link's bow and arrow, and Samus's charge shot, make their sounds but are invisible and deal no damage | BROKEN | the articles spawn correctly; something downstream of the spawn | P-743 |
 | B-3 | Characters never blink / no damage or angry faces | BROKEN | action-driven visibility events | P-207 |
 | B-4 | Feet/hands slip or float in landing and ledge clips (no IK) | BROKEN | IK joint port (`resolveIKJoint1/2`) | P-208 |
 | B-5 | Textures/materials do not scroll, fade or swap during clips | BROKEN | `HSD_MatAnimJoint` evaluation | P-209 |

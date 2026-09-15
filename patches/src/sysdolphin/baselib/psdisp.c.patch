@@ -1,0 +1,184 @@
+diff --git a/src/sysdolphin/baselib/psdisp.c b/src/sysdolphin/baselib/psdisp.c
+index 1eac7391d..24caadf1f 100644
+--- a/src/sysdolphin/baselib/psdisp.c
++++ b/src/sysdolphin/baselib/psdisp.c
+@@ -14,6 +14,21 @@
+ #include "util.h"
+ #include <dolphin/gx.h>
+ 
++#ifdef PORT_PC
++/* ADR-0011 patch: the write-gather FIFO at 0xCC008000 has no meaning on the
++ * host.  The `GXVert.h` shim already routes the SDK's inline vertex helpers
++ * (`GXPosition3f32`, `GXColor4u8`, ...) into the GX HLE, but these
++ * hand-inlined stores wrote the hardware address directly and segfaulted the
++ * moment particles started rendering (P-742/G-179).  The non-PORT_PC
++ * expansion is the original expression, so the GameCube build is unchanged.
++ */
++#define WGFIFO_F32(x) GXPortWGFifoF32(x)
++#define WGFIFO_U8(x) GXPortWGFifoU8(x)
++#else
++#define WGFIFO_F32(x) (GXWGFifo.f32 = (x))
++#define WGFIFO_U8(x) (GXWGFifo.u8 = (x))
++#endif
++
+ // MSL/math.h defines a non-IEEE FLT_EPSILON
+ #undef FLT_EPSILON
+ #define FLT_EPSILON 1.19209290e-07F
+@@ -823,7 +838,7 @@ static inline void psDispSubMakePolygon(HSD_Particle* pp, u8* texform, f32 x,
+             if (pp->kind & DispTexture) {
+                 u8 tex_base = (pp->kind >> 16) & 0xC;
+ 
+-                GXWGFifo.u8 = tex_base;
++                WGFIFO_U8(tex_base);
+             }
+             GXPosition3f32(x - up.x, y - up.y, z - up_z);
+             {
+@@ -834,7 +849,7 @@ static inline void psDispSubMakePolygon(HSD_Particle* pp, u8* texform, f32 x,
+                 GXColor4u8(r, g, b, a);
+             }
+             if (pp->kind & DispTexture) {
+-                GXWGFifo.u8 = ((pp->kind >> 16) & 0xC) + 1;
++                WGFIFO_U8(((pp->kind >> 16) & 0xC) + 1);
+             }
+             GXPosition3f32(x + right.x, y + right.y, z + right_z);
+             {
+@@ -845,7 +860,7 @@ static inline void psDispSubMakePolygon(HSD_Particle* pp, u8* texform, f32 x,
+                 GXColor4u8(r, g, b, a);
+             }
+             if (pp->kind & DispTexture) {
+-                GXWGFifo.u8 = ((pp->kind >> 16) & 0xC) + 2;
++                WGFIFO_U8(((pp->kind >> 16) & 0xC) + 2);
+             }
+             GXPosition3f32((*prev_x) + up.x, (*prev_y) + up.y,
+                            (*prev_z) + up_z);
+@@ -858,7 +873,7 @@ static inline void psDispSubMakePolygon(HSD_Particle* pp, u8* texform, f32 x,
+                 GXColor4u8(r, g, b, (u8) alpha);
+             }
+             if (pp->kind & DispTexture) {
+-                GXWGFifo.u8 = ((pp->kind >> 16) & 0xC) + 3;
++                WGFIFO_U8(((pp->kind >> 16) & 0xC) + 3);
+             }
+         } else {
+             f32 trail_alpha = 255.0f * (1.0f - pp->trail);
+@@ -917,13 +932,13 @@ static inline void psDispSubMakePolygon(HSD_Particle* pp, u8* texform, f32 x,
+                         if (pp->kind & TexFlipT) {
+                             t = 1.0f - t;
+                         }
+-                        GXWGFifo.f32 = up.x * tx + (right.x * sx + x);
+-                        GXWGFifo.f32 = up.y * tx + (right.y * sx + y);
+-                        GXWGFifo.f32 = up_z * tx + (right_z * sx + z);
++                        WGFIFO_F32(up.x * tx + (right.x * sx + x));
++                        WGFIFO_F32(up.y * tx + (right.y * sx + y));
++                        WGFIFO_F32(up_z * tx + (right_z * sx + z));
+                         GXColor4u8(color->r, color->g, color->b, alpha);
+                         if (pp->kind & DispTexture) {
+-                            GXWGFifo.f32 = s;
+-                            GXWGFifo.f32 = t;
++                            WGFIFO_F32(s);
++                            WGFIFO_F32(t);
+                         }
+                     }
+                 }
+@@ -939,19 +954,19 @@ static inline void psDispSubMakePolygon(HSD_Particle* pp, u8* texform, f32 x,
+         }
+         GXPosition3f32((cx = x - right.x), y - right.y, z - right_z);
+         if (pp->kind & DispTexture) {
+-            GXWGFifo.u8 = (pp->kind >> 16) & 0xC;
++            WGFIFO_U8((pp->kind >> 16) & 0xC);
+         }
+         GXPosition3f32((cx = x - up.x), y - up.y, z - up_z);
+         if (pp->kind & DispTexture) {
+-            GXWGFifo.u8 = ((pp->kind >> 16) & 0xC) + 1;
++            WGFIFO_U8(((pp->kind >> 16) & 0xC) + 1);
+         }
+         GXPosition3f32((cx = x + right.x), y + right.y, z + right_z);
+         if (pp->kind & DispTexture) {
+-            GXWGFifo.u8 = ((pp->kind >> 16) & 0xC) + 2;
++            WGFIFO_U8(((pp->kind >> 16) & 0xC) + 2);
+         }
+         GXPosition3f32(x + up.x, y + up.y, z + up_z);
+         if (pp->kind & DispTexture) {
+-            GXWGFifo.u8 = ((pp->kind >> 16) & 0xC) + 3;
++            WGFIFO_U8(((pp->kind >> 16) & 0xC) + 3);
+         }
+     } else {
+         u32 primitive_count = *(u32*) it;
+@@ -988,8 +1003,8 @@ static inline void psDispSubMakePolygon(HSD_Particle* pp, u8* texform, f32 x,
+                                y + right.y * sx + up.y * tx,
+                                z + right_z * sx + up_z * tx);
+                 if (pp->kind & DispTexture) {
+-                    GXWGFifo.f32 = s;
+-                    GXWGFifo.f32 = t;
++                    WGFIFO_F32(s);
++                    WGFIFO_F32(t);
+                 }
+             }
+         }
+@@ -1717,8 +1732,8 @@ static inline void psDispSubAppSRT(HSD_Particle* pp, u8* texform)
+                         GXColor4u8(draw_color.r, draw_color.g, draw_color.b,
+                                    (u8) alpha);
+                         if (pp->kind & DispTexture) {
+-                            GXWGFifo.f32 = s;
+-                            GXWGFifo.f32 = t;
++                            WGFIFO_F32(s);
++                            WGFIFO_F32(t);
+                         }
+                     }
+                 }
+@@ -1732,29 +1747,29 @@ static inline void psDispSubAppSRT(HSD_Particle* pp, u8* texform)
+             setVtxDesc(1);
+             GXBegin(GX_QUADS, GX_VTXFMT1, 4U);
+         }
+-        GXWGFifo.f32 = -ax + cur_x;
+-        GXWGFifo.f32 = -ay + cur_y;
+-        GXWGFifo.f32 = cur_z;
++        WGFIFO_F32(-ax + cur_x);
++        WGFIFO_F32(-ay + cur_y);
++        WGFIFO_F32(cur_z);
+         if (pp->kind & DispTexture) {
+-            GXWGFifo.u8 = (pp->kind >> 16) & 0xC;
++            WGFIFO_U8((pp->kind >> 16) & 0xC);
+         }
+-        GXWGFifo.f32 = -bx + cur_x;
+-        GXWGFifo.f32 = -by + cur_y;
+-        GXWGFifo.f32 = cur_z;
++        WGFIFO_F32(-bx + cur_x);
++        WGFIFO_F32(-by + cur_y);
++        WGFIFO_F32(cur_z);
+         if (pp->kind & DispTexture) {
+-            GXWGFifo.u8 = ((pp->kind >> 16) & 0xC) + 1;
++            WGFIFO_U8(((pp->kind >> 16) & 0xC) + 1);
+         }
+-        GXWGFifo.f32 = ax + cur_x;
+-        GXWGFifo.f32 = ay + cur_y;
+-        GXWGFifo.f32 = cur_z;
++        WGFIFO_F32(ax + cur_x);
++        WGFIFO_F32(ay + cur_y);
++        WGFIFO_F32(cur_z);
+         if (pp->kind & DispTexture) {
+-            GXWGFifo.u8 = ((pp->kind >> 16) & 0xC) + 2;
++            WGFIFO_U8(((pp->kind >> 16) & 0xC) + 2);
+         }
+-        GXWGFifo.f32 = bx + cur_x;
+-        GXWGFifo.f32 = by + cur_y;
+-        GXWGFifo.f32 = cur_z;
++        WGFIFO_F32(bx + cur_x);
++        WGFIFO_F32(by + cur_y);
++        WGFIFO_F32(cur_z);
+         if (pp->kind & DispTexture) {
+-            GXWGFifo.u8 = ((pp->kind >> 16) & 0xC) + 3;
++            WGFIFO_U8(((pp->kind >> 16) & 0xC) + 3);
+         }
+     } else {
+         u32 primitive_count = *(u32*) it;
+@@ -1790,8 +1805,8 @@ static inline void psDispSubAppSRT(HSD_Particle* pp, u8* texform)
+                 GXPosition3f32(cur_x + ax * sx + bx * tx,
+                                cur_y + ay * sx + by * tx, cur_z);
+                 if (pp->kind & DispTexture) {
+-                    GXWGFifo.f32 = s;
+-                    GXWGFifo.f32 = t;
++                    WGFIFO_F32(s);
++                    WGFIFO_F32(t);
+                 }
+             }
+         }

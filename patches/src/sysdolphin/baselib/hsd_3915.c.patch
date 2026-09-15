@@ -1,8 +1,41 @@
 diff --git a/src/sysdolphin/baselib/hsd_3915.c b/src/sysdolphin/baselib/hsd_3915.c
-index ab058c4c9..eac221103 100644
+index ab058c4c9..bba7e5a5b 100644
 --- a/src/sysdolphin/baselib/hsd_3915.c
 +++ b/src/sysdolphin/baselib/hsd_3915.c
-@@ -416,9 +416,14 @@ GlyphEntry lbl_80408898[4] = {
+@@ -9,6 +9,21 @@
+ #include <dolphin/gx.h>
+ #include <dolphin/gx/GXGeometry.h>
+ 
++#ifdef PORT_PC
++/* ADR-0011 patch: the write-gather FIFO at 0xCC008000 has no meaning on the
++ * host.  The `GXVert.h` shim already routes the SDK's inline vertex helpers
++ * (`GXPosition3f32`, `GXColor4u8`, ...) into the GX HLE, but these
++ * hand-inlined stores wrote the hardware address directly and segfaulted the
++ * moment particles started rendering (P-742/G-179).  The non-PORT_PC
++ * expansion is the original expression, so the GameCube build is unchanged.
++ */
++#define WGFIFO_F32(x) GXPortWGFifoF32(x)
++#define WGFIFO_U8(x) GXPortWGFifoU8(x)
++#else
++#define WGFIFO_F32(x) (GXWGFifo.f32 = (x))
++#define WGFIFO_U8(x) (GXWGFifo.u8 = (x))
++#endif
++
+ /* 4CF810 */ extern struct ParticleScreenState hsd_804CF810;
+ 
+ static u16 numPeakParticles;
+@@ -297,8 +312,8 @@ void hsd_80391E18(const u8* list, f32 x1, f32 y1, f32 x2, f32 y2)
+ 
+         GXBegin(0xA8, 0, 2);
+ 
+-        GXWGFifo.f32 = prev_x;
+-        GXWGFifo.f32 = prev_y;
++        WGFIFO_F32(prev_x);
++        WGFIFO_F32(prev_y);
+ 
+         prev_x = t * dx + x1;
+         prev_y = t * dy + y1;
+@@ -416,9 +431,14 @@ GlyphEntry lbl_80408898[4] = {
      { 0xB3808000, hsd_80392194 },
  };
  

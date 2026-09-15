@@ -63,6 +63,7 @@ static int gameover_test;
 static int gameover_stage;
 static int stadium_trace;
 static int item_trace;
+static int item_verbose;
 static int classic_test;
 static int classic_named;
 static int intro_test;
@@ -100,20 +101,25 @@ static void build_item_test_input(void)
 
     for (f = 0; f < MATCH_INPUT_FRAMES; f++) {
         PadInputFrame* p0 = &match_input[f][0];
+        PadInputFrame* p1 = &match_input[f][1];
 
-        /* Taps first (Mario/Fox-style instant projectiles), then a long hold
-         * and a release (Link/Samus-style charged ones). */
-        if (f >= 200 && f < 420 && (f % 40) < 8) {
+        /* p0 fires neutral-B on a cycle: short taps for the instant
+         * projectiles, then longer holds for the charged ones. */
+        if (f >= 180 && (f % 45) < 10) {
             p0->buttons |= PAD_BUTTON_B;
         }
-        if (f >= 500 && f < 560) {
-            p0->buttons |= PAD_BUTTON_B;
+        /* p1 walks into the line of fire, the way MELEE_HIT_TEST does for
+         * normals -- a projectile that spawns but never connects proves only
+         * half of the path (P-739/P-743) -- and holds B itself, which is what
+         * drives the effect system hard enough to reach P-742's runaway
+         * generator.  One run therefore covers the whole chain. */
+        if (f >= 220 && f < 420) {
+            /* Standing neutral-B, no stick: side-B is a different move, and
+             * it is neutral-B's effect that reaches P-742's generator. */
+            p1->buttons |= PAD_BUTTON_B;
+        } else if (f >= 430) {
+            p1->stick_x = -60;
         }
-        if (f >= 640 && f < 700) {
-            p0->buttons |= PAD_BUTTON_B;
-        }
-        match_input[f][1].buttons |=
-            (f >= 220 && f < 460 && (f % 40) < 6) ? PAD_BUTTON_B : 0;
     }
     pad_set_input_script(&match_input[0][0], MATCH_INPUT_CHANNELS,
                          MATCH_INPUT_FRAMES);
@@ -149,6 +155,14 @@ static void log_item_trace(void)
         }
         it = (Item*) gobj->user_data;
         live++;
+        if (item_verbose && (it->kind == 64 || it->kind == 48)) {
+            fprintf(stderr,
+                    "[itemv] f=%u kind=%d life=%.1f pos=(%.1f,%.1f) "
+                    "vel=(%.2f,%.2f)\n",
+                    frame, (int) it->kind, (double) it->xD44_lifeTimer,
+                    (double) it->pos.x, (double) it->pos.y,
+                    (double) it->x40_vel.x, (double) it->x40_vel.y);
+        }
         if (!ever_seen[(unsigned) it->kind & 0xFFu]) {
             ever_seen[(unsigned) it->kind & 0xFFu] = 1;
             boot_triage_note(
@@ -251,7 +265,9 @@ static void log_match_state(void)
                 fp->co_attrs.gravity, fp->co_attrs.terminal_velocity,
                 fp->co_attrs.jump_v_initial_velocity, fp->x34_scale.y);
         }
-        if (hit_test && !hit_logged && Player_GetDamage(slot) > 0) {
+        if ((hit_test || item_trace) && !hit_logged &&
+            Player_GetDamage(slot) > 0)
+        {
             hit_logged = 1;
             boot_triage_note("[match] hit: slot %d damage=%d\n", slot,
                              (int) Player_GetDamage(slot));
@@ -684,6 +700,7 @@ void match_boot_init(unsigned frame_in)
     if (frame_in != 0) {
         if (getenv("MELEE_ITEM_TEST") != NULL) {
             item_trace = 1;
+            item_verbose = getenv("MELEE_ITEM_VERBOSE") != NULL;
             build_item_test_input();
         } else if (getenv("MELEE_HIT_TEST") != NULL) {
             hit_test = 1;

@@ -3004,3 +3004,68 @@ Measured across all 32 fighter archives.
    that should have failed passed, twice.  Clearing
    `build/native/asset-cache` is not enough -- the game binary uses the one in
    `~/.cache`.  Second time this has cost a detour (G-177).
+
+## G-179: three more layers behind the projectiles, and what each one looked like
+
+Fixing the special-move command scripts (G-178) made every character's
+neutral-B run its script for the first time.  Each layer under it then failed
+in turn, and **none of the three looked like what it was**.
+
+### 1. The particle bank's `HSD_PSCmdList` headers were big-endian
+
+**Symptom:** holding B panics on `assertion "adr" failed` in `memory.c:23`,
+stack `psGenerateParticle0` <- `hsd_8039DAD4` <- `efLib_particles_proc_main`.
+Other characters freeze instead.
+
+**Cause:** `conv_ps_cmd_bank` converted exactly one field of each descriptor,
+`kind` at +0x08, and left the other 0x34 bytes raw.  So `life` 12 arrived as
+`0x0C00` = 3072, `size` and `random` as denormals, and `texGroup` -- which
+indexes `psTexGroupArray[bank][]` -- as a byte-swapped u16.  `generator.c`
+seeds `gen->count` from `random` and then runs
+`while (gen->count >= 1.0F) { ...; gen->count -= 1.0F; }`, so one effect asked
+for ~4.3e8 particles.  `HSD_ObjAllocAddFree` grows the pool 152 bytes at a
+time out of the HSD heap, which went from 10 MB free to 128 bytes in well
+under a second.
+
+**Not** heap exhaustion in the ordinary sense, which is what the assert looks
+like: the request that failed was 152 bytes.
+
+### 2. `psdisp.c` wrote the hardware FIFO address directly
+
+**Symptom:** with the descriptors fixed, a clean `SIGSEGV` in
+`psDispSubMakePolygon` on `GXWGFifo.u8 = tex_base;`.
+
+**Cause:** the `GXVert.h` shim routes the SDK's *inline* vertex helpers
+(`GXPosition3f32`, `GXColor4u8`, ...) into the GX HLE, and its own comment
+said the raw `GXWGFifo` address "is only touched if such a function actually
+runs, which the S2/S4 paths do not".  That was true only while particles never
+rendered.  `psdisp.c` hand-inlines 35 such stores, `gm_1832.c` 12 and
+`hsd_3915.c` 2.
+
+**Fix:** a `WGFIFO_F32`/`WGFIFO_U8` macro pair per file, `PORT_PC` routing to
+`GXPortWGFifo*` and otherwise expanding to the original expression, so the
+GameCube build is unchanged (`main.dol` still 100.00% matched).
+
+### 3. `Article::x4_specialAttributes` was converted for food items only
+
+**Symptom:** the arrow spawns, flies nowhere and hits nothing.
+
+**Cause:** `conv_article` only walked `x4` when `item_kind == ITEM_KIND_FOODS`.
+Every projectile therefore read its attributes big-endian: traced over its
+lifetime, Link's arrow launched with `vel=(2.67e23, 2.33e22)`.
+
+**Fix:** bound the block with `next_pointed_at_after()` (G-178's rule) and
+convert it as dense 4-byte fields.  Only two `*Attributes` structs in `it/`
+are not uniform 4-byte -- `itWhispyAppleAttributes` and
+`itOctarockAttributes` -- and both are spelled out rather than skipped,
+because a u32 walk over `u8 x0[4]` reverses four independent bytes.
+
+**Rule.** A fix that unblocks a dead code path is not finished when it lands;
+it is finished when something *drives* the path.  Each of these three was
+invisible until the one above it was fixed, and each new symptom pointed at
+the wrong subsystem -- the allocator, the renderer, the item state machine.
+`ctest decomp_projectile` now asserts **damage**, not a spawn, because the
+arrow spawned long before it could fly and flew before it could hit; and it
+carries a `FAIL_REGULAR_EXPRESSION` for the panic, because ctest's
+`PASS_REGULAR_EXPRESSION` ignores the exit status and the crash happens after
+the first hit.
