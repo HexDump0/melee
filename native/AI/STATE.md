@@ -2,6 +2,37 @@
 
 Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716, P-718, P-719, P-720, P-737, P-738, P-739, P-742 and P-743 fixed, P-699/P-702/P-711/P-715/P-717/P-740/P-741 open)
 
+> **The soak matrix, and ten bugs that were hiding behind Link vs Mario
+> (2026-09-15, P-759, P-764..P-773).** `onEnterDebugVs` hardcodes Link vs
+> Mario, so seeds varied the *stage* and never the fighters -- which is why
+> 200 clean seeds coexisted with P-725 (Ness) and P-755 (Kirby) sitting open.
+> `melee_decomp_boot` now takes `MELEE_MATCH_P0`/`P1`/`STAGE`, and
+> `MELEE_SOAK_FIGHTERS=all MELEE_SOAK_STAGES=all` sweeps 26x30 = 780 runs in
+> ten minutes on eight cores. **240 of 780 fail, in ten distinct bugs.** They
+> separate cleanly: `ftparts.c:793` on Roy/Pichu/Ganondorf (all three clones,
+> no non-clone affected); `HSD_DObjSetFlags` segfaults on Fox/G&W/Kirby;
+> Icetop hangs, Venom and Akaneia segfault, Mute City asserts in map collision
+> and Dream Land in `HSD_ObjAlloc`, each for all 26 fighters; and three
+> interactions. The selection had to wrap `gm_Mode_DebugVs_States[0].on_enter`
+> -- writing `gmVsMelee_StartData` from the frame hook *looks* like it works
+> and does not, because `onEnterDebugVs` and `gm_Scene_Vs_OnEnter` run in the
+> same game frame.
+
+> **The `Pl*` gap is one struct (2026-09-15, diagnosis for P-758).** The 34
+> `PlXx.dat` character-data files are at **20.2%** and hold 22,271 of the
+> 35,157 `Pl*` gap; the 207 costume files are at 75.9%. Inside them, **20,623
+> of 22,271 unwalked descriptors are the same 0x14-byte struct, carrying 82%
+> of the still-big-endian words**: `HSD_FObjDesc`, confirmed field by field
+> against `fobj.h:53`. `conv_aobjdesc` already exists, so nothing new needs
+> writing -- the reference chain is what is broken. `conv_ft_data`'s `x1C`
+> part-animation walk converts only the leading two `u16` of each descriptor
+> and never follows `entry+0x08`, which reaches the per-part animation arrays
+> and the AObj/FObj chains behind them. New probes `MELEE_UNWALKED` and
+> `MELEE_DUMP` are how this was found and are how the burn-down proceeds;
+> `MELEE_UNWALKED` separates *cold* words (still big-endian) from ones a
+> walker already converted, which showed the coverage metric is honest -- only
+> 5% of unwalked descriptors are already correct.
+
 > **The DWARF cross-check (2026-09-15, P-757, ADR-0024).** ctest
 > `decomp_layout` reads `type -> size, field offsets` out of the debug info of
 > an object built with the port's own layout flags, then asserts each opted-in

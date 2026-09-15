@@ -261,6 +261,49 @@ The first line catches byte-order regressions in `PlCo.dat` pData[22]
 executed an attack without scripted PAD input. The run disables the asset
 cache so a stale converter-v86 file cannot hide a flipped test.
 
+## Soaking (P-759)
+
+`ctest decomp_soak` runs a small fixed-seed set on every build. The sweeps
+below are the discovery tool and are meant to be run by hand.
+
+```sh
+# seeds only -- varies the stage, keeps Link vs Mario (10 s)
+MELEE_SOAK_SEEDS=40 MELEE_SOAK_SEED_BASE=random \
+    native/tests/soak.sh ./build/native/melee_decomp_boot /tmp/soak
+
+# the matrix -- 26 fighters x 30 stages, 780 runs (10 min on 8 cores)
+MELEE_SOAK_SEEDS=1 MELEE_SOAK_FIGHTERS=all MELEE_SOAK_STAGES=all \
+    native/tests/soak.sh ./build/native/melee_decomp_boot /tmp/soak-matrix
+```
+
+**Seeds are not coverage.** `onEnterDebugVs` hardcodes Link vs Mario, so a seed
+varies the stage and never the fighters: 200 clean seeds coexisted with P-725
+(Ness) and P-755 (Kirby) open, and the first matrix run failed 240 of 780 runs
+in ten distinct bugs. Sweep the matrix before believing a green soak.
+
+### Overnight
+
+Seeds multiply the matrix, so N seeds is N x 780 runs at about 0.77 s each on
+eight cores. **50 seeds is roughly 8.5 hours**, which is one night:
+
+```sh
+nohup env MELEE_SOAK_SEEDS=50 MELEE_SOAK_SEED_BASE=random \
+    MELEE_SOAK_FIGHTERS=all MELEE_SOAK_STAGES=all \
+    native/tests/soak.sh ./build/native/melee_decomp_boot /tmp/soak-night \
+    > soak-night.log 2>&1 &
+```
+
+No GPU, no display, no second machine. Lower `MELEE_SOAK_JOBS` (default
+`nproc`) if you want the machine back while it runs. The harness prints the
+seed base it drew, so any failure replays exactly; failing runs keep their log
+under the work directory and passing runs delete theirs, so it stays small
+however long it runs.
+
+If you do move it to another box, **the disc image can never go on a public CI
+runner** (AGENTS.md rule 0) — a machine you own is the only correct home. Such
+a box needs the 32-bit toolchain from the top of this file (`lib32-gcc-libs`),
+the disc image, and nothing else; the renderer packages are not used.
+
 ## Tracing an unwalked descriptor (P-762)
 
 Two probes in the converter, both off unless set:

@@ -51,6 +51,25 @@
 #
 # Each fighter is played against the next one in the list, so every fighter
 # appears as both players across the sweep without paying for all 26x26 pairs.
+#
+# **Overnight.** Seeds multiply the matrix, so N seeds is N x 780 runs at about
+# 0.77 s of wall time each on eight cores.  50 seeds is roughly 8.5 hours --
+# one night -- and needs no dedicated machine:
+#
+#   nohup env MELEE_SOAK_SEEDS=50 MELEE_SOAK_SEED_BASE=random \
+#       MELEE_SOAK_FIGHTERS=all MELEE_SOAK_STAGES=all \
+#       native/tests/soak.sh ./build/native/melee_decomp_boot /tmp/soak-night \
+#       > soak-night.log 2>&1 &
+#
+# It prints the base it drew, so any failure replays exactly.  Failing runs
+# keep their log under <work-dir>/logs; passing runs delete theirs, so the
+# directory stays small however long it runs.  Nothing here needs a GPU, a
+# display, or more than one core -- `MELEE_SOAK_JOBS` defaults to `nproc`, so
+# lower it if you want the machine back.
+#
+# If you do put this on another machine, note **the disc image can never go on
+# a public CI runner** (AGENTS.md rule 0); a self-hosted box you own is the
+# only correct home for it.
 
 set -u -o pipefail
 
