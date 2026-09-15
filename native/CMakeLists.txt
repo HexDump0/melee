@@ -237,7 +237,13 @@ set_tests_properties(audio PROPERTIES PASS_REGULAR_EXPRESSION "test_audio: PASS"
 # converter has converted them; `stats.ok` fails the test on any relocation
 # target the converter did not understand (desync detector).
 add_executable(test_decomp_assets
+    # One domain per translation unit; shared helpers in asset_common.c.
     tests/test_decomp_assets.c
+    tests/asset_common.c
+    tests/test_assets_fighters.c
+    tests/test_assets_items.c
+    tests/test_assets_stages.c
+    tests/test_assets_scenes.c
     platform/disc.c
     decomp/assets/hsd_convert.c
     decomp/sdk_math.c
@@ -649,6 +655,9 @@ find_library(MELEE_SDL3_LIB32 NAMES SDL3 PATHS /usr/lib32 NO_DEFAULT_PATH)
 if(MELEE_SDL3_LIB32)
   add_executable(melee
       decomp/render/viewer_main.c
+      decomp/render/viewer_ui.c
+      decomp/render/viewer_input.c
+      decomp/render/viewer_dump.c
       decomp/render/render_scene.c
       decomp/render/hud.c
       decomp/render/sdl_audio.c
@@ -693,6 +702,9 @@ if(MELEE_SDL3_LIB32)
   # shim (it never calls a decomp function with a bool parameter).
   set_source_files_properties(
       decomp/render/viewer_main.c
+      decomp/render/viewer_ui.c
+      decomp/render/viewer_input.c
+      decomp/render/viewer_dump.c
       decomp/render/sdl_audio.c
       PROPERTIES COMPILE_DEFINITIONS "MELEE_SHIM_REAL_STDBOOL")
   target_link_libraries(melee PRIVATE
