@@ -2,6 +2,21 @@
 
 Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716, P-718, P-719, P-720, P-737, P-738, P-739, P-742 and P-743 fixed, P-699/P-702/P-711/P-715/P-717/P-740/P-741 open)
 
+> **The soak harness (2026-09-15, P-759).** `native/tests/soak.sh` runs
+> `melee_decomp_boot` over N seeds in parallel and prints
+> `failure -> count -> example seeds`. Two traps it exists to avoid, both hit
+> by hand first: **the process exits 0 even when an assertion fires** (`__assert`
+> goes through `OSPanic` -> `boot_triage_stop`, and `boot_main` returns 0 from
+> every path), so classification greps the log and the exit status is only a
+> backstop; and **one bug looks like many** -- P-762 failed 7 of 40 seeds with
+> one assertion. A 900-frame headless match is ~1.25 s on one core, so 40 seeds
+> cost 10 s wall on eight. Seeds are derived from a base with a 32-bit
+> xorshift, so `ctest decomp_soak` is reproducible like every other test --
+> a regression test, not a lottery -- while `MELEE_SOAK_SEEDS=200
+> MELEE_SOAK_SEED_BASE=random` is the discovery sweep. `MELEE_SOAK_SEED_LIST`
+> pins the seven P-762 seeds into CI. It is the one test that deliberately
+> overrides the blanket `MELEE_RNG_SEED=tick`; that is the point of it.
+
 > **Great Bay crashed one match in six, and the stage's Articles were never
 > converted (2026-09-15, P-762).** `Gr*.dat`'s `itemdata` names the stage's own
 > `Article*`s; `ground.c:488` files each one in `it_804A0F60`, and the item

@@ -537,6 +537,30 @@ set_tests_properties(decomp_gameover PROPERTIES
     PASS_REGULAR_EXPRESSION "\\[gameover\\] clear scene active"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
     TIMEOUT 300)
+# P-759, the soak: the same headless match over many RNG seeds.  Until P-751
+# the RNG was frozen, so every boot replayed one identical game and whole
+# regions of the state space were never entered; unfreezing it turned up three
+# latent crashes on the first arbitrary seed, and a 40-seed hand-sweep turned
+# up P-762 at a 1-in-6 rate in 50 seconds.
+#
+# The seeds here are derived from a fixed base, so this case is reproducible
+# like every other test -- it is a regression test, not a lottery.  Discovery
+# is the same script with `MELEE_SOAK_SEEDS=200 MELEE_SOAK_SEED_BASE=random`,
+# run by hand or nightly.  MELEE_SOAK_SEED_LIST pins the seven seeds that hit
+# P-762 (Great Bay's unwalked model tree), so the fix cannot silently regress.
+#
+# Note this is the one test that deliberately overrides the blanket
+# `MELEE_RNG_SEED=tick` set at the bottom of this file: soak.sh sets the seed
+# per child, which is the entire point.  Do not "fix" that.
+add_test(NAME decomp_soak
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/soak.sh
+            $<TARGET_FILE:melee_decomp_boot>
+            ${CMAKE_CURRENT_BINARY_DIR}/soak)
+set_tests_properties(decomp_soak PROPERTIES
+    ENVIRONMENT "MELEE_SOAK_SEEDS=8;MELEE_SOAK_SEED_LIST=0x612f394c 0x1e544e69 0x75fb59ae 0x13740648 0x4bd74cd4 0x13007f72 0x2a7e5ed4"
+    PASS_REGULAR_EXPRESSION "soak: PASS"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    TIMEOUT 600)
 if(MELEE_SANITIZE)
   target_compile_options(melee_decomp_boot PRIVATE
       -fsanitize=address,undefined -fno-omit-frame-pointer)
