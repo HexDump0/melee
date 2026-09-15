@@ -107,9 +107,51 @@ Two observations worth acting on:
   `mode=40`; `AXDriver_8038DA70` and `HSD_SynthSFXWaitForLoadCompletion` spin
   with no pump point inside the loop. See G-186.
 
-## Suggested order
+## Order (revised, and the order is load-bearing)
 
-P-759 (soak) and P-757 (DWARF cross-check) are both cheap and independent --
-either is a good first move. P-758 is the grind, and the coverage table above
-says where to point it. P-760 is the biggest multiplier but the largest build;
-do it once crashes stop arriving faster than they can be diagnosed.
+**1. P-759 soak harness, and 2. P-757 DWARF cross-check.** Both cheap, both
+gates. Then **3. P-758**, the burn-down. Then **4. P-760**, the console diff.
+P-761 runs alongside whenever.
+
+P-758 is 55,242 items of transcription -- ideal volume work for a **cheap
+model**, and a poor use of an expensive one. But that is only true once a wrong
+answer *fails a test instead of shipping*, which takes four gates: the coverage
+ratchet (a walker cannot be silently deleted), the DWARF cross-check (an offset
+cannot be silently wrong), the soak (a crash cannot be silently introduced),
+and the existing suite plus the `100.00%` GameCube match. Without them a cheap
+model raises coverage while corrupting data in scenes nobody tested -- worse
+than not doing the work at all. **So do not start P-758 before P-757 lands.**
+
+Division of labour that follows: expensive model designs the gates, diagnoses
+novel crashes, builds the console-diff harness, and makes architecture calls;
+cheap model runs soaks, triages duplicates, executes the burn-down, and writes
+regression tests from template. Diagnosis is the expensive half -- the fixes
+this session were one line (`<` to `<=`), two lines, and one scan function,
+against about an hour of diagnosis each.
+
+## Soak economics (measured 2026-09-15, not estimated)
+
+A 900-frame headless match is **1.25 s on one core**: `melee_decomp_boot` runs
+game logic with no renderer, so no GPU, no window, no display. The bug classes
+above are logic and data bugs, not drawing bugs, so this finds them.
+
+```sh
+MELEE_NO_CARD=1 MELEE_RNG_SEED=<seed> ./build/native/melee_decomp_boot \
+    --boot-frames 900 --boot-timeout 90 --boot-match 20
+```
+
+40 random seeds cost 50 seconds and found **P-762** (`pobj->u.jobj` at
+`pobj.c:411`) at a 1-in-6 rate -- seven failures, all the same assertion. No
+dedicated machine is needed. If one is wanted, the disc image can never go on a
+public CI runner (AGENTS.md rule 0), so it must be self-hosted.
+
+**Two traps for the harness:** the process exits **0** even when the assertion
+fires, so grep the log rather than trusting the exit code; and dedupe by
+assertion text, or one bug looks like seven.
+
+## Definition of done
+
+Four machine-checkable gates, not "no bugs": zero crashes across the soak
+matrix; descriptor coverage >= 95%, ratcheted; console-diff identical game
+state on the core scenarios; and the owner plays an evening without incident.
+The first three need nobody to play the game.

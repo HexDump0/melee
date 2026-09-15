@@ -1251,16 +1251,25 @@ for deliberately.
 that CI enforces rather than a feeling.
 
 - **Phase 0 -- get a denominator.** Descriptor-walk coverage over every disc
-  file, plus a seeded soak matrix, plus automatic crash triage. (P-756, P-759)
-- **Phase 1 -- close class A.** Cross-check every walker against DWARF, burn
-  down the uncovered descriptors worst-family-first, and generate walkers from
-  type information rather than hand-transcribing offsets. (P-757, P-758)
+  file, plus a seeded soak matrix, plus automatic crash triage. (P-756 landed,
+  P-759)
+- **Phase 1 -- close class A.** Cross-check every walker against DWARF
+  (P-757), *then* burn down the uncovered descriptors worst-family-first
+  (P-758), generating walkers from type information rather than
+  hand-transcribing offsets. **The order is load-bearing -- see below.**
 - **Phase 2 -- close class B.** Diff the port against our own
   `100.00% matched` GameCube build: same input script, same `MELEE_RNG_SEED`,
   per-frame state hash from both, first divergent frame names the bug. (P-760)
 - **Phase 3 -- close class C.** Promote the ad-hoc sweeps to CI tests. (P-761)
 - **Phase 4 -- hold the line.** Nightly full-matrix soak; every fix ships with
   a repro and a regression test.
+
+**Definition of done.** "Rock stable" is four machine-checkable gates, not the
+absence of bugs: (1) zero crashes across a full soak matrix; (2) descriptor
+coverage >= 95%, ratcheted; (3) console-diff identical game state on the core
+scenarios; (4) the owner plays an evening without incident. The first three are
+checkable without anyone playing the game, which is the whole point -- today
+all four depend on him playing.
 
 **The primary metric is descriptor coverage.** The relocation table names
 every pointer in an archive, so its targets enumerate every object the game
@@ -1275,6 +1284,32 @@ Baseline at converter v99, 2026-09-15, over 861 archives:
 targets      774413   walked 457693   59.10%   roots 7030  unhandled 4806
 descriptors  209261   walked 154019   73.60%   struct-roots 1964  unhandled 833
 ```
+
+**Amendment, same day: the ordering follows from who does the work.**
+The burn-down (P-758) is 55,242 items of transcription -- ideal volume work for
+a cheap model, and not a good use of an expensive one. But that is only true
+once a wrong answer *fails a test instead of shipping*. Four gates make it so:
+the coverage ratchet (a walker cannot be silently deleted), the DWARF
+cross-check (an offset cannot be silently wrong), the soak (a crash cannot be
+silently introduced), and the existing suite plus the `100.00%` GameCube match
+(the console build cannot silently break). Without them, a cheap model adding
+walkers raises coverage while corrupting data in scenes nobody tested --
+strictly worse than not doing the work. **So P-757 and P-759 are prerequisites
+for P-758, not siblings of it.**
+
+The division that follows: an expensive model designs the gates, diagnoses
+novel crashes, and builds the console-diff harness; a cheap model runs soaks,
+triages, executes the burn-down, and writes regression tests from template.
+Diagnosis is the expensive half -- today's fixes were one line (`<` to `<=`),
+two lines, and one scan function, against roughly an hour of diagnosis each.
+
+**Soak economics, measured rather than assumed.** A 900-frame headless match
+is **1.25 s on one core** -- `melee_decomp_boot` runs game logic with no
+renderer, so no GPU and no display are involved, and the bug classes above are
+logic and data bugs rather than drawing bugs. 40 random seeds cost 50 seconds
+and found P-762 at a 1-in-6 rate. No dedicated machine is needed; if one is
+wanted, note the disc image can never go on a public CI runner, so it must be
+self-hosted.
 
 **Consequences.** `decomp_assets` measures coverage on every run and fails
 below `MELEE_COVERAGE_FLOOR` -- a ratchet that may only be raised. The
