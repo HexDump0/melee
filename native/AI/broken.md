@@ -40,10 +40,11 @@ Resolved 2026-09-15: every VS match died on the character-name splash
 its second and third name tables by offsetting 0xAC/0x158 past the first, and
 the port's linker does not put them there -- in the binary that offset is a
 function pointer, so `lbArchive_LoadSymbols` got machine code as a filename
-(G-176, P-737).  **Please retest**: the scripted frontend flow does not reach
-that function, so the fix is verified by measurement, not by a repro run.
+(G-176, P-737).  Owner-confirmed: VS against a CPU starts again.  The
+scripted frontend flow does not reach that function, so nothing in `ctest`
+would have caught it.
 
-Resolved 2026-09-15 (pending your eyes): the Pokemon Stadium jumbotron was
+Resolved 2026-09-15 (owner-confirmed): the Pokemon Stadium jumbotron was
 noise because `GrPs.dat`'s `yakumono_param` was never byte-swapped, so the
 display countdown started at a garbage negative, the state machine changed
 state every frame and the live-feed capture never ran -- the monitor was
@@ -54,15 +55,13 @@ picks, so **watch for those too** (transformations should come roughly every
 
 ## What I need from you next
 
-**Just play Pokemon Stadium for a minute** and tell me whether the big monitor
-shows the stage now instead of noise, and whether the stage transforms (fire /
-grass / rock) on its own after about a minute.  No environment variables
-needed.  `MELEE_STADIUM_TRACE=1` still exists if you want to see the state
-machine; the countdown should now be a sane positive number counting down
-rather than a large negative one.
+**B-24 (projectiles) is the only thing left from this session.**  Nothing to
+run yet -- it is unstarted, tracked as P-739.  If you want it next, say so.
 
-Also still waiting on a retest for the VS-against-CPU crash fix (see above),
-and B-24 (projectiles) is untouched so far.
+One small open question from the Stadium work: does the stage still transform
+(fire / grass / rock) roughly every minute?  The transformation interval came
+out of the same parameter block that was fixed, so it should, but you are the
+only one who can see it.
 
 ## Confirmed gaps (BROKEN / BLOCKED)
 

@@ -12,7 +12,8 @@ Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by ow
 > transformation interval, the rise/fall timings and the transformation
 > weights, so the whole stage was running on garbage.  Converter v90.  The
 > monitor was **not** a renderer bug, which is what P-736 spent a pass
-> assuming.
+> assuming.  Owner-confirmed 2026-09-15, together with P-737 (VS against a
+> CPU starts again).
 
 > **VS matches start again (2026-09-15, P-737/G-176).**  Every VS match used
 > to panic on the character-name splash with `file isn't exist S<garbage>.usd`
