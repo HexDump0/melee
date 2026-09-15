@@ -4113,6 +4113,35 @@ static void swap_header_and_tables(Conv* c, uint32_t nb_reloc,
     }
 }
 
+/* MELEE_DUMP=<offset>[:<words>] prints the raw big-endian words at a data
+ * offset, marking which are relocation fields.  The P-758 burn-down needs to
+ * identify an unwalked descriptor's *type* before it can be given a walker,
+ * and the type is usually obvious from the shape of a few words: pointers,
+ * small counts, plausible floats.  Off unless the variable is set. */
+static void dump_words(Conv* c, const char* spec)
+{
+    uint32_t off = (uint32_t) strtoul(spec, NULL, 0);
+    const char* colon = strchr(spec, ':');
+    uint32_t n = colon != NULL ? (uint32_t) strtoul(colon + 1, NULL, 0) : 16;
+    uint32_t i;
+
+    if (n > 512) {
+        n = 512;
+    }
+    for (i = 0; i < n; i++) {
+        uint32_t a = off + i * 4;
+        uint32_t w;
+        float f;
+        if (!in_data(c, a, 4)) {
+            break;
+        }
+        w = be32(c->data + a);
+        memcpy(&f, &w, 4);
+        fprintf(stderr, "[dump] +0x%06x %08x %-4s %12d %g\n", a, w,
+                c->reloc[a] ? "PTR" : "", (int) w, (double) f);
+    }
+}
+
 static void convert_relocs(Conv* c, uint32_t reloc_off, uint32_t nb_reloc)
 {
     uint32_t i;
@@ -4136,6 +4165,12 @@ static void convert_relocs(Conv* c, uint32_t reloc_off, uint32_t nb_reloc)
             c->reloc[field] = 1;
             wr32(c->data + field, be32(c->data + field));
             c->st.reloc_valid++;
+        }
+    }
+    {
+        const char* dump = getenv("MELEE_DUMP");
+        if (dump != NULL) {
+            dump_words(c, dump);
         }
     }
 }
@@ -4571,6 +4606,7 @@ static void conv_orphan_matanim_trees(Conv* c)
 static void measure_coverage(Conv* c)
 {
     unsigned char* counted;
+    const char* unwalked = getenv("MELEE_UNWALKED");
     uint32_t i;
 
     c->st.data_size = (unsigned) c->data_size;
@@ -4600,6 +4636,51 @@ static void measure_coverage(Conv* c)
             c->st.struct_targets++;
             if (c->seen[target] || c->num[target]) {
                 c->st.struct_targets_walked++;
+                if (unwalked != NULL && unwalked[0] == '2') {
+                    fprintf(stderr, "[walked] 0x%06x <- field 0x%06x\n",
+                            target, field);
+                }
+            } else if (unwalked) {
+                /* MELEE_UNWALKED: name the descriptors no walker reached, the
+                 * field that points at each, and -- decisively -- how much of
+                 * each one actually needs converting.
+                 *
+                 * `words` is the descriptor's extent (to the next thing
+                 * anything points at, which is how the rest of the converter
+                 * bounds an untyped object).  `ptr` counts the words the
+                 * relocation table already byte-swapped.  A descriptor where
+                 * ptr == words is a pure pointer table: it has nothing left
+                 * to convert, so it is unwalked only in the bookkeeping sense
+                 * and adding a walker for it would raise coverage while
+                 * changing no byte.  `raw` is the number that could still be
+                 * wrong, and that is the real P-758 worklist. */
+                uint32_t end = next_pointed_at_after(c, target);
+                uint32_t words = end > target ? (end - target) / 4 : 0;
+                uint32_t w;
+                uint32_t ptr = 0;
+                uint32_t conv = 0;
+                if (words > 4096) {
+                    words = 4096;
+                }
+                for (w = 0; w < words; w++) {
+                    uint32_t a = target + w * 4;
+                    if (c->reloc[a]) {
+                        ptr++;          /* the reloc pass already swapped it */
+                    } else if (c->num[a] || c->num[a + 2]) {
+                        conv++;         /* a walker converted it in place */
+                    }
+                }
+                /* `cold` is the number that matters: words that are neither
+                 * relocation targets nor touched by any walker, so they are
+                 * still big-endian in the converted image.  A descriptor with
+                 * cold == 0 is unwalked only in the bookkeeping sense -- its
+                 * bytes are all correct -- and giving it a walker would raise
+                 * coverage without changing a byte. */
+                fprintf(stderr,
+                        "[unwalked] 0x%06x <- field 0x%06x words=%u ptr=%u "
+                        "conv=%u cold=%u\n",
+                        target, field, words, ptr, conv,
+                        words - ptr - conv);
             }
         }
     }

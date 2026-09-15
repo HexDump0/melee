@@ -140,6 +140,12 @@ int check_converter_sweep(const char* image)
         memcpy(raw, file.data, size);
         memcpy(buffer, file.data, size);
         disc_free(&file);
+        /* MELEE_UNWALKED prints each unwalked descriptor to stderr from
+         * inside the converter, which does not know the archive's name.
+         * Mark the boundary here so the output is attributable. */
+        if (getenv("MELEE_UNWALKED") != NULL) {
+            fprintf(stderr, "[unwalked-file] %s\n", list.names[i]);
+        }
         {
             int cv = hsd_asset_convert(buffer, size, &stats);
             if (!cv) {
