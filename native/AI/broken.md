@@ -67,7 +67,7 @@ both verified pre-existing: B-25 (the particle bank) and B-26 (inert
 articles).  **Both are now fixed too** -- see below.
 
 Resolved 2026-09-15: the two bugs that the projectile fix uncovered.  There
-were three more layers under it, and none of them looked like what it was.
+were four more layers under it, and none of them looked like what it was.
 The particle bank's generator descriptors were big-endian, so one effect asked
 for ~430 million particles and emptied the heap in under a second -- that was
 your `assertion "adr"` crash, and the loud half-second noise.  With those
@@ -76,11 +76,17 @@ because `psdisp.c` writes the GameCube's hardware vertex FIFO address directly
 and the port only routed the SDK's inline helpers.  And the per-item attribute
 block was being byte-swapped for food items only, so Link's arrow launched at
 2.67e23 -- it existed, but flew nowhere and hit nothing.  It now launches at
-1.36, arcs under gravity and deals 5%.  G-179, P-742, P-743.
+1.36, arcs under gravity and deals 5%.  And once it flew and hit, it was still
+invisible, along with the bow and Mario's fireball: a union of flag bits was
+laid out back to front, so the one bit the item renderer checks before drawing
+was never set -- which is why the hitbox worked while the model did not.
+G-179, G-180, P-742, P-743.
 
 ## What I need from you next
 
-**Please try the specials again.**  Link's arrow, Samus's charge shot, Fox and
+**Please try the specials again.**  A headless capture here now shows Link
+holding his bow, the arrow in flight and Mario's fireball all drawn, so this
+should look right.  Link's arrow, Samus's charge shot, Fox and
 Falco's blaster, Mario's fireball, Ness's PK Fire, Sheik's needles.  They
 should now appear, fly and damage, and holding B should not crash or freeze.
 Also worth a look: the effects generally (hit sparks, smoke, explosions) --

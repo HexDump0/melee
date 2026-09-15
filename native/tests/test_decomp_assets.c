@@ -745,6 +745,41 @@ static int check_ft_data_tables(const char* image, const char* path,
     return failed != 0;
 }
 
+/* P-743/G-180: `UnkFlagStruct` is written as a whole byte and read as
+ * individual bN bits across the codebase.  MWCC allocates the first bitfield
+ * at the MSB, so retail's `byte = 1` sets b7 -- `item.c:719` does exactly
+ * that to `Item::xDAA_byte`, and `it_8026EECC` tests b7 before drawing.  With
+ * GCC's LSB-first layout it set b0 instead, b7 stayed clear, and every item
+ * model was invisible while its hitbox still worked.  This is cheap to assert
+ * and it needs no disc image, so it runs even when the archive checks skip. */
+static int check_unk_flag_bit_order(void)
+{
+    UnkFlagStruct f;
+    int failed = 0;
+
+    f.byte = 1;
+    if (f.b7 != 1 || f.b0 != 0) {
+        fprintf(stderr,
+                "decomp_assets: UnkFlagStruct byte=1 gives b0=%u b7=%u "
+                "(want b0=0 b7=1; bitfields must be MSB-first as MWCC packs "
+                "them)\n",
+                (unsigned) f.b0, (unsigned) f.b7);
+        failed = 1;
+    }
+    f.byte = 0x80;
+    if (f.b0 != 1 || f.b7 != 0) {
+        fprintf(stderr,
+                "decomp_assets: UnkFlagStruct byte=0x80 gives b0=%u b7=%u "
+                "(want b0=1 b7=0)\n",
+                (unsigned) f.b0, (unsigned) f.b7);
+        failed = 1;
+    }
+    if (!failed) {
+        printf("decomp_assets: UnkFlagStruct bit order MSB-first ok\n");
+    }
+    return failed;
+}
+
 /* P-654: ItemAttr's two flag bytes are MSB-first on the console.  Retail
  * `itIsHeavy` is `lbz` + `extrwi r0,r0,1,24` (bit 0x80), `it_8026B30C` is
  * `extrwi r3,r3,4,25` (bits 0x78) and `itGetHoldKind` is `clrlwi r3,r3,29`
@@ -3102,6 +3137,7 @@ int main(int argc, char** argv)
     failures += check_castle_param(image);
     failures += check_pstadium_param(image, "GrPs.dat");
     failures += check_pstadium_param(image, "GrPs3.dat");
+    failures += check_unk_flag_bit_order();
     failures += check_scene_root(image, "GmRgStnd.dat", "standScene");
     failures += check_scene_root(image, "GmRegEnd.dat", "cut1CanimScene");
     failures += check_intro_easy(image);

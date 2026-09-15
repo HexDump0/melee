@@ -3069,3 +3069,42 @@ arrow spawned long before it could fly and flew before it could hit; and it
 carries a `FAIL_REGULAR_EXPRESSION` for the panic, because ctest's
 `PASS_REGULAR_EXPRESSION` ignores the exit status and the crash happens after
 the first hit.
+
+## G-180: `UnkFlagStruct` — one union, every invisible model
+
+**Symptom:** Link's bow and arrow, and Mario's fireball, are invisible.  They
+exist, they move, and the arrow deals damage: only the model is missing.
+
+**Cause:** `UnkFlagStruct` (`gm/types.h`) is a `u8 byte` unioned with eight
+1-bit fields `b0..b7`, and the codebase writes the byte and reads the bits.
+MWCC allocates the first bitfield at the **MSB**, so retail's `byte = 1` sets
+**b7**.  GCC allocates LSB-first, so it set b0 and left b7 clear.
+`item.c:719` does exactly `item_data->xDAA_byte = 1`, and `it_8026EECC` tests
+`ip->xDAA_flag.b7` before it draws anything, so every item model was skipped
+while its hitbox, physics and lifetime carried on normally.
+
+**Fix:** declare the aliases in reverse under `PORT_PC`, so the raw byte and
+the named bits agree -- and so does any flag byte that came out of an archive.
+This is the `ItemAttr` treatment (P-654/G-123) applied to the union itself.
+
+**This bug had already been found once and fixed in the wrong place.**
+`patches/src/melee/ft/types.h.patch` introduces `FtStatusFlags`, a private
+copy of `UnkFlagStruct` with exactly this reversal, for one Fighter field --
+and its own comment says "GCC's LSB-first layout would set b0 and leave b7
+clear, **hiding the model**".  Same union, same mechanism, same symptom, and
+the general case was left in place for every other user.
+
+**Rule.** When a fix needs a private copy of a shared type to change how that
+type is laid out, the shared type is what is wrong.  Fixing the copy hides the
+bug from everyone else who uses the original, and the next person pays full
+price to rediscover it.  Before adding a `Foo2` that differs from `Foo` only
+in layout, check who else uses `Foo`.
+
+**How it was found, since none of the obvious checks pointed at it.** The
+model tree was present (3 joints, 1 DObj, materials, display lists), nothing
+was `JOBJ_HIDDEN`, the render callback was installed, GX link 6 *was* in the
+camera's mask, and the root carried `JOBJ_ROOT_OPA|XLU|TEXEDGE` so it matched
+every pass.  What settled it was scaling the model 30x from outside and
+diffing the frame against an unscaled run: **zero differing pixels** says
+"never drawn", not "drawn wrong", and that turned the search from the renderer
+to the caller.  Then one print at the top of `it_8026EECC` showed `b7=0`.

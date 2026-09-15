@@ -10,7 +10,11 @@ Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by ow
 > big-endian (one effect asked for ~4.3e8 particles and killed the heap);
 > `psdisp.c`'s hand-inlined `GXWGFifo` stores wrote the hardware FIFO address
 > (SIGSEGV the moment particles rendered); and `Article::x4_specialAttributes`
-> was converted for food items only (the arrow launched at 2.67e23).
+> was converted for food items only (the arrow launched at 2.67e23);
+> and `UnkFlagStruct`'s bitfields were LSB-first, so `Item::xDAA_byte = 1`
+> set b0 instead of b7 and `it_8026EECC` skipped every item model while its
+> hitbox still worked (G-180 -- already found once and fixed in the wrong
+> place, as a private `FtStatusFlags` copy for one Fighter field).
 > `ctest decomp_projectile` drives the whole chain and asserts **damage**,
 > with a `FAIL_REGULAR_EXPRESSION` for the panic.  GameCube build still
 > 100.00% matched with the three new `PORT_PC` patches applied.
