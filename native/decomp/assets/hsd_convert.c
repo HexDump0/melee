@@ -4042,7 +4042,20 @@ static void swap_header_and_tables(Conv* c, uint32_t nb_reloc,
 static void convert_relocs(Conv* c, uint32_t reloc_off, uint32_t nb_reloc)
 {
     uint32_t i;
+    const char* find = getenv("MELEE_FIND_PTR");
     c->st.reloc_total = nb_reloc;
+    /* Traces every pointer field aimed at one data offset, which is how an
+     * unwalked descriptor is traced back towards whatever should have reached
+     * it (P-762).  Off unless the variable is set. */
+    if (find != NULL) {
+        uint32_t want = (uint32_t) strtoul(find, NULL, 0);
+        for (i = 0; i < nb_reloc; i++) {
+            uint32_t f = rd32_abs(c, reloc_off + i * 4);
+            if (in_data(c, f, 4) && be32(c->data + f) == want) {
+                fprintf(stderr, "[findptr] 0x%x <- field 0x%x\n", want, f);
+            }
+        }
+    }
     for (i = 0; i < nb_reloc; i++) {
         uint32_t field = rd32_abs(c, reloc_off + i * 4);
         if (in_data(c, field, 4)) {
@@ -4159,6 +4172,13 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
             continue;
         }
         name = (const char*) c->d + symbols_off + symbol_off;
+        if (getenv("MELEE_ROOT_TRACE") != NULL) {
+            /* Offsets make the trace usable for the P-758 burn-down: a
+             * descriptor found unwalked traces back to the nearest root at or
+             * below its offset. */
+            fprintf(stderr, "[convert] root 0x%06x %.*s\n", data_off,
+                    (int) strnlen(name, 128), name);
+        }
         remaining = c->size - (size_t) symbols_off - symbol_off;
         length = 0;
         while (length < remaining && name[length] != '\0') {

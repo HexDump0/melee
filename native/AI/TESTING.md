@@ -261,6 +261,21 @@ The first line catches byte-order regressions in `PlCo.dat` pData[22]
 executed an attack without scripted PAD input. The run disables the asset
 cache so a stale converter-v86 file cannot hide a flipped test.
 
+## Tracing an unwalked descriptor (P-762)
+
+Two probes in the converter, both off unless set:
+
+```sh
+MELEE_FIND_PTR=0x79634 ...    # every pointer field aimed at that data offset
+MELEE_ROOT_TRACE=1 ...        # "root 0x<offset> <name>" for every public symbol
+```
+
+Given a structure the game read as garbage, `MELEE_FIND_PTR` walks the
+reference chain back towards whatever should have reached it, and
+`MELEE_ROOT_TRACE` names the nearest root at or below that offset.  When a
+chain ends with two referrers and nothing pointing at them, the structures are
+array elements and the array base is the root worth walking.
+
 ## Descriptor-walk coverage (P-756)
 
 The primary metric for the conversion bug class (ADR-0023).  `decomp_assets`
