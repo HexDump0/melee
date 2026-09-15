@@ -92,3 +92,36 @@ treating ADD as REPLACE fails the ADD pixel; dropping the bias fails the
 REPLACE+bias pixel.  Note the renderer caches decoded textures by source
 pointer, so tests that rewrite a texture buffer in place must use distinct
 buffers (or call `gx_gl_clear_textures`).
+
+## P-738: tracing a capture back to the draw that samples it
+
+An EFB capture is the one GX feature with no visible chain of custody: the
+destination is a plain buffer the game hands back as a texture some frames
+later, through a different `HSD_ImageDesc`.  Everything in between --
+`GXSetTexCopySrc/Dst`, the encoder, `GXInitTexObj`, the GL upload -- can be
+individually correct while the pair does not match.
+
+`gx_gl.c` now records every capture destination (pointer, size, format) and
+cross-checks it in `texture_for`:
+
+- A draw that samples a recorded destination at **different** dimensions or
+  format always reports `gx_gl: MISMATCHED EFB copy ...`.  That combination
+  decodes garbage and has no other signature.
+- `MELEE_EFB_TRACE=1` additionally prints one line per capture with the
+  source rect in GX pixels, the GL rect actually read, the destination size
+  and format, and the **mean colour and non-black count of the readback**.
+  An all-black or near-constant mean means the EFB was empty at that point in
+  the frame; a plausible scene mean means the capture is fine and the fault is
+  downstream.  It also prints `sampling EFB copy ...` for the matched draws.
+
+The oversize-copy rejection (G-146) now reports once per distinct shape
+instead of once per process, so a second bad descriptor is not hidden behind
+the first.
+
+Stadium note for whoever picks up P-738: the monitor has **three** possible
+sources, and which one is live depends on the display state machine
+(`grStadium_801D2528`).  Training mode forces state 7, the 640x406 live feed
+(`gp->u.display.xD8`), captured from EFB (0, 36).  State 8 is a 124x80
+player close-up (`xDC`), and states 0/1/9..14/17 show the 250x160 SIS text
+window (`xD4`), which is rendered by its own ortho camera and captured from
+EFB (0, 0).  All three are `GX_TF_RGB565`.  P-736 fixed the 250x160 one.

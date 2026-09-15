@@ -136,6 +136,62 @@ static unsigned int tex_clock;
 static int aniso_supported;
 static int gpu_efb_copies;
 
+/* P-738: EFB captures are the one GX feature whose result nothing on screen
+ * can be traced back to -- the destination is a plain buffer the game hands
+ * back as a texture some frames later.  Record what each capture wrote so a
+ * later draw that samples the same buffer can be matched against it, and let
+ * the owner ask for a one-line-per-capture trace (`MELEE_EFB_TRACE=1`)
+ * without a rebuild. */
+#define MAX_TRACKED_COPIES 32
+typedef struct GlCopyDest {
+    const void* dest;
+    unsigned int width, height, format;
+    unsigned long frame;
+    unsigned char reported;
+} GlCopyDest;
+static GlCopyDest copy_dests[MAX_TRACKED_COPIES];
+static size_t copy_dest_count;
+static unsigned long efb_frame;
+static int efb_trace = -1;
+
+static int efb_trace_enabled(void)
+{
+    if (efb_trace < 0) {
+        const char* v = getenv("MELEE_EFB_TRACE");
+        efb_trace = (v != NULL && v[0] != '\0' && v[0] != '0') ? 1 : 0;
+    }
+    return efb_trace;
+}
+
+static GlCopyDest* copy_dest_find(const void* dest)
+{
+    size_t i;
+    for (i = 0; i < copy_dest_count; ++i) {
+        if (copy_dests[i].dest == dest) {
+            return &copy_dests[i];
+        }
+    }
+    return NULL;
+}
+
+static void copy_dest_record(const void* dest, unsigned int w, unsigned int h,
+                             unsigned int fmt)
+{
+    GlCopyDest* e = copy_dest_find(dest);
+    if (e == NULL) {
+        if (copy_dest_count >= MAX_TRACKED_COPIES) {
+            return;
+        }
+        e = &copy_dests[copy_dest_count++];
+        e->reported = 0;
+    }
+    e->dest = dest;
+    e->width = w;
+    e->height = h;
+    e->format = fmt;
+    e->frame = efb_frame;
+}
+
 static GLuint vertex_vao;
 static GLuint vertex_vbo;
 static size_t vertex_vbo_capacity;
@@ -1234,6 +1290,28 @@ static GLuint texture_for(const GxHleTexture* t)
         }
     }
 
+    /* P-738: if this image is a buffer some EFB capture wrote, say so, and
+     * say it loudly when the draw's declared size or format disagrees with
+     * what the capture put there -- that combination decodes garbage and has
+     * no other visible signature. */
+    {
+        const GlCopyDest* c = copy_dest_count != 0 ? copy_dest_find(image)
+                                                   : NULL;
+        if (c != NULL) {
+            int mismatch = c->width != (unsigned) t->width ||
+                           c->height != (unsigned) t->height ||
+                           c->format != t->format;
+            if (mismatch || efb_trace_enabled()) {
+                fprintf(stderr,
+                        "gx_gl: %s EFB copy %p: copied %ux%u fmt=%u, "
+                        "sampled %dx%d fmt=%u\n",
+                        mismatch ? "MISMATCHED" : "sampling", image,
+                        c->width, c->height, c->format, t->width, t->height,
+                        (unsigned) t->format);
+            }
+        }
+    }
+
     /* Runtime textures (`HSD_ImageDescAlloc`, copied/streamed images) live
      * outside any parsed archive, and archive buffers can be freed and
      * reused, so the GX-declared dimensions are the only trustworthy bound:
@@ -2080,9 +2158,16 @@ static void efb_copy_tex(const GxHleDraw* d)
     if (d->copy_w > 640 || d->copy_h > 480 || d->copy_dst_w > 640 ||
         d->copy_dst_h > 480)
     {
-        static int warned;
-        if (!warned) {
-            warned = 1;
+        /* Report once per distinct shape rather than once per process: a
+         * single `warned` flag hides a second, different bad descriptor
+         * behind the first one (P-738). */
+        static unsigned int last_w, last_h, last_fmt;
+        if (d->copy_dst_w != last_w || d->copy_dst_h != last_h ||
+            d->copy_fmt != last_fmt)
+        {
+            last_w = d->copy_dst_w;
+            last_h = d->copy_dst_h;
+            last_fmt = d->copy_fmt;
             fprintf(stderr,
                     "gx: rejecting %ux%u -> %ux%u EFB copy (fmt 0x%x); the "
                     "source HSD_ImageDesc is probably unconverted\n",
@@ -2183,6 +2268,33 @@ static void efb_copy_tex(const GxHleDraw* d)
     glReadPixels(src_x, gl_y, src_w, src_h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
     memset(dest, 0, copy_tex_dest_size(d->copy_fmt, dst_w, dst_h));
     copy_tex_encode(d->copy_fmt, dest, dst_w, dst_h, rgba, src_w, src_h);
+    if (efb_trace_enabled()) {
+        /* What the capture actually read.  An all-black or near-constant mean
+         * says the EFB was empty at this point in the frame; a plausible scene
+         * mean says the capture is fine and the fault is downstream. */
+        size_t i, n = (size_t) src_w * src_h, nonblack = 0;
+        unsigned long long sr = 0, sg = 0, sb = 0;
+        for (i = 0; i < n; ++i) {
+            const unsigned char* q = rgba + i * 4;
+            sr += q[0];
+            sg += q[1];
+            sb += q[2];
+            if (q[0] > 8 || q[1] > 8 || q[2] > 8) {
+                nonblack++;
+            }
+        }
+        fprintf(stderr,
+                "gx: efb copy frame=%lu dest=%p src=(%u,%u %ux%u) "
+                "gl=(%d,%d %dx%d) dst=%ux%u fmt=%u clear=%u "
+                "mean=(%u,%u,%u) nonblack=%zu/%zu\n",
+                efb_frame, dest, (unsigned) d->copy_left,
+                (unsigned) d->copy_top, (unsigned) d->copy_w,
+                (unsigned) d->copy_h, src_x, gl_y, src_w, src_h,
+                (unsigned) dst_w, (unsigned) dst_h, (unsigned) d->copy_fmt,
+                (unsigned) d->copy_clear, (unsigned) (sr / n),
+                (unsigned) (sg / n), (unsigned) (sb / n), nonblack, n);
+    }
+    copy_dest_record(dest, (unsigned) dst_w, (unsigned) dst_h, d->copy_fmt);
     free(rgba);
     gl_texture_cache_invalidate(dest);
     efb_clear_after_copy(d, src_x, gl_y, src_w, src_h);
@@ -2233,6 +2345,7 @@ int gx_gl_render_frame(void)
     }
     gx_hle_get_frame(&vertices, &vertex_count, &draws, &draw_count,
                      &textures, &texture_count);
+    efb_frame++;
     glViewport(0, 0, gl_width, gl_height);
     glDepthRangef(0.0, 1.0);
     /* The previous frame's GX state may have masked alpha writes or depth

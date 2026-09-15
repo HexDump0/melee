@@ -43,10 +43,27 @@ function pointer, so `lbArchive_LoadSymbols` got machine code as a filename
 (G-176, P-737).  **Please retest**: the scripted frontend flow does not reach
 that function, so the fix is verified by measurement, not by a repro run.
 
+## What I need from you next
+
+**One run, for B-23 (the Stadium monitor).**  Training mode on Pokemon
+Stadium, a few seconds, then quit:
+
+```sh
+MELEE_EFB_TRACE=1 ./build/native/melee 2> /tmp/efb.log
+```
+
+Then paste (or attach) the `gx:` lines from `/tmp/efb.log`.  They say, per
+frame, what each EFB capture read and what the monitor then sampled, which
+separates the three remaining explanations in P-738 in one go.  You do not
+need to do anything in-game beyond standing on the stage with the monitor
+visible.
+
 ## Confirmed gaps (BROKEN / BLOCKED)
 
 | # | What you see | Status | Blocked on | Tracked as |
 |---|---|---|---|---|
+| B-23 | Pokemon Stadium's big monitor is dense coloured noise instead of the live feed of the stage | BROKEN | a trace run from you (below) | P-738 |
+| B-24 | Projectile specials do nothing: Link's bow animation plays with no bow or arrow, Fox's blaster fires nothing, no damage | BROKEN | the special-`Article` spawn path | P-739 |
 | B-3 | Characters never blink / no damage or angry faces | BROKEN | action-driven visibility events | P-207 |
 | B-4 | Feet/hands slip or float in landing and ledge clips (no IK) | BROKEN | IK joint port (`resolveIKJoint1/2`) | P-208 |
 | B-5 | Textures/materials do not scroll, fade or swap during clips | BROKEN | `HSD_MatAnimJoint` evaluation | P-209 |

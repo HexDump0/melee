@@ -1,6 +1,6 @@
 # State of the port
 
-Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716, P-718, P-719, P-720 and P-737 fixed, P-699/P-702/P-711/P-715/P-717 open)
+Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716, P-718, P-719, P-720 and P-737 fixed, P-699/P-702/P-711/P-715/P-717/P-738/P-739/P-740 open)
 
 > **VS matches start again (2026-09-15, P-737/G-176).**  Every VS match used
 > to panic on the character-name splash with `file isn't exist S<garbage>.usd`
@@ -10,7 +10,10 @@ Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by ow
 > `lbArchive_LoadSymbols` was handed machine code as a filename.  Sixth
 > instance of the P-721 cross-symbol-overlay class and the first fatal one;
 > note it emits **no** `-Warray-bounds` warning, so the P-721 inventory built
-> from warnings will never list it.
+> from warnings will never list it.  Still open from the same owner session:
+> the Stadium monitor is noise (P-738 -- P-736 fixed the 250x160 *text*
+> capture, not the 640x406 live feed) and special-move projectiles never
+> spawn (P-739).
 
 > **Direction (2026-09-13/14): ADR-0017 — keep the GLES renderer, reach Aurora parity.**
 > The 32-bit product, in-place converter and GLES3/WebGL2 renderer stay; the
