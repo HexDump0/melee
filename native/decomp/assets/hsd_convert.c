@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 101u
+#define HSD_CONVERTER_VERSION 102u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -2937,7 +2937,33 @@ static void conv_waitanim_flags(Conv* c, uint32_t off)
     wr32(c->data + off, h);
 }
 
-static void conv_ft_data(Conv* c, uint32_t off)
+/* `ftData->x48_items` is *almost* an `Article*` array, and the walk below
+ * proves each entry looks like one before following it.  A few characters keep
+ * something else in a slot, and the decompilation says exactly which:
+ *
+ *   - Mr. Game & Watch: `items[10]` is an `FtPartsVisLookup[]`.
+ *     `ftGw_Init_OnLoad` (ftgamewatch.c:540) assigns it to `fp->x5AC.xC[4]`,
+ *     the fifth part-visibility group, and nothing else in the archive points
+ *     at it.  Left unconverted, its `TempS.x0` count read 0x0B000000 --
+ *     big-endian 11 -- so `ftParts_80074D7C` indexed a 116-entry DObj list
+ *     with 202 and handed the garbage to `HSD_DObjSetFlags`.  Every match
+ *     with G&W in it died in the shadow pass (P-765).
+ *
+ * **A shape heuristic does not work here**, which is why this is keyed on the
+ * symbol name instead.  G&W's lookup array passes the Article test -- its
+ * first word is a plausible `ItemAttr*` -- so the generic walk happily
+ * converted it as an Article.  The decompilation names the slot, so use that
+ * rather than guessing from the bytes. */
+static int ft_x48_vis_lookup_slot(const char* name, size_t name_len)
+{
+    if (name_len >= 15 && memcmp(name, "ftDataGamewatch", 15) == 0) {
+        return 10;
+    }
+    return -1;
+}
+
+static void conv_ft_data(Conv* c, uint32_t off, const char* name,
+                         size_t name_len)
 {
     uint32_t x8;
     uint32_t x30;
@@ -3369,6 +3395,7 @@ static void conv_ft_data(Conv* c, uint32_t off)
      * would corrupt unrelated data if treated as Article sub-tables. */
     {
         uint32_t items = rd32(c, off + 0x48);
+        int vis_slot = ft_x48_vis_lookup_slot(name, name_len);
         if (items != 0) {
             int k;
             for (k = 0; k < 32; k++) {
@@ -3388,6 +3415,14 @@ static void conv_ft_data(Conv* c, uint32_t off)
                 }
                 if (!c->reloc[slot] || !in_data(c, article, 0x18)) {
                     break;
+                }
+                if (k == vis_slot) {
+                    /* Not an Article; see ft_x48_vis_lookup_slot above. */
+                    uint32_t mn = in_data(c, x8, 4) ? rd32(c, x8 + 0x00) : 0;
+                    if (mn != 0 && mn <= 12) {
+                        conv_ft_vis_lookup(c, article, (int) mn);
+                    }
+                    continue;
                 }
                 attr = rd32(c, article + 0x00);
                 if (attr == 0 || !in_data(c, attr, ITEMATTR_SIZE) ||
@@ -4460,7 +4495,7 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
                    memcmp(name, "ftLoadCommonData", 16) == 0) {
             conv_ft_common_data(c, data_off);
         } else if (length >= 6 && memcmp(name, "ftData", 6) == 0) {
-            conv_ft_data(c, data_off);
+            conv_ft_data(c, data_off, name, length);
         } else if (length == 12 && memcmp(name, "itPublicData", 12) == 0) {
             conv_it_public_data(c, data_off);
         } else if (length == 9 && memcmp(name, "coll_data", 9) == 0) {
