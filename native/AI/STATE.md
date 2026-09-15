@@ -33,6 +33,11 @@ Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by ow
 > MELEE_SOAK_SEED_BASE=random` is the discovery sweep. `MELEE_SOAK_SEED_LIST`
 > pins the seven P-762 seeds into CI. It is the one test that deliberately
 > overrides the blanket `MELEE_RNG_SEED=tick`; that is the point of it.
+> **After P-762, 200 random seeds pass in 68 s** -- the first reading on
+> ADR-0023's "zero crashes" gate. It samples stages and RNG streams (that is
+> how Great Bay came up) but runs one scenario, the built-in 900-frame script
+> with no renderer, so it says nothing about drawing or about long matches.
+> The crash rate on that scenario went from 1 in 6 to under 1 in 200.
 
 > **Great Bay crashed one match in six, and the stage's Articles were never
 > converted (2026-09-15, P-762).** `Gr*.dat`'s `itemdata` names the stage's own
