@@ -3152,3 +3152,52 @@ Beware member-name collisions when you do this -- `value`, `flags`, `x3` and
 Fixed so far: `ItemAttr` (P-654), `Fighter::x21FC_flag` (`FtStatusFlags`),
 `UnkFlagStruct` (G-180), `grCorneria_GroundVars::xC4` (G-181).
 `decomp_assets` asserts the first, third and fourth, and needs no disc image.
+
+## G-182: the guard blend pose was never converted
+
+**Symptom (owner):** holding shield leaves the fighter invisible and no shield
+bubble is drawn.
+
+**Half of that is correct.** Retail hides the body while shielding
+(`ftAction_80071FA0` sets `fp->x221E_b5`, and `ftdrawcommon.c:320/348` skip
+it) and the bubble is what you are meant to see.  There was one bug, not two.
+
+**Cause:** `ftData->x20` is the guard blend pose --
+`ftData_x20 { HSD_Joint** x0; f32 x8; }` (ft/types.h:700) -- and
+`conv_ft_data` never walked it.  The joint tree stayed big-endian: every
+joint read `scale = 4.6006e-41`, which is `1.0f` byte-reversed.
+
+`ftCo_Guard.c` blends that raw `HSD_Joint` into the fighter through
+`ftAnim_80070108`/`ftAnim_8006FA58` -> `lb_8000C868`, which reads
+`position`/`rotation`/`scale` off the descriptor directly.  The result lands
+in the anim skeleton, then `ftAnim_8006FE9C` -> `lb_8000C490` blends *that*
+into the live shield joint -- and because `lb_8000C490`'s destination is also
+its second source, the garbage fed back and drifted each frame.
+`efLib_Update` then takes the bubble's scale from that joint's matrix, so the
+bubble came out scaled to nothing.
+
+**Fix:** `conv_joint` the tree from `ftData->x20->x0`.  Note the decomp types
+`x0` as `HSD_Joint**` and reads `x0[2]`; that is the root joint's own `child`
+field at +0x08, not a third array entry, so converting from the root covers
+it.
+
+**How it was found, and the one measurement that mattered.**  The previous
+agent's handover already had it: `scale = -nan` on the bubble at draw time and
+`translate.z = -3.09e30` on the attach joint.  From there a **gdb watchpoint
+on that one float** named the writer in one run -- `lb_8000C490`, from
+`ftAnim_8006FE9C` -- and a second watchpoint on *its* source named
+`lb_8000C868` and the raw joint behind it.  Two watchpoints beat any amount of
+reading: the value is written from three different places across two joint
+trees, and the chain is not visible from the call graph.
+
+**Two traps in asserting this.**
+
+1. `1e31` in a translate did **not** make the matrix infinite.  It made every
+   row a denormal near `1e-40` -- a matrix that passes "is finite" and still
+   scales the bubble to nothing.  The first version of `decomp_shield` passed
+   on the broken data for exactly that reason.  Assert the row **magnitudes**,
+   which is what `HSD_MtxGetScale` actually reads, not finiteness.
+2. Anything reached only through `ftData` needs its own walk.  `x1C` (P-630),
+   `x40`/`x4C` (P-655), `x48` (P-656) and now `x20` were each invisible until
+   something used them.  When adding a walk, check the neighbouring `ftData`
+   fields at the same time.

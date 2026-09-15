@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 94u
+#define HSD_CONVERTER_VERSION 95u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -2791,6 +2791,32 @@ static void conv_ft_data(Conv* c, uint32_t off)
             }
             for (ai = 0; ai + 4 <= size; ai += 4) {
                 conv_u32(c, ext + ai);
+            }
+        }
+    }
+    /* x20 is the guard blend pose: `ftData_x20 { HSD_Joint** x0; f32 x8; }`
+     * (ft/types.h:700).  Nothing walked it, so the joint tree stayed
+     * big-endian: every joint came out with `scale = 4.6006e-41`, which is
+     * 1.0f byte-reversed.
+     *
+     * `ftCo_Guard.c` blends that pose into the fighter through
+     * `ftAnim_80070108`/`8006FA58` -> `lb_8000C868`, which reads the raw
+     * `HSD_Joint`'s position/rotation/scale.  The result went into the anim
+     * skeleton and then, via `ftAnim_8006FE9C` -> `lb_8000C490`, into the
+     * shield joint -- whose matrix `efLib_Update` uses for the bubble's
+     * scale.  A degenerate matrix there makes the bubble NaN, so shielding
+     * hid the fighter (correctly) and drew no bubble (P-747/G-182).
+     *
+     * Note the decomp types `x0` as `HSD_Joint**` and reads `x0[2]`; that is
+     * the root joint's own `child` field at +0x08, not a third array entry.
+     * Converting the tree from the root covers it. */
+    {
+        uint32_t x20 = rd32(c, off + 0x20);
+        if (x20 != 0 && in_data(c, x20, 8)) {
+            uint32_t root = rd32(c, x20 + 0x00);
+            conv_u32(c, x20 + 0x04);
+            if (root != 0 && in_data(c, root, HSD_JOINT_SIZE)) {
+                conv_joint(c, root);
             }
         }
     }

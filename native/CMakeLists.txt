@@ -486,6 +486,21 @@ set_tests_properties(decomp_projectile PROPERTIES
     FAIL_REGULAR_EXPRESSION "PANIC|assertion \"adr\" failed"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
     TIMEOUT 300)
+# Shield bubble: MELEE_SHIELD_TEST holds L from frame 260.  efLib_Update takes
+# the bubble's scale from the shield joint's matrix, so an infinity or NaN
+# there is a bubble nobody can see -- which is what happened while the guard
+# blend pose (ftData->x20) was left big-endian: every joint in it read
+# scale = 4.6006e-41, i.e. 1.0f byte-reversed, and blending it into the
+# fighter poisoned the joint (P-747/G-182).  Assert the matrix is finite while
+# the shield is up; the harness prints POSE BAD instead on the old data.
+add_test(NAME decomp_shield
+    COMMAND melee_decomp_boot --boot-frames 290 --boot-timeout 90 --boot-match 20)
+set_tests_properties(decomp_shield PROPERTIES
+    ENVIRONMENT "MELEE_SHIELD_TEST=1;MELEE_NO_CARD=1"
+    PASS_REGULAR_EXPRESSION "\\[shield\\] frame=[0-9]+ guard pose sane"
+    FAIL_REGULAR_EXPRESSION "POSE BAD|PANIC"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    TIMEOUT 240)
 # HUD stock icons: the per-player icon frame comes from gm_80168BF8 ->
 # gm_80168B34.  Both decompiled functions relied on MWCC register leftovers
 # (uninitialized `base`, missing `return`), so on GCC every player asked for

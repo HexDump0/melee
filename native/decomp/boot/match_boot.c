@@ -65,6 +65,10 @@ static int stadium_trace;
 static int item_trace;
 static int item_verbose;
 static int shield_test;
+static void log_shield_state(void);
+static int shield_ok_said;
+static int shield_bad_said;
+#define ABSF(x) ((x) < 0 ? -(x) : (x))
 static int classic_test;
 static int classic_named;
 static int intro_test;
@@ -124,6 +128,85 @@ static void build_item_test_input(void)
     }
     pad_set_input_script(&match_input[0][0], MATCH_INPUT_CHANNELS,
                          MATCH_INPUT_FRAMES);
+}
+
+/* P-747: the shield bubble is created and submitted but draws nothing.
+ * `efLib_Update` derives the bubble's scale from the attach joint's matrix
+ * (`HSD_MtxGetScale(HSD_JObjGetMtxPtr(effect->attach_jobj), ...)`), so a
+ * degenerate matrix there becomes a NaN bubble.  The attach joint is the
+ * fighter's shield joint, `fp->parts[fp->ft_data->x8->x11].joint`; print its
+ * own transform and its world matrix so a bad source can be told from a bad
+ * concatenation. */
+static void log_shield_state(void)
+{
+    HSD_GObj* g;
+    Fighter* fp;
+    HSD_JObj* j;
+    MtxPtr m;
+    int idx;
+
+    if (!shield_test || (frame % 10) != 0) {
+        return;
+    }
+    g = Player_GetEntity(0);
+    if (g == NULL || g->user_data == NULL) {
+        return;
+    }
+    fp = (Fighter*) g->user_data;
+    if (fp->ft_data == NULL || fp->ft_data->x8 == NULL) {
+        return;
+    }
+    idx = (int) fp->ft_data->x8->x11;
+    j = fp->parts[idx].joint;
+    if (j == NULL) {
+        fprintf(stderr, "[shield] frame=%u part=%d joint=NULL\n", frame, idx);
+        return;
+    }
+    m = HSD_JObjGetMtxPtr(j);
+    /* The scale only leaves 1.0 while the shield is actually up
+     * (`ftCo_80091D58` writes it), so that is the cheapest "is the fighter
+     * guarding" test.  What the bubble needs is a finite matrix: `efLib_Update`
+     * takes its scale from this joint, so an infinity or NaN here is a bubble
+     * nobody can see (P-747). */
+    if (j->scale.x != 1.0f) {
+        int r, bad = 0;
+        /* Two things have to hold, and the first alone is not enough: the
+         * joint's own translate must be a real offset (the bug put 1e31 in
+         * z), and the resulting matrix must not have collapsed -- the 1e31
+         * did not make the matrix infinite, it made every row a denormal
+         * around 1e-40, which is a bubble scaled to nothing.  Check the row
+         * magnitudes, which is what `HSD_MtxGetScale` reads for the bubble. */
+        if (!(ABSF(j->translate.x) < 1.0e4f &&
+              ABSF(j->translate.y) < 1.0e4f && ABSF(j->translate.z) < 1.0e4f))
+        {
+            bad = 1;
+        }
+        for (r = 0; r < 3; r++) {
+            float mag = m[r][0] * m[r][0] + m[r][1] * m[r][1] +
+                        m[r][2] * m[r][2];
+            if (!(mag > 1.0e-6f && mag < 1.0e12f)) {
+                bad = 1;
+            }
+        }
+        if (bad && !shield_bad_said) {
+            shield_bad_said = 1;
+            fprintf(stderr,
+                    "[shield] frame=%u POSE BAD t=(%g,%g,%g) "
+                    "mtx_row2=(%g,%g,%g,%g)\n",
+                    frame, (double) j->translate.x, (double) j->translate.y,
+                    (double) j->translate.z, (double) m[2][0],
+                    (double) m[2][1], (double) m[2][2], (double) m[2][3]);
+        } else if (!bad && !shield_ok_said) {
+            shield_ok_said = 1;
+            fprintf(stderr,
+                    "[shield] frame=%u guard pose sane t=(%g,%g,%g) "
+                    "scale=%g row0=%g ok\n",
+                    frame, (double) j->translate.x, (double) j->translate.y,
+                    (double) j->translate.z, (double) j->scale.x,
+                    (double) (m[0][0] * m[0][0] + m[0][1] * m[0][1] +
+                              m[0][2] * m[0][2]));
+        }
+    }
 }
 
 /* P-739: no projectile special produces an article.  Everything between the
@@ -435,6 +518,7 @@ static void match_boot_frame(void)
      * frontend, where start_frame is 0 and everything past that returns. */
     log_stadium_display();
     log_item_trace();
+    log_shield_state();
     if (title_test) {
         unsigned deadline = start_frame != 0 ? start_frame : 1200;
         log_title_state(0);
