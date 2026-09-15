@@ -65,7 +65,7 @@ static int gl_height = 480;
 static float clear_color[4] = { 0.05f, 0.06f, 0.09f, 1.0f };
 
 static GLuint program;
-static GLint u_tex[3];
+static GLint u_tex[8];
 static GLint u_tev_color;
 static GLint u_tev_kcolor;
 static GLint u_tev_order;
@@ -125,8 +125,8 @@ static GLint u_ind_mtx1;    /* vec4[4]: row1.xyz */
 static GLint u_tev_ind_a;   /* ivec4[8]: stage, format, bias, mtx */
 static GLint u_tev_ind_b;   /* ivec4[8]: wrap_s, wrap_t, add_prev, enable */
 static GLint u_num_ind_stages;
-static GLint u_tex_size;    /* vec3[3]: destination map sizes */
-static GLint u_coord_srtg;  /* ivec3: toon coord samples the lit raster */
+static GLint u_tex_size;    /* vec2[8]: destination map sizes */
+static GLint u_coord_srtg;  /* int[8]: toon coord samples the lit raster */
 
 static GlTextureCache tex_cache[MAX_GL_TEXTURES];
 static size_t tex_cache_count;
@@ -151,6 +151,7 @@ static GxGlOptions gl_options = { 1, 1, -1, -1, 0, 0, 0 };
 
 static void configure_vertex_layout(void)
 {
+    int i;
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
                           (const void*) offsetof(GxHleVertex, clip));
@@ -158,13 +159,6 @@ static void configure_vertex_layout(void)
     glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE,
                           sizeof(GxHleVertex),
                           (const void*) offsetof(GxHleVertex, color));
-    glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
-                          (const void*) offsetof(GxHleVertex, uv));
-    glEnableVertexAttribArray(3);
-    glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
-                          (const void*) (offsetof(GxHleVertex, uv) +
-                                         2 * sizeof(float)));
     glEnableVertexAttribArray(4);
     glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
                           (const void*) offsetof(GxHleVertex, nrm));
@@ -174,10 +168,14 @@ static void configure_vertex_layout(void)
     glEnableVertexAttribArray(6);
     glVertexAttribPointer(6, 3, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
                           (const void*) offsetof(GxHleVertex, view));
-    glEnableVertexAttribArray(7);
-    glVertexAttribPointer(7, 2, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
-                          (const void*) (offsetof(GxHleVertex, uv) +
-                                         4 * sizeof(float)));
+    for (i = 0; i < 8; ++i) {
+        GLuint location = (GLuint) (i < 2 ? 2 + i : 5 + i);
+        glEnableVertexAttribArray(location);
+        glVertexAttribPointer(
+            location, 3, GL_FLOAT, GL_FALSE, sizeof(GxHleVertex),
+            (const void*) (offsetof(GxHleVertex, uv) +
+                            (size_t) i * 3 * sizeof(float)));
+    }
 }
 
 /* --------------------------------------------------------------- shaders */
@@ -193,12 +191,17 @@ static const char* VERTEX_SRC =
     "precision highp int;\n"
     "layout(location=0) in vec4 a_clip;\n"
     "layout(location=1) in vec4 a_color;\n"
-    "layout(location=2) in vec2 a_uv0;\n"
-    "layout(location=3) in vec2 a_uv1;\n"
+    "layout(location=2) in vec3 a_uv0;\n"
+    "layout(location=3) in vec3 a_uv1;\n"
     "layout(location=4) in vec3 a_nrm;\n"
     "layout(location=5) in float a_has_color;\n"
     "layout(location=6) in vec3 a_view;\n"
-    "layout(location=7) in vec2 a_uv2;\n"
+    "layout(location=7) in vec3 a_uv2;\n"
+    "layout(location=8) in vec3 a_uv3;\n"
+    "layout(location=9) in vec3 a_uv4;\n"
+    "layout(location=10) in vec3 a_uv5;\n"
+    "layout(location=11) in vec3 a_uv6;\n"
+    "layout(location=12) in vec3 a_uv7;\n"
     "uniform int u_ch_enable[4];\n"
     "uniform int u_ch_amb_src[4];\n"
     "uniform int u_ch_mat_src[4];\n"
@@ -214,9 +217,14 @@ static const char* VERTEX_SRC =
     "uniform vec4 u_light_dir[8];\n"
     "uniform float u_point_size;\n"
     "out vec4 v_color;\n"
-    "out vec2 v_uv0;\n"
-    "out vec2 v_uv1;\n"
-    "out vec2 v_uv2;\n"
+    "out vec3 v_uv0;\n"
+    "out vec3 v_uv1;\n"
+    "out vec3 v_uv2;\n"
+    "out vec3 v_uv3;\n"
+    "out vec3 v_uv4;\n"
+    "out vec3 v_uv5;\n"
+    "out vec3 v_uv6;\n"
+    "out vec3 v_uv7;\n"
     "out vec4 v_ras0;\n"
     "out vec4 v_ras1;\n"
     "out float v_dist;\n"
@@ -355,6 +363,11 @@ static const char* VERTEX_SRC =
     "    v_uv0 = a_uv0;\n"
     "    v_uv1 = a_uv1;\n"
     "    v_uv2 = a_uv2;\n"
+    "    v_uv3 = a_uv3;\n"
+    "    v_uv4 = a_uv4;\n"
+    "    v_uv5 = a_uv5;\n"
+    "    v_uv6 = a_uv6;\n"
+    "    v_uv7 = a_uv7;\n"
     "    v_ras0 = channel_raster(0, a_color, has_color);\n"
     "    v_ras1 = channel_raster(1, a_color, has_color);\n"
     "    v_dist = -a_view.z;\n"
@@ -367,11 +380,12 @@ static const char* ZTEX_FRAGMENT_SRC =
     "uniform int u_ztex_op;\n"
     "uniform float u_ztex_bias;\n"
     "uniform int u_ztex_color;\n"
-    "in vec2 v_uv0;\n"
+    "in vec3 v_uv0;\n"
     "in vec4 v_color;\n"
     "out vec4 frag;\n"
     "void main() {\n"
-    "    float z = texture(u_ztex, v_uv0).r;\n"
+    "    vec2 uv = v_uv0.z == 0.0 ? clamp(v_uv0.xy / 2.0, vec2(-1.0), vec2(1.0)) : v_uv0.xy / v_uv0.z;\n"
+    "    float z = texture(u_ztex, uv).r;\n"
     "    if (u_ztex_op == 2) gl_FragDepth = clamp(z + u_ztex_bias, 0.0, 1.0);\n"
     "    else gl_FragDepth = clamp(gl_FragCoord.z + z + u_ztex_bias, 0.0, 1.0);\n"
     "    /* GXSetZTexture replaces depth, but the TEV colour still reaches the\n"
@@ -389,6 +403,11 @@ static const char* FRAGMENT_SRC =
     "uniform sampler2D u_tex0;\n"
     "uniform sampler2D u_tex1;\n"
     "uniform sampler2D u_tex2;\n"
+    "uniform sampler2D u_tex3;\n"
+    "uniform sampler2D u_tex4;\n"
+    "uniform sampler2D u_tex5;\n"
+    "uniform sampler2D u_tex6;\n"
+    "uniform sampler2D u_tex7;\n"
     "uniform vec4 u_tev_color[4];\n"
     "uniform vec4 u_tev_kcolor[4];\n"
     "/* order: x=coord 0..7/255, y=map 0..7/255, z=channel, w=unused */\n"
@@ -421,8 +440,8 @@ static const char* FRAGMENT_SRC =
     "uniform float u_fog_width;\n"
     "uniform float u_depth_near;\n"
     "uniform int u_tex_enable;\n"
-    "uniform vec3 u_tex_lod_bias;\n"
-    "uniform ivec3 u_tex_dynamic_i4;\n"
+    "uniform float u_tex_lod_bias[8];\n"
+    "uniform int u_tex_dynamic_i4[8];\n"
     "uniform int u_dst_alpha_enable;\n"
     "uniform float u_dst_alpha;\n"
     "uniform int u_ras_flat;\n"
@@ -433,12 +452,17 @@ static const char* FRAGMENT_SRC =
     "uniform ivec4 u_tev_ind_a[8];\n"
     "uniform ivec4 u_tev_ind_b[8];\n"
     "uniform int u_num_ind_stages;\n"
-    "uniform vec3 u_tex_size[3];\n"
-    "uniform ivec3 u_coord_srtg;\n"
+    "uniform vec2 u_tex_size[8];\n"
+    "uniform int u_coord_srtg[8];\n"
     "in vec4 v_color;\n"
-    "in vec2 v_uv0;\n"
-    "in vec2 v_uv1;\n"
-    "in vec2 v_uv2;\n"
+    "in vec3 v_uv0;\n"
+    "in vec3 v_uv1;\n"
+    "in vec3 v_uv2;\n"
+    "in vec3 v_uv3;\n"
+    "in vec3 v_uv4;\n"
+    "in vec3 v_uv5;\n"
+    "in vec3 v_uv6;\n"
+    "in vec3 v_uv7;\n"
     "in vec4 v_ras0;\n"
     "in vec4 v_ras1;\n"
     "in float v_dist;\n"
@@ -528,25 +552,40 @@ static const char* FRAGMENT_SRC =
     "    if (func == 6) return a >= ref;\n"
     "    return true;\n"
     "}\n"
-    "/* P-672: the TEV texture coordinate, with the toon rule that a GX_TG_SRTG\n"
-    " * coordinate samples the rasterized (lit) colour.  Only coords 0..2 are\n"
-    " * carried as varyings; 3..7 fold onto 0 (resolve_stage_coords). */\n"
+    "/* P-736: carry every GX texture coordinate and map.  Shadow-receiving\n"
+    " * materials commonly need two stage maps plus two projected shadows. */\n"
+    "vec2 gx_project_uv(vec3 uvw) {\n"
+    "    if (uvw.z == 0.0) return clamp(uvw.xy / 2.0, vec2(-1.0), vec2(1.0));\n"
+    "    return uvw.xy / uvw.z;\n"
+    "}\n"
     "vec2 gx_coord_uv(int c) {\n"
-    "    if (c >= 0 && c < 3 && u_coord_srtg[c] != 0) return v_ras0.xy;\n"
-    "    if (c == 1) return v_uv1;\n"
-    "    if (c == 2) return v_uv2;\n"
-    "    return v_uv0;\n"
+    "    if (c >= 0 && c < 8 && u_coord_srtg[c] != 0) return v_ras0.xy;\n"
+    "    if (c == 1) return gx_project_uv(v_uv1);\n"
+    "    if (c == 2) return gx_project_uv(v_uv2);\n"
+    "    if (c == 3) return gx_project_uv(v_uv3);\n"
+    "    if (c == 4) return gx_project_uv(v_uv4);\n"
+    "    if (c == 5) return gx_project_uv(v_uv5);\n"
+    "    if (c == 6) return gx_project_uv(v_uv6);\n"
+    "    if (c == 7) return gx_project_uv(v_uv7);\n"
+    "    return gx_project_uv(v_uv0);\n"
     "}\n"
     "vec4 gx_sample_map(int map, vec2 uv) {\n"
-    "    if (map == 1) return texture(u_tex1, uv, u_tex_lod_bias.y);\n"
-    "    if (map == 2) return texture(u_tex2, uv, u_tex_lod_bias.z);\n"
-    "    return texture(u_tex0, uv, u_tex_lod_bias.x);\n"
+    "    if (map == 1) return texture(u_tex1, uv, u_tex_lod_bias[1]);\n"
+    "    if (map == 2) return texture(u_tex2, uv, u_tex_lod_bias[2]);\n"
+    "    if (map == 3) return texture(u_tex3, uv, u_tex_lod_bias[3]);\n"
+    "    if (map == 4) return texture(u_tex4, uv, u_tex_lod_bias[4]);\n"
+    "    if (map == 5) return texture(u_tex5, uv, u_tex_lod_bias[5]);\n"
+    "    if (map == 6) return texture(u_tex6, uv, u_tex_lod_bias[6]);\n"
+    "    if (map == 7) return texture(u_tex7, uv, u_tex_lod_bias[7]);\n"
+    "    return texture(u_tex0, uv, u_tex_lod_bias[0]);\n"
     "}\n"
     "vec2 gx_tex_size(int map) {\n"
-    "    vec2 s = u_tex_size[0].xy;\n"
-    "    if (map == 1) s = u_tex_size[1].xy;\n"
-    "    else if (map == 2) s = u_tex_size[2].xy;\n"
+    "    vec2 s = u_tex_size[0];\n"
+    "    if (map >= 1 && map < 8) s = u_tex_size[map];\n"
     "    return max(s, vec2(1.0));\n"
+    "}\n"
+    "int gx_dynamic_map(int map) {\n"
+    "    return (map >= 0 && map < 8) ? u_tex_dynamic_i4[map] : 0;\n"
     "}\n"
     "/* GXIndTexWrap: OFF, 256, 128, 64, 32, 16, 0.  The hardware wraps the\n"
     " * texel coordinate; the offset conversion keeps us in normalized UVs. */\n"
@@ -606,9 +645,7 @@ static const char* FRAGMENT_SRC =
     "        }\n"
     "        if (u_tex_enable != 0 && ord.y != 255) {\n"
     "            tex = gx_sample_map(ord.y, uv);\n"
-    "            int dynamic_i4 = (ord.y == 0) ? u_tex_dynamic_i4.x :\n"
-    "                             (ord.y == 1) ? u_tex_dynamic_i4.y :\n"
-    "                             (ord.y == 2) ? u_tex_dynamic_i4.z : 0;\n"
+    "            int dynamic_i4 = gx_dynamic_map(ord.y);\n"
     "            if (dynamic_i4 != 0) {\n"
     "                float intensity = floor(clamp(tex.r, 0.0, 1.0) * 255.0 / 16.0) / 15.0;\n"
     "                tex = vec4(intensity, intensity, intensity, 1.0);\n"
@@ -740,6 +777,7 @@ static int build_program(char* error, size_t error_size)
     GLuint vs = compile_shader(GL_VERTEX_SHADER, VERTEX_SRC);
     GLuint fs = compile_shader(GL_FRAGMENT_SHADER, FRAGMENT_SRC);
     GLint ok = 0;
+    int i;
     if (vs == 0 || fs == 0) {
         snprintf(error, error_size, "shader compile failed");
         return 0;
@@ -758,9 +796,11 @@ static int build_program(char* error, size_t error_size)
     glDeleteShader(vs);
     glDeleteShader(fs);
 
-    u_tex[0] = glGetUniformLocation(program, "u_tex0");
-    u_tex[1] = glGetUniformLocation(program, "u_tex1");
-    u_tex[2] = glGetUniformLocation(program, "u_tex2");
+    for (i = 0; i < 8; ++i) {
+        char name[16];
+        snprintf(name, sizeof(name), "u_tex%d", i);
+        u_tex[i] = glGetUniformLocation(program, name);
+    }
     u_tev_color = glGetUniformLocation(program, "u_tev_color");
     u_tev_kcolor = glGetUniformLocation(program, "u_tev_kcolor");
     u_tev_order = glGetUniformLocation(program, "u_tev_order");
@@ -846,9 +886,9 @@ static int build_program(char* error, size_t error_size)
         }
     }
     glUseProgram(program);
-    glUniform1i(u_tex[0], 0);
-    glUniform1i(u_tex[1], 1);
-    glUniform1i(u_tex[2], 2);
+    for (i = 0; i < 8; ++i) {
+        glUniform1i(u_tex[i], i);
+    }
     return 1;
 }
 
@@ -1651,7 +1691,7 @@ static void upload_draw_uniforms(const GxHleDrawState* s)
         GLfloat ind_mtx1[4][4];
         GLint tev_ind_a[MAX_TEV_STAGES][4];
         GLint tev_ind_b[MAX_TEV_STAGES][4];
-        GLint coord_srtg[3];
+        GLint coord_srtg[8];
         for (i = 0; i < 4; ++i) {
             int ss = s->ind[i].scale_s & 15;
             int st = s->ind[i].scale_t & 15;
@@ -1681,7 +1721,7 @@ static void upload_draw_uniforms(const GxHleDrawState* s)
             tev_ind_b[i][2] = st->ind_add_prev;
             tev_ind_b[i][3] = st->ind_enable;
         }
-        for (i = 0; i < 3; ++i) {
+        for (i = 0; i < 8; ++i) {
             coord_srtg[i] = s->texgen[i].type == GX_TG_SRTG ? 1 : 0;
         }
         glUniform2iv(u_ind_order, 4, &ind_order[0][0]);
@@ -1691,7 +1731,7 @@ static void upload_draw_uniforms(const GxHleDrawState* s)
         glUniform4iv(u_tev_ind_a, MAX_TEV_STAGES, &tev_ind_a[0][0]);
         glUniform4iv(u_tev_ind_b, MAX_TEV_STAGES, &tev_ind_b[0][0]);
         glUniform1i(u_num_ind_stages, s->num_ind_stages);
-        glUniform3iv(u_coord_srtg, 1, coord_srtg);
+        glUniform1iv(u_coord_srtg, 8, coord_srtg);
     }
 }
 
@@ -1877,7 +1917,8 @@ static void copy_tex_encode(unsigned int fmt, unsigned char* dest,
             case GX_TF_RGB565: {
                 unsigned short v = (unsigned short)
                     (((p[0] >> 3) << 11) | ((p[1] >> 2) << 5) | (p[2] >> 3));
-                size_t off = ((size_t) (y / 4) * (dst_w / 4) + (x / 4)) * 32 +
+                size_t off = ((size_t) (y / 4) * ((dst_w + 3) / 4) +
+                              (x / 4)) * 32 +
                              (size_t) (y % 4) * 8 + (size_t) (x % 4) * 2;
                 dest[off] = (unsigned char) (v >> 8);
                 dest[off + 1] = (unsigned char) (v & 0xFF);
@@ -1895,7 +1936,8 @@ static void copy_tex_encode(unsigned int fmt, unsigned char* dest,
                 }
                 {
                     size_t off =
-                        ((size_t) (y / 4) * (dst_w / 4) + (x / 4)) * 32 +
+                        ((size_t) (y / 4) * ((dst_w + 3) / 4) + (x / 4)) *
+                            32 +
                         (size_t) (y % 4) * 8 + (size_t) (x % 4) * 2;
                     dest[off] = (unsigned char) (v >> 8);
                     dest[off + 1] = (unsigned char) (v & 0xFF);
@@ -1937,7 +1979,8 @@ static void copy_tex_encode(unsigned int fmt, unsigned char* dest,
                 break;
             }
             case GX_TF_IA8: {
-                size_t off = ((size_t) (y / 4) * (dst_w / 4) + (x / 4)) * 32 +
+                size_t off = ((size_t) (y / 4) * ((dst_w + 3) / 4) +
+                              (x / 4)) * 32 +
                              (size_t) (y % 4) * 8 + (size_t) (x % 4) * 2;
                 /* decode_ia8 reads alpha first, then intensity. */
                 dest[off] = p[3];
@@ -1971,6 +2014,42 @@ static void copy_tex_encode(unsigned int fmt, unsigned char* dest,
                 break;
             }
         }
+    }
+}
+
+/* GXCopyTex(clear=true) resolves first, then clears the copied EFB rectangle
+ * with the GXSetCopyClear registers.  The component masks remain controlled
+ * by GXSetColorUpdate/GXSetAlphaUpdate/GXSetZMode, just as on GX. */
+static void efb_clear_after_copy(const GxHleDraw* d, int src_x, int gl_y,
+                                 int src_w, int src_h)
+{
+    const GxHleDrawState* s = &d->state;
+    GLbitfield mask = 0;
+
+    if (!d->copy_clear) {
+        return;
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(src_x, gl_y, src_w, src_h);
+    glColorMask(s->color_update ? GL_TRUE : GL_FALSE,
+                s->color_update ? GL_TRUE : GL_FALSE,
+                s->color_update ? GL_TRUE : GL_FALSE,
+                s->alpha_update ? GL_TRUE : GL_FALSE);
+    if (s->color_update || s->alpha_update) {
+        glClearColor((GLfloat) s->copy_clear_color[0] / 255.0f,
+                     (GLfloat) s->copy_clear_color[1] / 255.0f,
+                     (GLfloat) s->copy_clear_color[2] / 255.0f,
+                     (GLfloat) s->copy_clear_color[3] / 255.0f);
+        mask |= GL_COLOR_BUFFER_BIT;
+    }
+    glDepthMask(s->z_update ? GL_TRUE : GL_FALSE);
+    if (s->z_update) {
+        glClearDepthf((GLfloat) s->copy_clear_z / 16777215.0f);
+        mask |= GL_DEPTH_BUFFER_BIT;
+    }
+    if (mask != 0) {
+        glClear(mask);
     }
 }
 
@@ -2034,6 +2113,7 @@ static void efb_copy_tex(const GxHleDraw* d)
         efb_copy_r4_gpu(d, src_x, gl_y, src_w, src_h))
     {
         gl_texture_cache_invalidate(dest);
+        efb_clear_after_copy(d, src_x, gl_y, src_w, src_h);
         return;
     }
 
@@ -2092,6 +2172,7 @@ static void efb_copy_tex(const GxHleDraw* d)
         copy_tex_encode_z24x8(dest, dst_w, dst_h, depth, src_w, src_h);
         free(depth);
         gl_texture_cache_invalidate(dest);
+        efb_clear_after_copy(d, src_x, gl_y, src_w, src_h);
         return;
     }
 
@@ -2104,6 +2185,7 @@ static void efb_copy_tex(const GxHleDraw* d)
     copy_tex_encode(d->copy_fmt, dest, dst_w, dst_h, rgba, src_w, src_h);
     free(rgba);
     gl_texture_cache_invalidate(dest);
+    efb_clear_after_copy(d, src_x, gl_y, src_w, src_h);
 }
 
 /* P-615: depth-only Z-texture pass (GX_ZT_REPLACE/ADD). */
@@ -2183,11 +2265,10 @@ int gx_gl_render_frame(void)
     for (i = 0; i < draw_count; ++i) {
         const GxHleDraw* d = &draws[i];
         const GxHleDrawState* s = &d->state;
-        const GxHleTexture* t0 = NULL;
-        const GxHleTexture* t1 = NULL;
-        const GxHleTexture* t2 = NULL;
-        GLuint tex0 = 0;
+        const GxHleTexture* bound[8] = { NULL };
+        GLuint tex[8] = { 0 };
         int state_same;
+        int map;
         if (gl_options.only_draw >= 0 &&
             (size_t) gl_options.only_draw != i) {
             continue;
@@ -2207,9 +2288,6 @@ int gx_gl_render_frame(void)
             have_applied_state = 0;
             continue;
         }
-        GLuint tex1 = 0;
-        GLuint tex2 = 0;
-
         if (d->vertex_count == 0) {
             continue;
         }
@@ -2223,52 +2301,42 @@ int gx_gl_render_frame(void)
             have_applied_state = 1;
         }
 
-        if (s->texmap[0] >= 0 && (size_t) s->texmap[0] < texture_count) {
-            t0 = &textures[s->texmap[0]];
-            tex0 = texture_for(t0);
+        for (map = 0; map < 8; ++map) {
+            if (s->texmap[map] >= 0 &&
+                (size_t) s->texmap[map] < texture_count)
+            {
+                bound[map] = &textures[s->texmap[map]];
+                tex[map] = texture_for(bound[map]);
+            }
         }
-        if (s->texmap[1] >= 0 && (size_t) s->texmap[1] < texture_count) {
-            t1 = &textures[s->texmap[1]];
-            tex1 = texture_for(t1);
+        /* texture_for() may upload/decode and therefore bind on the current
+         * unit.  Resolve every name first, then establish the complete GX
+         * map-to-unit binding without later lookups disturbing earlier
+         * units. */
+        for (map = 0; map < 8; ++map) {
+            glActiveTexture((GLenum) (GL_TEXTURE0 + map));
+            glBindTexture(GL_TEXTURE_2D, tex[map]);
         }
-        if (s->texmap[2] >= 0 && (size_t) s->texmap[2] < texture_count) {
-            t2 = &textures[s->texmap[2]];
-            tex2 = texture_for(t2);
-        }
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, tex0);
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, tex1);
-        glActiveTexture(GL_TEXTURE2);
-        glBindTexture(GL_TEXTURE_2D, tex2);
         glActiveTexture(GL_TEXTURE0);
         {
-            GLfloat bias[3] = { t0 != NULL ? t0->lod_bias : 0.0f,
-                                t1 != NULL ? t1->lod_bias : 0.0f,
-                                t2 != NULL ? t2->lod_bias : 0.0f };
-            GLint dynamic_i4[3] = { texture_is_dynamic_i4(t0),
-                                    texture_is_dynamic_i4(t1),
-                                    texture_is_dynamic_i4(t2) };
+            GLfloat bias[8] = { 0 };
+            GLint dynamic_i4[8] = { 0 };
             /* P-672: destination sizes convert the indirect offset from GX
              * texels to this renderer's normalized UVs. */
-            GLfloat sizes[3][3] = { { 1.0f, 1.0f, 0.0f },
-                                    { 1.0f, 1.0f, 0.0f },
-                                    { 1.0f, 1.0f, 0.0f } };
-            if (t0 != NULL) {
-                sizes[0][0] = (GLfloat) t0->width;
-                sizes[0][1] = (GLfloat) t0->height;
+            GLfloat sizes[8][2];
+            for (map = 0; map < 8; ++map) {
+                sizes[map][0] = 1.0f;
+                sizes[map][1] = 1.0f;
+                if (bound[map] != NULL) {
+                    bias[map] = bound[map]->lod_bias;
+                    dynamic_i4[map] = texture_is_dynamic_i4(bound[map]);
+                    sizes[map][0] = (GLfloat) bound[map]->width;
+                    sizes[map][1] = (GLfloat) bound[map]->height;
+                }
             }
-            if (t1 != NULL) {
-                sizes[1][0] = (GLfloat) t1->width;
-                sizes[1][1] = (GLfloat) t1->height;
-            }
-            if (t2 != NULL) {
-                sizes[2][0] = (GLfloat) t2->width;
-                sizes[2][1] = (GLfloat) t2->height;
-            }
-            glUniform3fv(u_tex_lod_bias, 1, bias);
-            glUniform3iv(u_tex_dynamic_i4, 1, dynamic_i4);
-            glUniform3fv(u_tex_size, 3, &sizes[0][0]);
+            glUniform1fv(u_tex_lod_bias, 8, bias);
+            glUniform1iv(u_tex_dynamic_i4, 8, dynamic_i4);
+            glUniform2fv(u_tex_size, 8, &sizes[0][0]);
         }
 
         if (!state_same) {

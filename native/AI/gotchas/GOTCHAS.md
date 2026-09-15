@@ -556,12 +556,14 @@ RMSE ~0.003 (max 1/255; the residue is HSD lookat float rounding).
 instead of smooth skin; Falcon unaffected.
 **Cause:** the material's bump-style TEV pair names `GX_TG_TEXCOORD1` as the
 source of coord 2 (type `GX_TG_MTX3x4`, identity matrices), i.e. coord 2 is a
-passthrough copy of coord 1.  The fragment stage only carries `v_uv0`/`v_uv1`
-and treated coord 2 as coord 0, so the add/sub pair sampled different UVs and
-the difference term never cancelled.
-**Fix:** fold `order_coord` down through identity-matrix `GX_TG_TEXCOORDn`
-chains onto the 0/1 varyings it aliases before snapshotting the draw
-(`gx_hle.c:resolve_stage_coords`).
+passthrough copy of coord 1.  At the time the fragment stage carried only
+`v_uv0`/`v_uv1` and treated coord 2 as coord 0, so the add/sub pair sampled
+different UVs and the difference term never cancelled.
+**Historical fix:** fold `order_coord` down through identity-matrix
+`GX_TG_TEXCOORDn` chains onto the varyings they alias before snapshotting the
+draw (`gx_hle.c:resolve_stage_coords`).  P-736 later added native varyings for
+all eight coordinates; chain resolution remains valid and avoids redundant
+generation, but is no longer a substitute for the complete hardware range.
 
 ## G-059: capture up to 8 TEV stages (Master Hand uses 6)
 
@@ -1262,16 +1264,18 @@ running must call `HSD_StateInvalidate(-1)` right after (the live match viewer
 and `bounds_pass` do).  Tests use `gx_hle_reset_state()` explicitly.  This is
 the G-054 contract, now at the frame boundary.
 
-## G-104: a material can reference three TEV texture maps (base + two shadows)
+## G-104: a material can reference multiple TEV texture maps (base + shadows)
 
 **Symptom:** with two fighters on the ground only one character shadow shows;
 which one depends on the material.
 **Cause:** the platform's material compiles as `K0`, base texture (map 0),
 fighter A shadow (map 1) and fighter B shadow (map 2).  The GL fragment path
 had only `u_tex0`/`u_tex1` and silently dropped the map-2 stage.
-**Fix:** added a third texture unit (`u_tex2`, `u_tex_lod_bias.z`, texmap[2]);
-the vertex already carries a third texcoord (`v_uv2`).  A 1200-frame match
-uses at most map/coord 2, so three is enough for the shipped content.
+**Historical fix:** a third texture unit (`u_tex2`, `u_tex_lod_bias.z`,
+texmap[2]) restored the first observed two-shadow material.  The conclusion
+that three was enough was false: Castle and Stadium use two base maps plus two
+shadow maps, reaching map 3.  P-736 carries all eight hardware maps/coords;
+see G-173.
 
 ## G-105: offscreen SDL video does not mute the match viewer
 
@@ -1903,9 +1907,11 @@ identity post matrix (including `GX_TG_MTX2x4`, which forces z=1 anyway)
 looks fine, so it hides easily.
 **Cause:** `texgen_coord` fed `(u, v, 0)` for TEX sources; Aurora builds
 `vec4f(uv, 1.0, 1.0)`, so q = `m8·u + m9·v + m10·1 + m11`.
-**Fix:** feed 1.0 (P-693).  The `decomp_gx_direct` MTX3x4 case now uses a
-q row `{2,0,2,1}` where z matters and asserts `(0.0714, 0.1786)`; the old
-z=0 code reads `(0.1667, 0.4167)`.
+**Fix:** feed 1.0 (P-693).  P-736 additionally keeps the resulting STQ triple
+through rasterization and divides S/T by Q per fragment; dividing at each
+vertex gives affine interpolation and is not equivalent.  The
+`decomp_gx_direct` MTX3x4 case uses q row `{2,0,2,1}` and now asserts the
+pre-divide triple `(0.25, 0.625, 3.5)`.
 
 ## G-141: the TEV raster channel is not always rast0
 
@@ -2799,3 +2805,57 @@ the same data was printed raw, both died immediately.
 4. Corollary to G-168: an instrument that can lie is worse than none, because
    it produces confident wrong answers. Verify the instrument against a case
    whose answer is already known before trusting it on the case that is not.
+
+## G-173: GX has eight texture maps and coordinates; never alias an unsupported map
+
+**Symptom:** Peach's Castle roof appears duplicated, rotates or swims with a
+fighter, and intermittently darkens.  Pokémon Stadium similarly shows a dark,
+transparent Pokéball following one fighter; it disappears when that fighter
+leaves the stage.
+
+**Cause:** the receiver material has four active TEV inputs: two ordinary
+textures on maps 0/1 and two 256x256 I4 fighter-shadow copies on maps 2/3.
+The HLE captured eight map slots, but the GL shader and vertex layout carried
+only 0..2; `gx_sample_map(3, ...)` fell through to map 0.  The second fighter's
+projective shadow coordinate consequently sampled and projected the stage's
+roof/Pokéball image rather than its shadow map.  Which fighter it followed and
+when it darkened were direct consequences of the live map-3 shadow pass.
+
+**Fix:** carry three-component TEXCOORD0..7 varyings, sample `u_tex0..7`, and
+upload size/LOD/dynamic-copy state for every map.  Resolve all GL texture names
+before binding any unit: `texture_for()` may upload and bind on the current
+unit, so interleaving lookup and binding can overwrite an earlier unit.
+`decomp_efb` pass 6 selects a white map 3 while map 0 is black and fails on
+the old fallback.  Rule: implement the complete GX register range; silently
+aliasing an unsupported index converts missing support into moving corruption.
+
+## G-174: partial GX texture-copy rows advance by the rounded-up tile count
+
+**Symptom:** Pokémon Stadium's 250x160 monitor capture is dense coloured
+noise even though its text overlay is readable.  Power-of-two EFB-copy tests
+remain green.
+
+**Cause:** RGB565/RGB5A3/IA8 use 4-pixel-wide tiles.  Their encoder advanced
+tile rows by `dst_w / 4`; width 250 needs 63 tiles, but integer division used
+62, so the last tile of one row overlapped the first tile of the next.  The
+error accumulated down the captured image.
+
+**Fix:** use `(dst_w + 3) / 4` consistently in the offset and allocation
+calculation.  `decomp_efb` copies a 6x8 RGB565 image and asserts that the first
+pixel of the second tile row remains green; the broken stride overwrites it.
+
+## G-175: `GXCopyTex(clear=true)` resolves first and then clears the EFB
+
+**Symptom:** later screen-texture and shadow passes can inherit colour/depth
+that console GX would have erased after a capture, producing state-dependent
+compositing differences.
+
+**Cause:** `GXSetCopyClear` discarded its arguments and `GXCopyTex` ignored
+the clear flag.  The flag is not a destination initializer: GX resolves the
+requested EFB rectangle into texture memory, then clears that source rectangle.
+
+**Fix:** snapshot the clear RGBA/Z registers with the draw, capture first,
+then scissored-clear the source rectangle.  Respect `GXSetColorUpdate`,
+`GXSetAlphaUpdate`, and the Z update bit when selecting clear components.
+`decomp_efb` asserts both the copied pre-clear pixels and the post-copy EFB
+clear colour.

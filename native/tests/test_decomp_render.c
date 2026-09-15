@@ -458,14 +458,16 @@ static int direct_test(void)
         return 0;
     }
     {
-        /* q-row {2,0,2,1}: x'=0.25, y'=0.625, q=2*0.25+2*1+1=3.5 ->
-         * (0.07143, 0.17857).  q=1.5 (0.16667, 0.41667) means the source z
-         * was fed as 0 instead of 1. */
+        /* q-row {2,0,2,1}: x'=0.25, y'=0.625, q=2*0.25+2*1+1=3.5.
+         * STQ must reach the rasterizer intact: dividing here produces
+         * affine rather than projective interpolation across the triangle. */
         const GxHleVertex* v = &verts[draws[0].first_vertex];
-        if (fabsf(v->uv[0][0] - 0.0714286f) > 1e-5f ||
-            fabsf(v->uv[0][1] - 0.1785714f) > 1e-5f) {
-            printf("direct: FAIL MTX3x4 uv=(%.4f,%.4f) want (0.0714,0.1786)\n",
-                   (double) v->uv[0][0], (double) v->uv[0][1]);
+        if (fabsf(v->uv[0][0] - 0.25f) > 1e-5f ||
+            fabsf(v->uv[0][1] - 0.625f) > 1e-5f ||
+            fabsf(v->uv[0][2] - 3.5f) > 1e-5f) {
+            printf("direct: FAIL MTX3x4 uvw=(%.4f,%.4f,%.4f) want "
+                   "(0.25,0.625,3.5)\n", (double) v->uv[0][0],
+                   (double) v->uv[0][1], (double) v->uv[0][2]);
             fail = 1;
         }
     }
@@ -473,10 +475,11 @@ static int direct_test(void)
         /* MTX2x4 forces z=1, then normalize(3,4,1) = (0.58835, 0.78446). */
         const GxHleVertex* v = &verts[draws[1].first_vertex];
         if (fabsf(v->uv[0][0] - 0.58835f) > 1e-4f ||
-            fabsf(v->uv[0][1] - 0.78446f) > 1e-4f) {
-            printf("direct: FAIL normalize uv=(%.4f,%.4f) want "
-                   "(0.5884,0.7845)\n", (double) v->uv[0][0],
-                   (double) v->uv[0][1]);
+            fabsf(v->uv[0][1] - 0.78446f) > 1e-4f ||
+            fabsf(v->uv[0][2] - 1.0f) > 1e-5f) {
+            printf("direct: FAIL normalize uvw=(%.4f,%.4f,%.4f) want "
+                   "(0.5884,0.7845,1)\n", (double) v->uv[0][0],
+                   (double) v->uv[0][1], (double) v->uv[0][2]);
             fail = 1;
         }
     }
@@ -948,8 +951,9 @@ static int efb_test(void)
     GXColor4u8(64, 128, 192, 255);
     GXSetTexCopySrc(0, 0, 640, 480);
     GXSetTexCopyDst(8, 8, GX_TF_RGB565, GX_FALSE);
+    GXSetCopyClear((GXColor) { 16, 32, 48, 64 }, 0x345678);
     memset(copy, 0, sizeof(copy));
-    GXCopyTex(copy, GX_FALSE);
+    GXCopyTex(copy, GX_TRUE);
     if (gx_gl_render_frame() < 0) {
         printf("efb: FAIL render_frame\n");
         return 0;
@@ -968,6 +972,14 @@ static int efb_test(void)
             fail = 1;
             break;
         }
+    }
+    glReadPixels(320, 240, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+    if (abs((int) pixel[0] - 16) > 1 || abs((int) pixel[1] - 32) > 1 ||
+        abs((int) pixel[2] - 48) > 1)
+    {
+        printf("efb: FAIL copy clear pixel=%u,%u,%u (want 16,32,48)\n",
+               pixel[0], pixel[1], pixel[2]);
+        fail = 1;
     }
 
     /* ---- pass 2: GXSetZTexture(GX_ZT_REPLACE) erases depth to far ---- */
@@ -1319,7 +1331,70 @@ static int efb_test(void)
         }
     }
 
-    /* ---- pass 6: P-673 specular channel is light-tinted ----
+    /* ---- pass 6: P-736 all eight GX texture maps/coords reach GL ----
+     * Stadium and Peach's Castle combine two material maps with two fighter
+     * shadow maps.  Their final shadow is TEXMAP3/TEXCOORD1; the old
+     * three-map renderer silently sampled map 0 there and projected the
+     * Pokeball/roof texture beneath a fighter.  Select a white map 3 over a
+     * black map 0 so that fallback is visible in one pixel. */
+    {
+        unsigned char images[4][32]; /* 8x8 GX_TF_I4 */
+        GXTexObj tex[4];
+        int i;
+
+        memset(images[0], 0x00, sizeof(images[0]));
+        memset(images[1], 0x55, sizeof(images[1]));
+        memset(images[2], 0xAA, sizeof(images[2]));
+        memset(images[3], 0xFF, sizeof(images[3]));
+        gx_hle_begin_frame();
+        gx_hle_reset_state();
+        GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
+        GXSetNumChans(1);
+        GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX,
+                      GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
+        GXSetNumTexGens(4);
+        for (i = 0; i < 4; ++i) {
+            GXSetTexCoordGen2((GXTexCoordID) (GX_TEXCOORD0 + i),
+                              GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY,
+                              GX_FALSE, GX_PTIDENTITY);
+            GXInitTexObj(&tex[i], images[i], 8, 8, GX_TF_I4, GX_CLAMP,
+                         GX_CLAMP, GX_FALSE);
+            GXLoadTexObj(&tex[i], (GXTexMapID) (GX_TEXMAP0 + i));
+        }
+        GXSetNumTevStages(1);
+        GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD3, GX_TEXMAP3,
+                      GX_COLOR0A0);
+        GXSetTevOp(GX_TEVSTAGE0, GX_REPLACE);
+        GXSetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_COPY);
+        GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
+        GXSetCullMode(GX_CULL_NONE);
+        GXClearVtxDesc();
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
+        GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+        GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+        GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+        GXPosition3f32(-1.0f, -1.0f, 0.0f);
+        GXTexCoord2f32(0.5f, 0.5f);
+        GXPosition3f32(1.0f, -1.0f, 0.0f);
+        GXTexCoord2f32(0.5f, 0.5f);
+        GXPosition3f32(1.0f, 1.0f, 0.0f);
+        GXTexCoord2f32(0.5f, 0.5f);
+        GXPosition3f32(-1.0f, 1.0f, 0.0f);
+        GXTexCoord2f32(0.5f, 0.5f);
+        if (gx_gl_render_frame() < 0) {
+            printf("efb: FAIL render_frame (map 3)\n");
+            return 0;
+        }
+        glReadPixels(320, 240, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+        if (!(pixel[0] > 240 && pixel[1] > 240 && pixel[2] > 240)) {
+            printf("efb: FAIL map 3 pixel=%u,%u,%u (want white)\n",
+                   pixel[0], pixel[1], pixel[2]);
+            fail = 1;
+        }
+    }
+
+    /* ---- pass 7: P-673 specular channel is light-tinted ----
      * Channel 1 with GX_AF_SPEC (the SDK's 0, HSD's default) accumulates
      * attn * light.color per channel.  With N = H the a/k polynomial gives
      * attn = 1, so the readback must be the light colour (orange), not the
@@ -1387,7 +1462,7 @@ static int efb_test(void)
         }
     }
 
-    /* ---- pass 7: P-674 EFB copy formats ----
+    /* ---- pass 8: P-674 EFB copy formats ----
      * A green screen copied to I8/IA8/IA4/I4/RGB5A3 must use the BT.601
      * luma path (Aurora tex_copy_conv.cpp) and the tiling the decoders read:
      * I8 byte 0x91, IA8 [0xFF,0x91], IA4 0xF9, I4 0x99, RGB5A3 0x83E0. */
@@ -1397,6 +1472,7 @@ static int efb_test(void)
         unsigned char dst_ia4[64];
         unsigned char dst_i4[64];
         unsigned char dst_5a3[64];
+        unsigned char dst_565_unaligned[128];
         GXColor green = { 0x00, 0xFF, 0x00, 0xFF };
 
         gx_hle_begin_frame();
@@ -1432,6 +1508,7 @@ static int efb_test(void)
         memset(dst_ia4, 0x11, sizeof(dst_ia4));
         memset(dst_i4, 0x11, sizeof(dst_i4));
         memset(dst_5a3, 0x11, sizeof(dst_5a3));
+        memset(dst_565_unaligned, 0, sizeof(dst_565_unaligned));
         GXSetTexCopySrc(0, 0, 640, 480);
         GXSetTexCopyDst(8, 4, GX_TF_I8, GX_FALSE);
         GXCopyTex(dst_i8, GX_FALSE);
@@ -1443,6 +1520,10 @@ static int efb_test(void)
         GXCopyTex(dst_i4, GX_FALSE);
         GXSetTexCopyDst(8, 4, GX_TF_RGB5A3, GX_FALSE);
         GXCopyTex(dst_5a3, GX_FALSE);
+        /* Pokémon Stadium's 250px jumbotron texture is not a multiple of
+         * the RGB565 4px tile width.  Rows advance by ceil(width/4) tiles. */
+        GXSetTexCopyDst(6, 8, GX_TF_RGB565, GX_FALSE);
+        GXCopyTex(dst_565_unaligned, GX_FALSE);
         if (gx_gl_render_frame() < 0) {
             printf("efb: FAIL render_frame (copy formats)\n");
             return 0;
@@ -1469,9 +1550,17 @@ static int efb_test(void)
                    dst_5a3[1]);
             fail = 1;
         }
+        /* Pixel (0,4) starts tile row 1: 2 tiles/row * 32 bytes = 64. */
+        if (dst_565_unaligned[64] != 0x07 ||
+            dst_565_unaligned[65] != 0xE0)
+        {
+            printf("efb: FAIL unaligned RGB565 row %02x%02x (want 07e0)\n",
+                   dst_565_unaligned[64], dst_565_unaligned[65]);
+            fail = 1;
+        }
     }
 
-    /* ---- pass 8: P-680 lines and points rasterize ----
+    /* ---- pass 9: P-680 lines and points rasterize ----
      * A horizontal red line at window row 240 and a 5px green point at
      * window (480,360) must produce those pixels (before P-680 the
      * primitives were dropped entirely). */
@@ -1533,7 +1622,7 @@ static int efb_test(void)
         }
     }
 
-    /* ---- pass 9: P-679/P-690 hardware fog coordinates ----
+    /* ---- pass 10: P-679/P-690 hardware fog coordinates ----
      * A green quad spans GX screen depth 0.3 (left) .. 0.8 (right).  GX clip
      * z/w is [-1,0] and the hardware evaluates fog against the viewport
      * screen depth `far + z/w * (far - near)` (SDK GXProject), which is
@@ -1678,7 +1767,7 @@ static int efb_test(void)
         }
     }
 
-    /* ---- pass 10: P-681 spot cone cosine attenuation ----
+    /* ---- pass 11: P-681 spot cone cosine attenuation ----
      * GX_AF_SPOT with a = (0,0,1) and k = (1,0,0) makes the channel raster
      * attn * lightColor with attn = cos^2(axis).  Two size-1 points: one on
      * the axis (cos=1 -> green), one at cos=0.5 (-> 0.25 green). */
@@ -1741,7 +1830,7 @@ static int efb_test(void)
         }
     }
 
-    /* ---- pass 11: P-682 Z24X8 depth snapshots and Z-texture ADD/bias ----
+    /* ---- pass 12: P-682 Z24X8 depth snapshots and Z-texture ADD/bias ----
      * Frame A encodes a two-depth scene through GXCopyTex(Z24X8) and decodes
      * it back; frame B proves ZT_ADD (erase depth 0.5 + texel 0.5); frame C
      * proves the 24-bit bias is added under ZT_REPLACE. */

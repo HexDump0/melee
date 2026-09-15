@@ -26,7 +26,9 @@ typedef struct GxHleVertex {
     float clip[4];          /* post-projection clip space (GX y-down)     */
     float view[3];          /* position-matrix space (camera view)        */
     unsigned char color[4]; /* GX_VA_CLR0, zero when absent               */
-    float uv[3][2];         /* generated TEXCOORD0/1/2                    */
+    /* Generated TEXCOORD0..7.  GX_TG_MTX3x4 produces projective STQ;
+     * keep q through rasterization so the fragment stage divides per pixel. */
+    float uv[8][3];
     float nrm[3];           /* view-space normal (GPU channel evaluation) */
     float has_color;        /* 1 when GX_VA_CLR0 was present              */
 } GxHleVertex;
@@ -139,6 +141,9 @@ typedef struct GxHleDrawState {
     /* P-615: GXSetZTexture depth output (GX_ZT_DISABLE/ADD/REPLACE). */
     unsigned char ztex_op, ztex_fmt;
     float ztex_bias;
+    /* GXSetCopyClear registers, consumed only when GXCopyTex(clear) runs. */
+    unsigned char copy_clear_color[4];
+    unsigned int copy_clear_z;
 } GxHleDrawState;
 
 /* P-615: GXCopyTex appears at its point in the command stream, so the GL

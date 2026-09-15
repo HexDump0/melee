@@ -528,7 +528,7 @@ static int tex_mtx_slot(u32 id)
 
 static void texgen_coord(int coord, const GxRawVertex* raw, const float pos[3],
                          const float nrm[3], const float binormal[3],
-                         const float tangent[3], float out[2])
+                         const float tangent[3], float out[3])
 {
     const GxHleTexGen* tg = &gx.cur.texgen[coord & 7];
     float in[3];
@@ -543,7 +543,7 @@ static void texgen_coord(int coord, const GxRawVertex* raw, const float pos[3],
         int src_coord = (int) tg->src - (int) GX_TG_TEXCOORD0;
         const GxHleLight* l = &gx.cur.lights[light & 7];
         float ldir[3];
-        float base[2];
+        float base[3];
         float len;
         if (src_coord < 0 || src_coord > 7) {
             src_coord = 0;
@@ -579,19 +579,20 @@ static void texgen_coord(int coord, const GxRawVertex* raw, const float pos[3],
                  ldir[2] * tangent[2];
         out[1] = base[1] + ldir[0] * binormal[0] + ldir[1] * binormal[1] +
                  ldir[2] * binormal[2];
+        out[2] = 1.0f;
         return;
     }
 
     switch (tg->src) {
     case GX_TG_POS:
-        in[0] = pos[0];
-        in[1] = pos[1];
-        in[2] = pos[2];
+        in[0] = raw->pos[0];
+        in[1] = raw->pos[1];
+        in[2] = raw->pos[2];
         break;
     case GX_TG_NRM:
-        in[0] = nrm[0];
-        in[1] = nrm[1];
-        in[2] = nrm[2];
+        in[0] = raw->nrm[0];
+        in[1] = raw->nrm[1];
+        in[2] = raw->nrm[2];
         break;
     case GX_TG_COLOR0:
         in[0] = raw->color[0] / 255.0f;
@@ -629,6 +630,7 @@ static void texgen_coord(int coord, const GxRawVertex* raw, const float pos[3],
          * keep the per-vertex value here as the fallback. */
         out[0] = in[0];
         out[1] = in[1];
+        out[2] = 1.0f;
         return;
     }
     /* GX texcoord generation = postmtx * mtx * source.  HSD's default path
@@ -643,8 +645,18 @@ static void texgen_coord(int coord, const GxRawVertex* raw, const float pos[3],
         v[1] = in[1];
         v[2] = in[2];
         id = tex_mtx_slot(tg->mtx_id);
-        if (id >= 0) {
+        if (tg->mtx_id <= GX_PNMTX9 && (tg->mtx_id % 3) == 0) {
+            /* GX texgen matrix IDs share the XF position/texture matrix
+             * address space.  Shadow coordinates explicitly select
+             * GX_PNMTX0; using the already transformed draw position here
+             * silently substitutes the vertex/current matrix instead. */
+            m = &gx.pos_mtx[tg->mtx_id][0][0];
+        } else if (id >= 0) {
             m = &gx.tex_mtx[id][0][0];
+        } else {
+            m = NULL;
+        }
+        if (m != NULL) {
             {
                 float t0 = m[0] * v[0] + m[1] * v[1] + m[2] * v[2] + m[3];
                 float t1 = m[4] * v[0] + m[5] * v[1] + m[6] * v[2] + m[7];
@@ -679,21 +691,9 @@ static void texgen_coord(int coord, const GxRawVertex* raw, const float pos[3],
                 v[2] = t2;
             }
         }
-        if (tg->type == GX_TG_MTX3x4) {
-            if (v[2] == 0.0f) {
-                v[0] = v[0] / 2.0f;
-                v[1] = v[1] / 2.0f;
-                if (v[0] < -1.0f) v[0] = -1.0f;
-                if (v[0] > 1.0f) v[0] = 1.0f;
-                if (v[1] < -1.0f) v[1] = -1.0f;
-                if (v[1] > 1.0f) v[1] = 1.0f;
-            } else {
-                v[0] /= v[2];
-                v[1] /= v[2];
-            }
-        }
         out[0] = v[0];
         out[1] = v[1];
+        out[2] = tg->type == GX_TG_MTX3x4 ? v[2] : 1.0f;
     }
 }
 
@@ -716,8 +716,10 @@ static void transform_vertex(const GxRawVertex* raw, GxHleVertex* v)
     /* Direct-mode callers may configure generators without emitting
      * GXSetNumTexGens (displayfunc.c's small utility draws); retain the
      * established three-coordinate fallback for that command stream. */
-    if (texgen_count <= 0 || texgen_count > 3) {
+    if (texgen_count <= 0) {
         texgen_count = 3;
+    } else if (texgen_count > 8) {
+        texgen_count = 8;
     }
     for (i = 0; i < texgen_count; i++) {
         int type = gx.cur.texgen[i].type;
@@ -1715,8 +1717,7 @@ void GXSetArray(GXAttr attr, const void* base_ptr, u8 stride)
 /*
  * A stage may name a texcoord that was generated from an earlier texcoord
  * through identity matrices (GX_TG_TEXCOORDn, e.g. Giga Koopa's add/sub
- * bump pairs).  The fragment stage only carries two UV varyings, so fold
- * such chains back onto the coord they alias.
+ * bump pairs).  Fold such chains back onto the coord they alias.
  */
 static void resolve_stage_coords(GxHleDrawState* s)
 {
@@ -2455,8 +2456,11 @@ void GXSetCopyClamp(GXFBClamp clamp) { (void) clamp; }
 void GXSetCopyClear(GXColor clear_clr, u32 clear_z)
 {
     flush_direct();
-    (void) clear_clr;
-    (void) clear_z;
+    gx.cur.copy_clear_color[0] = clear_clr.r;
+    gx.cur.copy_clear_color[1] = clear_clr.g;
+    gx.cur.copy_clear_color[2] = clear_clr.b;
+    gx.cur.copy_clear_color[3] = clear_clr.a;
+    gx.cur.copy_clear_z = clear_z & 0xFFFFFFu;
 }
 
 void GXSetCopyFilter(GXBool aa, const u8 sample_pattern[12][2], GXBool vf,
@@ -2619,6 +2623,7 @@ static void reset_state(void)
     gx.cur.viewport[2] = 640.0f;
     gx.cur.viewport[3] = 480.0f;
     gx.cur.depth_range[1] = 1.0f;
+    gx.cur.copy_clear_z = 0xFFFFFFu;
     gx.cur.ch_mat[0][3] = 1.0f;
     gx.cur.ch_mat[1][3] = 1.0f;
     gx.cur.ch_mat[2][3] = 1.0f;
