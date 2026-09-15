@@ -174,6 +174,25 @@ static GlCopyDest* copy_dest_find(const void* dest)
     return NULL;
 }
 
+/* One report per distinct buffer; the draw recurs every frame. */
+static const void* unwritten_seen[MAX_TRACKED_COPIES];
+static size_t unwritten_seen_count;
+
+static int unwritten_report(const void* image)
+{
+    size_t i;
+    for (i = 0; i < unwritten_seen_count; ++i) {
+        if (unwritten_seen[i] == image) {
+            return 0;
+        }
+    }
+    if (unwritten_seen_count >= MAX_TRACKED_COPIES) {
+        return 0;
+    }
+    unwritten_seen[unwritten_seen_count++] = image;
+    return 1;
+}
+
 static void copy_dest_record(const void* dest, unsigned int w, unsigned int h,
                              unsigned int fmt)
 {
@@ -1308,6 +1327,20 @@ static GLuint texture_for(const GxHleTexture* t)
                         mismatch ? "MISMATCHED" : "sampling", image,
                         c->width, c->height, c->format, t->width, t->height,
                         (unsigned) t->format);
+            }
+        } else if (t->width >= 64 && t->height >= 64 &&
+                   melee_dvd_origin(image) == NULL) {
+            /* A big texture that is neither disc data nor anything an EFB
+             * capture has written: the game is sampling an HSD_MemAlloc
+             * buffer whose contents were never produced.  That is the
+             * signature of a render-to-texture whose capture never ran, and
+             * it renders as dense noise -- the buffer's uninitialised heap
+             * bytes decoded as texels.  Report each such buffer once. */
+            if (unwritten_report(image)) {
+                fprintf(stderr,
+                        "gx_gl: sampling UNWRITTEN runtime buffer %p "
+                        "%dx%d fmt=%u -- no EFB capture has ever written it\n",
+                        image, t->width, t->height, (unsigned) t->format);
             }
         }
     }

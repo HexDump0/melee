@@ -45,24 +45,33 @@ that function, so the fix is verified by measurement, not by a repro run.
 
 ## What I need from you next
 
-**One run, for B-23 (the Stadium monitor).**  Training mode on Pokemon
-Stadium, a few seconds, then quit:
+**One more run, for B-23 (the Stadium monitor).**  Your first trace already
+narrowed it a long way: the 640x406 live feed the monitor is supposed to show
+is **never captured at all**, so it is displaying whatever `HSD_MemAlloc`
+handed back -- uninitialised heap decoded as pixels, which is the noise.  The
+close-up capture ran exactly once and froze, and the text-window capture reads
+fully black every frame.  All three point at the Stadium display **state
+machine**, not at the renderer.
+
+What is missing is what state the game thinks it is in.  Training mode on
+Pokemon Stadium, and please let it run **30-60 seconds** so the state machine
+cycles (it changes on timers), ideally covering a moment when the monitor is
+noisy:
 
 ```sh
-MELEE_EFB_TRACE=1 ./build/native/melee 2> /tmp/efb.log
+MELEE_STADIUM_TRACE=1 ./build/native/melee 2> /tmp/stadium.log
 ```
 
-Then paste (or attach) the `gx:` lines from `/tmp/efb.log`.  They say, per
-frame, what each EFB capture read and what the monitor then sampled, which
-separates the three remaining explanations in P-738 in one go.  You do not
-need to do anything in-game beyond standing on the stage with the monitor
-visible.
+Then send the `[stadium]` lines and any `gx_gl: sampling UNWRITTEN` lines.
+The `[stadium]` line prints once every half second and says which of the three
+sources the monitor is actually pointed at.  You do not need to do anything
+in-game beyond standing on the stage with the monitor visible.
 
 ## Confirmed gaps (BROKEN / BLOCKED)
 
 | # | What you see | Status | Blocked on | Tracked as |
 |---|---|---|---|---|
-| B-23 | Pokemon Stadium's big monitor is dense coloured noise instead of the live feed of the stage | BROKEN | a trace run from you (below) | P-738 |
+| B-23 | Pokemon Stadium's big monitor is dense coloured noise instead of the live feed of the stage | BROKEN | the display state machine: the live-feed capture never runs, so the buffer is uninitialised heap (your trace, 2026-09-15) | P-738 |
 | B-24 | Projectile specials do nothing: Link's bow animation plays with no bow or arrow, Fox's blaster fires nothing, no damage | BROKEN | the special-`Article` spawn path | P-739 |
 | B-3 | Characters never blink / no damage or angry faces | BROKEN | action-driven visibility events | P-207 |
 | B-4 | Feet/hands slip or float in landing and ledge clips (no IK) | BROKEN | IK joint port (`resolveIKJoint1/2`) | P-208 |

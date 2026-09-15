@@ -15,6 +15,7 @@
  */
 #include "decomp/boot/match_boot.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 
 #include <melee/gm/forward.h>
@@ -30,6 +31,10 @@
 #include <melee/if/forward.h>
 #include <melee/mn/mnmain.h>
 #include <melee/pl/player.h>
+#include <melee/gr/forward.h>
+#include <melee/gr/ground.h>
+#include <melee/gr/types.h>
+#include <sysdolphin/baselib/tobj.h>
 
 #include <sysdolphin/baselib/gobj.h>
 
@@ -54,6 +59,8 @@ static int title_logged;
 static int title_seen;
 static int gameover_test;
 static int gameover_stage;
+static int stadium_trace;
+static void log_stadium_display(void);
 static int classic_test;
 static int classic_named;
 static int intro_test;
@@ -311,6 +318,9 @@ static void match_boot_frame(void)
 {
     frame++;
     log_cpu_test();
+    /* Before the start_frame gate below: the owner runs this on the ordinary
+     * frontend, where start_frame is 0 and everything past that returns. */
+    log_stadium_display();
     if (title_test) {
         unsigned deadline = start_frame != 0 ? start_frame : 1200;
         log_title_state(0);
@@ -475,6 +485,51 @@ static void match_boot_frame(void)
     }
 }
 
+/* P-738: the Pokemon Stadium monitor has three possible sources and the
+ * display state machine (`grStadium_801D2528`) picks which one the material
+ * samples.  From outside, all three look like anonymous HSD_MemAlloc buffers,
+ * so `MELEE_EFB_TRACE` alone cannot say whether a missing capture means "the
+ * state was never active" or "the state was active and the capture did not
+ * run".  Print the state the game is in alongside the three buffers and the
+ * one the monitor's TObj currently points at.  Read-only; game code is the
+ * specification, this just observes it. */
+static void log_stadium_display(void)
+{
+    Ground_GObj* gobj;
+    Ground* gp;
+    HSD_ImageDesc* shown;
+
+    if (!stadium_trace || (frame % 30) != 0) {
+        return;
+    }
+    if (stage_info.grkind != Gr_Kind_PStadium) {
+        return;
+    }
+    gobj = Ground_GetMapGObj(PsType_Display);
+    if (gobj == NULL) {
+        return;
+    }
+    gp = (Ground*) HSD_GObjGetUserData(gobj);
+    if (gp == NULL) {
+        return;
+    }
+    shown = gp->u.display.xC8 != NULL ? gp->u.display.xC8->imagedesc : NULL;
+    fprintf(
+        stderr,
+        "[stadium] frame=%u state=%d prev=%d timer=%d player=%d "
+        "tobj=%p shown=%p (%ux%u fmt=%u ptr=%p) text=%p feed=%p zoom=%p "
+        "dirty=%d\n",
+        frame, (int) gp->u.display.xE4, (int) gp->u.display.xEA,
+        gp->u.display.xE0, (int) gp->u.display.xEE,
+        (void*) gp->u.display.xC8, (void*) shown,
+        shown != NULL ? (unsigned) shown->width : 0u,
+        shown != NULL ? (unsigned) shown->height : 0u,
+        shown != NULL ? (unsigned) shown->format : 0u,
+        shown != NULL ? shown->image_ptr : NULL,
+        (void*) gp->u.display.xD4, (void*) gp->u.display.xD8,
+        (void*) gp->u.display.xDC, (int) gp->u.display.xF8_0);
+}
+
 int match_boot_classic_active(void)
 {
     return classic_test && gm_GetCurrentGameMode() == GM_CLASSIC;
@@ -494,6 +549,10 @@ void match_boot_init(unsigned frame_in)
 {
     start_frame = frame_in;
     frame = 0;
+    if (getenv("MELEE_STADIUM_TRACE") != NULL) {
+        stadium_trace = 1;
+        boot_platform_set_frame_hook(match_boot_frame);
+    }
     if (getenv("MELEE_TITLE_TEST") != NULL) {
         title_test = 1;
         boot_platform_set_frame_hook(match_boot_frame);
