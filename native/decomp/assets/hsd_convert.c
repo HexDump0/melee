@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 98u
+#define HSD_CONVERTER_VERSION 99u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -2758,9 +2758,17 @@ static void conv_ft_common_data(Conv* c, uint32_t off)
     }
     /* Fighter_804D6540 (pData[5]): per-kind { {u8 part,x1,x2,depth}*; int n }
      * hidden-part lists.  ftParts_8007506C skips a part when it is listed, so
-     * an unconverted count makes the tree walk and parts_num diverge. */
+     * an unconverted count makes the tree walk and parts_num diverge.
+     *
+     * The table has one slot *past* the fighter kinds, at Ft_Kind_None (33,
+     * which is also Ft_Kind_Max).  It is not padding: a fighter animating
+     * another fighter's tree -- Kirby with a copy ability, a transformation
+     * -- reaches ftAnim_8006FCE4 with that kind and indexes it.  Walking only
+     * FT_KIND_MAX entries left its count big-endian, so
+     * `for (i = 0; i < temp_r3->x4; i++)` ran 16,777,216 times (1 byte-
+     * swapped) and walked off the end of memory.  P-754. */
     if (hidden != 0) {
-        for (i = 0; i < FT_KIND_MAX; i++) {
+        for (i = 0; i <= FT_KIND_MAX; i++) {
             uint32_t p = hidden + i * 4;
             uint32_t table;
             if (!in_data(c, p, 4)) {

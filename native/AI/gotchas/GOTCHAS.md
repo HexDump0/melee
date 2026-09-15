@@ -3241,6 +3241,43 @@ skipped, which is right; `mark()` would refuse it anyway.
 Fourth member of the "reached only through `ftData`" family, after `x1C`
 (P-630), `x40`/`x4C` (P-655), `x48` (P-656) and `x20` (P-747).
 
+## G-188: an out-of-range-looking index that was right all along
+
+**Symptom:** SIGSEGV in `ftParts_8007506C(ftkind=Ft_Kind_None, part=256)`.
+`Ft_Kind_None` is 33 and is also `Ft_Kind_Max`, so the index looked obviously
+corrupt and the search went after whatever produced it.
+
+**It was not corrupt.** `ftAnim_8006FE08` deliberately takes the
+`fp->kind != fp->x597_bits` branch when a fighter animates another fighter's
+tree -- Kirby with a copy ability -- and `Fighter_804D6540` has a real slot at
+33 for exactly that: entry[32] is NULL, entry[33] is a valid
+`{ list*, count }`. The converter walked `i < FT_KIND_MAX`, stopping one short,
+so that entry's count stayed big-endian at `0x01000000` and the loop ran
+16,777,216 times off the end of memory.
+
+**The lesson is about the diagnosis, not the fix.** Two plausible theories
+were wrong before the boring one was right:
+
+1. *"A 6-bit field reading 33 is the MWCC bit-field bug"* (G-180/G-181). It
+   fits, and `PORT_BF_BE` went on the fp+594 union. That union aliases one
+   word **as bytes and as a value, from opposite ends** -- eight `u8`
+   bit-fields over the first byte, a 32-bit group whose last member is the
+   kind -- so reordering it moved `x594_bits`, the mask that decides which
+   bones an animation drives, and every fighter's skeleton came apart. The
+   owner caught it in the running game. `conv_waitanim_flags` already repacks
+   that word into GCC bit positions; the field was never wrong.
+2. *"Then read the console bit position directly from the byte."* Also wrong,
+   and in an instructive way: **the same word arrives in both orders**
+   depending on the path, so the accessor fixed one and broke the other.
+   Measuring a second instance is what showed it -- one fighter had the byte
+   view right, another had the value view right.
+
+**Before "fix" the producer of a suspicious value, check whether the consumer
+is entitled to it.** Printing `Fighter_804D6540[33]` took one command and
+showed a well-formed entry with a byte-swapped count -- the whole answer.
+A count of `0x01000000` is `1` byte-swapped; that shape means unconverted
+data, never a bad index.
+
 ## G-187: find the shape when you cannot find the root
 
 **Symptom:** `HSD_TlutLoadDesc` segfaults on a pointer like `0x03000300`

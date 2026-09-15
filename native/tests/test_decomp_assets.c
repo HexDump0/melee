@@ -758,6 +758,66 @@ static int check_ft_data_tables(const char* image, const char* path,
  * scan finds them by shape; assert it still finds them, because the failure
  * mode is silence: with the scan removed the file converts "successfully" and
  * the crash only appears in a match where those animations are played. */
+/* P-754: Fighter_804D6540 (PlCo.dat pData[5]) is indexed by fighter kind, and
+ * has one slot past the fighter kinds at Ft_Kind_None (33).  It is not
+ * padding -- a fighter animating another fighter's tree (Kirby with a copy
+ * ability) reaches ftAnim_8006FCE4 with that kind and indexes it -- so its
+ * count has to be converted like every other slot's.  Walking only 33 entries
+ * left it big-endian and `for (i = 0; i < temp_r3->x4; i++)` ran 16,777,216
+ * times off the end of memory.  Assert the count is sane, since the failure
+ * is invisible until a match plays that animation. */
+static int check_hidden_parts_none_slot(const char* image)
+{
+    char error[256];
+    size_t size = 0;
+    unsigned char* buffer = load_archive(image, "PlCo.dat", NULL, &size, error,
+                                         sizeof(error));
+    HSD_Archive archive;
+    HsdConvertStats stats;
+    unsigned char* ft_data;
+    unsigned char* table;
+    unsigned char* entry;
+    uint32_t count;
+    int failed = 0;
+
+    if (buffer == NULL) {
+        printf("decomp_assets: PlCo.dat SKIP (%s)\n", error);
+        return 0;
+    }
+    if (!hsd_asset_convert(buffer, size, &stats) ||
+        HSD_ArchiveParse(&archive, buffer, size) != 0)
+    {
+        fprintf(stderr, "decomp_assets: PlCo.dat conversion failed\n");
+        free(buffer);
+        return 1;
+    }
+    ft_data = HSD_ArchiveGetPublicAddress(&archive, "ftLoadCommonData");
+    table = ft_data != NULL ? read_host_ptr(ft_data + 5 * 4) : NULL;
+    entry = table != NULL && ptr_in_buffer(table, buffer, size)
+                ? read_host_ptr(table + 33 * 4)
+                : NULL;
+    if (entry == NULL || !ptr_in_buffer(entry, buffer, size)) {
+        fprintf(stderr,
+                "decomp_assets: PlCo.dat Fighter_804D6540[Ft_Kind_None] "
+                "missing\n");
+        free(buffer);
+        return 1;
+    }
+    count = read_host_u32(entry + 0x04);
+    if (count == 0 || count > 64) {
+        fprintf(stderr,
+                "decomp_assets: PlCo.dat Fighter_804D6540[Ft_Kind_None] count "
+                "= %u (unconverted? P-754)\n",
+                (unsigned) count);
+        failed = 1;
+    } else {
+        printf("decomp_assets: PlCo.dat hidden-parts none-slot count = %u\n",
+               (unsigned) count);
+    }
+    free(buffer);
+    return failed;
+}
+
 static int check_orphan_matanims(const char* image)
 {
     char error[256];
@@ -3281,6 +3341,7 @@ int main(int argc, char** argv)
     failures += check_unk_flag_bit_order();
     failures += check_kraid_param(image);
     failures += check_orphan_matanims(image);
+    failures += check_hidden_parts_none_slot(image);
     failures += check_scene_root(image, "GmRgStnd.dat", "standScene");
     failures += check_scene_root(image, "GmRegEnd.dat", "cut1CanimScene");
     failures += check_intro_easy(image);
