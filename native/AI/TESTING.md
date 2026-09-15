@@ -261,6 +261,32 @@ The first line catches byte-order regressions in `PlCo.dat` pData[22]
 executed an attack without scripted PAD input. The run disables the asset
 cache so a stale converter-v86 file cannot hide a flipped test.
 
+## Pinning the RNG
+
+The game seeds `HSD_Rand` from the host clock (P-751), so a 1P run draws a
+different opponent and stage every boot.  Every boot prints the seed it drew:
+
+```
+[rng] seed=0x2ab61edc (MELEE_RNG_SEED=0x2ab61edc replays this run, tick=0x001537a4)
+```
+
+Feed that value back to replay the run exactly -- the same matchup, the same
+item drops, the same CPU decisions:
+
+```sh
+MELEE_RNG_SEED=0x2ab61edc ./build/native/melee --frontend
+```
+
+`MELEE_RNG_SEED=tick` pins the bare virtual-timebase value, which is the seed
+the port used before P-751.  Every ctest runs with it (one
+`ENVIRONMENT_MODIFICATION` over the whole suite in `native/CMakeLists.txt`), so
+a new harness is deterministic without doing anything; do not hand a test its
+own seed unless it is deliberately probing a different stream.
+
+Other streams reach code the pinned one never does -- `0x13371337` segfaults
+the sound engine (P-752) -- so an unexplained crash is worth re-running under
+its printed seed before anything else.
+
 ## Audio (S5)
 
 ### Intermittent SFX spam capture
