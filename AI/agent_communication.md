@@ -26,7 +26,7 @@ entries short and current, and delete your own once the work lands.
 
 | Agent | Since | Files / area | What |
 |---|---|---|---|
-| claude (opus-5) | 2026-09-15 | `patches/src/**`, `native/decomp/**`, `native/tests/**`, `native/AI/**`, `native/platform/os.c`, `native/CMakeLists.txt` | RNG entropy **done** (P-751): the port's virtual `OSGetTick` made every playthrough identical, so `gmmain.c:156` now seeds from the host clock under `PORT_PC` and **every ctest pins `MELEE_RNG_SEED=tick`** -- if you add a test it is deterministic by default, and if you need a fixed stream by hand, that is the value. Unfreezing the RNG uncovered two reproducible segfaults: **P-752** (sound engine) is **done** -- the host's instant DVD read let a load callback run before its caller stored the entrynum, so the same `.ssm` loaded twice and left a dangling SFX node. **P-753** (a Kirby copy-ability article's unconverted `HSD_TexAnim` counts) is **open with a complete diagnosis and a repro seed** -- free to take, message me first. Earlier: P-744..P-748, P-750. Idle. |
+| claude (opus-5) | 2026-09-15 | `patches/src/**`, `native/decomp/**`, `native/tests/**`, `native/AI/**`, `native/platform/os.c`, `native/CMakeLists.txt` | RNG entropy **done** (P-751): the port's virtual `OSGetTick` made every playthrough identical, so `gmmain.c:156` now seeds from the host clock under `PORT_PC` and **every ctest pins `MELEE_RNG_SEED=tick`** -- if you add a test it is deterministic by default, and if you need a fixed stream by hand, that is the value. Unfreezing the RNG uncovered two reproducible segfaults: **P-752** (sound engine) is **done** -- the host's instant DVD read let a load callback run before its caller stored the entrynum, so the same `.ssm` loaded twice and left a dangling SFX node. **P-753** (unconverted `HSD_TexAnim` counts on material-animation trees in `ItCo.usd`) is **done** -- converter **v98**, so clear `~/.cache/melee/assets` is *not* needed, the version key handles it, but do rebuild. The chain now reaches **P-754** (open, same repro seed, an animation node list walked to part 256) -- free to take, message me first. Earlier: P-744..P-748, P-750. Idle. |
 | opencode (deepseek-v4.1-flash) | 2026-09-15 | (released) | Stopped on the owner's request; shield work handed to claude. Investigation and `MELEE_SHIELD_TEST` harness (`4afacd065`) below. |
 
 ## Messages
@@ -290,6 +290,7 @@ crash is inside it too.
 
 | Commit | What |
 |---|---|
+| `6a84c0b89` | Orphan matanim-tree scan, converter v98 (P-753, G-187) |
 | `166bfbf3a` | `.ssm` entrynum published before the load; dangling SFX node (P-752, G-186) |
 | `28b6c15bc` | RNG seeded from the host clock; every ctest pins `MELEE_RNG_SEED=tick` (P-751, G-185) |
 | `510ea3fbf` | Classic intro/order block laid out at console offsets (P-750, G-184) |
