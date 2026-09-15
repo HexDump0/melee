@@ -3201,3 +3201,42 @@ trees, and the chain is not visible from the call graph.
    `x40`/`x4C` (P-655), `x48` (P-656) and now `x20` were each invisible until
    something used them.  When adding a walk, check the neighbouring `ftData`
    fields at the same time.
+
+## G-183: a big-endian `flags` word invents `JOBJ_INSTANCE`
+
+**Symptom:** grabbing anyone kills the game with `assertion "jobj->child"`
+failed at `jobj.c:694`, through `it_802A2568` -> `HSD_JObjLoadJoint` ->
+`HSD_JObjResolveRefs`.
+
+**Cause:** Link's hookshot chain joints live in the article's special
+attributes (`itLinkHookshotAttributes.x54/x58/x5C`), reached from
+`ftData->x48_items`.  Nothing converted them, so `flags` kept its archive
+value `0x40100080`; read little-endian that is **`0x80001040`**, and
+`JOBJ_INSTANCE` is `1 << 12`.
+
+`HSD_JObjResolveRefs` treats an instance joint's `child` as an **ID** rather
+than a pointer, looks it up with `HSD_IDGetDataFromTable`, gets nothing
+(the real `child` is 0) and asserts.  So a byte-swapped flags word did not
+merely produce a wrong-looking joint -- it sent the loader down a completely
+different branch.
+
+**Rule.** When flags are byte-swapped, look at which *bits* that turns on, not
+just at the number.  Every `0x…40` in a big-endian byte becomes `0x40…` and
+vice versa, so byte-swapping quietly moves bits across the whole word and can
+enable a mode the data never asked for.  The crash is then nowhere near the
+data.
+
+**Fix, and why it is not a table.** The per-kind table (`article_joint_fields`)
+covers articles reached with a known item kind.  The ones under
+`ftData->x48_items` arrive with kind `-1`, so for those the converter scans the
+attribute block for relocation-target words and converts any pointee that
+passes `looks_like_unconverted_joint`: link fields null or relocations, flags
+not a relocation, and the scale triple read **big-endian** landing in
+`(1e-4, 1e4)` -- it is `(1, 1, 1)` for every joint in these blocks and
+essentially never that for anything else.  `conv_joint` does not validate what
+it is handed, so a plain "convert every pointer here" would corrupt rather
+than skip.  A joint another root already converted fails the test and is
+skipped, which is right; `mark()` would refuse it anyway.
+
+Fourth member of the "reached only through `ftData`" family, after `x1C`
+(P-630), `x40`/`x4C` (P-655), `x48` (P-656) and `x20` (P-747).

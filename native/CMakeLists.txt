@@ -493,12 +493,15 @@ set_tests_properties(decomp_projectile PROPERTIES
 # scale = 4.6006e-41, i.e. 1.0f byte-reversed, and blending it into the
 # fighter poisoned the joint (P-747/G-182).  Assert the matrix is finite while
 # the shield is up; the harness prints POSE BAD instead on the old data.
+# 700 frames, not 290: the CPU reaches the shielding fighter around 320 and
+# grabs, which is the P-748 path (Link's hookshot chain joints).  The
+# FAIL_REGULAR_EXPRESSION below is what covers that.
 add_test(NAME decomp_shield
-    COMMAND melee_decomp_boot --boot-frames 290 --boot-timeout 90 --boot-match 20)
+    COMMAND melee_decomp_boot --boot-frames 700 --boot-timeout 150 --boot-match 20)
 set_tests_properties(decomp_shield PROPERTIES
     ENVIRONMENT "MELEE_SHIELD_TEST=1;MELEE_NO_CARD=1"
     PASS_REGULAR_EXPRESSION "\\[shield\\] frame=[0-9]+ guard pose sane"
-    FAIL_REGULAR_EXPRESSION "POSE BAD|PANIC"
+    FAIL_REGULAR_EXPRESSION "POSE BAD|PANIC|assertion"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
     TIMEOUT 240)
 # HUD stock icons: the per-player icon frame comes from gm_80168BF8 ->

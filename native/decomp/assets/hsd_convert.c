@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 95u
+#define HSD_CONVERTER_VERSION 97u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -2339,6 +2339,14 @@ static void conv_it_food_attrs(Conv* c, uint32_t off)
         conv_u32(c, e + 0x00);
         conv_u32(c, e + 0x08);
         conv_u32(c, e + 0x0C);
+        /* +0x04 is an HSD_Joint* (itFoodsAttributes.x4); the relocation pass
+         * owns the word, but the tree behind it is ours (P-748). */
+        {
+            uint32_t joint = rd32(c, e + 0x04);
+            if (joint != 0 && in_data(c, joint, HSD_JOINT_SIZE)) {
+                conv_joint(c, joint);
+            }
+        }
     }
 }
 
@@ -2362,12 +2370,114 @@ static void conv_it_food_attrs(Conv* c, uint32_t off)
  *
  * The two kinds with sub-word fields are spelled out rather than skipped,
  * because a u32 walk over `u8 x0[4]` would reverse four independent bytes. */
+/* The article attribute blocks that hold `HSD_Joint*` fields, and where.
+ *
+ * A joint reached only through one of these is converted by nobody: the
+ * relocation pass turns the word into a pointer, `conv_u32` correctly leaves
+ * that word alone, and then the tree behind it is never walked.  Link's
+ * hookshot is the one that bit -- `it_link_get_joint` does
+ * `HSD_JObjLoadJoint(attr->x54)` on a big-endian joint, whose flags then say
+ * "I have a child" when the pointer is null, and `HSD_JObjResolveRefs`
+ * asserts (`jobj.c:694`).  Grabbing anyone killed the game (P-748/G-183).
+ *
+ * Per kind rather than "convert every relocation target in the block":
+ * `conv_joint` does not validate that what it is given is a joint, so a
+ * pointer to anything else would be corrupted rather than skipped. */
+typedef struct ArticleJointFields {
+    int kind;
+    uint32_t size;    /* bytes that must be in_data before trusting offsets */
+    uint32_t off[3];  /* joint pointer offsets, 0 terminates */
+} ArticleJointFields;
+
+#define ITEM_KIND_LINK_HSHOT 62
+#define ITEM_KIND_CLINK_HSHOT 63
+#define ITEM_KIND_NESS_YOYO 102
+#define ITEM_KIND_CLIMBERS_STRING 113
+
+static const ArticleJointFields article_joint_fields[] = {
+    /* itLinkHookshotAttributes (itCharItems.h:385): three chain joints. */
+    { ITEM_KIND_LINK_HSHOT, 0x60, { 0x54, 0x58, 0x5C } },
+    { ITEM_KIND_CLINK_HSHOT, 0x60, { 0x54, 0x58, 0x5C } },
+    /* itYoyoAttributes (itYoyo.h): string and yoyo joints.  x58 is an
+     * HSD_MatAnimJoint and has its own walk. */
+    { ITEM_KIND_NESS_YOYO, 0x60, { 0x50, 0x54, 0 } },
+    /* itClimbersStringAttributes (itCharItems.h:40). */
+    { ITEM_KIND_CLIMBERS_STRING, 0x2C, { 0x24, 0x28, 0 } },
+};
+
+static void conv_article_attr_joints(Conv* c, uint32_t special, int item_kind)
+{
+    size_t k;
+
+    for (k = 0; k < ARRAY_SIZE(article_joint_fields); k++) {
+        const ArticleJointFields* a = &article_joint_fields[k];
+        int i;
+        if (a->kind != item_kind || !in_data(c, special, a->size)) {
+            continue;
+        }
+        for (i = 0; i < 3 && a->off[i] != 0; i++) {
+            uint32_t joint = rd32(c, special + a->off[i]);
+            if (joint != 0 && in_data(c, joint, HSD_JOINT_SIZE)) {
+                conv_joint(c, joint);
+            }
+        }
+        if (item_kind == ITEM_KIND_NESS_YOYO &&
+            in_data(c, special, 0x5C))
+        {
+            uint32_t matanim = rd32(c, special + 0x58);
+            if (matanim != 0) {
+                conv_matanim_joint(c, matanim);
+            }
+        }
+        return;
+    }
+}
+
+/* Does `off` look like an `HSD_Joint` nobody has converted yet?
+ *
+ * Needed because `ftData->x48_items` articles reach `conv_article` with the
+ * item kind unknown (-1), so the per-kind table above cannot help, and
+ * `conv_joint` does not validate what it is handed -- pointing it at a
+ * non-joint would corrupt rather than skip.  The discriminator is the scale
+ * triple: read big-endian it is (1, 1, 1) for every joint in these blocks,
+ * and essentially never that for anything else.  A joint some other root has
+ * already converted fails this test and is skipped, which is correct: it is
+ * already done, and `mark()` would refuse it anyway. */
+static int looks_like_unconverted_joint(Conv* c, uint32_t off)
+{
+    static const uint32_t links[] = { 0x00, 0x08, 0x0C, 0x10, 0x38, 0x3C };
+    size_t i;
+
+    if (!in_data(c, off, HSD_JOINT_SIZE)) {
+        return 0;
+    }
+    if (c->reloc[off + 0x04]) {
+        return 0; /* flags is a plain word, never a relocation */
+    }
+    for (i = 0; i < ARRAY_SIZE(links); i++) {
+        uint32_t w = off + links[i];
+        if (rd32(c, w) != 0 && !c->reloc[w]) {
+            return 0; /* a link field that is neither null nor a pointer */
+        }
+    }
+    for (i = 0; i < 3; i++) {
+        uint32_t bits = be32(c->data + off + 0x20 + (uint32_t) i * 4);
+        float f;
+        memcpy(&f, &bits, sizeof(f));
+        if (!(f > 1.0e-4f && f < 1.0e4f)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static void conv_article_special_attrs(Conv* c, uint32_t special,
                                        int item_kind)
 {
     uint32_t size;
     uint32_t i;
 
+    conv_article_attr_joints(c, special, item_kind);
     if (item_kind == ITEM_KIND_FOODS) {
         conv_it_food_attrs(c, special);
         return;
@@ -2405,6 +2515,25 @@ static void conv_article_special_attrs(Conv* c, uint32_t special,
     }
     for (i = 0; i + 4 <= size; i += 4) {
         conv_u32(c, special + i);
+    }
+    if (item_kind < 0) {
+        /* The per-fighter `ftData->x48_items` run, where the kind is not
+         * known.  Link's hookshot lives here, and its three chain joints were
+         * left big-endian: `flags` 0x40100080 read the other way round is
+         * 0x80001040, which has `JOBJ_INSTANCE` set, so `HSD_JObjResolveRefs`
+         * looked the child up as an ID, got nothing and asserted -- grabbing
+         * anyone killed the game (P-748/G-183). */
+        for (i = 0; i + 4 <= size; i += 4) {
+            uint32_t w = special + i;
+            uint32_t target;
+            if (!c->reloc[w]) {
+                continue;
+            }
+            target = rd32(c, w);
+            if (target != 0 && looks_like_unconverted_joint(c, target)) {
+                conv_joint(c, target);
+            }
+        }
     }
 }
 
