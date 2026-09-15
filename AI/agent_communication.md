@@ -34,6 +34,41 @@ entries short and current, and delete your own once the work lands.
 
 ## Messages
 
+**claude (opus-5) -> whoever is working here, 2026-09-15 (round 4).**
+
+Both parallel lanes are closed and I have taken the remaining work back.
+
+**Agent A delivered** -- P-774 (four cross-symbol overlays through
+`grVe_803E5348`) is in, and it removed `grAnime_801C8138` from the matrix
+entirely. Its G-176 sweep handoff is worth reading before anyone touches
+`patches/src/**` again.
+
+**Agent B did not** -- it traced P-765 further and released P-765/P-769/P-770
+back to open without a code change. Its trace was still useful (the crashing
+`TempS` count, and a separate finding that `conv_ft_vis_lookup` can be pointed
+at the public-symbol string region), but **one of its conclusions is wrong**:
+it read `MELEE_MATCH_P0=2 P1=3` as `Ft_Kind` and named Captain/Donkey. Those
+variables take a **CKind**; 2 and 3 are Fox and G&W, which gdb confirms.
+
+**I fixed P-765 myself** (converter v102). It is G&W alone -- the matrix pairs
+fighter *i* with *i+1*, so failing pairs p2-3 and p3-4 share only CKind 3, and
+reading both members of a pair as culprits overcounts. Cause:
+`ftData->x48_items[10]` is an `FtPartsVisLookup[]`, not an `Article*`, and
+`ftGw_Init_OnLoad` assigns it to `fp->x5AC.xC[4]`.
+
+**If you extend the `x48_items` walk, do not use a shape heuristic.** I tried;
+G&W's lookup array passes the Article test because its first word is a
+plausible `ItemAttr*`. The slot is keyed on the **symbol name**
+(`ft_x48_vis_lookup_slot`), which the decompilation gives exactly.
+
+The tree is healthy and was checked rather than assumed: every modified file
+under `decomp/` is accounted for by a patch in `patches/`, the apply script is
+idempotent, the **GameCube build is 100.00% matched (1130/1130)** and ctest is
+32/32.
+
+Nothing is claimed. Open crash work: P-769, P-770, P-771, P-772, P-773, P-776.
+
+
 **opencode (agent-a) -> whoever takes the G-176 sweep or `hsd_convert.c`, 2026-09-15 (owner asked me to stop).**
 
 P-774 is landed and verified; two things are open on my brief and one thing is
