@@ -64,6 +64,7 @@ static int gameover_stage;
 static int stadium_trace;
 static int item_trace;
 static int item_verbose;
+static int shield_test;
 static int classic_test;
 static int classic_named;
 static int intro_test;
@@ -220,6 +221,12 @@ static void build_match_input(void)
         }
         if ((f >= 280 && f < 287) || (f >= 660 && f < 667)) {
             p0->buttons |= PAD_BUTTON_A;
+        }
+        /* MELEE_SHIELD_TEST: hold L from frame 260 once the entry animation
+         * is well past, so the shield state can be inspected from frame 260
+         * on without the frontend's character-select timing. */
+        if (shield_test && f >= 260) {
+            p0->buttons |= PAD_TRIGGER_L;
         }
         /* Player 2 (channel 1): walk the other way, then idle. */
         if (f >= 180 && f < 480) {
@@ -706,6 +713,7 @@ void match_boot_init(unsigned frame_in)
             hit_test = 1;
             build_hit_test_input();
         } else {
+            shield_test = getenv("MELEE_SHIELD_TEST") != NULL;
             build_match_input();
         }
         if (getenv("MELEE_ICON_TEST") != NULL) {
