@@ -73,7 +73,12 @@ root rule broken must fail a test, not a playthrough.
 | `Gm*` | 58 | 11264 / 12082 (93.2%) | 818 |
 | `Ty*` | 357 | 10445 / 11155 (93.6%) | 710 |
 
-138 of 861 archives are already at 100%.
+35 of the 758 archives that contain descriptors are fully walked; 103 archives
+contain no descriptors at all.  A dashboard of the per-file numbers is published
+at https://claude.ai/artifact/UDDq394MGXEKxEyxLHKuz1 (regenerate its data with
+`MELEE_COVERAGE_JSON`).
+
+35 of the 758 archives that contain descriptors are fully walked, and 103 archives contain no descriptors at all.
 
 Two observations worth acting on:
 

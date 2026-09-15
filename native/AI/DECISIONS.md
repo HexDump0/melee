@@ -1280,6 +1280,7 @@ descriptors  209261   walked 154019   73.60%   struct-roots 1964  unhandled 833
 below `MELEE_COVERAGE_FLOOR` -- a ratchet that may only be raised. The
 remaining work is now a burn-down list rather than an unknown: 55,242
 unwalked descriptors, concentrated in `Pl*` (56.8%, 35,157 of the gap),
-`Gr*` (77.0%), `It*` (86.2%) and `Vi*` (0.9%). Publishing a number invites
+`Gr*` (77.0%), `It*` (86.2%) and `Vi*` (0.9%). 35 of the 758 archives that
+contain descriptors are fully walked. Publishing a number invites
 gaming it, so the rule is explicit: **never lower the floor to make a change
 pass**, and coverage counts only descriptors a walker genuinely visited.
