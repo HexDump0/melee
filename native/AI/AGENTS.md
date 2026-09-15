@@ -132,3 +132,31 @@ behavior, audio, and "does it look right to a Melee player". When you need one:
   Machine setup and the exact Arch package names are in `TESTING.md`.
 - Prefer fixed-size, bounds-checked parsing over clever zero-copy tricks.
   Correct beats fast for the decoder; optimize later with a profiler.
+
+## 9. Splitting files
+
+**Split a file when it gains a second reason to change, not when it gets
+long.** A line-count rule gets both cases backwards here: it would flag
+`hsd_convert.c`, which is 130 independent walkers with one reason to change
+and is fine, and it would miss the files that are genuinely hard to work in.
+
+**Measure the coupling before trusting your reading of it.** `viewer_main.c`
+looked like four concerns tangled together -- 38 argv branches, probe wiring,
+frontend flow, render loop. Counting references to the shared state said
+otherwise: `match_view` had 104 of them and 98 sat inside two functions. That
+is one state machine, and splitting it would have scattered a global across
+four files and made it worse. The parts that moved out were the ones with
+**zero or near-zero** references to it. One `grep -c` decided it; the reading
+was wrong.
+
+**Prove the move is lossless before making it.** For a mechanical split, slice
+the file into declaration-sized chunks and assert that reassembling them
+reproduces the original byte for byte, *then* distribute the chunks. A split
+that silently drops a function from a test file leaves the suite green while
+covering less -- the same silent-failure shape the rest of this document exists
+to prevent.
+
+Afterwards the moved code must behave identically by construction, not by
+hope: carry its compile flags with it (the viewer TUs needed
+`MELEE_SHIM_REAL_STDBOOL` for SDL3's 1-byte `bool`), and diff the test output
+including any statistics it prints.
