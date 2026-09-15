@@ -2949,3 +2949,58 @@ garbage.
    at that moment and read back forever after.  A converter change that seems
    not to take effect is this, every time; `rm -rf build/native/asset-cache`
    before concluding anything.
+
+## G-178: `0x424` is the fighter attribute *allocation*, not the struct
+
+**Symptom:** no character can produce a projectile.  The neutral-special
+animation plays, the fighter enters the right action, held articles that are
+created from C code appear (Link's bow, Fox's gun), but nothing that the
+animation script has to trigger ever happens -- no arrow, no laser, no
+fireball, and no damage.
+
+**Cause:** `conv_ft_data` byte-swapped `0x424` bytes starting at
+`ftData->x0`.  `0x424` is the size `fighter.c:146` gives
+`fighter_dat_attrs_alloc_data`, the runtime **backup** block; the struct in
+the archive is `ftCo_DatAttrs`, which is `0x184`.  The extra `0x2A0` bytes ran
+through `ftData->x4` (the per-character `ft??_DatAttrs` -- which is why the
+character attributes came out converted at all) and then off the end of it.
+
+What follows in every `Pl*.dat` is the fighter's **special-move command
+scripts**.  For `PlLk.dat`, `ftDataLink->x0` is `0x33DC`, so the walk reached
+`0x3800` and swapped the scripts at `0x363C` (SpecialNStart) and `0x36F0`
+(SpecialNEnd).  Those structs are `CMD_BE` -- the engine reads the raw
+big-endian command words -- so the interpreter saw:
+
+```
+broken: 030000d0 05000008 0000008c 0100004c   -> opcode 0, stop
+fixed:  d0000003 08000005 8c000000 4c000001   -> 52, 2, 35, 19
+```
+
+`4c000001` is opcode 19, `set_cmd_var idx=0 value=1`, which is exactly what
+`isDrawn()` in `ftlinkspecialn.c` waits for before spawning the arrow.  Every
+special's script terminated on its first word, so no subaction event in any
+special move ran for any character.
+
+**Fix:** clamp `ftData->x0` to `sizeof(ftCo_DatAttrs)`, and convert
+`ftData->x4` explicitly -- it used to be converted only by the overrun, and
+for Kirby (ext size `0x424`) it was being *truncated* by the same walk.
+
+**`next_pointed_at_after`.** The per-character attribute struct has no single
+declared size, so the walk is bounded by the next data offset anything in the
+archive points at.  An object cannot extend past the next object someone holds
+a pointer to, so that is exact, and it reproduces the decompilation's own
+sizes: `0x184`/`0xDC` for `PlLk.dat` = `sizeof(ftCo_DatAttrs)`/
+`sizeof(ftLk_DatAttrs)`, `0x84` for `PlMr.dat` = `sizeof(ftMario_DatAttrs)`.
+Measured across all 32 fighter archives.
+
+**Rules.**
+
+1. **An allocation size is not a struct size.** `HSD_ObjAllocInit(..., 0x424, ...)`
+   sizes a pool entry that may hold more than the thing it is named after.
+   Take sizes from the type, and check them against the archive.
+2. **`~/.cache/melee/assets` is the default asset cache** and it is keyed by
+   `HSD_CONVERTER_VERSION`.  Three of my measurements here were wrong because
+   a stale entry answered instead of the converter: the "sensitivity" build
+   that should have failed passed, twice.  Clearing
+   `build/native/asset-cache` is not enough -- the game binary uses the one in
+   `~/.cache`.  Second time this has cost a detour (G-177).

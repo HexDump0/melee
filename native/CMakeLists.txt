@@ -451,6 +451,20 @@ set_tests_properties(decomp_hit PROPERTIES
     PASS_REGULAR_EXPRESSION "\\[match\\] hit: slot [01] damage=[1-9]"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
     TIMEOUT 240)
+# Projectile specials: MELEE_ITEM_TEST taps and holds B so the neutral-special
+# command script runs.  Every special-move subaction script sits right after
+# ftData->x4 in the archive, and the attribute walk used to run 0x2A0 bytes
+# past the end of it and byte-swap them, so every opcode decoded as garbage,
+# the interpreter stopped on the first word and no character could produce an
+# article.  Link's bow is kind 76 and his arrow kind 64; the arrow is the one
+# that needs the script, because it spawns from cmd_vars[0] (P-739/G-178).
+add_test(NAME decomp_projectile
+    COMMAND melee_decomp_boot --boot-frames 760 --boot-timeout 120 --boot-match 20)
+set_tests_properties(decomp_projectile PROPERTIES
+    ENVIRONMENT "MELEE_ITEM_TEST=1;MELEE_NO_CARD=1"
+    PASS_REGULAR_EXPRESSION "\\[item\\] frame=[0-9]+ article kind=64 "
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    TIMEOUT 300)
 # HUD stock icons: the per-player icon frame comes from gm_80168BF8 ->
 # gm_80168B34.  Both decompiled functions relied on MWCC register leftovers
 # (uninitialized `base`, missing `return`), so on GCC every player asked for

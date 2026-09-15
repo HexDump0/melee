@@ -55,13 +55,18 @@ picks, so **watch for those too** (transformations should come roughly every
 
 ## What I need from you next
 
-**B-24 (projectiles) is the only thing left from this session.**  Nothing to
-run yet -- it is unstarted, tracked as P-739.  If you want it next, say so.
+**Try the projectiles.**  Link's arrow, Fox's and Falco's blaster, Samus's
+charge shot, Mario's fireball, Ness's PK Fire, Sheik's needles.  They should
+appear and deal damage now.  Worth checking a couple of specials that do not
+spawn anything visible too -- Mario's cape, Yoshi's egg lay -- because the
+same scripts drive those: *anything* a special's animation was supposed to
+trigger was broken, not only the projectiles.
 
-One small open question from the Stadium work: does the stage still transform
-(fire / grass / rock) roughly every minute?  The transformation interval came
-out of the same parameter block that was fixed, so it should, but you are the
-only one who can see it.
+Still open from the Stadium work: does the stage transform (fire / grass /
+rock) roughly every minute?  The interval came out of the same parameter block
+that was fixed there, so it should, but you are the only one who can see it.
+
+No environment variables needed for either.
 
 ## Confirmed gaps (BROKEN / BLOCKED)
 

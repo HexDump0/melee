@@ -31,7 +31,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 90u
+#define HSD_CONVERTER_VERSION 91u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -143,7 +143,11 @@ typedef struct Conv {
     HsdConvertStats st;
     int depth;
     int stage_layout; /* selected `yakumono_param` layout */
+    uint32_t reloc_off; /* relocation table, for next_pointed_at_after */
+    uint32_t nb_reloc;
 } Conv;
+
+static uint32_t next_pointed_at_after(Conv* c, uint32_t off);
 
 static uint32_t be32(const unsigned char* p)
 {
@@ -2579,13 +2583,53 @@ static void conv_ft_data(Conv* c, uint32_t off)
     }
     x8 = rd32(c, off + 0x08);
     {
-        /* ftCo_DatAttrs (fighter_dat_attrs_alloc_data size 0x424): dense
-         * 4-byte floats/ints; ftMr_Init_OnLoad reads item kinds from it. */
+        /* x0 is `ftCo_DatAttrs`, x4 the per-character `ft??_DatAttrs`: both
+         * dense 4-byte floats/ints (ftMr_Init_OnLoad reads item kinds out of
+         * the first).
+         *
+         * This used to walk 0x424 bytes from x0 alone.  0x424 is the size
+         * `fighter.c:146` gives `fighter_dat_attrs_alloc_data`, the runtime
+         * *backup* block -- it is not the size of the struct in the archive,
+         * which is 0x184.  The extra 0x2A0 bytes ran through x4 (which is why
+         * the character attributes came out converted at all) and then off
+         * the end of it into whatever followed.  In every Pl*.dat what
+         * follows is the fighter's special-move **command scripts**: for
+         * PlLk.dat, `ftDataLink->x0` is 0x33DC, so the walk reached 0x3800 and
+         * byte-swapped the scripts at 0x363C (SpecialNStart) and 0x36F0
+         * (SpecialNEnd).  Those are `CMD_BE` -- the engine reads the raw
+         * big-endian command words -- so every opcode in them decoded as
+         * garbage, the interpreter hit `op=0` and stopped on the first word,
+         * and no subaction event in any special move ever ran.  Hence no
+         * projectiles from anyone (P-739/G-178).
+         *
+         * Bound both objects by the next offset anything points at, which is
+         * exact and needs no per-character size table, and cap x0 at the
+         * struct size the decompilation declares. */
         uint32_t attrs = rd32(c, off + 0x00);
-        if (attrs != 0 && in_data(c, attrs, 0x424)) {
-            uint32_t ai;
-            for (ai = 0; ai < 0x424; ai += 4) {
+        uint32_t ext = rd32(c, off + 0x04);
+        uint32_t size;
+        uint32_t ai;
+
+        if (attrs != 0) {
+            size = next_pointed_at_after(c, attrs) - attrs;
+            if (size > 0x184) {
+                size = 0x184; /* sizeof(ftCo_DatAttrs) */
+            }
+            for (ai = 0; ai + 4 <= size; ai += 4) {
                 conv_u32(c, attrs + ai);
+            }
+        }
+        if (ext != 0) {
+            /* No declared size: the type is per character (ftMario_DatAttrs,
+             * ftLk_DatAttrs, ...).  The bound is the size, and the cap is
+             * only a guard against a missing successor -- Kirby's is 0x424,
+             * the largest on the disc. */
+            size = next_pointed_at_after(c, ext) - ext;
+            if (size > 0x424) {
+                size = 0x424;
+            }
+            for (ai = 0; ai + 4 <= size; ai += 4) {
+                conv_u32(c, ext + ai);
             }
         }
     }
@@ -3707,6 +3751,36 @@ static uint32_t next_public_after(Conv* c, uint32_t public_off,
     return limit;
 }
 
+/* The first data offset after `off` that something in the archive points at.
+ *
+ * An object can only extend up to the next object anyone holds a pointer to,
+ * so this is an exact upper bound on its size and needs no per-type table.
+ * It reproduces the decompilation's own struct sizes: for PlLk.dat it gives
+ * 0x184 for `ftData->x0` and 0xDC for `ftData->x4`, which are exactly
+ * `sizeof(ftCo_DatAttrs)` and `sizeof(ftLk_DatAttrs)`; for PlMr.dat 0x84,
+ * which is `sizeof(ftMario_DatAttrs)`.
+ *
+ * `convert_relocs` runs first and byte-swaps each pointer word in place, so
+ * the words read here are already host-order data offsets. */
+static uint32_t next_pointed_at_after(Conv* c, uint32_t off)
+{
+    uint32_t limit = (uint32_t) c->data_size;
+    uint32_t i;
+
+    for (i = 0; i < c->nb_reloc; i++) {
+        uint32_t field = rd32_abs(c, c->reloc_off + i * 4);
+        uint32_t target;
+        if (!in_data(c, field, 4)) {
+            continue;
+        }
+        target = rd32(c, field);
+        if (target > off && target < limit) {
+            limit = target;
+        }
+    }
+    return limit;
+}
+
 static int name_ends_with(const char* name, size_t length, const char* suffix)
 {
     size_t n = strlen(suffix);
@@ -4002,6 +4076,8 @@ static int convert_archive(unsigned char* data, size_t size, Conv* c)
     public_off = reloc_off + nb_reloc * 4;
     symbols_off = public_off + nb_public * 8 + nb_extern * 8;
 
+    c->reloc_off = reloc_off;
+    c->nb_reloc = nb_reloc;
     convert_relocs(c, reloc_off, nb_reloc);
     convert_roots(c, public_off, nb_public, symbols_off);
 

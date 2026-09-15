@@ -1,6 +1,19 @@
 # State of the port
 
-Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716, P-718, P-719, P-720, P-737 and P-738 fixed, P-699/P-702/P-711/P-715/P-717/P-739/P-740/P-741 open)
+Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716, P-718, P-719, P-720, P-737, P-738 and P-739 fixed, P-699/P-702/P-711/P-715/P-717/P-740/P-741 open)
+
+> **No character could fire a projectile (2026-09-15, P-739/G-178).**
+> `conv_ft_data` byte-swapped 0x424 bytes from `ftData->x0`.  0x424 is the
+> size of `fighter_dat_attrs_alloc_data`, the runtime *backup* block;
+> `ftCo_DatAttrs` is 0x184.  The extra 0x2A0 bytes ran through `ftData->x4`
+> and into the special-move **command scripts** that follow it, which are
+> `CMD_BE` -- so every special's script decoded as opcode 0 and terminated on
+> its first word.  No subaction event in any special move ran for any
+> character; the animations still played because animation is separate data.
+> Converter v91 clamps x0 to the struct size and converts x4 explicitly,
+> bounded by the next offset anything points at -- which reproduces the
+> decompilation's own struct sizes across all 32 fighter archives.
+> `ctest decomp_projectile` is the regression.
 
 > **Pokemon Stadium ran on big-endian parameters (2026-09-15, P-738/G-177).**
 > `GrPs.dat`/`GrPs3.dat`'s `yakumono_param` had no converter descriptor, so

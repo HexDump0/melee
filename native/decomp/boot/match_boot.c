@@ -31,6 +31,8 @@
 #include <melee/if/forward.h>
 #include <melee/mn/mnmain.h>
 #include <melee/pl/player.h>
+#include <melee/it/forward.h>
+#include <melee/it/types.h>
 #include <melee/gr/forward.h>
 #include <melee/gr/ground.h>
 #include <melee/gr/types.h>
@@ -60,6 +62,19 @@ static int title_seen;
 static int gameover_test;
 static int gameover_stage;
 static int stadium_trace;
+static int item_trace;
+static int classic_test;
+static int classic_named;
+static int intro_test;
+static int intro_stage;
+static int cpu_test;
+static int cpu_hit_logged;
+static int cpu_tables_logged;
+static unsigned cpu_attack_entries;
+static unsigned char cpu_was_attacking[6];
+static PadInputFrame match_input[MATCH_INPUT_FRAMES][MATCH_INPUT_CHANNELS];
+
+static void log_item_trace(void);
 static void log_stadium_display(void);
 static int classic_test;
 static int classic_named;
@@ -71,6 +86,81 @@ static int cpu_tables_logged;
 static unsigned cpu_attack_entries;
 static unsigned char cpu_was_attacking[6];
 static PadInputFrame match_input[MATCH_INPUT_FRAMES][MATCH_INPUT_CHANNELS];
+
+static void log_item_trace(void);
+static void log_stadium_display(void);
+
+/* MELEE_ITEM_TEST: p0 taps and holds B so the neutral-special command script
+ * runs.  Projectiles are spawned by a subaction command (`ftAction_80071974`
+ * sets `throw_flags_b0`, and the action's Anim callback consumes it the same
+ * frame), so a plain jab script never exercises the path at all (P-739). */
+static void build_item_test_input(void)
+{
+    unsigned f;
+
+    for (f = 0; f < MATCH_INPUT_FRAMES; f++) {
+        PadInputFrame* p0 = &match_input[f][0];
+
+        /* Taps first (Mario/Fox-style instant projectiles), then a long hold
+         * and a release (Link/Samus-style charged ones). */
+        if (f >= 200 && f < 420 && (f % 40) < 8) {
+            p0->buttons |= PAD_BUTTON_B;
+        }
+        if (f >= 500 && f < 560) {
+            p0->buttons |= PAD_BUTTON_B;
+        }
+        if (f >= 640 && f < 700) {
+            p0->buttons |= PAD_BUTTON_B;
+        }
+        match_input[f][1].buttons |=
+            (f >= 220 && f < 460 && (f % 40) < 6) ? PAD_BUTTON_B : 0;
+    }
+    pad_set_input_script(&match_input[0][0], MATCH_INPUT_CHANNELS,
+                         MATCH_INPUT_FRAMES);
+}
+
+/* P-739: no projectile special produces an article.  Everything between the
+ * fighter and the screen is invisible from outside -- the command script, the
+ * throw flag, `Item_8026862C`, the item's own state table -- so count the
+ * live item GObjs and name what they are.  Items are class 6 on GX link 6
+ * (`Item_8026862C` -> `GObj_SetupGXLink(gobj, ..., 6, 0)`). */
+static void log_item_trace(void)
+{
+    HSD_GObj* gobj;
+    unsigned live = 0;
+    static unsigned char ever_seen[256];
+    static int armed_said;
+
+    if (!item_trace) {
+        return;
+    }
+    if (!armed_said) {
+        armed_said = 1;
+        fprintf(stderr, "[item] trace armed\n");
+    }
+    if (HSD_GObjGXLinkHead == NULL) {
+        return;
+    }
+    for (gobj = HSD_GObjGXLinkHead[6]; gobj != NULL; gobj = gobj->next_gx) {
+        Item* it;
+        if (gobj->classifier != HSD_GOBJ_CLASS_ITEM || gobj->user_data == NULL)
+        {
+            continue;
+        }
+        it = (Item*) gobj->user_data;
+        live++;
+        if (!ever_seen[(unsigned) it->kind & 0xFFu]) {
+            ever_seen[(unsigned) it->kind & 0xFFu] = 1;
+            boot_triage_note(
+                "[item] frame=%u article kind=%d life=%.1f "
+                "pos=(%.1f,%.1f) vel=(%.2f,%.2f)\n",
+                frame, (int) it->kind, (double) it->xD44_lifeTimer,
+                (double) it->pos.x, (double) it->pos.y,
+                (double) it->x40_vel.x, (double) it->x40_vel.y);
+        }
+    }
+    (void) live;
+}
 
 /* MELEE_HIT_TEST: p0 jabs in place while p1 walks into it.  The default
  * script never guarantees contact, so this is the headless regression for
@@ -321,6 +411,7 @@ static void match_boot_frame(void)
     /* Before the start_frame gate below: the owner runs this on the ordinary
      * frontend, where start_frame is 0 and everything past that returns. */
     log_stadium_display();
+    log_item_trace();
     if (title_test) {
         unsigned deadline = start_frame != 0 ? start_frame : 1200;
         log_title_state(0);
@@ -591,7 +682,10 @@ void match_boot_init(unsigned frame_in)
         boot_platform_set_frame_hook(match_boot_frame);
     }
     if (frame_in != 0) {
-        if (getenv("MELEE_HIT_TEST") != NULL) {
+        if (getenv("MELEE_ITEM_TEST") != NULL) {
+            item_trace = 1;
+            build_item_test_input();
+        } else if (getenv("MELEE_HIT_TEST") != NULL) {
             hit_test = 1;
             build_hit_test_input();
         } else {
