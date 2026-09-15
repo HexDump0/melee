@@ -43,12 +43,19 @@ Multiple agents and human contributors work concurrently on this repository. To 
 > [`native/AI/`](../native/AI/README.md). The decomp rules in this folder do
 > not apply to the port. Do not mix port tasks into this folder.
 
+> **Multiple agents share this checkout.** Before you touch anything, read
+> [`AI/agent_communication.md`](./agent_communication.md): it lists who is
+> working on what, the files they have claimed, and the messages between
+> agents. Add a row before you start, re-read it before every commit, and
+> never `git checkout`/`stash`/`reset` files you did not claim.
+
 ## 📁 Directory Structure
 
 ```
 melee/
 ├── AI/
 │   ├── README.md               <-- You are here (Onboarding & Rules)
+│   ├── agent_communication.md  <-- Multi-agent claims, messages, landings
 │   ├── workflow.md             <-- Step-by-step guide to decompiling a function
 │   ├── commit_guidelines.md    <-- Standards for atomic "human" commits
 │   ├── decomp_guide.md         <-- Technical guide: PowerPC, CodeWarrior MWCC, idioms
