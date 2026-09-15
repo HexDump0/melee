@@ -17,6 +17,19 @@ Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by ow
 > -- writing `gmVsMelee_StartData` from the frame hook *looks* like it works
 > and does not, because `onEnterDebugVs` and `gm_Scene_Vs_OnEnter` run in the
 > same game frame.
+>
+> **Venom's static-data overlays are named now (2026-09-15, P-767, P-774,
+> G-176).** Both batches were the same class: `grvenom.c` built pointers and
+> read tables by offsetting from `grVe_803E5348` (0x38 bytes), which is
+> console-correct only because the linker emitted `grVe_803E5380`,
+> `grVe_StageCallbacks`, `grVe_StageData` and `grVe_803E5530` back to back.
+> The port builds with `-fdata-sections`, so every such read was garbage.
+> `PORT_PC` now names each symbol (full console layout and offset arithmetic
+> in the P-774 TASKS row and
+> `handoffs/2026-09-15-P-774-venom-tables-and-G176-sweep.md`). Venom's
+> stage-22 sweep: 26/26 failing -> 7 (P-767) -> 6; the six are 4 arwing-laser
+> article crashes (P-775, converter family, **not** symbol adjacency) and 2
+> P-765. The class sweep (P-776) is incomplete.
 
 > **The `Pl*` gap is one struct (2026-09-15, diagnosis for P-758).** The 34
 > `PlXx.dat` character-data files are at **20.2%** and hold 22,271 of the

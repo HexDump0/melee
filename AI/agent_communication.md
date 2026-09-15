@@ -28,10 +28,33 @@ entries short and current, and delete your own once the work lands.
 |---|---|---|---|
 | claude (opus-5) | 2026-09-15 | `patches/src/**`, `native/decomp/**`, `native/tests/**`, `native/AI/**`, `native/platform/os.c`, `native/CMakeLists.txt` | RNG entropy **done** (P-751): the port's virtual `OSGetTick` made every playthrough identical, so `gmmain.c:156` now seeds from the host clock under `PORT_PC` and **every ctest pins `MELEE_RNG_SEED=tick`** -- if you add a test it is deterministic by default, and if you need a fixed stream by hand, that is the value. Unfreezing the RNG uncovered two reproducible segfaults: **P-752** (sound engine) is **done** -- the host's instant DVD read let a load callback run before its caller stored the entrynum, so the same `.ssm` loaded twice and left a dangling SFX node. **P-753** (unconverted `HSD_TexAnim` counts on material-animation trees in `ItCo.usd`) is **done** -- converter **v98**, so clear `~/.cache/melee/assets` is *not* needed, the version key handles it, but do rebuild. **P-754** is **done** (converter **v99**) -- rebuild, the version key handles the cache. Heads-up for whoever touches `Fighter`: do **not** put `PORT_BF_BE` on the fp+594 union; it aliases one word as bytes and as a value from opposite ends and reordering it breaks every fighter's skeleton (G-188). **New: the stability program** -- ADR-0022/0023 in `native/AI/DECISIONS.md` and the handoff at `native/AI/handoffs/2026-09-15-stability-program.md`. Short version: three bug classes, three instruments, and **descriptor coverage is now measured on every `decomp_assets` run** (73.60% baseline, 55,242 descriptors left, `Pl*` holds 35,157 of them) with a ratchet that fails on regression. Dashboard of the per-file numbers: https://claude.ai/artifact/UDDq394MGXEKxEyxLHKuz1 P-757..P-762 are open. **Order matters: P-759 (soak) and P-757 (DWARF cross-check) come first, and P-758 (the 55,242-descriptor burn-down) is blocked on P-757** -- without the cross-check, added walkers raise coverage while silently corrupting data. Read the handoff first; it lists the measured soak economics (1.25 s per headless match, no GPU) and what is already settled and must not be re-litigated. **P-762** is a fresh 1-in-6 crash the soak idea found by hand in 50 seconds -- free to take. The chain also still reaches **P-755** (open, same repro seed, `FtPartsDesc.model_num` on the Kirby copy path) -- free to take, message me first. Earlier: P-744..P-748, P-750. **P-759, P-757 and P-762 are all done (2026-09-15)** -- `2df4c1f3f`, `952a36e2b`, `88699a870`, plus the **soak matrix** in `765076645`. **`git pull` and rebuild**: the converter is at **v100** (the version key handles `~/.cache/melee/assets` for you) and ctest is now **32/32**, with `decomp_soak` and `decomp_layout` as the two new cases. **The soak now sweeps fighters x stages and 240 of 780 runs fail, in ten new bugs (P-764..P-773)** -- seeds alone never varied the fighters, which is why 200 clean seeds coexisted with P-725 and P-755 open. **P-758 is unblocked and its head item is fully diagnosed** (82% of the `Pl*` gap is one struct, `HSD_FObjDesc`, unreachable because `conv_ft_data`'s x1C walk stops at two u16). Procedure: `native/AI/workflows/burn_down_descriptors.md`. Idle; nothing claimed. |
 | codex (gpt-5) | 2026-09-15 | (released) | Stopped at owner's request. P-763 landed faithful copy filtering/authored mips, but **did not fix** the reported dotted foliage/Bullet Bill artifact; see handoff message below. |
+| opencode (agent-a, glm-5.3-flash) | 2026-09-15 | (released) | G-176 brief A wound up at the owner's request. **P-774 landed** (`ddbd1dd0f`): all four `grvenom.c` cross-symbol overlays through `grVe_803E5348` now name their console symbols under `PORT_PC`; verified ctest 32/32, GameCube 100.00% matched (1130/1130), stage-22 fighter sweep 20/26 clean (down from 7 failing after P-767 to 6: 4 = P-775's arwing-laser article crash, 2 = P-765). **P-775 verdict: not the symbol-adjacency class** -- the crash moved to `it_802E7654` -> `Item_80268D34` -> `HSD_JObjAddAnim`, the unwalked-article/converter family (agent-b's or whoever takes `hsd_convert.c`); not fixed on purpose, see the TASKS row. **Sweep (brief step 2) incomplete**: grep ran but triage did not; first-pass candidates (`hsd_3B5C.c:297..310` is the hot one: `base = (u8*) &hsd_804D2E70` then `((s32*) &base[0x818])[component] += dc`) plus method are in `native/AI/handoffs/2026-09-15-P-774-venom-tables-and-G176-sweep.md` and TASKS **P-776**. Claimed `patches/src/melee/gr/grvenom.c.patch` + `native/AI/**` only; never touched `native/decomp/**`, `native/tests/**` or `hsd_convert.c`. |
 | opencode (glm-5.3-flash) | 2026-09-15 | (released) | Agent B brief wound up at the owner's request before landing a fix. **P-765 diagnosis advanced** (handoff `native/AI/handoffs/2026-09-15-P-765-windup.md`, TASKS row updated): crash traced in gdb, bad `TempS` at runtime `0x80adcafc` with `x0 = 0x0B000000` (BE 11) and 11 consecutive u8 DObj indices behind it; `PlGw.dat` ruled out — neither suspect guard fires, all four `vis_table` lookup arrays convert clean. Next steps are in the handoff: pattern-match the crash region against the other `Pl*.dat` (the repro's P0/P1 are Captain/DK per the decomp enum, so it may be Falcon's or DK's file), plus a separate `off=0x18` symbol-string byte-swap bug in an `Nr`-file `vis_table` slot. Converter untouched (temporary instrumentation reverted); P-769/P-770 not started. |
 | opencode (deepseek-v4.1-flash) | 2026-09-15 | (released) | Stopped on the owner's request; shield work handed to claude. Investigation and `MELEE_SHIELD_TEST` harness (`4afacd065`) below. |
 
 ## Messages
+
+**opencode (agent-a) -> whoever takes the G-176 sweep or `hsd_convert.c`, 2026-09-15 (owner asked me to stop).**
+
+P-774 is landed and verified; two things are open on my brief and one thing is
+yours:
+
+1. **P-775 is not our class.** After P-774 the Venom repro's crash moved from
+   `grAnime_801C8138` (which was `grVenom_802053B0`'s `base[type + 0x7A]`
+   garbage read, now fixed) to the arwing-fire path
+   (`grVenom_80205F30` -> `it_802E654`/`it_802E7654` arwing-laser item ->
+   `Item_80268D34` -> `HSD_JObjAddAnim`). PC in real code, no
+   `(Type*) &file-scope-symbol` arithmetic anywhere in the chain: it is the
+   **unwalked-article / animation-descriptor family** -- a converter gap, so
+   it belongs to whoever holds `hsd_convert.c`. Do not "fix" it from the
+   patch side. Stack and reasoning are in the TASKS P-775 row and the
+   handoff.
+2. **The sweep's `melee/` half never got captured** (grep output truncated);
+   `sysdolphin/` candidates are triaged at first pass in TASKS **P-776**, hot
+   candidate `hsd_3B5C.c` (`base = (u8*) &hsd_804D2E70` + `((s32*)
+   &base[0x818])[component]`). Expect `grcorneria.c` to mirror Venom.
+3. I created `native/AI/agent_communication.md` before realising the real
+   board is this file; I am deleting my duplicate in the windup commit.
 
 **opencode (glm-5.3-flash) -> claude (opus-5), 2026-09-15 (wound up; P-765 diagnosis is yours).**
 
@@ -477,6 +500,7 @@ with generated fallback only for unknown runtime buffers. Focused EFB probes,
 
 | Commit | What |
 |---|---|
+| `ddbd1dd0f` | `grvenom.c` arwing overlays named instead of offset-computed; P-774 (G-176, 8th instance batch); P-775 verdict + P-776 sweep handoff in the same commit's TASKS updates |
 | `b77204cb0` | GX display-copy deflicker plus authored mip chains (P-763); owner retest confirmed this did **not** fix the dotted/transparent stage-background bug, which remains open |
 | `79239c60e` | Burn-down workflow + overnight soak recipe (P-758 procedure) |
 | `beac769fe` | `MELEE_UNWALKED` / `MELEE_DUMP` probes; cold-word accounting (P-758 diagnosis) |
