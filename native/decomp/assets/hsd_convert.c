@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 102u
+#define HSD_CONVERTER_VERSION 103u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -52,6 +52,7 @@
 #define HSD_TOBJTEVDESC_SIZE 0x20
 #define HSD_MATERIAL_SIZE 0x14
 #define HSD_ROBJDESC_SIZE 0x0C
+#define HSD_SPLINE_SIZE 0x18
 #define HSD_SHAPESETDESC_SIZE 0x1C
 #define HSD_MATANIM_SIZE 0x10
 #define HSD_MATANIMJOINT_SIZE 0x0C
@@ -272,6 +273,7 @@ static void conv_mobj(Conv* c, uint32_t off);
 static void conv_dobj(Conv* c, uint32_t off);
 static void conv_joint(Conv* c, uint32_t off);
 static void conv_robjdesc(Conv* c, uint32_t off);
+static void conv_spline(Conv* c, uint32_t off);
 static void conv_anim_joint(Conv* c, uint32_t off);
 static void conv_robj_anim(Conv* c, uint32_t off);
 static void conv_figatree(Conv* c, uint32_t off);
@@ -639,6 +641,18 @@ static void conv_joint(Conv* c, uint32_t off)
     }
     if (!(flags & (HSD_JOBJ_PTCL | HSD_JOBJ_SPLINE)) && u != 0) {
         conv_dobj(c, u);
+    } else if ((flags & HSD_JOBJ_SPLINE) && !(flags & HSD_JOBJ_PTCL) &&
+               u != 0) {
+        /* The +0x10 union is an HSD_Spline for these joints, and skipping it
+         * left the whole spline big-endian: `numcv`, `tension`, the Vec3
+         * control points and the precomputed arc-length tables.  Evaluating
+         * that spline returns NaN, and on Mute City the NaN went straight
+         * into the collision mesh -- grMuteCity_801F0D20 feeds the spline
+         * point to mpLineSetPos, so groundCollVtx positions became NaN and
+         * mpJointUpdateDynamics asserted on a line it could not classify.
+         * NaN fails every comparison, so it reaches the final `else` that
+         * is meant for a zero-length line (P-769). */
+        conv_spline(c, u);
     }
     if (!(flags & HSD_JOBJ_INSTANCE) && child != 0) {
         conv_joint(c, child);
@@ -650,6 +664,46 @@ static void conv_joint(Conv* c, uint32_t off)
         conv_robjdesc(c, robj);
     }
     c->depth--;
+}
+
+/* HSD_Spline (spline.h:6): { u8 type; s16 numcv; f32 tension; Vec3* cv;
+ * f32 totalLength; f32* segLength; f32 (*segPoly)[5] }.
+ *
+ * The three arrays have type-dependent lengths -- `cv` is indexed
+ * `[idx]`, `[idx*3]` or `[idx]-1` depending on `type` (spline.c:91-131), and
+ * a bezier reads four control points per segment -- so a per-type count would
+ * be a guess, and guessing a fighter/stage array length is what P-739 was.
+ * Bound each one by the next thing anything points at, which is exact and is
+ * how the rest of this file bounds an untyped block. */
+/* DWARF: HSD_Spline */
+static void conv_spline(Conv* c, uint32_t off)
+{
+    static const uint32_t arrays[] = { 0x08, 0x10, 0x14 };
+    size_t a;
+
+    if (!in_data(c, off, HSD_SPLINE_SIZE) || !mark(c, off)) {
+        return;
+    }
+    /* `type` is a u8 at +0x00 with a pad byte after it; numcv is the s16 at
+     * +0x02, so the first word is not a plain u32. */
+    conv_u16(c, off + 0x02);
+    conv_u32(c, off + 0x04); /* tension */
+    conv_u32(c, off + 0x0C); /* totalLength */
+    for (a = 0; a < ARRAY_SIZE(arrays); a++) {
+        uint32_t arr = rd32(c, off + arrays[a]);
+        uint32_t end;
+        uint32_t w;
+        if (arr == 0 || !in_data(c, arr, 4)) {
+            continue;
+        }
+        end = next_pointed_at_after(c, arr);
+        if (end <= arr) {
+            continue;
+        }
+        for (w = 0; arr + w + 4 <= end; w += 4) {
+            conv_u32(c, arr + w);
+        }
+    }
 }
 
 /* DWARF: HSD_AObjDesc */
