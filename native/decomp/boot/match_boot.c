@@ -499,14 +499,43 @@ static void log_stadium_display(void)
     Ground* gp;
     HSD_ImageDesc* shown;
 
-    if (!stadium_trace || (frame % 30) != 0) {
+    /* Silence has to be impossible here: a probe that prints nothing whether
+     * it is disarmed, on the wrong stage, or looking at a NULL object costs a
+     * whole round trip to tell apart (G-168, and this probe already cost one
+     * -- the frontend path installs the frame hook only for named env vars,
+     * and MELEE_STADIUM_TRACE was not one of them). */
+    static int armed_said;
+    static int kind_said = -1;
+    static int nogobj_said;
+
+    if (!stadium_trace) {
+        return;
+    }
+    if (!armed_said) {
+        armed_said = 1;
+        fprintf(stderr, "[stadium] trace armed\n");
+    }
+    if ((frame % 30) != 0) {
         return;
     }
     if (stage_info.grkind != Gr_Kind_PStadium) {
+        if (kind_said != (int) stage_info.grkind) {
+            kind_said = (int) stage_info.grkind;
+            fprintf(stderr,
+                    "[stadium] not on Pokemon Stadium (grkind=%d); nothing to "
+                    "report\n",
+                    kind_said);
+        }
         return;
     }
+    kind_said = -1;
     gobj = Ground_GetMapGObj(PsType_Display);
     if (gobj == NULL) {
+        if (!nogobj_said) {
+            nogobj_said = 1;
+            fprintf(stderr,
+                    "[stadium] on Stadium but PsType_Display has no GObj\n");
+        }
         return;
     }
     gp = (Ground*) HSD_GObjGetUserData(gobj);

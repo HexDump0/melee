@@ -1329,13 +1329,21 @@ static GLuint texture_for(const GxHleTexture* t)
                         (unsigned) t->format);
             }
         } else if (t->width >= 64 && t->height >= 64 &&
-                   melee_dvd_origin(image) == NULL) {
+                   melee_dvd_origin(image) == NULL &&
+                   gx_hle_asset_remaining(image) == (size_t) -1) {
             /* A big texture that is neither disc data nor anything an EFB
              * capture has written: the game is sampling an HSD_MemAlloc
              * buffer whose contents were never produced.  That is the
              * signature of a render-to-texture whose capture never ran, and
              * it renders as dense noise -- the buffer's uninitialised heap
-             * bytes decoded as texels.  Report each such buffer once. */
+             * bytes decoded as texels.  Report each such buffer once.
+             *
+             * Both tests are needed.  melee_dvd_origin only knows whole
+             * DVD-loaded file buffers, so on its own it reports every texture
+             * that was relocated out of one: the owner's first run produced
+             * 30 false positives and one real hit.  gx_hle_asset_remaining
+             * knows the registered asset ranges, which is what actually
+             * distinguishes art from a bare HSD_MemAlloc. */
             if (unwritten_report(image)) {
                 fprintf(stderr,
                         "gx_gl: sampling UNWRITTEN runtime buffer %p "

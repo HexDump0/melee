@@ -1133,7 +1133,8 @@ static int run_match(SDL_Window* window, SDL_GLContext context,
         /* Title/CPU probes run off the frame hook; the frontend flow never
          * enters the debug-match harness, so install only explicit probes. */
         if (getenv("MELEE_TITLE_TEST") != NULL ||
-            getenv("MELEE_CPU_TEST") != NULL)
+            getenv("MELEE_CPU_TEST") != NULL ||
+            getenv("MELEE_STADIUM_TRACE") != NULL)
         {
             match_boot_init(0);
         }

@@ -53,10 +53,14 @@ close-up capture ran exactly once and froze, and the text-window capture reads
 fully black every frame.  All three point at the Stadium display **state
 machine**, not at the renderer.
 
-What is missing is what state the game thinks it is in.  Training mode on
-Pokemon Stadium, and please let it run **30-60 seconds** so the state machine
-cycles (it changes on timers), ideally covering a moment when the monitor is
-noisy:
+What is missing is what state the game thinks it is in.  The first attempt at
+this printed nothing, which was the probe's fault: the frontend only installs
+its frame hook for two named environment variables and `MELEE_STADIUM_TRACE`
+was not one of them.  Fixed, and it now says `[stadium] trace armed` on
+startup so you can tell straight away that it is running.
+
+You said the monitor is already noise at the start of the match, so **15-20
+seconds is enough** -- no need for a long run:
 
 ```sh
 MELEE_STADIUM_TRACE=1 ./build/native/melee 2> /tmp/stadium.log
