@@ -1,5 +1,5 @@
 diff --git a/src/melee/gr/grvenom.c b/src/melee/gr/grvenom.c
-index cf91ad2a8..3bb3f68e3 100644
+index cf91ad2a8..434cdfe7a 100644
 --- a/src/melee/gr/grvenom.c
 +++ b/src/melee/gr/grvenom.c
 @@ -557,9 +557,21 @@ Ground_GObj* grVenom_80203EAC(int gobj_id)
@@ -24,3 +24,314 @@ index cf91ad2a8..3bb3f68e3 100644
  
      gobj = Ground_GetStageGObj(gobj_id);
  
+@@ -1034,7 +1046,19 @@ void grVenom_80204F20(Ground_GObj* arg0)
+ 
+     grVe_803E5348.arwing.arwing_gobj[gp->u.venom.xC8 = grVe_804D6A34] = arg0;
+ 
++#ifdef PORT_PC
++    /* G-176, P-774.  `grVe_803E5348` is 0x38 bytes, so `base[xC8 + 14]` is
++     * already `grVe_803E5380` (at +0x38, adjacent on the console only), and
++     * word 170 is 0x2A8 bytes past the struct: `grVe_803E5530` sits at
++     * `grVe_803E5348 + 0x1E8` (0x7A words), so `base[170 + v]` is
++     * `grVe_803E5530[48 + v]`, v = `grVe_803E5380[slot]` in 0..4, i.e. entries
++     * 48..52 = 3,3,3,3,6.  Name both symbols instead of computing addresses;
++     * the console path is unchanged.
++     */
++    other = grVenom_80203EAC(grVe_803E5530[48 + grVe_803E5380[gp->u.venom.xC8]]);
++#else
+     other = grVenom_80203EAC(base[base[gp->u.venom.xC8 + 14] + 170]);
++#endif
+     if (other != NULL) {
+         Ground* other_gp = other->user_data;
+         other_gp->x10_flags.b2 = 0;
+@@ -1085,12 +1109,20 @@ bool grVenom_802052D8(Ground_GObj* arg)
+ }
+ 
+ /// @todo VenomSpawnData struct should be defined in gr/types.h or grvenom.h
++#ifdef PORT_PC
++typedef struct {
++    f32 x;
++    f32 y;
++    f32 z;
++} VenomSpawnData;
++#else
+ typedef struct {
+     u8 pad[0x218];
+     f32 x;
+     f32 y;
+     f32 z;
+ } VenomSpawnData;
++#endif
+ 
+ void grVenom_802052E0(Ground_GObj* gobj, Vec3* pos)
+ {
+@@ -1100,7 +1132,9 @@ void grVenom_802052E0(Ground_GObj* gobj, Vec3* pos)
+     Ground* gp;
+     HSD_JObj* jobj;
+     s32* new_var;
++#ifndef PORT_PC
+     s32* new_var4;
++#endif
+     u32 spawn_idx;
+     struct grVenom_GroundVars* new_var3;
+     s32 data_idx;
+@@ -1112,11 +1146,24 @@ void grVenom_802052E0(Ground_GObj* gobj, Vec3* pos)
+         jobj = Ground_801C3FA4(gobj, 5);
+         lb_8000B1CC(jobj, NULL, &jobj_pos);
+         new_var = spawn_table;
++#ifndef PORT_PC
+         new_var4 = spawn_table;
+         new_var2 = (u8*) new_var4;
++#endif
+         new_var3 = &gp->u.venom;
+         spawn_idx = (*new_var3).xC8;
+         data_idx = new_var[spawn_idx + 11];
++#ifdef PORT_PC
++        /* G-176, P-774.  On the console the spawn triple lives 0x218 bytes
++         * past `grVe_803E5348`: `grVe_803E5530` is at +0x1E8, so +0x218 is
++         * word 12 of it, and `data_idx * 12` bytes is `data_idx * 3` words
++         * (arwing_type is 1..11, so words 12..45 -- inside the table).  The
++         * port's `VenomSpawnData` has no 0x218 pad, so point new_var2 at the
++         * named table instead of the base symbol; the console path is
++         * unchanged.
++         */
++        new_var2 = (u8*) &grVe_803E5530[12];
++#endif
+         spawn_data = (VenomSpawnData*) (new_var2 + data_idx * 12);
+         pos->x = jobj_pos.x + spawn_data->x;
+         pos->y = jobj_pos.y + spawn_data->y;
+@@ -1148,8 +1195,22 @@ void grVenom_802053B0(Ground_GObj* gobj)
+     if ((u32) ptr[8] == (u32) gobj) {
+         if (gp->u.venom.xD4 == 1) {
+             gp->u.venom.xD4 = 0;
++#ifdef PORT_PC
++            /* G-176, P-774.  `base[arwing_type + 0x7A]`: word 0x7A is 0x1E8
++             * bytes, and `grVe_803E5530` sits exactly at `grVe_803E5348 +
++             * 0x1E8`, so this is `grVe_803E5530[state]` with state =
++             * `arwing_type[slot]` in 1..11 (entries -1..10 -- the per-state
++             * map animation ids the table's own comment names).  Name it;
++             * the console path is unchanged.
++             */
++            grAnime_801C8138(
++                gobj, gp->map_id,
++                grVe_803E5530[grVe_803E5348.arwing
++                                  .arwing_type[gp->u.venom.xC8]]);
++#else
+             grAnime_801C8138(gobj, gp->map_id,
+                              base[base[gp->u.venom.xC8 + 11] + 0x7A]);
++#endif
+             return;
+         }
+ 
+@@ -1385,6 +1446,20 @@ typedef struct grVe_AnimArg {
+ /// load itself. Evidence: the reference object computes the address with
+ /// two adds on the base register and loads `lwz rD, 0x2FC(rA)`; direct 2D
+ /// array indexing re-associates to an `lwzx` indexed load instead.
++#ifdef PORT_PC
++/* G-176, P-774.  The load at `0x2FC(rA)` with
++ * `rA = &grVe_803E5348 + xF4*8 + fire_kind*4` is word `191 + 2*xF4 +
++ * fire_kind` from the base symbol; `grVe_803E5644` sits exactly at
++ * `grVe_803E5348 + 0x2FC` (word 191), so this is `grVe_803E5644[2*xF4 +
++ * fire_kind]` -- anim_args[row][col], row = xF4 in 1..4 (the caller reassigns
++ * it before this runs), col = fire_kind in -1..1.  Name the table; the
++ * console path keeps the address-arithmetic form below.
++ */
++static inline s32 grVe_GetAnimArg(s32 fire_kind, Ground* gp)
++{
++    return grVe_803E5644[gp->u.venom.xF4 * 2 + fire_kind];
++}
++#else
+ static inline s32 grVe_GetAnimArg(s32 fire_kind, Ground* gp,
+                                   grVe_AnimData* anim_data)
+ {
+@@ -1392,6 +1467,7 @@ static inline s32 grVe_GetAnimArg(s32 fire_kind, Ground* gp,
+     anim_data = (grVe_AnimData*) ((s32*) anim_data + fire_kind);
+     return ((volatile grVe_AnimArg*) anim_data)->value;
+ }
++#endif
+ 
+ void grVenom_80205F30(Ground_GObj* gobj)
+ {
+@@ -1429,7 +1505,15 @@ void grVenom_80205F30(Ground_GObj* gobj)
+ 
+     entry = base + gp->u.venom.xC8;
+     if ((u32) entry[8] != 0U) {
++#ifdef PORT_PC
++        /* G-176, P-774.  `entry[14]` is word 14..16 of a 0x38-byte struct:
++         * `grVe_803E5380` at +0x38, adjacent on the console only.  Name it;
++         * the console path is unchanged.
++         */
++        if (grVe_803E5380[gp->u.venom.xC8] == 4) {
++#else
+         if (entry[14] == 4) {
++#endif
+             tmp_jobj = Ground_801C3FA4(gobj, 1);
+             HSD_JObjSetRotationZ(tmp_jobj, 0.0F);
+         }
+@@ -1461,7 +1545,16 @@ void grVenom_80205F30(Ground_GObj* gobj)
+                 if (gp->u.venom.xF8 <= 0) {
+                     gp->u.venom.xF4 = HSD_Randi(4) + 1;
+                     fire_kind = -1;
++#ifdef PORT_PC
++                    /* G-176, P-774.  `base[slot + 14]` reads `grVe_803E5380`
++                     * (at `grVe_803E5348 + 0x38`, adjacent on the console
++                     * only); its values pick fire_kind below.  Name it; the
++                     * console path is unchanged.
++                     */
++                    switch (grVe_803E5380[GET_GROUND(gobj)->u.venom.xC8]) {
++#else
+                     switch (base[GET_GROUND(gobj)->u.venom.xC8 + 14]) {
++#endif
+                     case 0:
+                         break;
+                     case 1:
+@@ -1473,6 +1566,23 @@ void grVenom_80205F30(Ground_GObj* gobj)
+                         fire_kind = 1;
+                         break;
+                     }
++#ifdef PORT_PC
++                    /* G-176, P-774.  On the console `anim_data` is
++                     * `&grVe_803E5348` typed so that `+0x2FC` lands on
++                     * `grVe_803E5644` (word 191, exactly) and `+0x358` on
++                     * `grVe_803E56A0` (word 0xD6); `anim_ids[idx0]` with idx0 =
++                     * `grVe_803E5380[slot]` in 0..4 is `grVe_803E56A0[0..4]`,
++                     * and grVe_GetAnimArg is the anim_args row above.  Name
++                     * both tables; the console path is unchanged.
++                     */
++                    {
++                        s32 idx0 = grVe_803E5380[gp->u.venom.xC8];
++                        s32 anim_arg = grVe_GetAnimArg(fire_kind, gp);
++                        s32 anim_id = grVe_803E56A0[idx0];
++                        grAnime_801C8098(gobj, anim_id, 7, anim_arg, 0.0F,
++                                         1.0F);
++                    }
++#else
+                     {
+                         grVe_AnimData* anim_data = (grVe_AnimData*) base;
+                         s32 idx0 = base[gp->u.venom.xC8 + 14];
+@@ -1482,9 +1592,21 @@ void grVenom_80205F30(Ground_GObj* gobj)
+                         grAnime_801C8098(gobj, anim_id, 7, anim_arg, 0.0F,
+                                          1.0F);
+                     }
++#endif
+                 } else {
++#ifdef PORT_PC
++                    /* G-176, P-774.  `base[idx0 + 0xD6]` with idx0 =
++                     * `grVe_803E5380[slot]` in 0..4: word 0xD6 is 0x358 bytes
++                     * and `grVe_803E56A0` sits exactly at `grVe_803E5348 +
++                     * 0x358`, so this is `grVe_803E56A0[0..4]` = all 1.  Name
++                     * both; the console path is unchanged.
++                     */
++                    s32 idx0 = grVe_803E5380[gp->u.venom.xC8];
++                    s32 anim_id = grVe_803E56A0[idx0];
++#else
+                     s32 idx0 = base[gp->u.venom.xC8 + 14];
+                     s32 anim_id = base[idx0 + 0xD6];
++#endif
+                     tmp_jobj = Ground_801C3FA4(gobj, anim_id);
+                     HSD_JObjSetRotationZ(tmp_jobj, 0.0F);
+                 }
+@@ -1504,10 +1626,25 @@ void grVenom_80205F30(Ground_GObj* gobj)
+                 Ground_GetMapGObj(5);
+                 lb_8000B1CC(Ground_801C3FA4(other, 5), NULL, &sp64);
+                 {
++#ifdef PORT_PC
++                    /* G-176, P-774, as in grVenom_802052E0: the spawn triple
++                     * is word 12 + 3*arwing_type of `grVe_803E5530` (the
++                     * console's `base + type*12 bytes + 0x218`), the port's
++                     * VenomSpawnData carries no pad.  The console path is
++                     * unchanged.
++                     */
++                    VenomSpawnData* spawn_data =
++                        (VenomSpawnData*) &grVe_803E5530[12 +
++                                                         grVe_803E5348.arwing
++                                                             .arwing_type[
++                                                                 other_gp->u.venom.xC8] *
++                                                             3];
++#else
+                     VenomSpawnData* spawn_data =
+                         (VenomSpawnData*) (base +
+                                            base[other_gp->u.venom.xC8 + 11] *
+                                                3);
++#endif
+                     sp94.x = sp64.x + spawn_data->x;
+                     sp94.y = sp64.y + spawn_data->y;
+                     sp94.z = sp64.z + spawn_data->z;
+@@ -1519,8 +1656,17 @@ void grVenom_80205F30(Ground_GObj* gobj)
+             HSD_JObjSetTranslate(jobj, &sp94);
+ 
+             {
++#ifdef PORT_PC
++                /* G-176, P-774: word 0xD6 is `grVe_803E56A0` (at
++                 * `grVe_803E5348 + 0x358`, exactly), idx0 =
++                 * `grVe_803E5380[slot]`.  The console path is unchanged.
++                 */
++                s32 idx0 = grVe_803E5380[gp->u.venom.xC8];
++                s32 anim_id = grVe_803E56A0[idx0];
++#else
+                 s32 idx0 = base[gp->u.venom.xC8 + 14];
+                 s32 anim_id = base[idx0 + 0xD6];
++#endif
+                 lb_8000B1CC(Ground_801C3FA4(gobj, anim_id), NULL, &sp94);
+             }
+             if (gp->u.venom.linked_gobj != NULL) {
+@@ -1532,8 +1678,17 @@ void grVenom_80205F30(Ground_GObj* gobj)
+ 
+             {
+                 f32 rot_z;
++#ifdef PORT_PC
++                /* G-176, P-774: word 0xD6 is `grVe_803E56A0` (at
++                 * `grVe_803E5348 + 0x358`, exactly), idx0 =
++                 * `grVe_803E5380[slot]`.  The console path is unchanged.
++                 */
++                s32 idx0 = grVe_803E5380[gp->u.venom.xC8];
++                s32 anim_id = grVe_803E56A0[idx0];
++#else
+                 s32 idx0 = base[gp->u.venom.xC8 + 14];
+                 s32 anim_id = base[idx0 + 0xD6];
++#endif
+                 helper = Ground_801C3FA4(gobj, anim_id);
+                 rot_z = HSD_JObjGetRotationZ(helper);
+                 if (gp->u.venom.linked_gobj != NULL) {
+@@ -1588,11 +1743,25 @@ void grVenom_80205F30(Ground_GObj* gobj)
+                     Ground_GetMapGObj(5);
+                     lb_8000B1CC(Ground_801C3FA4(far_other, 5), NULL, &sp50);
+                     {
++#ifdef PORT_PC
++                        /* G-176, P-774, as in grVenom_802052E0: the spawn
++                         * triple is word 12 + 3*arwing_type of
++                         * `grVe_803E5530`, the port's VenomSpawnData carries
++                         * no pad.  The console path is unchanged.
++                         */
++                        VenomSpawnData* spawn_data =
++                            (VenomSpawnData*) &grVe_803E5530[12 +
++                                                             grVe_803E5348.arwing
++                                                                 .arwing_type[
++                                                                     far_other_gp->u.venom.xC8] *
++                                                                 3];
++#else
+                         VenomSpawnData* spawn_data =
+                             (VenomSpawnData*) (base +
+                                                base[far_other_gp->u.venom.xC8 +
+                                                     11] *
+                                                    3);
++#endif
+                         sp94.x = sp50.x + spawn_data->x;
+                         sp94.y = sp50.y + spawn_data->y;
+                         sp94.z = sp50.z + spawn_data->z;
+@@ -1622,7 +1791,15 @@ void grVenom_80205F30(Ground_GObj* gobj)
+                     sp88.y += 5.0F;
+                     lbAudioAx_800237A8(0x6B6C9, 0x7F, 0x40);
+                     fire_kind = -1;
++#ifdef PORT_PC
++                    /* G-176, P-774, as above: `base[slot + 14]` is
++                     * `grVe_803E5380` (+0x38, console-adjacent only).  The
++                     * console path is unchanged.
++                     */
++                    switch (grVe_803E5380[GET_GROUND(gobj)->u.venom.xC8]) {
++#else
+                     switch (base[GET_GROUND(gobj)->u.venom.xC8 + 14]) {
++#endif
+                     case 0:
+                         break;
+                     case 1:
