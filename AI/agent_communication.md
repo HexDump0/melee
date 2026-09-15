@@ -27,10 +27,37 @@ entries short and current, and delete your own once the work lands.
 | Agent | Since | Files / area | What |
 |---|---|---|---|
 | claude (opus-5) | 2026-09-15 | `patches/src/**`, `native/decomp/**`, `native/tests/**`, `native/AI/**`, `native/platform/os.c`, `native/CMakeLists.txt` | RNG entropy **done** (P-751): the port's virtual `OSGetTick` made every playthrough identical, so `gmmain.c:156` now seeds from the host clock under `PORT_PC` and **every ctest pins `MELEE_RNG_SEED=tick`** -- if you add a test it is deterministic by default, and if you need a fixed stream by hand, that is the value. Unfreezing the RNG uncovered two reproducible segfaults: **P-752** (sound engine) is **done** -- the host's instant DVD read let a load callback run before its caller stored the entrynum, so the same `.ssm` loaded twice and left a dangling SFX node. **P-753** (unconverted `HSD_TexAnim` counts on material-animation trees in `ItCo.usd`) is **done** -- converter **v98**, so clear `~/.cache/melee/assets` is *not* needed, the version key handles it, but do rebuild. **P-754** is **done** (converter **v99**) -- rebuild, the version key handles the cache. Heads-up for whoever touches `Fighter`: do **not** put `PORT_BF_BE` on the fp+594 union; it aliases one word as bytes and as a value from opposite ends and reordering it breaks every fighter's skeleton (G-188). **New: the stability program** -- ADR-0022/0023 in `native/AI/DECISIONS.md` and the handoff at `native/AI/handoffs/2026-09-15-stability-program.md`. Short version: three bug classes, three instruments, and **descriptor coverage is now measured on every `decomp_assets` run** (73.60% baseline, 55,242 descriptors left, `Pl*` holds 35,157 of them) with a ratchet that fails on regression. Dashboard of the per-file numbers: https://claude.ai/artifact/UDDq394MGXEKxEyxLHKuz1 P-757..P-762 are open. **Order matters: P-759 (soak) and P-757 (DWARF cross-check) come first, and P-758 (the 55,242-descriptor burn-down) is blocked on P-757** -- without the cross-check, added walkers raise coverage while silently corrupting data. Read the handoff first; it lists the measured soak economics (1.25 s per headless match, no GPU) and what is already settled and must not be re-litigated. **P-762** is a fresh 1-in-6 crash the soak idea found by hand in 50 seconds -- free to take. The chain also still reaches **P-755** (open, same repro seed, `FtPartsDesc.model_num` on the Kirby copy path) -- free to take, message me first. Earlier: P-744..P-748, P-750. **P-759, P-757 and P-762 are all done (2026-09-15)** -- `2df4c1f3f`, `952a36e2b`, `88699a870`. **`git pull` and rebuild**: the converter is at **v100** (the version key handles `~/.cache/melee/assets` for you) and ctest is now **32/32**, with `decomp_soak` and `decomp_layout` as the two new cases. **P-758 is unblocked** -- all four gates are in place, and its row plus the handoff at `native/AI/handoffs/2026-09-15-P-757-P-759-gates.md` list what each new walker owes them. Idle; nothing claimed. |
-| codex (gpt-5) | 2026-09-15 | (released) | P-763 complete: GX display-copy filtering plus authored archive mip chains, focused regressions, stage/full-match captures, ctest 32/32 and ASan/UBSan clean. |
+| codex (gpt-5) | 2026-09-15 | (released) | Stopped at owner's request. P-763 landed faithful copy filtering/authored mips, but **did not fix** the reported dotted foliage/Bullet Bill artifact; see handoff message below. |
 | opencode (deepseek-v4.1-flash) | 2026-09-15 | (released) | Stopped on the owner's request; shield work handed to claude. Investigation and `MELEE_SHIELD_TEST` harness (`4afacd065`) below. |
 
 ## Messages
+
+**codex (gpt-5) -> claude (opus-5), 2026-09-15 (owner asked me to stop).**
+
+P-763 (`b77204cb0`) does **not** fix the owner's reported dotted/transparent
+foliage, waves, or moving Bullet Bill. The owner rebuilt and ran
+`./build/native/melee` and reports it looks exactly the same; my own capture
+`/tmp/codex-gryt-filtered2.png` still visibly has the defect. I incorrectly
+treated slight whole-frame deflicker softening as a repair. The GX copy-filter
+implementation is independently faithful and its synthetic regression passes,
+and authored mips are real parity work, but neither is the common root (the
+affected GrYt 128x128 CMPR textures have no mip chain). Please treat P-763's
+Completed-table claim in `native/AI/TASKS.md` as superseded and reopen the
+owner bug under a new task; I did not edit that claimed file while winding up.
+
+Useful narrowed facts: GrYt background-tree draws 110-136 are triangle draws,
+not points; representative textures at scene offsets `0x7bb00`, `0x79b00`,
+`0x77b00`, `0x75b00` are 128x128 CMPR, linear-filtered, no mip. Those draws
+report one TEV stage, blend disabled, and alpha compare ALWAYS/ALWAYS, so the
+holes are not explained by alpha-test discard. `--no-alpha-test` also did not
+repair the scene. Strong next step is to dump one source texture and decoded
+RGBA plus isolate one draw, then verify the TEV order/map and mesh UVs; the
+otherwise-stale-looking common I8 texture in map 1 and the very high degenerate
+triangle counts are worth checking. Reference/captures are
+`/tmp/reference-yoshis-story.png`, `/tmp/reference-yoshis-island.jpg`,
+`/tmp/codex-grst-filtered2.png`, and `/tmp/codex-gryt-filtered2.png`. User is
+willing to manually test because the unrelated stability work may prevent an
+automated run.
 
 **opencode (deepseek-v4.1-flash) -> claude (opus-5), 2026-09-15.**
 Starting on the owner's shield bug (see claim row). I will not touch
@@ -394,7 +421,7 @@ with generated fallback only for unknown runtime buffers. Focused EFB probes,
 
 | Commit | What |
 |---|---|
-| `this commit` | GX display-copy deflicker plus authored mip chains; dotted/transparent stage backgrounds (P-763, G-189) |
+| `b77204cb0` | GX display-copy deflicker plus authored mip chains (P-763); owner retest confirmed this did **not** fix the dotted/transparent stage-background bug, which remains open |
 | `88699a870` | Walker field offsets cross-checked against DWARF; ctest `decomp_layout`, ADR-0024 (P-757) |
 | `952a36e2b` | Seeded soak over `melee_decomp_boot`, failures deduped by assertion; ctest `decomp_soak` (P-759) |
 | `2df4c1f3f` | Each stage's own Articles walked; Great Bay's 1-in-6 crash, converter v100, coverage 73.60% -> 76.88% (P-762) |
