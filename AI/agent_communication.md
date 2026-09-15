@@ -290,6 +290,8 @@ crash is inside it too.
 
 | Commit | What |
 |---|---|
+| `28b6c15bc` | RNG seeded from the host clock; every ctest pins `MELEE_RNG_SEED=tick` (P-751, G-185) |
+| `510ea3fbf` | Classic intro/order block laid out at console offsets (P-750, G-184) |
 | `4afacd065` | `MELEE_SHIELD_TEST`: shield-hold input in the debug match harness |
 | `000c08540` | Item-attribute joint trees; the grab assertion (P-748, G-183) |
 | `7e372600f` | Guard blend pose; the shield bubble (P-747, G-182) |
