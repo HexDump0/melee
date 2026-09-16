@@ -309,6 +309,25 @@ set_tests_properties(decomp_layout PROPERTIES
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
     TIMEOUT 120)
 
+# P-502/W0 gate zero: MWCC allocates bit-fields from the most significant bit
+# and Clang ignores the scalar_storage_order attribute that reproduces that
+# (ADR-0022), so a wasm build decodes subaction commands wrongly while
+# compiling cleanly.  This pins the console's decoding of real command bytes:
+# it passes under GCC today and fails under Emscripten, which is the point.
+add_executable(test_bit_order tests/test_bit_order.c)
+target_include_directories(test_bit_order BEFORE PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/include)
+target_compile_options(test_bit_order PRIVATE
+    -m32 -malign-double -w ${MELEE_DECOMP_LAYOUT_OPTIONS} -DPORT_PC=1
+    -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
+target_link_options(test_bit_order PRIVATE -m32 -malign-double)
+add_test(NAME bit_order COMMAND test_bit_order)
+set_tests_properties(bit_order PROPERTIES
+    PASS_REGULAR_EXPRESSION "test_bit_order: PASS")
+
 add_test(NAME decomp_assets COMMAND test_decomp_assets)
 set_tests_properties(decomp_assets PROPERTIES
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
