@@ -3733,3 +3733,88 @@ array with `next_public_after`. The clamp is worth having on its own: in
 next public symbol, and that symbol is `ftData` itself -- so without the
 clamp the loop's last act is to offer `ftData->x0` to the Article test and
 rely on a heuristic to reject it. P-815.
+
+## G-200: a hash index cleared out of step with the table it indexes
+
+**Symptom.** None, except frame time. The owner reported ~38 fps with a full
+house (`game=13.8ms render=12.2ms draws=780 verts=145k`) while two players ran
+fine. A steady-state profile put 7.5% of all cycles in `frame_tex_find`'s
+probe loop and `tex_key_equal`'s `memcmp`.
+
+**Cause.** `gx_hle_begin_frame` reset `frame_tcount` but never cleared
+`frame_tex_hash`. `gx_hle_discard_geometry`, three hundred lines away, always
+cleared both.
+
+**Why it was invisible.** It was never *unsafe*: `frame_tex_find` rejects
+`idx >= frame_tcount`, so a stale entry is skipped rather than believed. The
+guard that made it correct is exactly what stopped it ever being noticed.
+
+**How it degraded, which is the part worth carrying.** A stale index does not
+just waste a probe, it defeats the structure twice over:
+
+1. A lookup for a **new** key stops hitting an empty slot early and instead
+   probes the whole stale cluster, `memcmp`-ing 48-byte keys the entire way.
+2. `GXLoadTexObj` records a key only when `frame_tex_find` hands back an
+   **empty** slot. Once the table is dense with stale entries, insertions stop
+   happening at all -- so the index covers less and less of the frame, which
+   makes (1) worse, which is a feedback loop.
+
+So the cost grew with how much history the table had accumulated, not with the
+scene. That showed up as a **measurement** artifact before anyone read it as a
+bug: run-to-run spread on a pinned seed was 0.35%, and fell to 0.02% once
+fixed. **Unexplained variance in a benchmark is evidence about the program,
+not noise to average away.**
+
+**Fix.** One `memset` in `gx_hle_begin_frame`. 66.04e9 -> 53.03e9 instructions
+over a 900-frame match, -19.7%, with geometry identical over all 900 frames.
+
+**The general rule.** An index and the table it indexes have one lifetime.
+If you find yourself resetting a count without resetting its index, the two
+resets belong in the same function -- and if a second reset path already does
+both, that path is the specification.
+
+## G-201: the cache was not too small, it was being emptied
+
+**Symptom.** CPU texture decoding (`decode_cmpr`, `put`) at ~7% of cycles in a
+**steady-state** profile, long after loading. A working texture cache should
+show zero there.
+
+**The wrong diagnosis, which looked very good.** `MAX_GL_TEXTURES` is 256 and
+`GX_HLE_MAX_TEXTURES` is 2048, so a frame can bind eight times what the cache
+holds; past 256 the LRU evicts entries the same frame will ask for again. It
+explains the symptom, it explains why it gets worse with more fighters, and it
+is wrong. I wrote it into a task row and a message to another agent before
+measuring it.
+
+**What the counters said.** Over 300 frames: 26,187 misses, 26,187 decodes,
+25,765 invalidations -- and **166 evictions**. Misses tracked invalidations
+almost exactly and had nothing to do with the cache being full.
+
+**Actual cause.** `GXInitTexObj` called the texture-invalidate hook on every
+call, and HSD re-inits a texobj every time it binds a material. So the whole
+working set was dropped and re-decoded once per frame: 18,198 of those decodes
+were CMPR art read straight off the disc, which cannot have changed. P-685
+added that hook for the opening movie's THP planes, which are `HSD_MemAlloc`'d
+and CPU-updated in place. It was only ever needed for images the game
+**writes to**.
+
+**Fix.** Skip the invalidation when the image lies in a registered archive
+range (`gx_hle_image_is_asset`, memoised direct-mapped and stamped with a
+generation the range table bumps, because the range table has 125 entries and
+this runs per `GXInitTexObj`). EFB copy destinations are deliberately not
+covered -- `efb_copy_tex` invalidates its destination explicitly at all three
+call sites. Decodes 26,187 -> 1,305; CMPR 18,198 -> 270, which is load time.
+-37.1% instructions, two-player `render=` 4.0ms -> 1.0ms.
+
+**Three things to carry forward.**
+
+1. **Count the events that distinguish your hypotheses before you pick one.**
+   "Cache too small" and "cache being flushed" have identical symptoms and
+   opposite fixes, and one counter separates them. `MELEE_GX_TEX_STATS=1` now
+   reports hits/misses/evictions/decodes/invalidations for exactly this.
+2. **An invalidation hook added for one narrow case will be taken by every
+   case unless you gate it.** P-685's commit message even says which case it
+   was for.
+3. **Keep the old behaviour behind a switch.** `MELEE_GX_TEX_INVALIDATE=all`
+   restores it, which is what makes "byte-identical at frames 200/420/700" an
+   A/B rather than an assertion -- the same argument as `MELEE_GX_UNI_CACHE=0`.

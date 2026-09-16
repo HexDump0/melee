@@ -1295,6 +1295,32 @@ TUs and two of the four symbols are non-`static`, so it needs the `hsd_4D11.c`
 alias treatment rather than a quick rebase, and getting it wrong would corrupt
 the trophy gallery rather than fix it.
 
+**Frame time, two texture-cache bugs (2026-09-16, P-813/P-814):** the owner
+reported ~38 fps with a full house -- `game=13.8ms render=12.2ms draws=780
+verts=145662` -- while two players held 60. Both causes were caches that had
+stopped being caches, and neither had any symptom other than frame time.
+
+`gx_hle_begin_frame` reset `frame_tcount` without clearing `frame_tex_hash`,
+so the frame texture index kept every key its predecessors wrote. It stayed
+*correct* -- `frame_tex_find` rejects `idx >= frame_tcount` -- while
+degenerating into a scan, and because `GXLoadTexObj` only records a key when
+the lookup returns an empty slot, insertions stopped happening as the table
+filled. Separately, `GXInitTexObj` dropped the decoded GL texture for its
+image on every call, and HSD re-inits a texobj every time it binds a material:
+26,187 decodes over 300 frames, 18,198 of them CMPR art off the disc that
+cannot have changed, against 166 LRU evictions. That one is now gated on
+`gx_hle_image_is_asset()`, preserving P-685's opening-movie planes, which are
+the writable buffers it was actually for.
+
+Measured on a 900-frame headless match, pinned seed and core:
+**66.04e9 -> 33.34e9 instructions, -49.5%**; two-player `render=` 4.0ms ->
+1.0ms; decodes 26,187 -> 1,305. Captures are byte-identical against the old
+behaviour, which `MELEE_GX_TEX_INVALIDATE=all` restores;
+`MELEE_GX_TEX_STATS=1` reports hits/misses/evictions/decodes/invalidations.
+ctest 33/33. **Not yet confirmed at four players** -- the match harness is
+`MELEE_MATCH_P0`/`P1` only, so that measurement has to come from the owner.
+G-200, G-201.
+
 **Dotted/transparent stage backgrounds (2026-09-16 correction):** P-763's
 display-copy filter and authored-mip work was valid parity work, but it did
 not fix the reported Yoshi's Story/Yoshi's Island artifact. The shared cause
