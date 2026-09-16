@@ -35,6 +35,7 @@
 #include <melee/pl/player.h>
 #include <melee/it/forward.h>
 #include <melee/it/types.h>
+#include <melee/cm/camera.h>
 #include <melee/gr/forward.h>
 #include <melee/gr/ground.h>
 #include <melee/gr/types.h>
@@ -888,6 +889,18 @@ static void match_boot_frame(void)
          * every second in whatever mode is running (P-793). */
         if ((frame % 60) == 0) {
             int slot;
+            /* The camera's interest is what drives Home-Run Contest's ground
+             * streaming: `grHomeRun_8021D680` derives the 64-segment window
+             * from `cam_interest.x`, so if the camera stops following the
+             * sandbag the ground runs out from under it and it falls forever
+             * while the contest waits for it to rest (P-793).  Printing the
+             * camera next to the fighters is what tells those two apart. */
+            {
+                Vec3 ci;
+                Camera_GetTransformInterest(&ci);
+                fprintf(stderr, "[pos] f=%u camera interest=(%.1f,%.1f)\n",
+                        frame, (double) ci.x, (double) ci.y);
+            }
             for (slot = 0; slot < MATCH_STUCK_SLOTS; slot++) {
                 HSD_GObj* g = Player_GetEntity(slot);
                 Fighter* f;
