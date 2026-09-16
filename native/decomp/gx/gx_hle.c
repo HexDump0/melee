@@ -2986,6 +2986,25 @@ void gx_hle_begin_frame(void)
     frame_vcount = 0;
     frame_dcount = 0;
     frame_tcount = 0;
+    /* P-813: the index has to be cleared with the table it indexes.  Resetting
+     * frame_tcount alone left every slot this frame's predecessors wrote still
+     * holding `index + 1` into entries that are about to be overwritten.
+     *
+     * It was never *unsafe* -- frame_tex_find rejects `idx >= frame_tcount`,
+     * and gx_hle_discard_geometry has always cleared both -- but it made the
+     * hash degenerate into a scan within a few seconds of play.  Two ways:
+     * a lookup for a new key stopped finding an empty slot early and instead
+     * probed the whole stale cluster, memcmp'ing 48-byte keys the entire way,
+     * and, because GXLoadTexObj only records a key when frame_tex_find hands
+     * back an empty slot, insertions quietly stopped happening at all.  So the
+     * table filled up, stayed full, and indexed less and less of the frame.
+     *
+     * That is 7.5% of all cycles in a steady-state match profile, charged to
+     * the `game=` half.  It also degraded the deduplication itself: a texture
+     * already in frame_textures whose key was never indexed gets appended a
+     * second time, which is pressure on exactly the GX_HLE_MAX_TEXTURES cap
+     * P-740 raised to 2048 and then overran again on Corneria. */
+    memset(frame_tex_hash, 0, sizeof(frame_tex_hash));
     stat_display_lists = 0;
     stat_primitives = 0;
     stat_skipped = 0;
