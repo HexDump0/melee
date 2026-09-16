@@ -16,6 +16,11 @@
 #            clang errors where GCC warns; the native build relaxes the GCC
 #            spelling of the same thing
 #   link     --use-port=sdl3 -sMAX_WEBGL_VERSION=2 -sMIN_WEBGL_VERSION=2
+#            plus linear memory sized past the end of MEM1 (2.25 GiB) with
+#            growth off, so 0x80000000 is a valid index and the reservation is
+#            a single up-front yes/no -- see os.c:map_gc_ram.  Growth is off
+#            deliberately: Mozilla bug 1660420 reports Memory.grow failing when
+#            the maximum is 4 GB, and we never need to grow.
 #            gx_gl.c calls glBlitFramebuffer, which is WebGL2-only; emcc links
 #            the WebGL1 library unless asked
 set -e
@@ -78,6 +83,7 @@ echo "compile failures: $nfail"
 [ "$nfail" -eq 0 ] || { cat "$OUT/failures.txt"; exit 1; }
 
 echo "linking"
-emcc "$OUT"/obj/*.o -o "$OUT/melee.js" --use-port=sdl3 \
-  -sALLOW_MEMORY_GROWTH=1 -sMAX_WEBGL_VERSION=2 -sMIN_WEBGL_VERSION=2
-echo "linked: $(du -h "$OUT/melee.wasm" | cut -f1) wasm"
+emcc "$OUT"/obj/*.o -o "$OUT/melee.html" --use-port=sdl3 \
+  -sINITIAL_MEMORY=2415919104 -sMAXIMUM_MEMORY=2415919104 \
+  -sALLOW_MEMORY_GROWTH=0 -sMAX_WEBGL_VERSION=2 -sMIN_WEBGL_VERSION=2
+echo "linked: $(du -h "$OUT/melee.wasm" | cut -f1) wasm -> $OUT/melee.html"

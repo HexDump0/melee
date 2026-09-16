@@ -68,6 +68,32 @@ extern unsigned long __DVDLongFileNameFlag __attribute__((weak));
 
 static void map_gc_ram(void)
 {
+#ifdef PORT_WASM
+    /* WebAssembly has no MMU: linear memory is one flat array and a pointer is
+     * an index into it, so there is nothing to map.  Instead the module is
+     * linked with linear memory sized past the end of MEM1, which makes
+     * 0x80000000 simply a valid index we already own.
+     *
+     * That costs address space rather than RAM -- the engine reserves the
+     * range and the OS commits pages on touch -- measured at 59 MB resident
+     * against a 2.1 GB reservation, and accepted by desktop Chromium and
+     * Firefox.  It has no headroom, though: MEM1 *begins* at exactly 2 GiB,
+     * which was the historical browser cap, so a stricter engine (a phone, an
+     * older build) will refuse.  P-502 keeps the rebase-to-a-low-address
+     * design on file as the fallback for that case; check the size rather
+     * than trapping on the first store, so the refusal is a diagnostic.
+     */
+    size_t linear = (size_t) __builtin_wasm_memory_size(0) * 65536u;
+    if (linear < (size_t) GC_CACHED_BASE + GC_RAM_SIZE) {
+        boot_triage_note("[boot] OSInit: linear memory is %zu bytes, need %zu "
+                         "to reach the end of MEM1 at 0x%08x; link with a "
+                         "larger INITIAL_MEMORY or rebase MEM1\n",
+                         linear, (size_t) GC_CACHED_BASE + GC_RAM_SIZE,
+                         GC_CACHED_BASE + GC_RAM_SIZE);
+        boot_triage_stop("OSInit: linear memory too small for MEM1");
+        return;
+    }
+#else
     void* page;
 
     page = mmap((void*) GC_CACHED_BASE, GC_RAM_SIZE,
@@ -80,6 +106,7 @@ static void map_gc_ram(void)
         boot_triage_stop("OSInit: GC main RAM mapping failed");
         return;
     }
+#endif
     *(volatile u32*) (GC_CACHED_BASE + GC_PHYS_MEM_SIZE_OFF) = OS_ARENA_SIZE;
     *(volatile u32*) (GC_CACHED_BASE + GC_SIM_MEM_SIZE_OFF) = OS_ARENA_SIZE;
     *(volatile u32*) (GC_CACHED_BASE + GC_BUS_CLOCK_OFF) = GC_BUS_CLOCK;
