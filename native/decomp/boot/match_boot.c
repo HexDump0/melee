@@ -921,11 +921,13 @@ static void match_boot_frame(void)
                 fprintf(stderr,
                         "[pos] f=%u slot %d kind %d motion=%d "
                         "pos=(%.1f,%.1f,%.1f) vel=(%.2f,%.2f) "
-                        "kb=(%.2f,%.2f)\n",
+                        "kb=(%.2f,%.2f) floor=%d env=0x%x\n",
                         frame, slot, (int) f->kind, (int) f->motion_id,
                         (double) p.x, (double) p.y, (double) p.z,
                         (double) f->self_vel.x, (double) f->self_vel.y,
-                        (double) f->x8c_kb_vel.x, (double) f->x8c_kb_vel.y);
+                        (double) f->x8c_kb_vel.x, (double) f->x8c_kb_vel.y,
+                        (int) f->coll_data.floor.index,
+                        (unsigned) f->coll_data.env_flags);
             }
         }
     }
