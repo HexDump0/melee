@@ -1323,6 +1323,27 @@ static int vec3_bad(const Vec3* v)
     return pos3d_bad(v->x) || pos3d_bad(v->y) || pos3d_bad(v->z);
 }
 
+/* `Fighter::kind` is a **`FighterKind`**, which is not `CharacterKind`: the
+ * two enums order the roster differently, so 12 is Pikachu here and Peach
+ * there.  Printing the bare number invites exactly that misreading -- it cost
+ * a wrong theory on P-800, where the dump was right and the reading of it was
+ * not.  Name it. */
+static const char* fighter_kind_name(int kind)
+{
+    static const char* const names[] = {
+        "Mario",  "Fox",     "Captain", "Donkey",   "Kirby",  "Koopa",
+        "Link",   "Seak",    "Ness",    "Peach",    "Popo",   "Nana",
+        "Pikachu","Samus",   "Yoshi",   "Purin",    "Mewtwo", "Luigi",
+        "Mars",   "Zelda",   "CLink",   "DrMario",  "Falco",  "Pichu",
+        "GameWatch", "Ganon", "Emblem", "MasterH",  "CrezyH", "Boy",
+        "Girl",   "GKoops",  "Sandbag",
+    };
+    if (kind < 0 || (size_t) kind >= sizeof(names) / sizeof(names[0])) {
+        return "?";
+    }
+    return names[kind];
+}
+
 static void dump_joint_chain(FILE* out, HSD_JObj* joint)
 {
     int level;
@@ -1393,9 +1414,10 @@ static void dump_fighter(FILE* out, const char* tag, HSD_GObj* gobj)
     HSD_JObj* joint = NULL;
 
     fprintf(out,
-            "[crash]   %s gobj=%p kind=%d player=%d motion=%d anim=%d "
+            "[crash]   %s gobj=%p kind=%s(%d) player=%d motion=%d anim=%d "
             "ga=%d facing=%.3g scale=(%.4g,%.4g,%.4g)\n",
-            tag, (void*) gobj, (int) fp->kind, (int) fp->player_id,
+            tag, (void*) gobj, fighter_kind_name((int) fp->kind),
+            (int) fp->kind, (int) fp->player_id,
             (int) fp->motion_id, (int) fp->anim_id, (int) fp->ground_or_air,
             fp->facing_dir, fp->x34_scale.x, fp->x34_scale.y,
             fp->x34_scale.z);

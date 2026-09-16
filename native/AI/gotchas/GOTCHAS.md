@@ -3463,9 +3463,17 @@ reading Peach's code would have followed.
 
 `addr2line -f -e build/native/melee <offset>` on the `[module+0x...]` offset
 the reporter prints settles it in seconds, and here it resolved all four
-frames exactly -- file and line -- so the names were right and the *dump* was
-what was incomplete. Check the offsets before rewriting a theory around a
-name; the reporter prints them for exactly this reason, and they survive ASLR.
+frames exactly -- file and line -- so the names were right.
+
+**And the dump was right too.** `Fighter::kind` is a `FighterKind`, not a
+`CharacterKind`; the two enums order the roster differently and
+`Ft_Kind_Pikachu` is 12, so the fighter I read as Peach *was* the Pikachu.
+Two instruments were correct and the reading of one of them was not, which is
+worse than either being broken: it produced a confident theory about gobj
+teardown and a Training-mode character swap, all of it fiction. The dump
+prints the kind by name now. When two pieces of evidence contradict each
+other, suspect the interpretation before the instruments -- and check what the
+number you are reading is actually an enum *of*.
 
 ## G-191: a fixture can encode the same wrong assumption as the code it guards
 
