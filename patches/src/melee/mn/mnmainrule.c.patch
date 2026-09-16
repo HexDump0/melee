@@ -1,0 +1,19 @@
+diff --git a/src/melee/mn/mnmainrule.c b/src/melee/mn/mnmainrule.c
+index 72a6fb7e3..eb7f9cfd9 100644
+--- a/src/melee/mn/mnmainrule.c
++++ b/src/melee/mn/mnmainrule.c
+@@ -152,7 +152,14 @@ HSD_GObj* mn_804D6BD0;
+ void mnItemSw_802358C0(void);
+ void mn_802339FC(void);
+ void mnCharSel_80264070(void);
++#ifdef PORT_PC
++/* mncharsel.c defines this `s32`; both call sites here discard the result, but
++ * wasm-ld type-checks the declaration against the definition and traps on the
++ * mismatch.  mncharsel.h agrees with the definition. */
++s32 mnCharSel_802640A0(void);
++#else
+ void mnCharSel_802640A0(void);
++#endif
+ 
+ static inline u8 mn_8022F538_GetHoveredSelection(void)
+ {

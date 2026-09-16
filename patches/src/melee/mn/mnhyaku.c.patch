@@ -1,0 +1,34 @@
+diff --git a/src/melee/mn/mnhyaku.c b/src/melee/mn/mnhyaku.c
+index 7223ac7c4..c31aa7de8 100644
+--- a/src/melee/mn/mnhyaku.c
++++ b/src/melee/mn/mnhyaku.c
+@@ -17,7 +17,16 @@
+ 
+ static HSD_GObj* mnHyaku_804D6C58;
+ 
++#ifdef PORT_PC
++/* gm_1601.c defines this `void gm_801677E8(s8)`.  The console passes the
++ * argument by leaving mn_802295AC's result in r3 across the call below, which
++ * a local `(void)` declaration hides -- mnevent.c:502 spells the same pair
++ * `gm_801677E8(mn_802295AC())`.  wasm-ld traps on the signature mismatch, so
++ * declare and call it the way the rest of the game does. */
++void gm_801677E8(s8);
++#else
+ void gm_801677E8(void);
++#endif
+ 
+ static AnimLoopSettings mnHyaku_803EF668 = { 0.0f, 19.0f, -0.1f };
+ static AnimLoopSettings mnHyaku_803EF674 = { 20.0f, 29.0f, -0.1f };
+@@ -70,8 +79,12 @@ void mnHyaku_8024C68C(HSD_GObj* arg0)
+     }
+     if (events & MenuInput_Confirm) {
+         sfxForward();
++#ifdef PORT_PC
++        gm_801677E8(mn_802295AC());
++#else
+         mn_802295AC();
+         gm_801677E8();
++#endif
+         // load the different multi-man melee modes
+         switch (menu->cursor) {
+         case 0:

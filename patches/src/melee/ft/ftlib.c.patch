@@ -1,0 +1,29 @@
+diff --git a/src/melee/ft/ftlib.c b/src/melee/ft/ftlib.c
+index 670d03e68..de37b656f 100644
+--- a/src/melee/ft/ftlib.c
++++ b/src/melee/ft/ftlib.c
+@@ -996,10 +996,24 @@ void ftLib_80087610(u8 arg0)
+     }
+ }
+ 
++#ifdef PORT_PC
++/* No `return` in the decompilation.  The console leaves
++ * ftAnim_IsFramesRemaining's result in r3 and falls out of the function, and
++ * the one caller -- gm_1798.c, which declares this `s32` and tests it against
++ * 0 -- reads exactly that.  GCC happens to agree by accident (the call is the
++ * last thing the function does, so eax still holds it); wasm-ld type-checks
++ * signatures across translation units, and a call through the mismatch traps.
++ * Return the value the console returns. */
++s32 ftLib_800876B4(HSD_GObj* gobj)
++{
++    return ftAnim_IsFramesRemaining(gobj);
++}
++#else
+ void ftLib_800876B4(HSD_GObj* gobj)
+ {
+     ftAnim_IsFramesRemaining(gobj);
+ }
++#endif
+ 
+ bool ftLib_800876D4(HSD_GObj* gobj)
+ {
