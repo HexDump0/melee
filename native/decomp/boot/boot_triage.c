@@ -251,6 +251,34 @@ const char* boot_triage_crash_signal_name(void)
     }
 }
 
+/* `dladdr` only resolves dynamic symbols, so every `static` function -- which
+ * is most of the platform layer -- came out as a bare `<unknown>` with the
+ * address thrown away.  Three of the five frames in the owner's Home-Run
+ * crash report were unusable for exactly that reason.  Always print the
+ * address, and next to it the containing module and the offset within it,
+ * which is what `addr2line -e <module> <offset>` wants and which survives
+ * ASLR. */
+static void print_frame(FILE* out, int i, void* pc)
+{
+    Dl_info info;
+
+    if (dladdr(pc, &info) == 0) {
+        fprintf(out, "[boot]   #%d %p\n", i, pc);
+        return;
+    }
+    if (info.dli_sname != NULL) {
+        fprintf(out, "[boot]   #%d %s+0x%lx", i, info.dli_sname,
+                (unsigned long) ((char*) pc - (char*) info.dli_saddr));
+    } else {
+        fprintf(out, "[boot]   #%d %p", i, pc);
+    }
+    if (info.dli_fname != NULL && info.dli_fbase != NULL) {
+        fprintf(out, "  [%s+0x%lx]", info.dli_fname,
+                (unsigned long) ((char*) pc - (char*) info.dli_fbase));
+    }
+    fputc('\n', out);
+}
+
 void boot_triage_print_backtrace(FILE* out, const char* label)
 {
     void* frames_here[BOOT_MAX_FRAMES];
@@ -263,15 +291,7 @@ void boot_triage_print_backtrace(FILE* out, const char* label)
     depth = backtrace(frames_here, BOOT_MAX_FRAMES);
     fprintf(out, "[boot] backtrace (%s):\n", label);
     for (i = 0; i < depth; i++) {
-        Dl_info info;
-
-        if (dladdr(frames_here[i], &info) != 0 && info.dli_sname != NULL) {
-            fprintf(out, "[boot]   #%d %s+0x%lx\n", i, info.dli_sname,
-                    (unsigned long) ((char*) frames_here[i] -
-                                     (char*) info.dli_saddr));
-        } else {
-            fprintf(out, "[boot]   #%d %p\n", i, frames_here[i]);
-        }
+        print_frame(out, i, frames_here[i]);
     }
     fflush(out);
 }
@@ -287,15 +307,7 @@ void boot_triage_print_crash(FILE* out)
             boot_triage_crash_signal_name());
     fprintf(out, "[boot] backtrace (captured in handler):\n");
     for (i = 0; i < crash_depth; i++) {
-        Dl_info info;
-
-        if (dladdr(crash_frames[i], &info) != 0 && info.dli_sname != NULL) {
-            fprintf(out, "[boot]   #%d %s+0x%lx\n", i, info.dli_sname,
-                    (unsigned long) ((char*) crash_frames[i] -
-                                     (char*) info.dli_saddr));
-        } else {
-            fprintf(out, "[boot]   #%d <unknown>\n", i);
-        }
+        print_frame(out, i, crash_frames[i]);
     }
 }
 

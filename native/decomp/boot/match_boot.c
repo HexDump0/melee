@@ -146,6 +146,48 @@ static void build_item_test_input(void)
                          MATCH_INPUT_FRAMES);
 }
 
+/* P-794: `player_slots[].player_entity` is not cleared when a match tears
+ * down, so `Player_GetEntity` keeps handing back the slot's old entity long
+ * after HSD has freed it -- and on a results or record screen the block has
+ * been handed out again as something else.  Every probe below took the
+ * pointer on the strength of a NULL check and read it as a `Fighter*`; the
+ * owner's Home-Run Contest run segfaulted inside the VI frame hook on the
+ * record screen for exactly that reason (`VIWaitForRetrace+0x64` is the
+ * return address of `call *vi_frame_hook`, and the two frames under it were
+ * `<unknown>` because they are `static`).
+ *
+ * The classifier alone is not a test: a freed block keeps its old bytes.
+ * `Fighter_Create` puts every fighter on GX link 5, and unloading takes it
+ * off, so membership of that list is what actually distinguishes a live
+ * fighter from a stale pointer.  Nothing here dereferences the candidate --
+ * only list nodes, which are live by construction -- so the check is safe
+ * even when the slot holds outright garbage. */
+static HSD_GObj* match_boot_fighter_gobj(int slot)
+{
+    HSD_GObj* gobj;
+    HSD_GObj* live;
+
+    if (HSD_GObjGXLinkHead == NULL) {
+        return NULL;
+    }
+    gobj = Player_GetEntity(slot);
+    if (gobj == NULL) {
+        return NULL;
+    }
+    for (live = HSD_GObjGXLinkHead[5]; live != NULL; live = live->next_gx) {
+        if (live != gobj) {
+            continue;
+        }
+        if (live->classifier != HSD_GOBJ_CLASS_FIGHTER ||
+            live->user_data == NULL)
+        {
+            return NULL;
+        }
+        return live;
+    }
+    return NULL;
+}
+
 /* P-747: the shield bubble is created and submitted but draws nothing.
  * `efLib_Update` derives the bubble's scale from the attach joint's matrix
  * (`HSD_MtxGetScale(HSD_JObjGetMtxPtr(effect->attach_jobj), ...)`), so a
@@ -164,7 +206,7 @@ static void log_shield_state(void)
     if (!shield_test || (frame % 10) != 0) {
         return;
     }
-    g = Player_GetEntity(0);
+    g = match_boot_fighter_gobj(0);
     if (g == NULL || g->user_data == NULL) {
         return;
     }
@@ -564,7 +606,7 @@ static void check_fighter_stuck(void)
         return;
     }
     for (slot = 0; slot < slots; slot++) {
-        HSD_GObj* gobj = Player_GetEntity(slot);
+        HSD_GObj* gobj = match_boot_fighter_gobj(slot);
         Fighter* fp;
         int motion_frozen;
         int anim_frozen;
@@ -670,8 +712,8 @@ static void log_match_selection(void)
     if (select_logged || gm_GetCurrentGameMode() != GM_DEBUG_VS) {
         return;
     }
-    g0 = Player_GetEntity(0);
-    g1 = Player_GetEntity(1);
+    g0 = match_boot_fighter_gobj(0);
+    g1 = match_boot_fighter_gobj(1);
     if (g0 == NULL || g1 == NULL) {
         return;
     }
@@ -690,7 +732,7 @@ static void log_match_state(void)
     int slot;
     static int attrs_logged;
     for (slot = 0; slot < 2; slot++) {
-        HSD_GObj* gobj = Player_GetEntity(slot);
+        HSD_GObj* gobj = match_boot_fighter_gobj(slot);
         Vec3 pos;
         Fighter* fp;
         if (gobj == NULL) {
@@ -746,7 +788,7 @@ static void log_cpu_test(void)
             return;
         }
         for (slot = 0; slot < 6; slot++) {
-            HSD_GObj* gobj = Player_GetEntity(slot);
+            HSD_GObj* gobj = match_boot_fighter_gobj(slot);
             Fighter* fp;
             unsigned char* list;
             int cmd;
@@ -786,7 +828,7 @@ static void log_cpu_test(void)
         }
     }
     for (slot = 0; slot < 6; slot++) {
-        HSD_GObj* gobj = Player_GetEntity(slot);
+        HSD_GObj* gobj = match_boot_fighter_gobj(slot);
         Fighter* fp;
         int attacking;
 
@@ -910,7 +952,7 @@ static void match_boot_frame(void)
                         frame, (double) ci.x, (double) ci.y);
             }
             for (slot = 0; slot < MATCH_STUCK_SLOTS; slot++) {
-                HSD_GObj* g = Player_GetEntity(slot);
+                HSD_GObj* g = match_boot_fighter_gobj(slot);
                 Fighter* f;
                 Vec3 p;
                 if (g == NULL || g->user_data == NULL) {
