@@ -3845,3 +3845,65 @@ for nondeterminism that is not there.
 **Related.** G-190 is the same shape one level up: an instrument was right
 and the reading of it was wrong. Here the instrument itself was wrong, and it
 was wrong in the direction that looks like flakiness.
+
+## G-203
+
+**Symptom.** A fighter's position becomes ~1e19 in a single frame and
+`lbvector.c:397/398` asserts on the camera's position sanity check. `prev_pos`
+is sane, so the value is *written*, not integrated. Reproduced on Brinstar
+Depths (Roy vs Pichu) and Onett (Link vs Luigi).
+
+**The chain, and why it is worth reading in full.** Every step was caught on a
+hardware watchpoint rather than reasoned about, and **not one of the first
+five steps is anywhere near the bug**:
+
+1. the animation curve player hands `HSD_JObjSetTranslateX` **2.37e30**;
+2. all six ECB bones' world matrices inherit it;
+3. `mpColl_LoadECB_JObj` writes `desired_ecb.bottom.y = 1.48e29`;
+4. `mpColl_80043754` does `s32 steps = x / 6.0F` on that, and the `float`->`int`
+   conversion **overflows to `INT_MIN`**, so `1.0F / (steps - step)` is
+   `-4.6566e-10` — exactly `-1/2^31`, which is how you recognise it;
+5. `mpCollInterpolateECB` turns `ecb.bottom.y` into `-6.89e19`;
+6. the floor snap adds it to `cur_pos.y`;
+7. the camera asserts.
+
+**Cause, seven steps up.** `conv_ft_data`'s per-costume TObj-index walk
+iterates `for (k = 0; k < 8; k++)` over `ftData_x8_x8.xC` and used each slot
+as a pointer without asking whether it is a relocation target. **Eight is the
+cap, not the count.** For a fighter with fewer costumes the walk reads
+ordinary data as an offset and byte-swaps `n_tobjs` u16 wherever it lands. In
+`PlEm.dat` it landed on the **symbol string** at `0x18` and transposed its
+first two halfwords:
+
+```
+wanted:  lPEymblem5K_Share_ACTION_WallDamage_figatree
+archive: PlyEmblem5K_Share_ACTION_WallDamage_figatree
+```
+
+`ftData_80085CD8` DMAs the animation in from ARAM, parses it, then looks that
+name up with `HSD_ArchiveGetPublicAddress`. The lookup is a plain `strcmp`, so
+it returned NULL, `fp->x590` was left NULL, and `Fighter_ChangeMotionState`
+skipped the rebind that is guarded by `if (fp->x590 != 0U)`. **The joints kept
+the previous animation's `HSD_FObj`s while the DMA had already overwritten the
+buffer they read from** — so the curve player decoded a new animation's bytes
+with the old animation's lengths and fraction encodings. The giveaway in the
+`HSD_FObj` was `ad - ad_head = 27` on a `length = 25` stream, with
+`frac_value`/`frac_slope` of 0 on a track whose bytes only decode cleanly as
+S16.
+
+**Three lessons.**
+
+- **A byte-swapped *string* is a walker bug that no struct check will catch.**
+  Every field in sight was plausible; the corruption was four characters of a
+  name, and it surfaced as a physics assert nine steps away.
+- **`k < 8` over a costume table is the same mistake as a guessed count.** The
+  file's own doctrine — bound by `c->reloc[]`, `next_pointed_at_after` or
+  `next_public_after`, never by a constant — applies to inner tables too, not
+  just the roots where it is written down.
+- **Do not "fix" step 4.** Making the `float`->`int` conversion saturate the
+  way PowerPC does turns `INT_MIN` into `INT_MAX` and trades the crash for a
+  two-billion-iteration hang. It is a real port divergence and it is a
+  symptom, not the bug.
+
+**Also fixed by this.** The `lbvector.c:397` **x** twin on Onett, which had
+been filed separately. One walker bound, two soak cells green. P-797.

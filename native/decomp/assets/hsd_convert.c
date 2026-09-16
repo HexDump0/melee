@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 128u
+#define HSD_CONVERTER_VERSION 129u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -4227,6 +4227,23 @@ static void conv_ft_data(Conv* c, uint32_t off, const char* name,
                 uint32_t arr;
                 int j;
                 if (!in_data(c, p, 4)) {
+                    break;
+                }
+                /* **Eight is the cap, not the count.**  A fighter with fewer
+                 * costumes ends this table early, and the words after it are
+                 * whatever the archive put there.  Without this check `arr`
+                 * is ordinary data used as an offset, and the inner loop
+                 * byte-swaps `n_tobjs` u16 wherever it lands: in `PlEm.dat`
+                 * it landed on the **symbol string** at 0x18 and transposed
+                 * its first two halfwords, turning
+                 * `PlyEmblem5K_Share_ACTION_WallDamage_figatree` into
+                 * `lPEymblem5K_...`.  `ftData_80085CD8` then looked that name
+                 * up in the animation archive it had just DMA'd in, got NULL,
+                 * and left `fp->x590` NULL -- so the joints were never
+                 * rebound and the previous animation's FObjs kept playing
+                 * over the new data (P-797, G-203).  A slot that is not a
+                 * relocation target is not a pointer; stop there. */
+                if (!c->reloc[p]) {
                     break;
                 }
                 arr = rd32(c, p);
