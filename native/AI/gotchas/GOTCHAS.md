@@ -3963,3 +3963,34 @@ before building the safe version** -- P-817 was answered in ten minutes by
 changing `uv[8]` to `uv[4]` and breaking the load-time cases on purpose, which
 is a measurement, not a patch. Had that been built properly first, it would
 have been days of work for 0.17%.
+
+## G-205
+
+**Symptom.** `SIGSEGV in it_80270E30` at a wild address (`0xbffd00a0`, a stack
+pointer), reproducible at frame 4518 of one soak cell.
+
+**Cause.** `itcoll.c:815` does `temp_r29 = &it_804A0E70[index2]`, and `u32
+index2` is **uninitialized**: it is assigned only inside
+`if (knockback > max_knockback)`. When no damage-log entry beats the initial
+`max_knockback` of `-1`, the index is whatever was left on the stack.
+
+**Why the console survives it.** The leftover there is a register value and
+the read lands somewhere inside 24 MB of mapped RAM, so retail silently
+applies an arbitrary damage-log entry. On a 32-bit host the leftover is a
+stack address and the dereference faults. **This is the third member of the
+same family** — P-781's `FObjUpdateAnim` `default:` arm and `fn_8001E60C`'s
+`fobj->next` are the others — and the family is worth naming: *an
+uninitialized local that the console makes harmless because of what its stack
+happens to contain.*
+
+**Fix, and the principle.** `max_knockback == -1.0f` is an exact test for
+"`index2` was never assigned" — it is the initial value, the only writer
+raises it, and the comparison is strictly greater. With no entry selected
+there is nothing to apply and **no correct index to invent**, so the guarded
+path does nothing rather than guessing 0. Inventing a value here would trade a
+crash for silently applying the wrong attacker, which is the worse failure.
+
+**Finding more of them.** These do not show up in review, because the code
+reads as if the assignment always happens. They show up when a soak runs long
+enough for the "no entry matched" case to occur, which is why the 5400-frame
+matrix found this and the 900-frame one never did. P-819.

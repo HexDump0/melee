@@ -1,0 +1,33 @@
+diff --git a/src/melee/it/itcoll.c b/src/melee/it/itcoll.c
+index 3b65e74db..41810e28c 100644
+--- a/src/melee/it/itcoll.c
++++ b/src/melee/it/itcoll.c
+@@ -811,6 +811,28 @@ void it_80270E30(Item_GObj* arg_item_gobj)
+                 index++;
+             }
+         }
++#ifdef PORT_PC
++        /* `index2` is only assigned inside `if (knockback > max_knockback)`,
++         * and nothing initializes it.  When no damage-log entry beats the
++         * initial `max_knockback` of -1 -- which happens, reproducibly, on
++         * Mushroom Kingdom II at frame 4518 of the soak's own seed -- the
++         * index below is whatever was left on the stack, and
++         * `&it_804A0E70[index2]` is a wild pointer.  On the console the
++         * leftover is a register value and the read lands somewhere inside
++         * 24 MB of mapped RAM, so it silently applies an arbitrary entry; on
++         * the host it is a stack address and the `->x0` faults.
++         *
++         * `max_knockback == -1.0f` is an exact test for "index2 was never
++         * assigned": it is the initial value, the only writer raises it, and
++         * the comparison is strictly greater, so no real entry can leave it
++         * at -1 having also set the index.  With no entry selected there is
++         * nothing to apply and no correct index to invent, so do nothing --
++         * the same reasoning as the `FObjUpdateAnim` `default:` arm (P-781).
++         */
++        if (max_knockback == -1.0f) {
++            return;
++        }
++#endif
+         temp_r29 = &it_804A0E70[index2];
+         switch (temp_r29->x0) {
+         case 1:
