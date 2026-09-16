@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 125u
+#define HSD_CONVERTER_VERSION 126u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -107,6 +107,7 @@ enum {
     STAGE_PARAM_PSTADIUM,
     STAGE_PARAM_KRAID,
     STAGE_PARAM_MUTECITY,
+    STAGE_PARAM_FIGUREGET,
     STAGE_PARAM_BIGBLUE,
     STAGE_PARAM_OLDPUPUPU,
     STAGE_PARAM_OLDKONGO,
@@ -156,6 +157,11 @@ static const StageParamMarker stage_param_markers[] = {
      * none of the markers above, which is why it was falling through to the
      * raw fallback. */
     { "GrdOldpupupu", STAGE_PARAM_OLDPUPUPU },
+    /* P-791: the Classic trophy bonus stage.  `GrdFigureget` appears in 44 of
+     * GrNFg.dat's publics and in **no other archive on the disc**, and GrNFg
+     * matched none of the markers above, so its parameters were being left
+     * raw. */
+    { "GrdFigureget", STAGE_PARAM_FIGUREGET },
     /* P-708's remaining audit.  Each marker was checked to appear in exactly
      * one archive on the disc, and each of these five matched none of the
      * markers above -- which is why they were on the raw fallback.  Note
@@ -2499,6 +2505,26 @@ static void conv_yakumono_touch_lines(Conv* c, uint32_t off)
     }
 }
 
+/* GrNFg.dat (the Classic trophy bonus stage) `yakumono_param`
+ * (`grFigureGet_Params`, grfigureget.c:30): three `s32` then three `f32`,
+ * 0x18 bytes, which is exactly what the archive holds -- the raw words read
+ * `140, 80, 3, -84.0f, 84.0f, 50.0f` and the next structure starts at +0x18.
+ *
+ * Left raw, `x8` -- the number of trophies to drop -- read `0x03000000`
+ * instead of 3, so the spawn loop never finished, and `x0` (the delay before
+ * the next drop) read `0x8C000000`, about **-1.9 billion**.  The stage sets
+ * that delay after the first trophy and then only ever decrements it, so
+ * **exactly one trophy spawned** -- at a nonsense position, since `xC`/`x10`
+ * bound its x and both were denormals -- and none ever followed.  The owner
+ * had to jump off the stage to end the round (P-791). */
+static void conv_figureget_param(Conv* c, uint32_t off)
+{
+    if (!in_data(c, off, 0x18) || !mark(c, off)) {
+        return;
+    }
+    conv_u32_range(c, off, 6);
+}
+
 static void conv_stage_yakumono(Conv* c, uint32_t off)
 {
     c->st.yakumono_params++;
@@ -2538,6 +2564,9 @@ static void conv_stage_yakumono(Conv* c, uint32_t off)
         break;
     case STAGE_PARAM_MUTECITY:
         conv_mutecity_param(c, off);
+        break;
+    case STAGE_PARAM_FIGUREGET:
+        conv_figureget_param(c, off);
         break;
     case STAGE_PARAM_OLDPUPUPU:
         conv_oldpupupu_param(c, off);
