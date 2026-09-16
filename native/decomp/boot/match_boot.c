@@ -70,6 +70,9 @@ static int gameover_stage;
 static int select_p0 = -1;
 static int select_p1 = -1;
 static int select_stage = -1;
+/* -2 means "leave onEnterDebugVs's choice"; -1..4 are real item_freq values
+ * (-1 off, 4 very high), matching mnitemsw.c's menu index minus one. */
+static int select_items = -2;
 static int select_logged;
 static int stadium_trace;
 static int item_trace;
@@ -380,6 +383,14 @@ static void match_boot_on_enter_debug_vs(GameModeState* state)
         if (select_stage >= 0) {
             start->rules.stkind = (u16) select_stage;
         }
+        /* `onEnterDebugVs` sets item_freq = -1, i.e. items off, so the whole
+         * soak matrix ran without ever spawning one.  That is a large hole:
+         * items are their own article/collision/dynamics path, and the owner
+         * hit `itcoll.c:1050 "item dynamics hit num over!"` in normal play
+         * that no headless run could reach. */
+        if (select_items >= -1) {
+            start->rules.item_freq = (s8) select_items;
+        }
     }
 }
 
@@ -416,10 +427,12 @@ static void log_match_selection(void)
     }
     select_logged = 1;
     boot_triage_note(
-        "[match] loaded p0=%d p1=%d grkind=%d (asked p0=%d p1=%d stage=%d)\n",
+        "[match] loaded p0=%d p1=%d grkind=%d items=%d (asked p0=%d p1=%d "
+        "stage=%d)\n",
         (int) ((Fighter*) g0->user_data)->kind,
         (int) ((Fighter*) g1->user_data)->kind, (int) stage_info.grkind,
-        select_p0, select_p1, select_stage);
+        (int) gmVsMelee_StartData.rules.item_freq, select_p0, select_p1,
+        select_stage);
 }
 
 static void log_match_state(void)
@@ -919,6 +932,9 @@ void match_boot_init(unsigned frame_in)
         }
         if ((e = getenv("MELEE_MATCH_STAGE")) != NULL) {
             select_stage = (int) strtol(e, NULL, 0);
+        }
+        if ((e = getenv("MELEE_MATCH_ITEMS")) != NULL) {
+            select_items = (int) strtol(e, NULL, 0);
         }
     }
     if (frame_in != 0) {

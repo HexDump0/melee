@@ -33,6 +33,8 @@
 #   MELEE_SOAK_FRAMES      --boot-frames                 (default 900)
 #   MELEE_SOAK_MATCH       --boot-match                  (default 20)
 #   MELEE_SOAK_TIMEOUT     --boot-timeout, seconds       (default 90)
+#   MELEE_SOAK_ITEMS       item_freq: -1 off .. 4 very high (default: the
+#                          game's own choice, which for DebugVs is -1 = OFF)
 #
 # A 900-frame headless match is about 1.25 s on one core -- no GPU, no window,
 # no display -- so a 40-seed sweep costs under a minute on one machine:
@@ -51,6 +53,14 @@
 #
 # Each fighter is played against the next one in the list, so every fighter
 # appears as both players across the sweep without paying for all 26x26 pairs.
+#
+# **Items are off unless you ask for them.** `onEnterDebugVs` sets
+# `item_freq = -1`, so every matrix run above spawns none -- and items are
+# their own article, collision and dynamics path.  The owner hit
+# `itcoll.c:1050 "item dynamics hit num over!"` in normal play that no headless
+# sweep could reach, which is what this exists for:
+#
+#   MELEE_SOAK_ITEMS=4 MELEE_SOAK_FIGHTERS=all MELEE_SOAK_STAGES=all ...
 #
 # **Overnight.** Seeds multiply the matrix, so N seeds is N x 780 runs at about
 # 0.77 s of wall time each on eight cores.  50 seeds is roughly 8.5 hours --
@@ -114,6 +124,7 @@ if [ "${1:-}" = "--run-one" ]; then
     # than an outside kill.  Give the inside alarm 30 s of room to win.
     MELEE_NO_CARD=1 MELEE_RNG_SEED="$seed" \
     MELEE_MATCH_P0="$p0" MELEE_MATCH_P1="$p1" MELEE_MATCH_STAGE="$stage" \
+    MELEE_MATCH_ITEMS="${MELEE_SOAK_ITEMS:--2}" \
         timeout -k 5 "$((timeout_s + 30))" \
         "$boot" --boot-frames "$frames" --boot-timeout "$timeout_s" \
                 --boot-match "$match" >"$log" 2>&1
