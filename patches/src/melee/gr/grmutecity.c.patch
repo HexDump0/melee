@@ -1,0 +1,36 @@
+diff --git a/src/melee/gr/grmutecity.c b/src/melee/gr/grmutecity.c
+index 06a60a6a0..d820d2c16 100644
+--- a/src/melee/gr/grmutecity.c
++++ b/src/melee/gr/grmutecity.c
+@@ -1132,8 +1132,31 @@ void grMuteCity_801F106C(s32 i)
+         grMc_CarEntry cars[30];
+     } grMc_CarState;
+     f32 max_x8;
++#ifdef PORT_PC
++    /* G-176, eighth instance.  `grMc_CarState` overlays `grMc_8049F440`, the
++     * `s32 idx[30]` array, with a struct that *also* declares `cars[30]` --
++     * so `state->cars` reaches `grMc_8049F4B8` only by assuming the linker
++     * put it immediately after, at 0x8049F440 + 30*4 = 0x8049F4B8.  The port
++     * builds with `-fdata-sections`, so that adjacency is gone: every
++     * `state->cars[i]` write landed in an unrelated symbol, clobbering
++     * `Ground_804D6950` (the map-visibility buffer pointer) with the float
++     * 0.1f, and `Ground_801C2FE0` then dereferenced 0x3dcccccd.  Every match
++     * on Mute City died a few frames in (P-777).
++     *
++     * Bias the base pointer so `state->cars` lands on the real array, rather
++     * than rewriting the 31 `state->cars[i]` accesses below.  Writing them as
++     * `cars[i]` is semantically identical but MWCC emits different code for
++     * it, which breaks the 100.00% match -- tried, caught by the checksum.
++     * `state->idx` is never used in this function, so pointing it 0x78 short
++     * of the real idx array costs nothing. */
++    grMc_CarState* state =
++        (grMc_CarState*) ((char*) grMc_8049F4B8 -
++                          offsetof(grMc_CarState, cars));
++    grMc_CarEntry* cars = state->cars;
++#else
+     grMc_CarState* state = (grMc_CarState*) grMc_8049F440;
+     grMc_CarEntry* cars = state->cars;
++#endif
+     u16 flags16 = state->cars[i].x20;
+ 
+     if (!cars[i].x22_flags.b0) {

@@ -588,8 +588,13 @@ add_test(NAME decomp_soak
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/soak.sh
             $<TARGET_FILE:melee_decomp_boot>
             ${CMAKE_CURRENT_BINARY_DIR}/soak)
+# MELEE_SOAK_JOBS is pinned rather than left at `nproc`: a boot that misses its
+# --boot-timeout is reported as a hang, and running nproc children *inside* a
+# ctest run that is already busy oversubscribes the machine enough to cause
+# exactly that.  Seen as a one-off `decomp_soak` failure that passed on its own
+# immediately after.  Discovery sweeps run by hand can still use every core.
 set_tests_properties(decomp_soak PROPERTIES
-    ENVIRONMENT "MELEE_SOAK_SEEDS=8;MELEE_SOAK_SEED_LIST=0x612f394c 0x1e544e69 0x75fb59ae 0x13740648 0x4bd74cd4 0x13007f72 0x2a7e5ed4"
+    ENVIRONMENT "MELEE_SOAK_SEEDS=8;MELEE_SOAK_JOBS=3;MELEE_SOAK_SEED_LIST=0x612f394c 0x1e544e69 0x75fb59ae 0x13740648 0x4bd74cd4 0x13007f72 0x2a7e5ed4"
     PASS_REGULAR_EXPRESSION "soak: PASS"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
     TIMEOUT 600)
