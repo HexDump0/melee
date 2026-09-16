@@ -1,0 +1,39 @@
+diff --git a/src/sysdolphin/baselib/fobj.c b/src/sysdolphin/baselib/fobj.c
+index ef54b2b56..516c528b7 100644
+--- a/src/sysdolphin/baselib/fobj.c
++++ b/src/sysdolphin/baselib/fobj.c
+@@ -382,7 +382,34 @@ void FObjUpdateAnim(HSD_FObj* fobj, void* obj, HSD_ObjUpdateFunc obj_update)
+         }
+         break;
+     default:
++#ifdef PORT_PC
++        /* `fobjdata` is a local and every other arm assigns it, so this arm
++         * hands `obj_update` an **uninitialised** word.  That is in the
++         * original and it is harmless on the console for a reason that does
++         * not survive the port: the leftover stack word there is a PowerPC
++         * address, `0x8xxxxxxx`, which as a float is a denormal near zero and
++         * moves a joint by nothing anyone can see.  On 32-bit x86 the
++         * leftover word is a PIE address near `0x56xxxxxx`, which as a float
++         * is about **1e14** -- so a joint's translation jumps by a hundred
++         * trillion, the fighter's camera box follows it and `lbvector.c:383`
++         * asserts on the position sanity check (P-781).
++         *
++         * `op_intrp` is legitimately outside the handled set: `HSD_A_OP_NONE`
++         * is 0 and `HSD_FObjReqAnim` sets it, so this arm is reached in normal
++         * play, not only after a malformed stream.  Returning without calling
++         * `obj_update` leaves the track at the value it already had, which is
++         * the only defined choice available -- the alternative is to invent a
++         * number, and there is no correct one to invent.
++         *
++         * **Why this is a port fix and not a data fix:** the crash is
++         * ASLR-dependent, and `gdb` disables randomization by default, so it
++         * is invisible under a debugger.  An earlier reading of this bug
++         * blamed the converter; a sweep of all 861 archives for the predicted
++         * corruption found none. */
++        return;
++#else
+         break;
++#endif
+     }
+     obj_update(obj, fobj->obj_type, &fobjdata);
+ }

@@ -28,6 +28,13 @@
 #   MELEE_SOAK_STAGES      StKind list, or `all`         (default: unset)
 #   MELEE_SOAK_SEEDS       derived seeds to run          (default 8)
 #   MELEE_SOAK_REPEATS     runs per (seed, cell)         (default 1)
+#   MELEE_SOAK_EARLY_STOP  0 disables per-cell early stop (default 1)
+#
+# **Early stop is for finding cells, not for measuring rates.** With it on, a
+# cell's second failure never happens, so the failure *count* is a count of
+# broken cells and says nothing about how often each one fires. Turn it off
+# whenever the question is "did this fix change the rate", which is the only
+# way to evaluate a fix for an ASLR-dependent bug.
 #
 # **Depth is two axes, not one, and quoting a one-seed matrix as a rate is
 # wrong.** Seeds vary the game's data path -- which fighter, which stage,
@@ -145,7 +152,15 @@ if [ "${1:-}" = "--run-one" ]; then
     [ "$repeat" != "0" ] && tag="$tag#$repeat"
 
     log="$work/logs/run-$(echo "$job" | tr ':' '_').log"
-    res="$work/res/$(echo "$job" | tr ':' '_')"
+    # **One shared results file, appended, not one file per run.**  The
+    # per-run file was fine at 754 runs and took the machine down at 18,096:
+    # `/tmp` is a tmpfs with a systemd per-user quota, and ten thousand tiny
+    # files plus the binary snapshots blew through it, after which *every*
+    # write by that user failed with EDQUOT -- including the shell's own temp
+    # files, so the box looked broken rather than full.  A result line is far
+    # under PIPE_BUF, and an O_APPEND write of less than PIPE_BUF is atomic on
+    # Linux, so parallel workers can share one file safely.
+    res="$work/results.tsv"
 
     # Early stop, per cell.  A cell is a (fighters, stage) combination; we
     # only need to know that it fails, not how often, so once one run in a
@@ -155,8 +170,8 @@ if [ "${1:-}" = "--run-one" ]; then
     # check is race-tolerant: a duplicate run is harmless, a missed one only
     # costs a run.
     cell="$work/failed/$(printf '%s_%s_%s' "$p0" "$p1" "$stage")"
-    if [ -e "$cell" ]; then
-        printf '%s\tSKIP\n' "$tag" >"$res"
+    if [ "${MELEE_SOAK_EARLY_STOP:-1}" != "0" ] && [ -e "$cell" ]; then
+        printf '%s\tSKIP\n' "$tag" >>"$res"
         exit 0
     fi
 
@@ -248,10 +263,12 @@ if [ "${1:-}" = "--run-one" ]; then
         }' "$log")
 
     if [ -n "$key" ]; then
-        : >"$cell" 2>/dev/null || true
-        printf '%s\t%s\t%s\n' "$tag" "$key" "$log" >"$res"
+        if [ "${MELEE_SOAK_EARLY_STOP:-1}" != "0" ]; then
+            : >"$cell" 2>/dev/null || true
+        fi
+        printf '%s\t%s\t%s\n' "$tag" "$key" "$log" >>"$res"
     else
-        printf '%s\t\t\n' "$tag" >"$res"
+        printf '%s\t\t\n' "$tag" >>"$res"
         rm -f "$log"   # a passing run's log is noise; keep only failures
     fi
     exit 0
@@ -287,7 +304,8 @@ fi
 seed_base=$(( seed_base & 0xFFFFFFFF ))
 
 rm -rf "$work"
-mkdir -p "$work/logs" "$work/res" "$work/failed" || exit 2
+mkdir -p "$work/logs" "$work/failed" || exit 2
+: >"$work/results.tsv" || exit 2
 
 # 32-bit xorshift over (base, index).  Everything stays inside 32 bits and so
 # stays non-negative, which keeps bash's arithmetic right shift arithmetic-safe.
@@ -411,8 +429,8 @@ elapsed=$(( $(date +%s) - start ))
 
 # ------------------------------------------------------------- the report
 
-# One `seed<TAB>key` line per run; an empty key is a pass.
-cat "$work"/res/* >"$work/results.tsv" 2>/dev/null
+# One `seed<TAB>key` line per run; an empty key is a pass.  The workers append
+# to it directly, so there is nothing to collect here.
 
 ran=$(wc -l <"$work/results.tsv")
 failed=$(awk -F'\t' 'NF > 1 && $2 != "" && $2 != "SKIP"' "$work/results.tsv" | wc -l)
