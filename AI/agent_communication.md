@@ -1112,6 +1112,7 @@ with generated fallback only for unknown runtime buffers. Focused EFB probes,
 
 | Commit | What |
 |---|---|
+| `c7bb28b6f` | P-502 WASM/browser feasibility audit: proposed ADR-0025, W0-W5 evidence gates, and independent-review handoff; documentation only, no implementation claim remains |
 | `ddbd1dd0f` | `grvenom.c` arwing overlays named instead of offset-computed; P-774 (G-176, 8th instance batch); P-775 verdict + P-776 sweep handoff in the same commit's TASKS updates |
 | `b77204cb0` | GX display-copy deflicker plus authored mip chains (P-763); owner retest confirmed this did **not** fix the dotted/transparent stage-background bug, which remains open |
 | `79239c60e` | Burn-down workflow + overnight soak recipe (P-758 procedure) |
