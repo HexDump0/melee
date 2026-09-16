@@ -2,6 +2,35 @@
 
 Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716, P-718, P-719, P-720, P-737, P-738, P-739, P-742 and P-743 fixed, P-699/P-702/P-711/P-715/P-717/P-740/P-741 open)
 
+> **The browser port is playable: it boots from a local disc, reaches the
+> memory-card screen, title and character select, and plays a match
+> (2026-09-16, P-798/P-801, branch `wasm`).** Owner-confirmed on Firefox with
+> his own `.ciso`. Three defects stood between the title screen and a match,
+> and each was latent on every target rather than browser-specific:
+>
+> - **A DMA destination that x86 was aligning by luck.** `hsd_SynthSFXLoadBuf`
+>   is a `static u32[8]` handed to `HSD_DevComRequest`, which asserts
+>   `dest % 32 == 0`; the console got that from MEM1 section alignment and the
+>   declaration never said it. `ATTRIBUTE_ALIGN(32)`, here and on
+>   `lbl_804C4540` (G-193).
+> - **130 function-pointer casts** (`(GObj_RenderFunc) (Event) fn`) that PPC
+>   and x86 ignore and wasm traps on. `EMULATE_FUNCTION_POINTER_CASTS` is now a
+>   recorded decision rather than an uncommitted local hack; three casts in
+>   `synth.c` that would have passed *garbage* got real adapters (G-192,
+>   ADR-0022 second amendment).
+> - **The browser had never been optimised.** `wasm_census.sh` began as a
+>   compile census and passed no `-O` flag, so every browser build was `-O0`
+>   (G-194). With `-O2` plus a uniform-upload cache that **skips 94.8% of
+>   ~24,000 GL calls a frame** (G-195, P-801), the binary went 21.2 -> 9.2 MB
+>   and desktop render 8.56 -> 6.15 ms.
+>
+> **It is playable, not finished.** One stage, two characters, one session, one
+> browser. The desktop matrix still fails 59 of 754 fighter x stage runs and
+> the browser runs the same game code, so those are all present there too;
+> nobody has soaked the browser build (P-805). CP932 is untouched, audio is
+> choppy (P-804), and mobile/Safari remain the realistic failures for the
+> 2.25 GiB reservation.
+
 > **The browser build stopped decoding subaction commands wrongly
 > (2026-09-16, P-796, branch `wasm`).** `CMD_BE` was GCC's
 > `scalar_storage_order("big-endian")`, which reproduces MWCC's MSB-first

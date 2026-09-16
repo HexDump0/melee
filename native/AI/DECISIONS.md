@@ -1246,6 +1246,32 @@ case above, in production, for a day (G-190).
 - `PORT_BF_BE`'s two groups occupy a single byte, where there is no byte order,
   so they are padded and reversed in place.
 
+**Second amendment, same day (P-798).** There is a *second* class the first
+amendment did not cover, and it needs the opposite decision.
+
+`scalar_storage_order` was one compiler extension used in 87 places, and
+restating the layout removed it. Function-pointer casts are not that: the
+decompilation stores heterogeneous callbacks in a single table by laundering
+them through `Event` -- `(GObj_RenderFunc) (Event) fn` -- and a census with
+`-Wcast-function-type-strict` counts **130 across 49 files**. PPC and x86
+ignore surplus or missing arguments; wasm's `call_indirect` compares the
+callee's type with the table entry and traps.
+
+**Decision: `-sEMULATE_FUNCTION_POINTER_CASTS=1` is part of the browser target,
+not a diagnostic.** It makes wasm tolerate what the other two targets tolerate.
+Rewriting 130 sites of a load-bearing idiom is not a portability fix inside a
+tree ADR-0011 keeps read-only, and the W0 handoff's instruction to "fix the
+declarations and remove the flag" rests on an undercount --
+`-Wincompatible-function-pointer-types` sees only implicit conversions and
+reports one site, which is itself a false positive.
+
+**Consequences.** Every indirect call carries a thunk, which costs size and
+some speed, and it forecloses running `wasm-opt --fpcast-emu` together with
+`-O2` (that combination fails the validator; the two must be separate passes).
+Individual casts are still worth fixing where the callee would receive
+*garbage* rather than surplus arguments -- three in `synth.c` did, and were.
+Revisit the flag only with a generated adapter layer, not by hand.
+
 This is a strictly better position than the guard flag: the layout is now
 compiler-independent rather than compiler-dependent-and-checked, the desktop
 build's decoding is bit-identical to before (proved field by field), and

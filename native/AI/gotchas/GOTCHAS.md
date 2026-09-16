@@ -3554,3 +3554,137 @@ It is attribute-free, so it runs identically under GCC and Emscripten, and
 `native/tools/wasm_census.sh` runs it under node after linking.
 `native/tools/gen_cmd_bits.py --check` fails if the generated header drifts
 from the declarations in `<melee/lb/types.h>`.
+
+## G-191: a diagnostic that cannot reach the screen it is diagnosing
+
+**Symptom:** the browser build stopped dead after `[frontend] frame 0` with no
+output at all. Two rounds of diagnostics were added to `devcom.c` and
+`lbfile.c`, rebuilt, and run -- and produced **nothing**, which was read as
+"that code never executed."
+
+**Cause, both halves:**
+
+1. **`OSReport` does not print.** `native/platform/os.c` writes it into a ring
+   buffer and only echoes to stderr when `MELEE_LOG_REPORTS` is set. A browser
+   has no environment to set it in, so every `OSReport` diagnostic went into a
+   buffer that is only dumped on a panic. Use `fprintf(stderr, ...)`: the page
+   shell beams `printErr` to the dev server.
+2. **A busy-wait blocks the reporter.** `lbfile.c:waitForDisc` is
+   `do {} while (!discIsDone());`. In a browser that pins the only thread, so
+   the `fetch()` beacons carrying the log cannot run. **Anything printed after
+   entering that loop is lost**, however it is printed.
+
+**The rule that falls out:** in a browser, print *before* you block, and print
+to stderr. The last line that reaches the server is then the operation that
+hung, which is exactly the datum you need.
+
+**A third trap in the same family:** the run that "produced nothing" was also
+served by **someone else's dev server**. A backgrounded `python3 -m
+http.server` on a taken port dies with `Address already in use` into its own
+log, and `curl` then answers 200 from a stale directory. Compare the byte size
+of `melee.wasm` over HTTP against the file on disk before believing any run.
+
+## G-192: 130 function-pointer casts, and why the emulation flag is the fix
+
+**Symptom:** `RuntimeError: indirect call signature mismatch`, thrown on the
+Asyncify rewind after a disc read.
+
+**Cause:** the decompilation stores heterogeneous callbacks in one table by
+laundering them through `Event`:
+
+```c
+GObj_SetupGXLinkMax(gobj3, (GObj_RenderFunc) (Event) fn_801852FC, 0);
+```
+
+PPC and x86 ignore surplus or missing arguments. wasm's `call_indirect`
+compares the callee's type with the table entry and **traps**.
+
+**The measurement that matters.** `-Wincompatible-function-pointer-types` sees
+only *implicit* conversions and reports **one** site. That one is a red
+herring: it round-trips through the port's AR backend to a zero-argument call
+and matches. `-Wcast-function-type-strict` also sees explicit casts and
+reports **130 across 49 files**. Three rounds of "fix the one the compiler
+named" were wasted before running the right census.
+
+**Decision:** `-sEMULATE_FUNCTION_POINTER_CASTS=1` is the port's answer, not a
+diagnostic to be removed. It makes wasm tolerate what the other two targets
+tolerate. 130 sites of an idiom cannot be rewritten inside a tree ADR-0011
+keeps read-only. The W0 handoff's "fix the three declarations and remove the
+flag" rests on the undercount.
+
+Three of them were still worth fixing, because those three would have received
+**garbage** rather than merely surplus arguments (`synth.c`'s DevCom
+callbacks: `(u32, uintptr_t)`, `(void)` and `(void)` handed to a
+`(int, int, void*, bool)` slot). See the P-798 commit.
+
+## G-193: the DMA alignment x86 was passing by luck
+
+**Symptom:** `assertion "dest % 32 == 0" failed` in `devcom.c`, browser only,
+`dest=0x00118c50`.
+
+**Cause:** `static u32 hsd_SynthSFXLoadBuf[0x20 / 4];` is a DVD/ARAM DMA
+destination and the hardware requires 32-byte alignment. On the console it
+lands in MEM1 where the section alignment made that true, so the declaration
+never had to say so. A host compiler aligns a `u32[8]` to **4** and takes
+whatever address the linker gives it. GCC happened to give an aligned one for
+years; wasm-ld gave a 16-byte boundary.
+
+**The lesson is not "wasm is different".** It is that the port had a real
+alignment bug on every target and only ever passed by accident. `ATTRIBUTE_ALIGN(32)`
+now states it, here and on `lbl_804C4540` which has the same role.
+
+**Where else to look:** any static buffer passed as `dest` to
+`HSD_DevComRequest`, or to `DVDRead*`/`ARQPostRequest`. Heap destinations are
+safe -- `HSD_MemAlloc` goes to `OSAllocFromHeap`, which is 32-aligned by
+construction.
+
+## G-194: the browser build had never been optimised
+
+**Symptom:** the first playable browser build ran at ~34 fps with choppy audio.
+
+**Cause:** `native/tools/wasm_census.sh` began as a "does it compile" census
+and **never passed an `-O` flag**. Every browser build up to that point was
+`-O0`, against a native build that is RelWithDebInfo. The frame line said
+`game=6ms render=15ms` where the desktop did the same scene in
+`game=8.3ms render=8.6ms` -- the simulation was *faster* than native, so the
+cost was all in rendering.
+
+**Two things bite when you fix it:**
+
+- `wasm-opt --fpcast-emu` (the pass behind `EMULATE_FUNCTION_POINTER_CASTS`)
+  **miscompiles under `-O2`** and the link dies in the validator with
+  `unexpected false: call* param number must match`. Running the two as
+  *separate* `wasm-opt` invocations -- emulation at link, then `-O2` as a
+  second pass over the output -- validates and works. 14.4 MB -> 9.2 MB.
+- Clang's `-O2` at compile time is where most of the win is anyway; the link
+  optimiser is second-order.
+
+**The real bottleneck was call count, not code quality.** See G-195.
+
+## G-195: 24,000 GL calls a frame, and why only the browser cares
+
+**Symptom:** `render=15ms` in the browser against `8.6ms` on the desktop, for
+the *same scene and the same code*.
+
+**Cause:** `upload_draw_uniforms` in `gx_gl.c` issues **52 `glUniform*` calls**
+and runs **once per draw**. A measured frame was 461 draws: ~24,000 GL calls.
+Native GL costs ~20 ns each and does not notice. In a browser every one
+crosses the JS/wasm boundary at roughly half a microsecond -- ~12 ms, which was
+essentially the whole of the browser's render time.
+
+**Fix:** a shadow copy per uniform location, skipping the call when the bytes
+are unchanged. Measured over 400 frames of a real match: **94.8% skipped**
+(382,536 uploads issued of 7,392,788 requested). Desktop render 8.56 -> 6.15 ms;
+the browser should see far more, because its calls are ~25x dearer.
+
+**Proving it is safe is the whole job.** `MELEE_GX_UNI_CACHE=0` forces every
+upload, and a seeded match renders **pixel-identical** with the cache on and
+off. Keep that switch: a renderer cache that is 99% right looks fine in a
+frame-time graph and wrong on one material.
+
+**A uniform buffer object was the obvious next step and is not worth it.** With
+94.8% of the calls already gone, a UBO's remaining upside is under a
+millisecond, against restructuring the shader's uniform block and matching
+`std140` packing by hand -- the kind of change that corrupts rendering
+invisibly. The bigger remaining cost is `glBufferData` **per draw**, which
+reallocates the vertex buffer 461 times a frame.
