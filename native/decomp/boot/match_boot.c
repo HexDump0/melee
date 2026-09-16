@@ -1054,7 +1054,15 @@ static void match_boot_frame(void)
                         "[pos] f=%u slot %d kind %d motion=%d "
                         "pos=(%.1f,%.1f,%.1f) vel=(%.2f,%.2f) "
                         "kb=(%.2f,%.2f) floor=%d env=0x%x "
-                        "grv=%.3f norm=(%.3f,%.3f)\n",
+                        "grv=%.3f norm=(%.3f,%.3f) "
+                        /* The ECB is what one fighter pushes another with,
+                         * so a per-character push anomaly ("this character
+                         * has a force field", "I walk through that one") is
+                         * a per-character ECB anomaly.  Printed as width and
+                         * height plus the raw corners, because a degenerate
+                         * box and an oversized one are the two failure modes
+                         * and they look nothing alike (P-824). */
+                        "ecb=%.2fx%.2f L%.2f R%.2f T%.2f B%.2f\n",
                         frame, slot, (int) f->kind, (int) f->motion_id,
                         (double) p.x, (double) p.y, (double) p.z,
                         (double) f->self_vel.x, (double) f->self_vel.y,
@@ -1063,7 +1071,15 @@ static void match_boot_frame(void)
                         (unsigned) f->coll_data.env_flags,
                         (double) f->gr_vel,
                         (double) f->coll_data.floor.normal.x,
-                        (double) f->coll_data.floor.normal.y);
+                        (double) f->coll_data.floor.normal.y,
+                        (double) (f->coll_data.ecb.right.x -
+                                  f->coll_data.ecb.left.x),
+                        (double) (f->coll_data.ecb.top.y -
+                                  f->coll_data.ecb.bottom.y),
+                        (double) f->coll_data.ecb.left.x,
+                        (double) f->coll_data.ecb.right.x,
+                        (double) f->coll_data.ecb.top.y,
+                        (double) f->coll_data.ecb.bottom.y);
             }
         }
     }
