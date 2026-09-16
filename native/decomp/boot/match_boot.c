@@ -450,14 +450,15 @@ static unsigned stuck_frames; /* MELEE_STUCK_TRACE=<frames> overrides */
 #define MATCH_STUCK_LIVE_FRAMES 120
 #define MATCH_STUCK_REPEAT 120
 
-static void report_stuck(int slot, const Fighter* fp, unsigned still)
+static void report_stuck(const char* why, int slot, const Fighter* fp,
+                         unsigned still)
 {
     fprintf(stderr,
-            "[stuck] slot %d pad %u kind %d frozen %u frames: "
+            "[stuck] %s: slot %d pad %u kind %d %u frames: "
             "motion_id=%d anim_frame=%.2f pos=(%.2f,%.2f) "
             "lstick=(%.3f,%.3f) held=0x%04x hitlag=%.1f\n",
-            slot, (unsigned) fp->x61A_controller_index, (int) fp->kind, still,
-            (int) fp->motion_id, (double) fp->cur_anim_frame,
+            why, slot, (unsigned) fp->x61A_controller_index, (int) fp->kind,
+            still, (int) fp->motion_id, (double) fp->cur_anim_frame,
             (double) fp->cur_pos.x, (double) fp->cur_pos.y,
             (double) fp->input.lstick[0].x, (double) fp->input.lstick[0].y,
             (unsigned) fp->input.held_buttons[0],
@@ -467,14 +468,18 @@ static void report_stuck(int slot, const Fighter* fp, unsigned still)
 static void check_fighter_stuck(void)
 {
     static int last_motion[MATCH_STUCK_SLOTS];
+    static float last_frame[MATCH_STUCK_SLOTS];
     static float last_x[MATCH_STUCK_SLOTS], last_y[MATCH_STUCK_SLOTS];
-    static unsigned still[MATCH_STUCK_SLOTS];
+    static unsigned still[MATCH_STUCK_SLOTS];   /* motion + anim both frozen */
+    static unsigned deaf[MATCH_STUCK_SLOTS];    /* motion frozen under input */
     static int reported[MATCH_STUCK_SLOTS];
+    static int announced;
     int slots = stuck_trace ? MATCH_STUCK_SLOTS : 2;
     unsigned threshold = stuck_trace
                              ? (stuck_frames ? stuck_frames
                                              : MATCH_STUCK_LIVE_FRAMES)
                              : MATCH_STUCK_FRAMES;
+    int seen = 0;
     int slot;
 
     /* The harness only ever runs GM_DEBUG_VS and the gate keeps it from
@@ -486,47 +491,94 @@ static void check_fighter_stuck(void)
     for (slot = 0; slot < slots; slot++) {
         HSD_GObj* gobj = Player_GetEntity(slot);
         Fighter* fp;
-        if (gobj == NULL) {
-            still[slot] = 0;
+        int motion_frozen;
+        int anim_frozen;
+        int pressing;
+
+        if (gobj == NULL || gobj->user_data == NULL) {
+            still[slot] = deaf[slot] = 0;
             reported[slot] = 0;
             continue;
         }
         fp = (Fighter*) gobj->user_data;
-        if (fp == NULL) {
-            continue;
-        }
-        if ((int) fp->motion_id == last_motion[slot] &&
-            fp->cur_pos.x == last_x[slot] && fp->cur_pos.y == last_y[slot])
-        {
+        seen++;
+
+        motion_frozen = (int) fp->motion_id == last_motion[slot];
+        anim_frozen = fp->cur_anim_frame == last_frame[slot];
+        /* "Pressing" deliberately ignores the buttons a wedged fighter might
+         * be holding by accident: a stick well out of deadzone is the clearest
+         * evidence the owner is trying to move and nothing is happening. */
+        pressing = fp->input.lstick[0].x > 0.5f ||
+                   fp->input.lstick[0].x < -0.5f ||
+                   fp->input.lstick[0].y > 0.5f ||
+                   fp->input.lstick[0].y < -0.5f ||
+                   fp->input.held_buttons[0] != 0;
+
+        /* **Position is deliberately not part of the test any more.**  The
+         * first version required motion_id, x and y all frozen together, and
+         * the owner hit the wedge with it armed and got nothing -- a fighter
+         * that is stuck but still sliding, falling or being pushed keeps
+         * moving, so the position term suppressed the very report it was
+         * meant to produce.  `cur_anim_frame` is the right second term: a
+         * looping Wait animation advances it, so standing still does not
+         * trip, while a genuinely stalled motion pins it. */
+        if (motion_frozen && anim_frozen) {
             still[slot]++;
-            if (stuck_trace) {
-                if (still[slot] >= threshold &&
-                    ((still[slot] - threshold) % MATCH_STUCK_REPEAT) == 0)
-                {
-                    report_stuck(slot, fp, still[slot]);
-                }
-            } else if (still[slot] == threshold && !reported[slot]) {
-                reported[slot] = 1;
-                boot_triage_note(
-                    "[match] STUCK: slot %d motion_id=%d frozen at "
-                    "(%.2f,%.2f) for %u frames\n",
-                    slot, (int) fp->motion_id, fp->cur_pos.x, fp->cur_pos.y,
-                    still[slot]);
-            }
         } else {
             if (stuck_trace && still[slot] >= threshold) {
                 fprintf(stderr,
-                        "[stuck] slot %d recovered after %u frames: "
+                        "[stuck] recovered: slot %d after %u frames, "
                         "motion_id=%d -> %d\n",
                         slot, still[slot], last_motion[slot],
                         (int) fp->motion_id);
             }
             still[slot] = 0;
-            last_motion[slot] = (int) fp->motion_id;
-            last_x[slot] = fp->cur_pos.x;
-            last_y[slot] = fp->cur_pos.y;
         }
+        /* The owner's actual complaint, encoded directly: the character does
+         * not respond to input.  A motion that never changes while the stick
+         * is held is that, whatever the animation is doing.  The window is
+         * longer than the frozen-animation one because holding shield or
+         * charging a smash legitimately pins motion_id for a while. */
+        if (motion_frozen && pressing) {
+            deaf[slot]++;
+        } else {
+            deaf[slot] = 0;
+        }
+
+        if (stuck_trace) {
+            if (still[slot] >= threshold &&
+                ((still[slot] - threshold) % MATCH_STUCK_REPEAT) == 0)
+            {
+                report_stuck("frozen", slot, fp, still[slot]);
+            }
+            if (deaf[slot] >= threshold + 60 &&
+                ((deaf[slot] - threshold - 60) % MATCH_STUCK_REPEAT) == 0)
+            {
+                report_stuck("ignoring input", slot, fp, deaf[slot]);
+            }
+        } else if (still[slot] == threshold && !reported[slot]) {
+            reported[slot] = 1;
+            boot_triage_note("[match] STUCK: slot %d motion_id=%d frozen at "
+                             "(%.2f,%.2f) for %u frames\n",
+                             slot, (int) fp->motion_id, fp->cur_pos.x,
+                             fp->cur_pos.y, still[slot]);
+        }
+
+        last_motion[slot] = (int) fp->motion_id;
+        last_frame[slot] = fp->cur_anim_frame;
+        last_x[slot] = fp->cur_pos.x;
+        last_y[slot] = fp->cur_pos.y;
     }
+    /* G-168: "no output" must never be able to mean "the probe never ran".
+     * Say so once, as soon as there is anything to watch. */
+    if (stuck_trace && !announced && seen > 0) {
+        announced = 1;
+        fprintf(stderr,
+                "[stuck] armed: watching %d fighters, threshold %u frames\n",
+                seen, threshold);
+    }
+    (void) last_x;
+    (void) last_y;
 }
 
 /* Report what actually loaded, not what was asked for.  A selection that
