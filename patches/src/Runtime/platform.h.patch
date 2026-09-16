@@ -1,8 +1,8 @@
 diff --git a/src/Runtime/platform.h b/src/Runtime/platform.h
-index 3e752d28e..d7320ec9f 100644
+index 3e752d28e..f245dc033 100644
 --- a/src/Runtime/platform.h
 +++ b/src/Runtime/platform.h
-@@ -24,6 +24,41 @@
+@@ -24,11 +24,54 @@
  /// @deprecated Use #true instead.
  #undef TRUE
  
@@ -44,3 +44,16 @@ index 3e752d28e..d7320ec9f 100644
  /// The underlying type of an @c enum, used as a placeholder
  typedef int enum_t;
  
+ /// Signed variant of ::size_t
++///
++/// Emscripten's musl sysroot already provides `ssize_t`, as `long`.  On
++/// glibc/i386 it is `int`, identical to this declaration, so C permits the
++/// redefinition and nobody noticed; on wasm32 the two differ and every
++/// translation unit fails to compile.  The system header is authoritative
++/// wherever it exists (P-502/W0).
++#ifndef PORT_WASM
+ typedef signed int ssize_t;
++#endif
+ 
+ /// A @c void callback with no arguments.
+ typedef void (*Event)(void);
