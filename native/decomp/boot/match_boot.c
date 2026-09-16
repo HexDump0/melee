@@ -284,10 +284,10 @@ static void check_item_velocity(void)
             reports++;
             boot_triage_note(
                 "[item] BAD VELOCITY: frame=%u kind=%d vel=(%g,%g,%g) "
-                "pos=(%.2f,%.2f) life=%.1f owner=%p\n",
+                "pos=(%.2f,%.2f) life=%.1f item=%p owner=%p\n",
                 frame, (int) it->kind, (double) x, (double) y, (double) z,
                 (double) it->pos.x, (double) it->pos.y,
-                (double) it->xD44_lifeTimer, (void*) it->owner);
+                (double) it->xD44_lifeTimer, (void*) it, (void*) it->owner);
             if (reports >= ITEM_VEL_REPORTS) {
                 return;
             }
