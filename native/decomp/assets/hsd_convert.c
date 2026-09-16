@@ -4854,8 +4854,25 @@ static void measure_coverage(Conv* c)
                  * and adding a walker for it would raise coverage while
                  * changing no byte.  `raw` is the number that could still be
                  * wrong, and that is the real P-758 worklist. */
+                /* The extent stops at the next thing anything points at --
+                 * and also at the next **public symbol**, which nothing
+                 * points at because the game reaches it by name.  Without
+                 * that second clamp a descriptor sitting just before a
+                 * symbol swallows everything after it: in `Vi1201v2.dat` the
+                 * object at 0x4fae8 ran over `visual1201v2Scene` (0x4faf0)
+                 * and `ftDemoVi1201V2MotionFileGkoopa` (0x4fb00) and
+                 * reported 4096 words, almost all of them the motion file's
+                 * byte stream -- which must never be swapped.  That one
+                 * miscount is what made `Vi*` look like the densest family
+                 * on the disc. */
                 uint32_t end = next_pointed_at_after(c, target);
-                uint32_t words = end > target ? (end - target) / 4 : 0;
+                uint32_t words;
+                uint32_t pub = next_public_after(c, c->public_off,
+                                                 c->nb_public, target);
+                if (pub < end) {
+                    end = pub;
+                }
+                words = end > target ? (end - target) / 4 : 0;
                 uint32_t w;
                 uint32_t ptr = 0;
                 uint32_t conv = 0;

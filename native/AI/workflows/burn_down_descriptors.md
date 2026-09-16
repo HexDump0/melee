@@ -121,8 +121,8 @@ Each line is:
 `cold` is the number of words still big-endian, and `chg` is the subset of
 those a byte swap would actually change. A cold word whose bytes read the same
 both ways — every zero word — is already correct however it was stored, so
-converting it changes nothing. **Disc-wide, 54% of `cold` is that kind of
-padding, and for `Gr*` it is 90%**, so sorting by `cold` sends you after
+converting it changes nothing. **Disc-wide, 75% of `cold` is that kind of
+padding, and for `Gr*` it is 89%**, so sorting by `cold` sends you after
 families that are mostly zeros. A descriptor with `chg=0` is unwalked only in
 the bookkeeping sense; giving it a walker raises coverage without changing a
 byte, which is gaming the metric.
@@ -130,6 +130,10 @@ byte, which is gaming the metric.
 `chg` is still an upper bound, not a worklist. It counts words that *would*
 change, not words the game *reads*. See the `Pl*` entry under "What is already
 settled" below for the case where those differ by 16,000 words.
+
+**The honest disc-wide total is 31,629 changeable words** (2026-09-16, v106),
+not the 197,138 at the top of this document, which counts every word of every
+unrecognised struct including its padding and its extent overrun.
 
 ### 3. Identify the struct
 
@@ -257,10 +261,33 @@ Each of those unreachable nodes reports `cold=3` — `aobjdesc`, `robj_anim`,
 no one ever reads it.** Walking them would raise coverage by several percent
 and change nothing, which is the definition of gaming the metric.
 
-**So: `Pl*` has roughly 1,300 changeable words genuinely left. Take `Vi*`
-instead** — 11 files, 1,096 descriptors, **13,892 changeable words and only 15%
-padding**, the densest real target on the disc. `Gr*` looks like 14,616 cold
-words and is **90% padding**: 1,528 changeable.
+**So `Pl*` has roughly 4,500 changeable words genuinely left, not 20,597.**
+
+**`Vi*` is not the answer either, and the reason is worth knowing.** It first
+measured at 13,892 changeable words, which would have made it the densest
+family on the disc. Almost all of that was one miscount: the report's extent
+ran from a descriptor to the next thing anything *points* at, and a public
+symbol is not pointed at. In `Vi1201v2.dat` the object at 0x4fae8 therefore
+swallowed `visual1201v2Scene` and `ftDemoVi1201V2MotionFileGkoopa` and reported
+4096 words, nearly all of them the motion file's **byte stream, which must
+never be swapped**. Clamping the extent at the next public symbol drops `Vi*`
+to **1,262** and the disc-wide total from 82,596 to 31,629.
+
+That is the same mistake as the walker bound two paragraphs up, made in the
+instrument instead of the walker. **Whenever you bound anything in this file by
+`next_pointed_at_after`, ask whether a public symbol can fall inside the
+range.**
+
+**Current worklist, by changeable words:**
+
+| family | descriptors | cold | chg | note |
+|---|---|---|---|---|
+| `Pl*` | 16,773 | 68,365 | 20,597 | ~16,025 of these are the unreachable `HSD_AnimJoint.flags`; ~4,500 real |
+| `It*` | 3,651 | 15,318 | **7,430** | **the best target left.** `ItCo.dat`/`ItCo.usd` are 3,715 each, and one descriptor — 0x4ec8, 3013 words, 66 pointers — holds 2,368 of them |
+| `Gr*` | 5,518 | 14,506 | 1,528 | 89% padding |
+| `Vi*` | 1,096 | 3,333 | 1,262 | 62% padding |
+
+Everything else on the disc is under 300 words each.
 
 ## When to stop and ask
 
