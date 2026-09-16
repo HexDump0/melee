@@ -887,7 +887,12 @@ static void match_boot_frame(void)
          * `log_match_state` already prints it; it is just gated to
          * `GM_DEBUG_VS` and to two slots.  With the trace on, print all four
          * every second in whatever mode is running (P-793). */
-        if ((frame % 60) == 0) {
+        /* Once a second is too coarse for a launch: the Home-Run sandbag
+         * covers 34,000 units between two samples, so the interesting frames
+         * are invisible.  `MELEE_STUCK_TRACE=<n>` doubles as the sampling
+         * period here -- set it to 1 to print every frame while chasing
+         * something that moves. */
+        if ((frame % (stuck_frames ? 1u : 60u)) == 0) {
             int slot;
             /* The camera's interest is what drives Home-Run Contest's ground
              * streaming: `grHomeRun_8021D680` derives the 64-segment window
@@ -912,10 +917,12 @@ static void match_boot_frame(void)
                 ftLib_80086644((Fighter_GObj*) g, &p);
                 fprintf(stderr,
                         "[pos] f=%u slot %d kind %d motion=%d "
-                        "pos=(%.1f,%.1f,%.1f) vel=(%.2f,%.2f)\n",
+                        "pos=(%.1f,%.1f,%.1f) vel=(%.2f,%.2f) "
+                        "kb=(%.2f,%.2f)\n",
                         frame, slot, (int) f->kind, (int) f->motion_id,
                         (double) p.x, (double) p.y, (double) p.z,
-                        (double) f->self_vel.x, (double) f->self_vel.y);
+                        (double) f->self_vel.x, (double) f->self_vel.y,
+                        (double) f->x8c_kb_vel.x, (double) f->x8c_kb_vel.y);
             }
         }
     }
