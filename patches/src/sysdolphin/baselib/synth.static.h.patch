@@ -1,0 +1,34 @@
+diff --git a/src/sysdolphin/baselib/synth.static.h b/src/sysdolphin/baselib/synth.static.h
+index 9489045d2..704e6cf44 100644
+--- a/src/sysdolphin/baselib/synth.static.h
++++ b/src/sysdolphin/baselib/synth.static.h
+@@ -52,7 +52,12 @@ static struct {
+     /* 08 */ void (*x8)(int, int);
+     /* 0C */ int xC;
+ } HSD_Synth_804C2A60[6];
+-static u32 hsd_SynthSFXLoadBuf[0x20 / 4];
++/* DMA destination: HSD_DevComRequest asserts `dest % 32 == 0`.  On the console
++ * this lands in MEM1 where the section alignment made that true and the
++ * declaration never had to say so; a host compiler aligns a u32[8] to 4, and
++ * wasm-ld put it on a 16-byte boundary -- `dest=0x00118c50`, P-798.  x86 has
++ * been passing on luck.  State the alignment the hardware requires. */
++static u32 hsd_SynthSFXLoadBuf[0x20 / 4] ATTRIBUTE_ALIGN(32);
+ static AXVPB* HSD_Synth_804C2AE0[0x80 / 4];
+ static int hsd_SynthSFXBank[0x80 / 4];
+ static int hsd_SynthSFXBankHead[0x84 / 4];
+@@ -70,12 +75,14 @@ static int HSD_Synth_804C28E0_1844[HSD_SYNTHSFXGROUP_MAX];
+ 
+ static u8 lbl_804C4524[0x1C];
+ 
++/* Also a DMA destination (synth.c:1322, 1497 read 0x20 bytes into it), so it
++ * needs the same 32-byte alignment as hsd_SynthSFXLoadBuf above. */
+ static struct {
+     /* 00 */ s32 x0;
+     /* 04 */ s32 x4;
+     /* 08 */ s32 x8;
+     /* 0C */ char pad[0x14];
+-} lbl_804C4540[3];
++} lbl_804C4540[3] ATTRIBUTE_ALIGN(32);
+ 
+ /* 4D7720 */ static int HSD_Synth_804D7720;
+ /* 4D7724 */ static int hsd_SynthSFXBankNum;

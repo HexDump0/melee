@@ -1,5 +1,5 @@
 diff --git a/src/sysdolphin/baselib/synth.c b/src/sysdolphin/baselib/synth.c
-index 6210fbc4f..4962b0663 100644
+index 6210fbc4f..f4cf9ab2c 100644
 --- a/src/sysdolphin/baselib/synth.c
 +++ b/src/sysdolphin/baselib/synth.c
 @@ -7,6 +7,9 @@
@@ -12,7 +12,7 @@ index 6210fbc4f..4962b0663 100644
  #include <dolphin/ai.h>
  #include <dolphin/ar.h>
  #include <dolphin/os.h>
-@@ -104,9 +104,41 @@ static void HSD_SynthSFXSampleLoadCallback(int result, int length, void* addr,
+@@ -104,9 +107,41 @@ static void HSD_SynthSFXSampleLoadCallback(int result, int length, void* addr,
              n = *HSD_Synth_804D7734;
              (void) n;
              nbytes = SfxLoadStreamDataSize(n << 6);
@@ -54,7 +54,7 @@ index 6210fbc4f..4962b0663 100644
                  if (e + 0x10 != NULL) {
                      *(u32*) (e + 0x14) += hsd_SynthSFXBank[bankID] * 2;
                  } else {
-@@ -116,6 +148,7 @@ static void HSD_SynthSFXSampleLoadCallback(int result, int length, void* addr,
+@@ -116,6 +151,7 @@ static void HSD_SynthSFXSampleLoadCallback(int result, int length, void* addr,
                      hsd_SynthSFXBank[bankID] * 2;
                  *(u32*) ((u8*) HSD_Synth_804D7730 + k * 0x40 + 0x1C) +=
                      hsd_SynthSFXBank[bankID] * 2;
@@ -62,7 +62,7 @@ index 6210fbc4f..4962b0663 100644
              }
              id = base + i;
              HSD_Synth_804D7730->x4 = id;
-@@ -156,6 +189,31 @@ static void HSD_SynthSFXHeaderLoadCallback(int result, int length, void* addr,
+@@ -156,6 +192,31 @@ static void HSD_SynthSFXHeaderLoadCallback(int result, int length, void* addr,
  
      if (HSD_Synth_804D7738 == 0) {
          int bankID = HSD_Synth_804C2A60[0].bankID;
@@ -94,7 +94,7 @@ index 6210fbc4f..4962b0663 100644
  
          HSD_ASSERTREPORT(0xCD,
                           hsd_SynthSFXBankHead[bankID + 1] -
-@@ -389,11 +447,34 @@ void HSD_SynthSFXGroupDataReaddress(AXVPB* arg0, void* callback)
+@@ -389,11 +450,34 @@ void HSD_SynthSFXGroupDataReaddress(AXVPB* arg0, void* callback)
          count = *(int*) (p + 8);
          q = p;
          for (j = 0; j < count; j++) {
@@ -129,7 +129,7 @@ index 6210fbc4f..4962b0663 100644
              q += 0x40;
          }
          p = (u8*) ((count << 6) + (uintptr_t) p);
-@@ -612,9 +693,16 @@ int HSD_Synth_80389334(int sfx_id, u8 vol, u8 vol2, u8 pan, int priority,
+@@ -612,9 +696,16 @@ int HSD_Synth_80389334(int sfx_id, u8 vol, u8 vol2, u8 pan, int priority,
              while (voice_idx < sfx_entry->unk8) {
                  AXSetVoicePriority(voices[voice_idx], priority);
                  AXSetVoiceVe(voices[voice_idx], &ve);
@@ -146,7 +146,8 @@ index 6210fbc4f..4962b0663 100644
                  AXSetVoiceSrc(voices[voice_idx], &HSD_Synth_80407FD8);
                  AXSetVoiceAddr(voices[voice_idx], &SFX_VOICE(voice_idx)->x10);
                  AXSetVoiceAdpcm(voices[voice_idx], &SFX_VOICE(voice_idx)->x20);
-@@ -678,5 +769,12 @@ bool HSD_SynthSFXPlayWithGroup(int sfx_id, u8 vol, u8 vol2, u8 pan,
+@@ -677,6 +768,13 @@ bool HSD_SynthSFXPlayWithGroup(int sfx_id, u8 vol, u8 vol2, u8 pan,
+ 
      result = HSD_Synth_80389334(sfx_id, vol, vol2, pan, priority, itd_flag,
                                  pitch1, pitch2, mix_main, mix_auxA, mix_auxB);
 +#ifdef PORT_PC
@@ -174,7 +175,45 @@ index 6210fbc4f..4962b0663 100644
              if (addr >= lo && addr < hi) {
                  HSD_SynthSFXStopNode(&hsd_SynthSFXNodes[i]);
              }
-@@ -1239,8 +1332,14 @@ void HSD_Synth_8038ADD0(void)
+@@ -1196,6 +1299,23 @@ void HSD_Synth_8038AD74(u32 offset, uintptr_t src)
+                       HSD_SynthResetStreamCounters, 0);
+ }
+ 
++#ifdef PORT_PC
++/* DevCom invokes its callback as `cb(dcReq, args, buf, cancelflag)`.  Three of
++ * the functions handed to it do not take those arguments and are cast into
++ * shape at the call site.  PPC and x86 ignore the surplus; **wasm traps** --
++ * `call_indirect` checks the callee's type against the table entry, and the
++ * browser reported `RuntimeError: indirect call signature mismatch` on the
++ * Asyncify rewind after a disc read (P-798).  Adapt instead of lying about the
++ * type; the console's mapping is r3 -> first parameter, r4 -> second. */
++static void HSD_Synth_8038AD74_devcom(int dcReq, int args, void* buf,
++                                      bool cancelflag)
++{
++    (void) buf;
++    (void) cancelflag;
++    HSD_Synth_8038AD74((u32) dcReq, (uintptr_t) args);
++}
++#endif
++
+ static inline void HSD_Synth_8038ADD0_inline(u32 pos)
+ {
+     BOOL intr;
+@@ -1219,7 +1339,12 @@ static inline void HSD_Synth_8038ADD0_inline(u32 pos)
+                 HSD_DevComRequest(
+                     HSD_Synth_804D7764, src,
+                     (uintptr_t) &lbl_804C4540[HSD_Synth_804D7768], 0x20, 0x21,
+-                    0, (HSD_DevComCallback) (Event) HSD_Synth_8038AD74,
++                    0,
++#ifdef PORT_PC
++                    HSD_Synth_8038AD74_devcom,
++#else
++                    (HSD_DevComCallback) (Event) HSD_Synth_8038AD74,
++#endif
+                     (struct HSD_SynthStreamHeader*) (src + 0x20));
+             }
+         }
+@@ -1239,8 +1364,14 @@ void HSD_Synth_8038ADD0(void)
      if (node->flags & 8) {
          return;
      }
@@ -189,7 +228,7 @@ index 6210fbc4f..4962b0663 100644
      if (pos != HSD_Synth_804D7774) {
          HSD_Synth_804D7774 = pos;
          for (i = 0; i < node->voice_count; i++) {
-@@ -1301,11 +1400,22 @@ void HSD_Synth_8038B120(void)
+@@ -1301,11 +1432,22 @@ void HSD_Synth_8038B120(void)
          for (i = 0; i < node->voice_count; i++) {
              AXSetVoiceVe(node->voice[i], &ve);
              if (node->flags & 4) {
@@ -212,7 +251,53 @@ index 6210fbc4f..4962b0663 100644
              }
              AXSetVoiceSrc(node->voice[i], &HSD_Synth_80407FD8);
              AXSetVoiceCurrentAddr(
-@@ -1362,7 +1472,12 @@ void HSD_SynthPStreamHeaderCallback(int arg0, int arg1, void* arg2,
+@@ -1337,14 +1479,45 @@ void HSD_Synth_8038B120(void)
+         HSD_Synth_804D7778 = 0;
+     }
+ }
++#ifdef PORT_PC
++/* Same reason as HSD_Synth_8038AD74_devcom above: wasm's `call_indirect`
++ * checks the callee's signature, and this one takes no arguments at all. */
++static void HSD_Synth_8038B120_devcom(int dcReq, int args, void* buf,
++                                      bool cancelflag)
++{
++    (void) dcReq;
++    (void) args;
++    (void) buf;
++    (void) cancelflag;
++    HSD_Synth_8038B120();
++}
++#endif
+ 
+ void HSD_SynthPStreamFirstHakoHeaderCallback(void)
+ {
+     HSD_DevComRequest(HSD_Synth_804D7764, 0xA0,
+                       HSD_Synth_804D7780 + (HSD_Synth_804D7768 << 16),
+                       lbl_804C4540[HSD_Synth_804D7768].x0, 0x23, 0,
++#ifdef PORT_PC
++                      HSD_Synth_8038B120_devcom, 0);
++#else
+                       (HSD_DevComCallback) HSD_Synth_8038B120, 0);
++#endif
+ }
++#ifdef PORT_PC
++/* Same reason as HSD_Synth_8038AD74_devcom above: wasm's `call_indirect`
++ * checks the callee's signature, and this one takes no arguments at all. */
++static void HSD_SynthPStreamFirstHakoHeaderCallback_devcom(int dcReq, int args,
++                                                           void* buf,
++                                                           bool cancelflag)
++{
++    (void) dcReq;
++    (void) args;
++    (void) buf;
++    (void) cancelflag;
++    HSD_SynthPStreamFirstHakoHeaderCallback();
++}
++#endif
+ 
+ void HSD_SynthPStreamHeaderCallback(int arg0, int arg1, void* arg2,
+                                     bool cancelflag)
+@@ -1362,7 +1535,12 @@ void HSD_SynthPStreamHeaderCallback(int arg0, int arg1, void* arg2,
          }
          node->x14 = 0.00003125f * (f32) entry[2];
          for (i = 0; i < node->voice_count; i++) {
@@ -225,3 +310,15 @@ index 6210fbc4f..4962b0663 100644
              AXSetVoiceAddr(node->voice[i], (AXPBADDR*) &entry[i * 14 + 4]);
              AXSetVoiceAdpcm(node->voice[i], (AXPBADPCM*) &entry[i * 14 + 8]);
          }
+@@ -1372,7 +1550,11 @@ void HSD_SynthPStreamHeaderCallback(int arg0, int arg1, void* arg2,
+         HSD_DevComRequest(
+             HSD_Synth_804D7764, 0x80,
+             (uintptr_t) &lbl_804C4540[HSD_Synth_804D7768], 0x20, 0x21, 0,
++#ifdef PORT_PC
++            HSD_SynthPStreamFirstHakoHeaderCallback_devcom,
++#else
+             (HSD_DevComCallback) HSD_SynthPStreamFirstHakoHeaderCallback,
++#endif
+             NULL);
+     } else {
+         HSD_Synth_804D7778 = 0;
