@@ -278,16 +278,37 @@ instrument instead of the walker. **Whenever you bound anything in this file by
 `next_pointed_at_after`, ask whether a public symbol can fall inside the
 range.**
 
-**Current worklist, by changeable words:**
+**A third way the extent lies: an array whose tail entries are NULL.**
+`ItCo.dat`'s biggest worklist entry was 0x4ec8 — 3013 words, 2,368 changeable,
+the worst single descriptor on the disc. It is `itPublicData`'s 118-entry
+`Article*` table, **and the converter already walked every one of them.**
+`conv_article_array` simply never called `mark()` on the base, so
+`measure_coverage` — which counts any relocation target whose first word is a
+pointer — reported the whole thing unwalked. The array ends at 0x50a0, 118
+pointers in; the extent then ran on for another 2,893 words into a separate
+table that nothing points at, because the array's trailing NULLs are not
+relocations and so do not stop `next_pointed_at_after`.
 
-| family | descriptors | cold | chg | note |
-|---|---|---|---|---|
-| `Pl*` | 16,773 | 68,365 | 20,597 | ~16,025 of these are the unreachable `HSD_AnimJoint.flags`; ~4,500 real |
-| `It*` | 3,651 | 15,318 | **7,430** | **the best target left.** `ItCo.dat`/`ItCo.usd` are 3,715 each, and one descriptor — 0x4ec8, 3013 words, 66 pointers — holds 2,368 of them |
-| `Gr*` | 5,518 | 14,506 | 1,528 | 89% padding |
-| `Vi*` | 1,096 | 3,333 | 1,262 | 62% padding |
+Marking the base (v108) drops `It*` from 7,430 to **2,694** and the disc-wide
+total to **26,893**. It changes **zero converted bytes in 797 archives** — it
+is a bookkeeping fix, not a walk.
 
-Everything else on the disc is under 300 words each.
+**Before chasing a large descriptor, check whether a walker already covers it
+and just does not mark it.** Three of this session's biggest "targets" were
+measurement artifacts, not data.
+
+**Current worklist, by changeable words (v108):**
+
+| family | chg | note |
+|---|---|---|
+| `Pl*` | 20,597 | ~16,025 are the unreachable `HSD_AnimJoint.flags`; **~4,500 real** |
+| `It*` | 2,694 | `ItCo.dat`/`ItCo.usd` 1,347 each |
+| `Gr*` | 1,528 | 89% padding |
+| `Vi*` | 1,262 | 62% padding |
+
+**Disc-wide 26,893, of which roughly 10,900 is genuinely open.** Everything
+outside those four families is under 300 words. Worst single files:
+`PlKp` 1,410, `ItCo` 1,347, `PlDr` 1,245, `PlGn` 1,156, `PlGk` 964.
 
 ## When to stop and ask
 

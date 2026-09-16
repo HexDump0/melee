@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 107u
+#define HSD_CONVERTER_VERSION 108u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -2797,10 +2797,23 @@ static void conv_article(Conv* c, uint32_t off, int item_kind)
  * It_PKind_Start - It_Kind_Kuriboh (118), pokemon =
  * It_Kind_Old_Kuri - It_PKind_Start (47).  `first_kind` is the It_Kind of
  * entry 0 so per-kind special attributes can be recognised. */
+/* `itPublicData`'s three `Article*` tables.  The array base is marked even
+ * though the array itself holds only pointers and has nothing to byte-swap:
+ * `measure_coverage` counts every relocation target whose first word is a
+ * pointer as a descriptor, so an unmarked base reports as unwalked when the
+ * converter has in fact walked all of it.  `ItCo.dat`'s 118-entry table at
+ * 0x4ec8 was the single worst entry on the P-758 worklist for that reason --
+ * 3013 words and 2,368 "changeable" -- when the array is 118 pointers ending
+ * at 0x50a0 and every one of them is followed.  The number was the report's,
+ * not the data's. */
 static void conv_article_array(Conv* c, uint32_t off, int count, int first_kind)
 {
     int i;
 
+    if (!in_data(c, off, 4)) {
+        return;
+    }
+    mark(c, off);
     for (i = 0; i < count; i++) {
         uint32_t p = off + (uint32_t) i * 4;
         uint32_t article;
