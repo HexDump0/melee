@@ -1305,3 +1305,21 @@ and implementing it changed nothing. A census of primitive topologies is what
 settled it -- **of ~7.1M point vertices in a 400-frame match, zero carry
 `TEX0`** -- so no texcoord could be the problem and the size had to be. The
 census cost one counter and replaced a day of plausible reasoning.
+
+**Crash reports carry the faulting address and the running gobj
+(2026-09-16, P-800).** Three gaps surfaced together in one owner report. The
+P-796 fighter dump walks GX link 5 only, so a gobj mid-teardown -- exactly the
+one that matters -- is invisible; `HSD_GObj_CurrentInvokedProcGObj` is the
+engine's own record of what `HSD_GObj_RunProcs` was invoking and is printed
+whether or not the link list still knows about it. Both signal handlers had
+`si_addr` for free and discarded it; they take `SA_SIGINFO` now, and one
+number separates a NULL base with a struct offset added, which names the
+field, from a dangling or byte-swapped pointer. And the dump had nothing to
+say about items, which is where that crash actually died, so every live item's
+gobj, kind, entity and article are printed, with each fighter's `item_gobj`
+alongside.
+
+`MELEE_SPECIAL_TEST` cycles neutral/side/up/down. It pressed neutral only, and
+the stick direction at the moment B goes down is what picks the move, so three
+quarters of every character's specials -- and every article they spawn -- had
+never run in an automated match.

@@ -3447,3 +3447,53 @@ channels and a CMPR block containing both an opaque endpoint and a transparent
 selector. Full-match headless captures on `GrSt` and `GrYt` confirm the
 foliage and grass are solid. P-763's separate EFB and authored-mip regressions
 remain valid.
+
+## G-190: a backtrace name can belong to a neighbouring symbol
+
+`dladdr` resolves to the nearest *exported* symbol at or before the address,
+so a static function is reported under whatever public symbol precedes it.
+P-794 already fixed the half of this where the name was missing entirely; the
+half that remains is worse, because a **wrong** name is confident.
+
+P-800 arrived as `it_802B1FE8` <- `ftPk_SpecialLw_8012765C` <- Pikachu's down
+special, next to a fighter dump listing **Peach and Fox and no Pikachu**. The
+natural reading is that the symbols are misattributed and the real functions
+belong to Peach, whose down special also spawns an article. Half an hour of
+reading Peach's code would have followed.
+
+`addr2line -f -e build/native/melee <offset>` on the `[module+0x...]` offset
+the reporter prints settles it in seconds, and here it resolved all four
+frames exactly -- file and line -- so the names were right and the *dump* was
+what was incomplete. Check the offsets before rewriting a theory around a
+name; the reporter prints them for exactly this reason, and they survive ASLR.
+
+## G-191: a fixture can encode the same wrong assumption as the code it guards
+
+`decomp_efb` asserted that `GXSetPointSize(5, ...)` produces a 5 px point, and
+the backend passed the raw byte to `gl_PointSize`. Both were wrong in the same
+direction -- the argument is in **1/6 pixel** units -- so the test agreed with
+the bug and stayed green while every point sprite in the game rendered six
+times too large (P-799).
+
+A test written from the same misreading as the implementation proves only that
+they still agree. When a fixture fails on a fix, the first question is which
+of the two is wrong, and the answer has to come from outside both: here from
+`psdisp.c`'s own `w = (pp->size > 42.5) ? 255.0f : 6.0f * pp->size`, where
+255/6 is exactly 42.5 and names the unit beyond argument.
+
+## G-192: count it before theorising about it
+
+P-799 looked exactly like a texture-coordinate bug -- flat uniform squares,
+and `GXEnableTexOffsets`, which is what makes GX generate a coordinate across
+a point sprite, really was unimplemented. Implementing it changed nothing.
+Forcing the offset on for every point draw in the frame changed nothing.
+
+One counter in `exec_primitive` ended it: **of ~7.1M point vertices in a
+400-frame match, `TEX0` is present on zero of them.** Every point sprite in the
+game is untextured, so no texture-coordinate bug could be what was wrong with
+them, and their size had to be. Quads, for contrast, were textured 1.19M to
+5k -- the same counter proved the code path was live.
+
+The census cost one `if` and a `printf` and replaced a day of plausible
+reasoning. When an artifact has a shape that suggests a mechanism, count how
+often that mechanism actually occurs before building on it.
