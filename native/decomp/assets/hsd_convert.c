@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 110u
+#define HSD_CONVERTER_VERSION 111u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -109,6 +109,11 @@ enum {
     STAGE_PARAM_MUTECITY,
     STAGE_PARAM_BIGBLUE,
     STAGE_PARAM_OLDPUPUPU,
+    STAGE_PARAM_OLDKONGO,
+    STAGE_PARAM_GREENS,
+    STAGE_PARAM_RCRUISE,
+    STAGE_PARAM_INISHIE2,
+    STAGE_PARAM_GARDEN,
 };
 
 typedef struct StageParamMarker {
@@ -149,6 +154,16 @@ static const StageParamMarker stage_param_markers[] = {
      * none of the markers above, which is why it was falling through to the
      * raw fallback. */
     { "GrdOldpupupu", STAGE_PARAM_OLDPUPUPU },
+    /* P-708's remaining audit.  Each marker was checked to appear in exactly
+     * one archive on the disc, and each of these five matched none of the
+     * markers above -- which is why they were on the raw fallback.  Note
+     * `GedOldkongo`: the Kongo Jungle N64 publics really are spelled with a
+     * `Ged` prefix, not `Grd`. */
+    { "GedOldkongo", STAGE_PARAM_OLDKONGO },
+    { "GrdGreensGround", STAGE_PARAM_GREENS },
+    { "GrdRCruiseShip", STAGE_PARAM_RCRUISE },
+    { "GrdInishie2Wa", STAGE_PARAM_INISHIE2 },
+    { "GrdGardenKoya", STAGE_PARAM_GARDEN },
 };
 
 typedef struct Conv {
@@ -2065,6 +2080,92 @@ static void conv_oldpupupu_param(Conv* c, uint32_t off)
     }
 }
 
+/* GrOk.dat (Kongo Jungle N64) `yakumono_param` (`grOldKongo_YakumonoParam`,
+ * groldkongo.c:25): 0x70, exactly the symbol's extent.  Two `s16` bird
+ * timers, a run of `f32`, **eight `s16` barrel-direction weights** at
+ * +0x2C..+0x3A, a run of `s32`/`f32`, and a **pointer at +0x6C** which the
+ * relocation pass owns -- `conv_u32` refuses it, but the loop stops before it
+ * anyway so the intent is on the record.  Raw values check out: 4000/3000
+ * frames, 20.0, 479, 480, 15, 180, 360, 4, 4, 90, 110, weights 1/1/10/50/
+ * 10/1/1/1, 300, 600, 0.005, 1.0, 3000, 6000.  This is the last of P-708's
+ * `Ground_801C5440` priority list. */
+static void conv_oldkongo_param(Conv* c, uint32_t off)
+{
+    int i;
+
+    if (!in_data(c, off, 0x70) || !mark(c, off)) {
+        return;
+    }
+    conv_u16(c, off + 0x00); /* rframe_bird_wait_a */
+    conv_u16(c, off + 0x02); /* rframe_bird_wait_b */
+    for (i = 0x04; i <= 0x28; i += 4) {
+        conv_u32(c, off + (uint32_t) i); /* f32 run */
+    }
+    for (i = 0x2C; i <= 0x3A; i += 2) {
+        conv_u16(c, off + (uint32_t) i); /* rrate_barrel_* weights */
+    }
+    for (i = 0x3C; i <= 0x68; i += 4) {
+        conv_u32(c, off + (uint32_t) i); /* s32 / f32 run */
+    }
+    /* +0x6C is `void* x6C`: a relocation target, already host order. */
+}
+
+/* GrGr.dat (Green Greens) `yakumono_param` (`grGreens_YakumonoParam`,
+ * grgreens.c): 0x7C of 4-byte fields, exactly the symbol's extent -- block
+ * timers 30/150, wind timers 800/1800, wind speed 0.24, bounds 0/90/40/-10. */
+static void conv_greens_param(Conv* c, uint32_t off)
+{
+    if (!in_data(c, off, 0x7C) || !mark(c, off)) {
+        return;
+    }
+    conv_u32_range(c, off, 0x7C / 4);
+}
+
+/* GrRc.dat (Rainbow Cruise) `yakumono_param` (`grRCruise_YakumonoParam`,
+ * grrcruise.c): 0x48 of 4-byte fields, exactly the symbol's extent --
+ * 0.3, 3.0, 0.5, then timers 200/120/4/200/4/30/60. */
+static void conv_rcruise_param(Conv* c, uint32_t off)
+{
+    if (!in_data(c, off, 0x48) || !mark(c, off)) {
+        return;
+    }
+    conv_u32_range(c, off, 0x48 / 4);
+}
+
+/* GrGd.dat (Garden) `yakumono_param` (`grGarden_YakumonoParam`, grgarden.c):
+ * 0x20 of 4-byte fields, exactly the symbol's extent -- -40.0, -3.0, then
+ * 2, 8, 80, 640, and -30.0, 30.0. */
+static void conv_garden_param(Conv* c, uint32_t off)
+{
+    if (!in_data(c, off, 0x20) || !mark(c, off)) {
+        return;
+    }
+    conv_u32_range(c, off, 0x20 / 4);
+}
+
+/* GrI2.dat (Inishie2) `yakumono_param` (`grInishie2_YakumonoParam`,
+ * grinishie2.c): 0x4C, exactly the symbol's extent, and **not** flat -- ten
+ * `s16` at +0x00..+0x13, two `Vec3` and an `f32` and two more `Vec3` as a
+ * `f32` run at +0x14..+0x47, then two `s16` at +0x48/+0x4A.  Raw: 50/450,
+ * 600/300, 600/600, 600/600, 265/410, then 30.0, 28.5, 0, -30.0, 28.5, 0,
+ * 0, 30.0, 80.0, 0, -30.0, 80.0, 0, then 5/3. */
+static void conv_inishie2_param(Conv* c, uint32_t off)
+{
+    int i;
+
+    if (!in_data(c, off, 0x4C) || !mark(c, off)) {
+        return;
+    }
+    for (i = 0x00; i <= 0x12; i += 2) {
+        conv_u16(c, off + (uint32_t) i);
+    }
+    for (i = 0x14; i <= 0x44; i += 4) {
+        conv_u32(c, off + (uint32_t) i); /* Vec3 / f32 run */
+    }
+    conv_u16(c, off + 0x48);
+    conv_u16(c, off + 0x4A);
+}
+
 /* Gr*.dat `yakumono_param` fallback: stage-specific dynamic-object parameters
  * whose layout this converter does not know yet.  For Zebes the word at +0x2C
  * is a relocation target to a bury DynamicsDesc stored directly before the
@@ -2144,6 +2245,21 @@ static void conv_stage_yakumono(Conv* c, uint32_t off)
         break;
     case STAGE_PARAM_OLDPUPUPU:
         conv_oldpupupu_param(c, off);
+        break;
+    case STAGE_PARAM_OLDKONGO:
+        conv_oldkongo_param(c, off);
+        break;
+    case STAGE_PARAM_GREENS:
+        conv_greens_param(c, off);
+        break;
+    case STAGE_PARAM_RCRUISE:
+        conv_rcruise_param(c, off);
+        break;
+    case STAGE_PARAM_INISHIE2:
+        conv_inishie2_param(c, off);
+        break;
+    case STAGE_PARAM_GARDEN:
+        conv_garden_param(c, off);
         break;
     case STAGE_PARAM_BIGBLUE:
         conv_bigblue_param(c, off);
