@@ -22,6 +22,17 @@
 #            the game calls it synchronously from inside nested scene loops;
 #            the suspend unwinds the wasm stack and resumes when the range
 #            arrives.  Its size and frame-time cost is the W2 measurement.
+#   link     EMULATE_FUNCTION_POINTER_CASTS, because the decompilation stores
+#            heterogeneous callbacks in one table by laundering them through
+#            `Event`: `(GObj_RenderFunc) (Event) fn`.  PPC and x86 ignore the
+#            surplus or missing arguments; wasm's `call_indirect` compares the
+#            callee's type with the table entry and **traps**.  A census with
+#            -Wcast-function-type-strict counts **130 of these across 49
+#            files** -- it is an idiom, not a bug list, and ADR-0011 keeps
+#            src/ read-only.  The flag makes wasm tolerate what the other two
+#            targets tolerate.  Re-run the census before assuming it can go:
+#              emcc -fsyntax-only <tu> -Wno-everything \
+#                   -Wcast-function-type-strict -Wincompatible-function-pointer-types
 #            a single up-front yes/no -- see os.c:map_gc_ram.  Growth is off
 #            deliberately: Mozilla bug 1660420 reports Memory.grow failing when
 #            the maximum is 4 GB, and we never need to grow.  MAXIMUM_MEMORY is
@@ -36,7 +47,17 @@ mkdir -p "$OUT/obj"
 command -v emcc >/dev/null || { echo "emcc not on PATH; source emsdk_env.sh" >&2; exit 1; }
 
 INCS="-I$W/native/decomp/shim -I$W/native -I$W/decomp/src -I$W/decomp/extern/dolphin/include"
-BASE="-w -Wno-error=incompatible-function-pointer-types -fgnu89-inline
+# -O2 on the *compile* only.  This started as a census script and never passed
+# an optimisation flag, so every browser build until now was -O0, which is why
+# the first in-game report was "too slow" (the native product build is
+# RelWithDebInfo).  The link deliberately stays at -O0: `wasm-opt --fpcast-emu`
+# -- the pass behind EMULATE_FUNCTION_POINTER_CASTS -- miscompiles under -O2
+# and the link dies in the validator with
+#   [wasm-validator error in function byn$fpcast-emu$NNNN]
+#   unexpected false: call* param number must match
+# Clang's -O2 is where most of the win is; wasm-opt is a second-order pass.
+# Revisit if the casts ever go away or Binaryen fixes the interaction.
+BASE="-O2 -w -Wno-error=incompatible-function-pointer-types -fgnu89-inline
       -ffunction-sections -fdata-sections -fno-strict-aliasing
       -DLINT -DPORT_PC=1 -DPORT_WASM=1"
 SHIM="-include $W/native/decomp/shim/decomp_shim.h"
@@ -93,6 +114,7 @@ emcc "$OUT"/obj/*.o -o "$OUT/melee.html" --use-port=sdl3 \
   --shell-file "$W/native/tools/wasm_shell.html" \
   -sINITIAL_MEMORY=2415919104 -sALLOW_MEMORY_GROWTH=0 -sMAX_WEBGL_VERSION=2 -sMIN_WEBGL_VERSION=2 \
   -sASYNCIFY=1 -sASYNCIFY_STACK_SIZE=65536 -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 \
+  -sEMULATE_FUNCTION_POINTER_CASTS=1 \
   -sEXPORTED_RUNTIME_METHODS=callMain,HEAPU8
 echo "linked: $(du -h "$OUT/melee.wasm" | cut -f1) wasm -> $OUT/melee.html"
 
