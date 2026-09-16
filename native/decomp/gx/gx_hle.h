@@ -22,7 +22,13 @@
  * ~64 bytes, so 2048 costs about 128 KB of BSS -- cheap next to reproducing
  * the bug.  GX_HLE_MAX_DRAWS is deliberately left alone: nothing has been
  * observed hitting it, and gx_hle.c now reports each cap the first time it
- * is exhausted rather than dropping work silently. */
+ * is exhausted rather than dropping work silently.
+ *
+ * Raising it was not the real fix and 2048 was hit again on Corneria: the
+ * table was a log of GXLoadTexObj calls, so it grew with draw calls rather
+ * than with textures.  gx_hle.c now deduplicates on the descriptor, which is
+ * what keeps this cap meaningful -- it now bounds *distinct* textures in a
+ * frame. */
 #define GX_HLE_MAX_TEXTURES 2048
 #define GX_HLE_MAX_TLUTS 32
 #define GX_HLE_MAX_TEXOBJS 128

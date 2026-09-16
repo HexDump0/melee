@@ -107,6 +107,66 @@ static size_t frame_dcount;
 static GxHleTexture frame_textures[GX_HLE_MAX_TEXTURES];
 static size_t frame_tcount;
 
+/*
+ * The frame texture table used to be a log of GXLoadTexObj calls, not a set of
+ * textures, so a frame that binds one material a thousand times spent a
+ * thousand slots on it.  That is why the cap kept being hit (P-740): Corneria
+ * with items on exhausted 2048 entries in a single frame, which drops the rest
+ * of the frame, while the number of *distinct* textures on screen is in the
+ * low hundreds.  Deduplicate on the descriptor instead of raising the cap
+ * again -- gx_gl.c already keys its GL texture cache on exactly these fields,
+ * so two identical entries could never have produced two different textures.
+ *
+ * `gl_texture` is deliberately excluded from the key: it is gx_gl.c's output
+ * slot, not part of what the texture is.
+ */
+#define GX_HLE_TEX_HASH 4096 /* power of two, > GX_HLE_MAX_TEXTURES */
+/* Slots hold `index + 1`, so a zeroed table means empty and the array needs no
+ * initialisation before the first frame. */
+static int frame_tex_hash[GX_HLE_TEX_HASH];
+
+static size_t tex_key_hash(const GxHleTexture* t)
+{
+    const unsigned char* p = (const unsigned char*) t;
+    size_t n = offsetof(GxHleTexture, gl_texture);
+    size_t h = 1469598103u; /* FNV-1a, 32-bit basis */
+    size_t i;
+
+    for (i = 0; i < n; i++) {
+        h ^= p[i];
+        h *= 16777619u;
+    }
+    return h & (GX_HLE_TEX_HASH - 1);
+}
+
+static int tex_key_equal(const GxHleTexture* a, const GxHleTexture* b)
+{
+    return memcmp(a, b, offsetof(GxHleTexture, gl_texture)) == 0;
+}
+
+/* The slot this texture already occupies in the frame, or -1. */
+static int frame_tex_find(const GxHleTexture* t, size_t* slot_out)
+{
+    size_t slot = tex_key_hash(t);
+    size_t probes;
+
+    for (probes = 0; probes < GX_HLE_TEX_HASH; probes++) {
+        int idx = frame_tex_hash[slot] - 1;
+        if (idx < 0) {
+            *slot_out = slot;
+            return -1;
+        }
+        if ((size_t) idx < frame_tcount &&
+            tex_key_equal(&frame_textures[idx], t)) {
+            return idx;
+        }
+        slot = (slot + 1) & (GX_HLE_TEX_HASH - 1);
+    }
+    /* Table full: fall back to appending, which is what this did before. */
+    *slot_out = GX_HLE_TEX_HASH;
+    return -1;
+}
+
 static int draw_active;
 static size_t draw_vertex_start;
 
@@ -2214,13 +2274,29 @@ void GXLoadTexObj(GXTexObj* obj, GXTexMapID id)
         t.palette_format = tl->fmt;
         t.palette_entries = tl->n_entries;
     }
-    if (frame_tcount < GX_HLE_MAX_TEXTURES) {
-        frame_textures[frame_tcount] = t;
-        if ((int) id >= 0 && (int) id < 8) {
-            gx.cur.texmap[id] = (int) frame_tcount;
+    t.gl_texture = 0;
+    {
+        size_t slot = GX_HLE_TEX_HASH;
+        int existing = frame_tex_find(&t, &slot);
+        if (existing >= 0) {
+            if ((int) id >= 0 && (int) id < 8) {
+                gx.cur.texmap[id] = existing;
+            }
+            return;
         }
-        frame_tcount++;
-    } else {
+        if (frame_tcount < GX_HLE_MAX_TEXTURES) {
+            frame_textures[frame_tcount] = t;
+            if (slot < GX_HLE_TEX_HASH) {
+                frame_tex_hash[slot] = (int) frame_tcount + 1;
+            }
+            if ((int) id >= 0 && (int) id < 8) {
+                gx.cur.texmap[id] = (int) frame_tcount;
+            }
+            frame_tcount++;
+            return;
+        }
+    }
+    {
         /* P-740, and it is no longer latent -- the owner sees HUD textures
          * cycling through unrelated art for a few seconds at a time.
          *
@@ -2750,6 +2826,7 @@ void gx_hle_discard_geometry(void)
      * overflows GX_HLE_MAX_TEXTURES after a few frames and leaves every draw
      * pointing at stale entries. */
     frame_tcount = 0;
+    memset(frame_tex_hash, 0, sizeof(frame_tex_hash));
     stat_display_lists = 0;
     stat_primitives = 0;
     stat_skipped = 0;
