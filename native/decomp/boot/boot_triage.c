@@ -187,6 +187,50 @@ void boot_triage_capture_crash(int signo)
     }
 }
 
+/* The owner plays the windowed build, and that build never installed a signal
+ * handler -- only `boot_main.c` did -- so every segfault he hit reported
+ * nothing at all while the headless harness printed a full stack for the same
+ * fault.  Three separate crash reports this session arrived with no frames
+ * for exactly that reason, and the first two were unrecoverable because the
+ * process was gone by the time anyone noticed.
+ *
+ * This is deliberately *not* the harness's handler.  That one captures and
+ * `siglongjmp`s to a stop target the viewer does not have, so without one it
+ * returns straight back to the faulting instruction and spins.  Here the
+ * report is printed on the spot and the signal is then re-raised with the
+ * default action, so the process still dies the way it would have, a debugger
+ * still sees the original signal, and the terminal has the stack either way. */
+static void crash_reporter(int signo)
+{
+    boot_triage_capture_crash(signo);
+    /* print_crash prints the `controlled stop:` line itself. */
+    boot_triage_print_crash(stderr);
+    fflush(stderr);
+    signal(signo, SIG_DFL);
+    raise(signo);
+}
+
+void boot_triage_install_crash_reporter(void)
+{
+    /* SIGSEGV/SIGBUS/SIGFPE/SIGILL only.  SIGABRT is left alone because the
+     * panic path already prints its own backtrace before aborting, and
+     * SIGALRM because the viewer has no watchdog and SDL may use timers. */
+    static const int signals[] = { SIGSEGV, SIGBUS, SIGFPE, SIGILL };
+    struct sigaction sa;
+    size_t i;
+
+    if (getenv("MELEE_NO_CRASH_HANDLER") != NULL) {
+        return; /* let a sanitizer runtime report the failure itself */
+    }
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = crash_reporter;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_NODEFER;
+    for (i = 0; i < sizeof(signals) / sizeof(signals[0]); i++) {
+        sigaction(signals[i], &sa, NULL);
+    }
+}
+
 const char* boot_triage_crash_signal_name(void)
 {
     switch (crash_signo) {

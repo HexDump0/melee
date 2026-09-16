@@ -475,6 +475,11 @@ int main(int argc, char** argv)
     SDL_GLContext context;
     size_t i;
 
+    /* A segfault in the windowed build used to print nothing at all, while
+     * the headless harness printed a full stack for the same fault -- three
+     * owner crash reports this session arrived with no frames because of it
+     * (P-784). */
+    boot_triage_install_crash_reporter();
     memset(&opt, 0, sizeof(opt));
     memset(v, 0, sizeof(*v));
     opt.disc = RENDER_SCENE_DISC_DEFAULT;

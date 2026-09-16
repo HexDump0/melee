@@ -76,6 +76,11 @@ const char* boot_triage_crash_signal_name(void);
 void boot_triage_capture_crash(int signo);
 void boot_triage_print_crash(FILE* out);
 
+/* Installs a SIGSEGV/SIGBUS/SIGFPE/SIGILL handler that prints the signal and
+ * a backtrace to stderr and then re-raises with the default action.  For the
+ * windowed build, which has no stop target to longjmp to. */
+void boot_triage_install_crash_reporter(void);
+
 /* Symbolised backtrace of the caller, taken live rather than from the signal
  * handler's capture.  label says what prompted it, e.g. "panic". */
 void boot_triage_print_backtrace(FILE* out, const char* label);
