@@ -71,7 +71,9 @@ int check_unk_flag_bit_order(void)
 }
 
 /* Descriptor-walk coverage floor, disc-wide (P-756).  Measured 2026-09-16 at
- * converter v114: 172427/209261 = 82.40%, up from 79.50% when
+ * converter v117: 172844/209261 = 82.60%, up from 82.40% when the Kirby
+ * copy archives stopped being walked as `ftData` (P-755), and from 79.50%
+ * before that when
  * `conv_orphan_anim_trees` started finding `HSD_AnimJoint` trees that no
  * walker reaches, the animation counterpart of `conv_orphan_matanim_trees`.
  * Before that, 79.50% at v104 when `conv_ft_part_anim` began following
@@ -85,7 +87,7 @@ int check_unk_flag_bit_order(void)
  * even downward (v106, which removed a wrong walk).
  *
  * Ratchet it upward as walkers land; never lower it to make a change pass. */
-#define MELEE_COVERAGE_FLOOR 82.40
+#define MELEE_COVERAGE_FLOOR 82.60
 
 int check_converter_sweep(const char* image)
 {

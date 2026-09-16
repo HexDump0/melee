@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 114u
+#define HSD_CONVERTER_VERSION 117u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -3480,6 +3480,173 @@ static void conv_ft_part_anim(Conv* c, uint32_t off)
     }
 }
 
+/* ftDynamics: dynamicsNum, ftDynamicBones*, x4, x8, x10.  Each
+ * ArticleDynamicBones entry is a BoneDynamicsDesc (0x18):
+ * { enum_t bone_id; DynamicsData* data; u32 count; Vec3 pos }.
+ * ftCo_8009CF84 indexes fp->parts by bone_id, so an unconverted bone_id
+ * walks off the part list.
+ *
+ * Factored out of `conv_ft_data` so `conv_kirby_hat` can reach it too: a
+ * Kirby copy archive's five `hat_dynamics[]` are the same struct. */
+/* DWARF: ftDynamics */
+static void conv_ft_dynamics(Conv* c, uint32_t dyn)
+{
+    uint32_t bones;
+    uint32_t dyn_x8;
+    int n;
+    int m;
+    int i;
+
+    if (dyn == 0 || !in_data(c, dyn, 0x14)) {
+        return;
+    }
+    conv_u32(c, dyn + 0x00);
+    conv_u32(c, dyn + 0x08);
+    n = (int) rd32(c, dyn + 0x00);
+    bones = rd32(c, dyn + 0x04);
+    if (bones != 0 && n > 0 && n <= 16) {
+        for (i = 0; i < n; i++) {
+            uint32_t e = bones + (uint32_t) i * 0x18;
+            if (!in_data(c, e, 0x18)) {
+                break;
+            }
+            conv_bone_dynamics_desc(c, e);
+        }
+    }
+    /* dyn->x8 is a second ftData_x38 array (ftColl_8007B320 walks
+     * fp->x1670 through it), distinct from ftData->x38. */
+    m = (int) rd32(c, dyn + 0x08);
+    dyn_x8 = rd32(c, dyn + 0x0C);
+    if (dyn_x8 != 0 && m > 0 && m <= 16) {
+        for (i = 0; i < m; i++) {
+            uint32_t e = dyn_x8 + (uint32_t) i * 0x14;
+            int w;
+            if (!in_data(c, e, 0x14)) {
+                break;
+            }
+            for (w = 0; w < 0x14; w += 4) {
+                conv_u32(c, e + (uint32_t) w);
+            }
+        }
+    }
+}
+
+/* `ftDataKirbyCopy<X>` is **not an `ftData`**, and this is P-755.
+ *
+ * `ftKb_SpecialN_800EED50` (ftkirby.c:2773) loads each `PlKbCp*.dat` into
+ * `((HSD_Archive**) &ft_80459B88)[kind]`, i.e. `ft_80459B88.hats[kind]`,
+ * which is a **`KirbyHatStruct`** (ft/types.h:2020):
+ *
+ *     { HSD_Joint* hat_joint; FtPartsDesc desc; ftDynamics* hat_dynamics[5]; }
+ *
+ * The root dispatch matched them on the `"ftData"` prefix and handed them to
+ * `conv_ft_data`, which then read +0x08 as `ftData->x8`, +0x0C/+0x14 as the
+ * `Fighter_WaitAnimData` arrays, +0x1C as the part-animation table and so on
+ * -- every offset meaning something else.  `PlKbCpCl.dat` shows it plainly:
+ * +0x00 is a textbook `HSD_Joint` (scale 1,1,1 at +0x20), +0x04 reads
+ * `0x01000000` -- **big-endian 1, the `FtPartsDesc.model_num` nobody
+ * converted** -- and +0x0C..+0x14 are three `ftDynamics`.
+ *
+ * That unconverted `model_num` is exactly P-755: `ftParts_8007487C`
+ * (ftparts.c:518) does `vis->model_num = desc->model_num` and reports
+ * "fighter parts model num over!" when it exceeds 11.  16,777,216 exceeds 11.
+ *
+ * The `FtPartsDesc` is **embedded at +0x04**, not behind a pointer the way
+ * `ftData->x8` holds it, which is why the normal fighter path converts its
+ * `model_num` and this one never did.
+ *
+ * **Four of the 24 do not have this layout and are deliberately left alone:**
+ * `PlKbCpDk`, `PlKbCpFc`, `PlKbCpMt` and `PlKbCpPr` put their relocations at
+ * +0x04/+0x0C/+0x14 instead of +0x00/+0x08, so whatever they are, they are
+ * not a `KirbyHatStruct` -- read as one, their `model_num` comes out
+ * 1,275,068,416.  The guard below is self-validating in the same spirit as
+ * the `yakumono_param` fallback: `hat_joint` must be a relocation or null,
+ * `model_num` must **not** be a relocation and must satisfy the engine's own
+ * bound (`ftParts_8007487C` reports above 11), and `vis_table` must be a
+ * relocation or null.  A root that fails is skipped rather than guessed at,
+ * and recorded in P-755's row. */
+/* DWARF: KirbyHatStruct */
+static void conv_kirby_hat(Conv* c, uint32_t off)
+{
+    uint32_t joint;
+    uint32_t vis_table;
+    int n_models;
+    int i;
+
+    if (!in_data(c, off, 0x20)) {
+        return;
+    }
+    /* Self-validating: refuse a root whose shape contradicts the type. */
+    if (c->reloc[off + 0x04] || be32(c->data + off + 0x04) > 11u) {
+        return;
+    }
+    if (rd32(c, off + 0x00) != 0 && !c->reloc[off + 0x00]) {
+        return;
+    }
+    if (rd32(c, off + 0x08) != 0 && !c->reloc[off + 0x08]) {
+        return;
+    }
+    if (!mark(c, off)) {
+        return;
+    }
+    joint = rd32(c, off + 0x00);
+    if (joint != 0) {
+        conv_joint(c, joint);
+    }
+    conv_u32(c, off + 0x04); /* FtPartsDesc.model_num */
+    n_models = (int) rd32(c, off + 0x04);
+    if (n_models < 0 || n_models > 12) {
+        n_models = 0;
+    }
+    /* FtPartsDesc.vis_table, the same `void* (*)[4]` per-costume table
+     * `conv_ft_data` walks, and bounded the same way: every real slot is a
+     * relocation target and the first non-pointer word is past the end
+     * (P-764). */
+    vis_table = rd32(c, off + 0x08);
+    if (vis_table != 0) {
+        int costume;
+        int ended = 0;
+        for (costume = 0; costume < 8 && !ended; costume++) {
+            int col;
+            for (col = 0; col < 4; col++) {
+                uint32_t p = vis_table +
+                             ((uint32_t) costume * 4 + (uint32_t) col) * 4;
+                uint32_t lookup;
+                if (!in_data(c, p, 4) || !c->reloc[p]) {
+                    ended = 1;
+                    break;
+                }
+                lookup = rd32(c, p);
+                if (lookup != 0) {
+                    conv_ft_vis_lookup(c, lookup, n_models);
+                }
+            }
+        }
+    }
+    /* **`hat_dynamics[]` is deliberately not walked.**  Its name is wrong:
+     * the slots are overloaded per fighter kind and only one of the uses in
+     * `ftkirby.c` is actually an `ftDynamics`.
+     *
+     *   [0] `it_8026B3F8((Article*) hat->hat_dynamics[0], ...)`  (3751-3815)
+     *   [1] `u32 mask = (u32) hat->hat_dynamics[1];`             (2851, 3153)
+     *   [2] `HSD_Joint* root = (HSD_Joint*) hat->hat_dynamics[2];`   (3023)
+     *   [3] `lookup = (FtPartsVisLookup*) hat->hat_dynamics[3];`     (3751)
+     *   [4] `hats[Pichu]->hat_dynamics[4]->ftDynamicBones`           (2683)
+     *       but also `*(u32*) ((u8*) hat->hat_dynamics[4] + 8)`      (3756)
+     *
+     * Slot [1] is not even a pointer.  This is the same trap as G&W's
+     * `ftData->x48_items[10]` (P-765), where a slot that passes the Article
+     * test is really an `FtPartsVisLookup[]` -- and that row's conclusion
+     * applies here too: **a shape heuristic does not work, the slot has to be
+     * keyed on what the decompilation says per kind.**  That is a table of
+     * per-fighter special cases and is left for a follow-up; walking these as
+     * `ftDynamics` would corrupt four uses out of five.  `conv_ft_dynamics`
+     * is factored out and ready for whoever writes it.
+     *
+     * `i` is unused for now. */
+    (void) i;
+}
+
 static void conv_ft_data(Conv* c, uint32_t off, const char* name,
                          size_t name_len)
 {
@@ -3804,49 +3971,7 @@ static void conv_ft_data(Conv* c, uint32_t off, const char* name,
             }
         }
     }
-    {
-        /* ftDynamics: dynamicsNum, ftDynamicBones*, x4, x8, x10.  Each
-         * ArticleDynamicBones entry is a BoneDynamicsDesc (0x18):
-         * { enum_t bone_id; DynamicsData* data; u32 count; Vec3 pos }.
-         * ftCo_8009CF84 indexes fp->parts by bone_id, so an unconverted
-         * bone_id walks off the part list. */
-        uint32_t dyn = rd32(c, off + 0x2C);
-        if (dyn != 0 && in_data(c, dyn, 0x14)) {
-            uint32_t bones;
-            uint32_t dyn_x8;
-            int n;
-            int m;
-            conv_u32(c, dyn + 0x00);
-            conv_u32(c, dyn + 0x08);
-            n = (int) rd32(c, dyn + 0x00);
-            bones = rd32(c, dyn + 0x04);
-            if (bones != 0 && n > 0 && n <= 16) {
-                for (i = 0; i < n; i++) {
-                    uint32_t e = bones + (uint32_t) i * 0x18;
-                    if (!in_data(c, e, 0x18)) {
-                        break;
-                    }
-                    conv_bone_dynamics_desc(c, e);
-                }
-            }
-            /* dyn->x8 is a second ftData_x38 array (ftColl_8007B320 walks
-             * fp->x1670 through it), distinct from ftData->x38. */
-            m = (int) rd32(c, dyn + 0x08);
-            dyn_x8 = rd32(c, dyn + 0x0C);
-            if (dyn_x8 != 0 && m > 0 && m <= 16) {
-                for (i = 0; i < m; i++) {
-                    uint32_t e = dyn_x8 + (uint32_t) i * 0x14;
-                    int w;
-                    if (!in_data(c, e, 0x14)) {
-                        break;
-                    }
-                    for (w = 0; w < 0x14; w += 4) {
-                        conv_u32(c, e + (uint32_t) w);
-                    }
-                }
-            }
-        }
-    }
+    conv_ft_dynamics(c, rd32(c, off + 0x2C));
     /* x34: { Fighter_Part x0; f32 scale } (0x08). */
     if (x34 != 0 && in_data(c, x34, 8)) {
         conv_u32(c, x34 + 0x00); /* Fighter_Part part index */
@@ -5023,6 +5148,9 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
         } else if (length >= 16 &&
                    memcmp(name, "ftLoadCommonData", 16) == 0) {
             conv_ft_common_data(c, data_off);
+        } else if (length >= 15 &&
+                   memcmp(name, "ftDataKirbyCopy", 15) == 0) {
+            conv_kirby_hat(c, data_off);
         } else if (length >= 6 && memcmp(name, "ftData", 6) == 0) {
             conv_ft_data(c, data_off, name, length);
         } else if (length == 12 && memcmp(name, "itPublicData", 12) == 0) {
