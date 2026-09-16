@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 104u
+#define HSD_CONVERTER_VERSION 105u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -3281,18 +3281,30 @@ static void conv_ft_data(Conv* c, uint32_t off, const char* name,
         }
     }
     /* ftData->x1C is a table of `ftData_x1C*` part-animation descriptors.
-     * Fighter.x8B0 has five runtime slots, but fighter archives serialize
-     * only a relocation-backed leading run.  conv_ft_part_anim converts each
+     * Fighter.x8B0 has five runtime slots, so five is the cap, but fighter
+     * archives serialize only a leading run.  conv_ft_part_anim converts each
      * descriptor's two u16 and follows its `x8` animation-joint array; before
      * it did the latter, the AObj/FObj chains under those joints were never
-     * reached (P-758's head item). */
+     * reached (P-758's head item).
+     *
+     * **A relocation slot is not enough to bound this table.**  In PlMr.dat
+     * the table is at 0x2534 and holds three entries, and the word straight
+     * after it -- 0x2540 -- is `ftData->x20`, an `ftData_x20 { HSD_Joint**
+     * x0; f32 x8; }` whose `x0` is a relocation field like the slots are.  A
+     * `c->reloc[slot]` bound runs into it and reads an `HSD_Joint**` array as
+     * a fourth part-animation descriptor, which is the P-739 shape.  Bound it
+     * by `next_pointed_at_after()` as well: `ftData->x20` points at 0x2540,
+     * so the table ends there, at three. */
     {
         uint32_t table = rd32(c, off + 0x1C);
-        if (table != 0) {
+        if (table != 0 && in_data(c, table, 4)) {
+            uint32_t table_end = next_pointed_at_after(c, table);
             for (i = 0; i < 5; i++) {
                 uint32_t slot = table + (uint32_t) i * 4;
                 uint32_t entry;
-                if (!in_data(c, slot, 4) || !c->reloc[slot]) {
+                if (slot + 4 > table_end || !in_data(c, slot, 4) ||
+                    !c->reloc[slot])
+                {
                     break;
                 }
                 entry = rd32(c, slot);
