@@ -71,13 +71,21 @@ int check_unk_flag_bit_order(void)
 }
 
 /* Descriptor-walk coverage floor, disc-wide (P-756).  Measured 2026-09-16 at
- * converter v104: 166368/209261 = 79.50%, up from 76.87% at v103 when
- * conv_ft_part_anim started following `ftData_x1C.x8`, the part-animation
- * joint arrays (P-758's head item) -- +5512 descriptors, and the 34
- * `PlXx.dat` files went 20.2% -> 39.9%.  Before that it was 73.60% at v99,
- * when conv_itemdata started following each stage's Article (P-762).
+ * converter v114: 172427/209261 = 82.40%, up from 79.50% when
+ * `conv_orphan_anim_trees` started finding `HSD_AnimJoint` trees that no
+ * walker reaches, the animation counterpart of `conv_orphan_matanim_trees`.
+ * Before that, 79.50% at v104 when `conv_ft_part_anim` began following
+ * `ftData_x1C.x8` (P-758's head item), and 73.60% at v99 when conv_itemdata
+ * started following each stage's Article (P-762).
+ *
+ * **Read this number with the caveat in P-758's row.** Coverage counts
+ * descriptors reached, not bytes the game reads: roughly half of the v114
+ * gain is the unreachable prefix of the `PlXx.dat` part-animation trees, and
+ * a converter fix that repairs real data can move it not at all (v107) or
+ * even downward (v106, which removed a wrong walk).
+ *
  * Ratchet it upward as walkers land; never lower it to make a change pass. */
-#define MELEE_COVERAGE_FLOOR 79.50
+#define MELEE_COVERAGE_FLOOR 82.40
 
 int check_converter_sweep(const char* image)
 {

@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 113u
+#define HSD_CONVERTER_VERSION 114u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -5178,6 +5178,140 @@ static void conv_orphan_matanim_trees(Conv* c)
     }
 }
 
+/* Orphan `HSD_AnimJoint` trees, the animation counterpart of
+ * `conv_orphan_matanim_trees` above and the same standard of evidence.
+ *
+ * After the `ftData_x1C` chain landed (P-758's head item), the largest
+ * remaining shape on the disc was still one 0x14 struct, and outside the
+ * `PlXx.dat` files it is not the unreachable prefix case: in `ItCo.dat` the
+ * chain at 0x2050f8 is a real `HSD_FObjDesc` run under an `HSD_AObjDesc` at
+ * 0x205170, hanging off an `HSD_AnimJoint` at 0x205d40 whose tree root
+ * nothing in the archive points at.  That is the same orphan-`Article`
+ * situation the comment above describes -- ItCo carries `Article` records
+ * that none of `itPublicData`'s three tables name -- reaching the animation
+ * joints instead of the material ones.
+ *
+ * Rather than guess the missing root, test the shape, and require **three
+ * chained layouts** to agree before converting anything:
+ *
+ *   HSD_AnimJoint -> HSD_AObjDesc -> HSD_FObjDesc
+ *
+ * Every pointer word of each must be null or a relocation target; the
+ * `AObjDesc.end_frame` and `FObjDesc.startframe` must be plausible finite
+ * frame counts when read big-endian; `FObjDesc.length` must be a sane byte
+ * count; and the `AnimJoint.flags` must be small.  `conv_anim_joint` marks
+ * what it walks, so a tree the descriptor pass already reached is skipped --
+ * the scan only ever adds.
+ *
+ * The values are read **big-endian on purpose**: these words are by
+ * definition unconverted, so `be32` is their true value, and the `c->num[]`
+ * checks make sure no walker has already swapped them underneath us. */
+static int plausible_be_frame(const Conv* c, uint32_t off)
+{
+    uint32_t w;
+    float f;
+
+    if (!in_data(c, off, 4) || c->reloc[off] || c->num[off]) {
+        return 0;
+    }
+    w = be32(c->data + off);
+    if (w == 0) {
+        return 1;
+    }
+    memcpy(&f, &w, sizeof(f));
+    /* Finite, non-denormal, and within the frame counts animation data
+     * actually uses.  A byte-reversed float lands outside this almost
+     * always -- 1.0f reversed is 4.6e-41. */
+    return f > 0.0009765625f && f < 1000000.0f;
+}
+
+static int looks_like_unconverted_fobjdesc(const Conv* c, uint32_t off)
+{
+    uint32_t length;
+
+    if (!in_data(c, off, HSD_FOBJDESC_SIZE) || c->seen[off]) {
+        return 0;
+    }
+    if (!null_or_pointer(c, off + 0x00) || !null_or_pointer(c, off + 0x10)) {
+        return 0;
+    }
+    /* `ad` is the byte stream the track plays; a real FObjDesc always has
+     * one, and that is what separates this from a run of zeros. */
+    if (rd32(c, off + 0x10) == 0) {
+        return 0;
+    }
+    if (!in_data(c, off + 0x04, 4) || c->reloc[off + 0x04] ||
+        c->num[off + 0x04])
+    {
+        return 0;
+    }
+    length = be32(c->data + off + 0x04);
+    if (length == 0 || length > 0x10000u) {
+        return 0;
+    }
+    return plausible_be_frame(c, off + 0x08);
+}
+
+static int looks_like_unconverted_aobjdesc(const Conv* c, uint32_t off)
+{
+    uint32_t fobj;
+
+    if (!in_data(c, off, HSD_AOBJDESC_SIZE) || c->seen[off]) {
+        return 0;
+    }
+    if (!null_or_pointer(c, off + 0x08) || !null_or_pointer(c, off + 0x0C)) {
+        return 0;
+    }
+    if (!plausible_be_frame(c, off + 0x04)) { /* end_frame */
+        return 0;
+    }
+    fobj = rd32(c, off + 0x08);
+    return fobj != 0 && looks_like_unconverted_fobjdesc(c, fobj);
+}
+
+static int looks_like_unconverted_anim_joint(const Conv* c, uint32_t off)
+{
+    uint32_t aobj;
+
+    if (!in_data(c, off, HSD_ANIMJOINT_SIZE) || c->seen[off]) {
+        return 0;
+    }
+    if (!null_or_pointer(c, off + 0x00) || !null_or_pointer(c, off + 0x04) ||
+        !null_or_pointer(c, off + 0x08) || !null_or_pointer(c, off + 0x0C))
+    {
+        return 0;
+    }
+    if (!in_data(c, off + 0x10, 4) || c->reloc[off + 0x10] ||
+        c->num[off + 0x10])
+    {
+        return 0;
+    }
+    if (be32(c->data + off + 0x10) > 0xFFu) { /* flags */
+        return 0;
+    }
+    aobj = rd32(c, off + 0x08);
+    return aobj != 0 && looks_like_unconverted_aobjdesc(c, aobj);
+}
+
+static void conv_orphan_anim_trees(Conv* c)
+{
+    uint32_t i;
+
+    for (i = 0; i < c->nb_reloc; i++) {
+        uint32_t field = rd32_abs(c, c->reloc_off + i * 4);
+        uint32_t target;
+
+        if (!in_data(c, field, 4)) {
+            continue;
+        }
+        target = rd32(c, field);
+        if (target != 0 && looks_like_unconverted_anim_joint(c, target)) {
+            c->st.orphan_animjoints++;
+            conv_anim_joint(c, target);
+        }
+    }
+}
+
 /* P-756: measure how much of the archive the descriptor walk actually
  * reached.  Every pointer in the file is named by the relocation table, so
  * its targets enumerate every object the game can reach -- an exact
@@ -5426,6 +5560,7 @@ static int convert_archive(unsigned char* data, size_t size, Conv* c)
     c->st.roots_total = nb_public;
     convert_roots(c, public_off, nb_public, symbols_off);
     conv_orphan_matanim_trees(c);
+    conv_orphan_anim_trees(c);
     measure_coverage(c);
 
     c->st.ok = c->st.reloc_valid == c->st.reloc_total;

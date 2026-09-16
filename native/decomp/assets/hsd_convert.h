@@ -36,6 +36,10 @@ typedef struct HsdConvertStats {
     /* Material-animation trees the descriptor walk never reached, found by
      * the relocation-target scan (P-753). */
     unsigned orphan_matanims;
+    /* Animation-joint trees found the same way (P-758): an `HSD_AnimJoint`
+     * whose `HSD_AObjDesc` and `HSD_FObjDesc` both validate, that no walker
+     * reached. */
+    unsigned orphan_animjoints;
 
     /* Descriptor-walk coverage (P-756).  The relocation table names every
      * pointer in the archive, so its targets are every object the game can
