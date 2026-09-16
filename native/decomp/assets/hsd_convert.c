@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 111u
+#define HSD_CONVERTER_VERSION 112u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -114,6 +114,7 @@ enum {
     STAGE_PARAM_RCRUISE,
     STAGE_PARAM_INISHIE2,
     STAGE_PARAM_GARDEN,
+    STAGE_PARAM_OLDYOSHI,
 };
 
 typedef struct StageParamMarker {
@@ -164,6 +165,7 @@ static const StageParamMarker stage_param_markers[] = {
     { "GrdRCruiseShip", STAGE_PARAM_RCRUISE },
     { "GrdInishie2Wa", STAGE_PARAM_INISHIE2 },
     { "GrdGardenKoya", STAGE_PARAM_GARDEN },
+    { "GrdOldyoshi", STAGE_PARAM_OLDYOSHI },
 };
 
 typedef struct Conv {
@@ -2166,6 +2168,29 @@ static void conv_inishie2_param(Conv* c, uint32_t off)
     conv_u16(c, off + 0x4A);
 }
 
+/* GrOy.dat (Yoshi's Island N64) `yakumono_param`: an **anonymous** struct in
+ * groldyoshi.c:54 -- two `s16`, three `f32`, then five `s16`.  0x1C with the
+ * trailing pad, exactly the symbol's extent.  Raw: 120, 180, 0.15, 0.15,
+ * 6.0, 30, 30, **3000, 4000**, 30 -- the same cloud-timer shape as Dream
+ * Land's `x0`/`x2`, which is what P-770 crashed on, so this one had the same
+ * failure latent. */
+static void conv_oldyoshi_param(Conv* c, uint32_t off)
+{
+    int i;
+
+    if (!in_data(c, off, 0x1C) || !mark(c, off)) {
+        return;
+    }
+    conv_u16(c, off + 0x00);
+    conv_u16(c, off + 0x02);
+    conv_u32(c, off + 0x04); /* f32 */
+    conv_u32(c, off + 0x08); /* f32 */
+    conv_u32(c, off + 0x0C); /* f32 */
+    for (i = 0x10; i <= 0x18; i += 2) {
+        conv_u16(c, off + (uint32_t) i);
+    }
+}
+
 /* Gr*.dat `yakumono_param` fallback: stage-specific dynamic-object parameters
  * whose layout this converter does not know yet.  For Zebes the word at +0x2C
  * is a relocation target to a bury DynamicsDesc stored directly before the
@@ -2260,6 +2285,9 @@ static void conv_stage_yakumono(Conv* c, uint32_t off)
         break;
     case STAGE_PARAM_GARDEN:
         conv_garden_param(c, off);
+        break;
+    case STAGE_PARAM_OLDYOSHI:
+        conv_oldyoshi_param(c, off);
         break;
     case STAGE_PARAM_BIGBLUE:
         conv_bigblue_param(c, off);
