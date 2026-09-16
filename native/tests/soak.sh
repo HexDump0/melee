@@ -27,6 +27,28 @@
 #   MELEE_SOAK_FIGHTERS    CKind list, or `all` (0..25)  (default: unset)
 #   MELEE_SOAK_STAGES      StKind list, or `all`         (default: unset)
 #   MELEE_SOAK_SEEDS       derived seeds to run          (default 8)
+#   MELEE_SOAK_REPEATS     runs per (seed, cell)         (default 1)
+#
+# **Depth is two axes, not one, and quoting a one-seed matrix as a rate is
+# wrong.** Seeds vary the game's data path -- which fighter, which stage,
+# which RNG stream -- and find conversion and interaction bugs. Repeats vary
+# nothing the game can see: with ASLR on they differ only in process layout,
+# and that is the only way to find the uninitialised-read class, where the
+# data is identical every run and the bug depends on what was left on the
+# stack (P-781's `FObjUpdateAnim`, P-752's dangling node). A matrix that
+# spends its whole budget on seeds is blind to that half.
+#
+# Pick k from the failure rate you want to catch, and say which k you used.
+# For a cell failing at rate p, k independent runs detect it with
+# 1-(1-p)^k: at p=1/9 -- the rate P-788 turned out to have on Green Greens --
+# k=6 is a **coin flip** (50.6%), k=20 is 90%, k=30 is 97%. A single-seed
+# sweep therefore reports a *floor* on the number of broken cells, never a
+# rate, and this script's own history is the argument: Green Greens passed on
+# its one seed while failing one match in nine.
+#
+# Budget is not the constraint. 754 cells x 20 seeds x ~1.25 s is about forty
+# minutes on eight cores, and early stop (below) returns most of the depth's
+# cost on a matrix where most cells pass.
 #   MELEE_SOAK_SEED_BASE   base, hex/decimal or `random` (default 0x00507590)
 #   MELEE_SOAK_SEED_LIST   extra explicit seeds, always run in addition
 #   MELEE_SOAK_JOBS        parallel boots                (default: nproc)
@@ -104,20 +126,39 @@ if [ "${1:-}" = "--run-one" ]; then
     match=$6
     timeout_s=$7
 
-    # A job is `seed:p0:p1:stage`; -1 means "leave the game's own choice".
+    # A job is `seed:p0:p1:stage:repeat`; -1 means "leave the game's own
+    # choice".  `repeat` distinguishes runs that are identical in every input
+    # -- see the two-axis note in the header: they differ only in process
+    # layout, which is the point.
     seed=${job%%:*}
     rest=${job#*:}
     p0=${rest%%:*}
     rest=${rest#*:}
     p1=${rest%%:*}
-    stage=${rest##*:}
+    rest=${rest#*:}
+    stage=${rest%%:*}
+    repeat=${rest##*:}
 
     tag=$seed
     [ "$p0" != "-1" ] && tag="$tag/p$p0-$p1"
     [ "$stage" != "-1" ] && tag="$tag/g$stage"
+    [ "$repeat" != "0" ] && tag="$tag#$repeat"
 
     log="$work/logs/run-$(echo "$job" | tr ':' '_').log"
     res="$work/res/$(echo "$job" | tr ':' '_')"
+
+    # Early stop, per cell.  A cell is a (fighters, stage) combination; we
+    # only need to know that it fails, not how often, so once one run in a
+    # cell has failed the rest of that cell's seeds and repeats are wasted
+    # budget.  On a matrix where most cells pass this buys nearly all of the
+    # depth for nearly the cost of one seed.  The marker is a file, so the
+    # check is race-tolerant: a duplicate run is harmless, a missed one only
+    # costs a run.
+    cell="$work/failed/$(printf '%s_%s_%s' "$p0" "$p1" "$stage")"
+    if [ -e "$cell" ]; then
+        printf '%s\tSKIP\n' "$tag" >"$res"
+        exit 0
+    fi
 
     # `timeout` is a backstop only: melee_decomp_boot arms its own SIGALRM at
     # --boot-timeout and reports a backtrace from it, which is far more useful
@@ -207,6 +248,7 @@ if [ "${1:-}" = "--run-one" ]; then
         }' "$log")
 
     if [ -n "$key" ]; then
+        : >"$cell" 2>/dev/null || true
         printf '%s\t%s\t%s\n' "$tag" "$key" "$log" >"$res"
     else
         printf '%s\t\t\n' "$tag" >"$res"
@@ -231,6 +273,7 @@ if [ ! -x "$boot" ]; then
 fi
 
 seed_count=${MELEE_SOAK_SEEDS:-8}
+repeats=${MELEE_SOAK_REPEATS:-1}
 seed_base=${MELEE_SOAK_SEED_BASE:-0x00507590}
 seed_list=${MELEE_SOAK_SEED_LIST:-}
 frames=${MELEE_SOAK_FRAMES:-900}
@@ -244,7 +287,7 @@ fi
 seed_base=$(( seed_base & 0xFFFFFFFF ))
 
 rm -rf "$work"
-mkdir -p "$work/logs" "$work/res" || exit 2
+mkdir -p "$work/logs" "$work/res" "$work/failed" || exit 2
 
 # 32-bit xorshift over (base, index).  Everything stays inside 32 bits and so
 # stays non-negative, which keeps bash's arithmetic right shift arithmetic-safe.
@@ -301,7 +344,11 @@ fi
 jobs_list=()
 if [ -z "$fighters" ] && [ -z "$stages" ]; then
     for sd in "${seeds[@]}"; do
-        jobs_list+=( "$sd:-1:-1:-1" )
+        r=0
+        while [ "$r" -lt "$repeats" ]; do
+            jobs_list+=( "$sd:-1:-1:-1:$r" )
+            r=$(( r + 1 ))
+        done
     done
 else
     # shellcheck disable=SC2206
@@ -317,7 +364,11 @@ else
             # fighter is exercised as both players without 26x26 pairs.
             p1=${f_arr[$(( (fi + 1) % nf ))]}
             for g in "${g_arr[@]}"; do
-                jobs_list+=( "$sd:$p0:$p1:$g" )
+                r=0
+                while [ "$r" -lt "$repeats" ]; do
+                    jobs_list+=( "$sd:$p0:$p1:$g:$r" )
+                    r=$(( r + 1 ))
+                done
             done
             fi=$(( fi + 1 ))
         done
@@ -338,7 +389,20 @@ fi
 if [ -n "$stages" ]; then
     printf ', %d stages' "$(printf '%s\n' $stages | wc -l)"
 fi
-printf ', %d frames, match at %d, %d parallel\n' "$frames" "$match" "$jobs"
+printf ', %d frames, match at %d, %d parallel' "$frames" "$match" "$jobs"
+if [ "$repeats" -gt 1 ]; then
+    printf ', %d repeats' "$repeats"
+fi
+# **Never mix the two ASLR modes into one count.**  A pinned `setarch -R` run
+# and an ASLR-on run measure different things, and averaging them produces a
+# number that means nothing, so the mode is part of the report.
+if [ -e /proc/sys/kernel/randomize_va_space ] && \
+   [ "$(cat /proc/sys/kernel/randomize_va_space)" != "0" ]; then
+    printf ', ASLR on'
+else
+    printf ', ASLR OFF'
+fi
+printf '\n'
 
 start=$(date +%s)
 printf '%s\n' "${jobs_list[@]}" | xargs -P "$jobs" -I{} -- \
@@ -351,14 +415,22 @@ elapsed=$(( $(date +%s) - start ))
 cat "$work"/res/* >"$work/results.tsv" 2>/dev/null
 
 ran=$(wc -l <"$work/results.tsv")
-failed=$(awk -F'\t' 'NF > 1 && $2 != ""' "$work/results.tsv" | wc -l)
-passed=$(( ran - failed ))
+failed=$(awk -F'\t' 'NF > 1 && $2 != "" && $2 != "SKIP"' "$work/results.tsv" | wc -l)
+skipped=$(awk -F'\t' '$2 == "SKIP"' "$work/results.tsv" | wc -l)
+passed=$(( ran - failed - skipped ))
 
 if [ "$ran" -ne "$total" ]; then
     echo "soak: WARNING only $ran of $total runs reported a result" >&2
 fi
 
-printf 'soak: %d passed, %d failed, %ds wall\n' "$passed" "$failed" "$elapsed"
+printf 'soak: %d passed, %d failed' "$passed" "$failed"
+if [ "$skipped" -gt 0 ]; then
+    # Not passes.  A skipped run is one whose cell had already failed, so
+    # counting it either way would be a lie; the point of early stop is that
+    # the cell's verdict is known, not that the rest of it is clean.
+    printf ', %d skipped (cell already failed)' "$skipped"
+fi
+printf ', %ds wall\n' "$elapsed"
 
 if [ "$failed" -eq 0 ]; then
     echo
@@ -369,7 +441,7 @@ fi
 # Group by key, most frequent first.  This is the dedupe that keeps one bug
 # from reading as seven.
 awk -F'\t' '
-    $2 != "" { count[$2]++; if (seeds[$2] == "") seeds[$2] = $1;
+    $2 != "" && $2 != "SKIP" { count[$2]++; if (seeds[$2] == "") seeds[$2] = $1;
                else seeds[$2] = seeds[$2] " " $1 }
     END { for (k in count) printf "%d\t%s\t%s\n", count[k], k, seeds[k] }
 ' "$work/results.tsv" | sort -rn >"$work/grouped.tsv"
