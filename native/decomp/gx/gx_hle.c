@@ -600,6 +600,63 @@ static int tex_mtx_slot(u32 id)
     return -1;
 }
 
+/*
+ * P-816: which matrices a texgen uses is fixed for a whole primitive -- the
+ * GX command stream cannot change state between GXBegin and GXEnd -- but
+ * texgen_coord was re-deriving it for every vertex of every coordinate:
+ * two tex_mtx_slot range-classifications and the GX_PNMTX special case, per
+ * coord, per vertex.  At 165k vertices a frame that is the fourth-largest
+ * line in the profile, and all of it is loop-invariant.
+ *
+ * Resolved once per primitive into pointers instead.  Pointers, not copies:
+ * the matrix *contents* may be reloaded between primitives and must be read
+ * live, and gx.pos_mtx/gx.tex_mtx are fixed arrays, so the address is what is
+ * stable here, not the value.  All eight are built regardless of
+ * num_texgens, because the emboss path recurses into an arbitrary source
+ * coordinate that the count does not bound.
+ */
+typedef struct {
+    const float* m;  /* primary matrix, NULL = none (identity) */
+    const float* pm; /* post matrix, NULL = none               */
+} GxTexGenPlan;
+
+static GxTexGenPlan texgen_plan[8];
+static int texgen_plan_count;
+
+static void build_texgen_plan(void)
+{
+    int count = gx.cur.num_texgens;
+    int i;
+
+    /* Direct-mode callers may configure generators without emitting
+     * GXSetNumTexGens (displayfunc.c's small utility draws); retain the
+     * established three-coordinate fallback for that command stream. */
+    if (count <= 0) {
+        count = 3;
+    } else if (count > 8) {
+        count = 8;
+    }
+    texgen_plan_count = count;
+
+    for (i = 0; i < 8; ++i) {
+        const GxHleTexGen* tg = &gx.cur.texgen[i];
+        int id;
+
+        /* GX texgen matrix IDs share the XF position/texture matrix address
+         * space.  Shadow coordinates explicitly select GX_PNMTX0; using the
+         * already transformed draw position here silently substitutes the
+         * vertex/current matrix instead. */
+        if (tg->mtx_id <= GX_PNMTX9 && (tg->mtx_id % 3) == 0) {
+            texgen_plan[i].m = &gx.pos_mtx[tg->mtx_id][0][0];
+        } else {
+            id = tex_mtx_slot(tg->mtx_id);
+            texgen_plan[i].m = id >= 0 ? &gx.tex_mtx[id][0][0] : NULL;
+        }
+        id = tex_mtx_slot(tg->postmtx);
+        texgen_plan[i].pm = id >= 0 ? &gx.tex_mtx[id][0][0] : NULL;
+    }
+}
+
 static void texgen_coord(int coord, const GxRawVertex* raw, const float pos[3],
                          const float nrm[3], const float binormal[3],
                          const float tangent[3], float out[3])
@@ -607,7 +664,6 @@ static void texgen_coord(int coord, const GxRawVertex* raw, const float pos[3],
     const GxHleTexGen* tg = &gx.cur.texgen[coord & 7];
     float in[3];
     const float* m;
-    int id;
 
     if (tg->type >= GX_TG_BUMP0 && tg->type <= GX_TG_BUMP7) {
         /* GX emboss/bump: the source coordinate plus the light direction
@@ -718,18 +774,7 @@ static void texgen_coord(int coord, const GxRawVertex* raw, const float pos[3],
         v[0] = in[0];
         v[1] = in[1];
         v[2] = in[2];
-        id = tex_mtx_slot(tg->mtx_id);
-        if (tg->mtx_id <= GX_PNMTX9 && (tg->mtx_id % 3) == 0) {
-            /* GX texgen matrix IDs share the XF position/texture matrix
-             * address space.  Shadow coordinates explicitly select
-             * GX_PNMTX0; using the already transformed draw position here
-             * silently substitutes the vertex/current matrix instead. */
-            m = &gx.pos_mtx[tg->mtx_id][0][0];
-        } else if (id >= 0) {
-            m = &gx.tex_mtx[id][0][0];
-        } else {
-            m = NULL;
-        }
+        m = texgen_plan[coord & 7].m;
         if (m != NULL) {
             {
                 float t0 = m[0] * v[0] + m[1] * v[1] + m[2] * v[2] + m[3];
@@ -753,9 +798,8 @@ static void texgen_coord(int coord, const GxRawVertex* raw, const float pos[3],
                 v[2] /= len;
             }
         }
-        id = tex_mtx_slot(tg->postmtx);
-        if (id >= 0) {
-            m = &gx.tex_mtx[id][0][0];
+        m = texgen_plan[coord & 7].pm;
+        if (m != NULL) {
             {
                 float t0 = m[0] * v[0] + m[1] * v[1] + m[2] * v[2] + m[3];
                 float t1 = m[4] * v[0] + m[5] * v[1] + m[6] * v[2] + m[7];
@@ -780,20 +824,12 @@ static void transform_vertex(const GxRawVertex* raw, GxHleVertex* v)
     float v4[4];
     float clip[4];
     int idx = raw->matrix + (int) gx.current_mtx;
-    int texgen_count = gx.cur.num_texgens;
+    int texgen_count = texgen_plan_count; /* built by build_texgen_plan */
     int need_nbt = 0;
     int i;
 
     if (idx < 0 || idx > 29) {
         idx = 0;
-    }
-    /* Direct-mode callers may configure generators without emitting
-     * GXSetNumTexGens (displayfunc.c's small utility draws); retain the
-     * established three-coordinate fallback for that command stream. */
-    if (texgen_count <= 0) {
-        texgen_count = 3;
-    } else if (texgen_count > 8) {
-        texgen_count = 8;
     }
     for (i = 0; i < texgen_count; i++) {
         int type = gx.cur.texgen[i].type;
@@ -1139,6 +1175,7 @@ static void exec_primitive(u8 op, const u8* list, size_t length,
     }
 
     init_vertex_decoder(vtxfmt, &decoder);
+    build_texgen_plan();
     {
         int d;
         big_prim_direct_pos = 0;
