@@ -89,7 +89,7 @@ int check_unk_flag_bit_order(void)
  * even downward (v106, which removed a wrong walk).
  *
  * Ratchet it upward as walkers land; never lower it to make a change pass. */
-#define MELEE_COVERAGE_FLOOR 82.82
+#define MELEE_COVERAGE_FLOOR 82.83
 
 int check_converter_sweep(const char* image)
 {

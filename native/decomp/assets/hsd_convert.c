@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 122u
+#define HSD_CONVERTER_VERSION 124u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -2874,6 +2874,32 @@ static void conv_item_dynamics(Conv* c, uint32_t off)
  * by up to 15 bytes of alignment padding and then the Article.  Walking eight
  * entries unconditionally interprets following metadata as animation roots
  * for short arrays and misses states in long arrays. */
+/* A pointer field the relocation table does not name is not a pointer.
+ *
+ * `ItemStateDesc.x4_matanim_joint` and `.x8_shapeanim_joint` are **extern
+ * patch sites** in several archives -- the linked list `HSD_ArchiveLocateExtern`
+ * walks, where each site holds the *offset of the next site* and the game
+ * patches them all to NULL at load (`lbArchive_InitializeDAT`).  Since
+ * `convert_extern_chains` byte-swaps those links (P-771), they now read as
+ * plausible in-range data offsets, and following one walks straight into
+ * unrelated structures: in `GrCn.dat` this marched a `conv_matanim_joint`
+ * chain through four sites into `conv_texanim(0x5fc68)`, which is the Arwing
+ * laser's **model root joint**.  Marking it there made the real `conv_joint`
+ * bail, so the PObj stayed big-endian and `GXSetVtxDesc` segfaulted (P-782).
+ *
+ * The relocation table separates the two exactly, the same way it does for
+ * `AObjDesc.obj_id` in P-786: a real pointer field is in it, a patch site or
+ * a numeric id is not.  This is the narrow fix at the site that produced a
+ * crash; the general form is a `follow()` helper used by every walker that
+ * dereferences a descriptor field, and the P-782 row argues for it. */
+static uint32_t follow_ptr(Conv* c, uint32_t field)
+{
+    if (!in_data(c, field, 4) || !c->reloc[field]) {
+        return 0;
+    }
+    return rd32(c, field);
+}
+
 static void conv_item_state_array(Conv* c, uint32_t off, int count)
 {
     int i;
@@ -2884,9 +2910,9 @@ static void conv_item_state_array(Conv* c, uint32_t off, int count)
     }
     for (i = 0; i < count; i++) {
         uint32_t st = off + (uint32_t) i * 0x10;
-        uint32_t anim = rd32(c, st + 0x00);
-        uint32_t mat = rd32(c, st + 0x04);
-        uint32_t shape = rd32(c, st + 0x08);
+        uint32_t anim = follow_ptr(c, st + 0x00);
+        uint32_t mat = follow_ptr(c, st + 0x04);
+        uint32_t shape = follow_ptr(c, st + 0x08);
         if (anim != 0 && in_data(c, anim, HSD_ANIMJOINT_SIZE)) {
             conv_anim_joint(c, anim);
         }
@@ -3060,6 +3086,52 @@ static int looks_like_unconverted_joint(Conv* c, uint32_t off)
     return 1;
 }
 
+/* Mr. Game & Watch's articles keep a part-visibility descriptor behind
+ * `specialAttributes[0]`, and no walker reached it.
+ *
+ * `itgamewatchturtle.c:36` takes `attr = article->x4_specialAttributes` and
+ * `Item_AttachGameWatchArticle` passes **`attr[0]`** to `it_8027CE64`, which
+ * stores it in `item->xDD4_itemVar.gamewatch.attr`.  `it_8026EECC_VARS`
+ * (itdraw.c:146) then reads it as `{ u16 x0; u8* x4; u16 x8; u8* xC }` -- two
+ * `{ count, bone-index list }` pairs, 0x10 bytes.  Both pointers relocate
+ * fine; both counts were raw, so `it_8026EC54` got `arg1 = 1280` for the
+ * `u16` 5 and walked 1280 entries of a 5-entry list into
+ * `ip->xBBC_dynamicBoneTable->bones[]` (P-776).
+ *
+ * Keyed on shape rather than on the fighter's name, and the shape is exact
+ * enough to be safe: two counts that are **not** relocation fields alternating
+ * with two that are, both counts plausible, and both lists in range.  A name
+ * key would have to cover `PlGw.dat` and Kirby's copy of the same article in
+ * `PlKb.dat` (`itkirbygamewatchchefpan.c:27`), which is why the row first read
+ * "Kirby"; the shape covers both without guessing which archives carry it. */
+static void conv_gamewatch_vis_pair(Conv* c, uint32_t special)
+{
+    uint32_t d;
+    unsigned n0;
+    unsigned n1;
+
+    d = follow_ptr(c, special);
+    if (d == 0 || !in_data(c, d, 0x10)) {
+        return;
+    }
+    if (c->reloc[d + 0x00] || !c->reloc[d + 0x04] || c->reloc[d + 0x08] ||
+        !c->reloc[d + 0x0C]) {
+        return;
+    }
+    n0 = be16(c->data + d + 0x00);
+    n1 = be16(c->data + d + 0x08);
+    if (n0 < 1 || n0 > 64 || n1 < 1 || n1 > 64) {
+        return;
+    }
+    /* The two `u8*` lists must actually hold that many bytes. */
+    if (!in_data(c, rd32(c, d + 0x04), n0) ||
+        !in_data(c, rd32(c, d + 0x0C), n1)) {
+        return;
+    }
+    conv_u16(c, d + 0x00);
+    conv_u16(c, d + 0x08);
+}
+
 static void conv_article_special_attrs(Conv* c, uint32_t special,
                                        int item_kind)
 {
@@ -3067,6 +3139,7 @@ static void conv_article_special_attrs(Conv* c, uint32_t special,
     uint32_t i;
 
     conv_article_attr_joints(c, special, item_kind);
+    conv_gamewatch_vis_pair(c, special);
     if (item_kind == ITEM_KIND_FOODS) {
         conv_it_food_attrs(c, special);
         return;
