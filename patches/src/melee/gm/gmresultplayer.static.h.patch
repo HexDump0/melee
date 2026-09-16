@@ -1,0 +1,31 @@
+diff --git a/src/melee/gm/gmresultplayer.static.h b/src/melee/gm/gmresultplayer.static.h
+index 706ec65b2..f7b68f069 100644
+--- a/src/melee/gm/gmresultplayer.static.h
++++ b/src/melee/gm/gmresultplayer.static.h
+@@ -61,6 +61,26 @@ typedef struct {
+     u32 hi;
+ } U32Pair;
+ 
++/* P-795: the results screen keeps six `u16[4]` tables and two `s16[4]` tables
++ * as *word* constants -- `U32Pair` written straight over `u16 dim_w1[4]`, and
++ * `u32 gmResultScoreTableInit[8]` read back through `PackedS16x4 { s16 h[4];
++ * u32 w[2]; }`.  Each word is a pair of packed halfwords, and which halfword
++ * comes first is the host's byte order, so the port read every such table
++ * with its pairs transposed: `dim_w1` came out { 80, 80, 52, 70 } instead of
++ * { 80, 80, 70, 52 }, and the four-player camera offsets { -22, -7, 7, 22 }
++ * came out { -7, -22, 22, 7 }.
++ *
++ * Write the pairs as pairs.  `RESULT_HALVES(a, b)` puts `a` in the lower
++ * index and `b` in the higher one on either host, and folds to the identical
++ * constant on the console, so the initialisers below are unchanged there. */
++#ifdef PORT_PC
++#define RESULT_HALVES(a, b)                                               \
++    ((u32) (((u32) (u16) (b) << 16) | (u32) (u16) (a)))
++#else
++#define RESULT_HALVES(a, b)                                               \
++    ((u32) (((u32) (u16) (a) << 16) | (u32) (u16) (b)))
++#endif
++
+ typedef struct {
+     /* 0x00:0 */ u8 x0_0 : 4;
+     /* 0x00:4 */ u8 x0_4 : 2;
