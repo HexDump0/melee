@@ -1,20 +1,41 @@
 diff --git a/src/sysdolphin/baselib/devcom.c b/src/sysdolphin/baselib/devcom.c
-index 9193913b0..8c576910e 100644
+index 9193913b0..c41a55c06 100644
 --- a/src/sysdolphin/baselib/devcom.c
 +++ b/src/sysdolphin/baselib/devcom.c
-@@ -406,6 +406,17 @@ int HSD_DevComRequest(int file, uintptr_t src, uintptr_t dest, size_t size,
+@@ -1,5 +1,10 @@
+ #include "devcom.h"
+ 
++#ifdef PORT_WASM
++/* P-502/W2 diagnostic only; goes away with the OSReport below. */
++#include <emscripten/emscripten.h>
++#endif
++
+ #include "debug.h"
+ #include "devcom.static.h"
+ #include "synth.h"
+@@ -406,6 +411,27 @@ int HSD_DevComRequest(int file, uintptr_t src, uintptr_t dest, size_t size,
          !(HSD_DevComGetDestType(type) == DEVCOMDEST_SBUF
              && size > DEVCOM_BUF_SIZE));
  
 +#ifdef PORT_PC
 +    /* P-502/W2: a DevCom destination arrived unaligned in the browser build
 +     * but not on the desktop, and the assertion alone does not say which
-+     * transfer.  Name it before dying. */
++     * transfer.  Name it, and on wasm name the caller too -- the owner runs
++     * the browser by hand, so one run has to be enough.  Delete this block
++     * once the cause is fixed. */
 +    if ((src % 32) != 0 || (dest % 32) != 0 || (size % 32) != 0) {
 +        OSReport("DevCom UNALIGNED: file=%d src=0x%08x dest=0x%08x size=0x%x "
-+                 "type=0x%x\n",
++                 "type=0x%x dtype=%d\n",
 +                 (int) file, (unsigned) src, (unsigned) dest, (unsigned) size,
-+                 (unsigned) type);
++                 (unsigned) type, HSD_DevComGetDestType(type));
++#ifdef PORT_WASM
++        {
++            static char stack[4096];
++            emscripten_get_callstack(EM_LOG_C_STACK | EM_LOG_NO_PATHS, stack,
++                                     sizeof stack);
++            OSReport("DevCom UNALIGNED callstack:\n%s\n", stack);
++        }
++#endif
 +    }
 +#endif
      HSD_ASSERT(0x1EF, src % 32 == 0);
