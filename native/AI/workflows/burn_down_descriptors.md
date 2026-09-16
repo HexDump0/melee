@@ -38,7 +38,7 @@ here instead of in someone's game.
    **Never lower it to make a change pass.**
 3. **`decomp_layout`**, the DWARF cross-check. Every walker you add gets a
    `/* DWARF: <TypeName> */` comment above it, and you raise the floor
-   (currently 49) in `native/CMakeLists.txt`. If the tool says it has no DWARF
+   (51 as of 2026-09-16) in `native/CMakeLists.txt`. If the tool says it has no DWARF
    for your type, add that type's header to `native/tools/dwarf_types.c` — an
    annotation naming a type the tool cannot find is a **failure**, not a pass.
 4. **`decomp_soak`** stays green.
@@ -97,8 +97,11 @@ never walked.
 
 ### 1. Pick a target
 
-Worst families first, from `native/AI/TASKS.md` P-758. Start with its **head
-item**, which is already diagnosed end to end — it is 82% of the `Pl*` gap.
+Worst families first, from `native/AI/TASKS.md` P-758 — but read "What is
+already settled" below before you trust the family sizes in that row. The head
+item is **done** (converter v104-v106), and with it the `Pl*` family: what
+looks like the biggest remaining number on the disc is 92% padding and
+unreachable nodes. **`Vi*` is the live target.**
 
 ### 2. Find what is missed
 
@@ -110,13 +113,23 @@ MELEE_UNWALKED=1 MELEE_NO_ASSET_CACHE=1 \
 Each line is:
 
 ```
-[unwalked] 0x<target> <- field 0x<field> words=N ptr=N conv=N cold=N
+[unwalked] 0x<target> <- field 0x<field> words=N ptr=N conv=N cold=N chg=N
 ```
 
-`[unwalked-file] <name>` lines separate the archives. **Sort by `cold`,** not
-by count: `cold` is the number of words that are still big-endian, and a
-descriptor with `cold=0` is already correct — giving it a walker would raise
-coverage without changing a byte, which is gaming the metric.
+`[unwalked-file] <name>` lines separate the archives. **Sort by `chg`.**
+
+`cold` is the number of words still big-endian, and `chg` is the subset of
+those a byte swap would actually change. A cold word whose bytes read the same
+both ways — every zero word — is already correct however it was stored, so
+converting it changes nothing. **Disc-wide, 54% of `cold` is that kind of
+padding, and for `Gr*` it is 90%**, so sorting by `cold` sends you after
+families that are mostly zeros. A descriptor with `chg=0` is unwalked only in
+the bookkeeping sense; giving it a walker raises coverage without changing a
+byte, which is gaming the metric.
+
+`chg` is still an upper bound, not a worklist. It counts words that *would*
+change, not words the game *reads*. See the `Pl*` entry under "What is already
+settled" below for the case where those differ by 16,000 words.
 
 ### 3. Identify the struct
 
@@ -220,6 +233,34 @@ per commit, with the struct named and the coverage delta in the message.
 means the walker is wrong. Revert it and write down what you saw.
 
 ---
+
+## What is already settled — do not re-derive
+
+**`Pl*` is done, and the number that is left is not what it looks like
+(measured 2026-09-16, converter v106).** P-758 opened with `Pl*` as the worst
+family, 35,157 of the gap. After `conv_ft_part_anim` the 34 `PlXx.dat` still
+report 16,773 unwalked descriptors — but only **17,325 changeable words**, and
+**16,025 of those are one field in one struct that the engine never reads.**
+
+Here is why, because it is the trap: `x8[i]` in `ftData_x1C` does not point at
+the root of its `HSD_AnimJoint` tree. It points **into the middle of it**, at
+the node for part `x0` — `root = x8[i] - x0 * sizeof(HSD_AnimJoint)`, which
+holds for 317 of the 320 arrays on the disc. The nodes before it are the
+earlier parts of the same serialized animation, **nothing in the archive points
+at them**, and `ftAnim_GetNextAnimJointInTree` (`ftanim.c:26`) cannot reach
+them: it goes child, then next, and pops upward only through its own stack of
+nodes it already visited, which starts empty at `x8[i]`. So the traversal never
+goes above the node it was handed.
+
+Each of those unreachable nodes reports `cold=3` — `aobjdesc`, `robj_anim`,
+`flags` — of which the first two are null. **One word per node can be wrong and
+no one ever reads it.** Walking them would raise coverage by several percent
+and change nothing, which is the definition of gaming the metric.
+
+**So: `Pl*` has roughly 1,300 changeable words genuinely left. Take `Vi*`
+instead** — 11 files, 1,096 descriptors, **13,892 changeable words and only 15%
+padding**, the densest real target on the disc. `Gr*` looks like 14,616 cold
+words and is **90% padding**: 1,528 changeable.
 
 ## When to stop and ask
 

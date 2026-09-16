@@ -4859,6 +4859,7 @@ static void measure_coverage(Conv* c)
                 uint32_t w;
                 uint32_t ptr = 0;
                 uint32_t conv = 0;
+                uint32_t chg = 0;
                 if (words > 4096) {
                     words = 4096;
                 }
@@ -4875,12 +4876,37 @@ static void measure_coverage(Conv* c)
                  * still big-endian in the converted image.  A descriptor with
                  * cold == 0 is unwalked only in the bookkeeping sense -- its
                  * bytes are all correct -- and giving it a walker would raise
-                 * coverage without changing a byte. */
+                 * coverage without changing a byte.
+                 *
+                 * `chg` narrows that further, and it is the column to sort
+                 * on.  A cold word whose bytes read the same both ways --
+                 * every zero word, and every `0x01010101` -- is *already*
+                 * correct however it was stored, so converting it changes
+                 * nothing either.  Zeros are not rare in this data: an
+                 * unbound `HSD_AnimJoint` carries a null `aobjdesc` and a
+                 * null `robj_anim` beside its one live `flags` word, so
+                 * `cold` counts three where only one can be wrong. Sorting
+                 * by `cold` sends the next agent after descriptor families
+                 * that are two thirds padding (P-758). */
+                for (w = 0; w < words; w++) {
+                    uint32_t a2 = target + w * 4;
+                    const unsigned char* q;
+                    if (c->reloc[a2] || c->num[a2] || c->num[a2 + 2]) {
+                        continue;
+                    }
+                    if (a2 + 4 > c->data_size) {
+                        break;
+                    }
+                    q = c->data + a2;
+                    if (q[0] != q[3] || q[1] != q[2]) {
+                        chg++;
+                    }
+                }
                 fprintf(stderr,
                         "[unwalked] 0x%06x <- field 0x%06x words=%u ptr=%u "
-                        "conv=%u cold=%u\n",
+                        "conv=%u cold=%u chg=%u\n",
                         target, field, words, ptr, conv,
-                        words - ptr - conv);
+                        words - ptr - conv, chg);
             }
         }
     }
