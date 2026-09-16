@@ -81,6 +81,10 @@ typedef struct HsdConvertStats {
     unsigned scripts;
     unsigned reloc_total;
     unsigned reloc_valid;
+    /* Extern chain sites byte-swapped (P-771).  `HSD_ArchiveLocateExtern`
+     * patches a linked list whose links are plain data, not relocations, so
+     * without this the engine's own loop stops after the first site. */
+    unsigned extern_sites;
     int ok; /* header/tables valid and every relocation target converted */
 } HsdConvertStats;
 

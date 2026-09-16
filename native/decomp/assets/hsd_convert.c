@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 108u
+#define HSD_CONVERTER_VERSION 109u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -5030,6 +5030,65 @@ static void measure_coverage(Conv* c)
     free(counted);
 }
 
+/* Archive *extern* references, and the reason they are not relocations.
+ *
+ * `HSD_ArchiveLocateExtern` (archive.c:96) does not patch one field per
+ * symbol -- it patches a **linked list of sites**.  Each site holds the data
+ * offset of the next site to patch, terminated by -1:
+ *
+ *     while (offset != -1U && offset < data_size) {
+ *         next = *(u32*) (data + offset);
+ *         *(u32*) (data + offset) = addr;
+ *         offset = next;
+ *     }
+ *
+ * `lbArchive_InitializeDAT` (lbarchive.c:27) runs it for every extern symbol
+ * with `addr = NULL`, so on console every site ends up NULL and the
+ * `if (matanim_joint != NULL)` guards downstream do their job.
+ *
+ * Those chain links are **plain numeric data**: the relocation table does not
+ * list them -- that is the whole point of an extern -- and no walker reaches
+ * them, so nothing byte-swapped them.  The port's loop then reads `next` as
+ * `0x18070600` instead of `0x60718`, fails `offset < data_size`, and **stops
+ * after the very first site**.  Every later site keeps its raw link, which
+ * the game dereferences as a pointer: in `GrCn.dat` the Corneria arwing-beam
+ * chain is 0x606e8 -> 0x606f8 -> 0x60708 -> 0x60718 -> 0x60728 -> 0x60738,
+ * six sites of which the port patched one, and `HSD_JObjAddAnim` was handed
+ * `mat_joint = 0x18070600` (P-771).
+ *
+ * Swap the links so the engine's own loop can follow the chain.  Disc-wide
+ * this is 25 archives, 556 symbols and 630 sites, of which **74 are sites the
+ * port never reached**.  Run after `convert_relocs`, so `c->reloc[]` is
+ * populated and a link that is somehow also a relocation field stops the
+ * walk instead of being read from the wrong end.  `c->num[]` doubles as the
+ * cycle guard -- a revisited site is already converted -- and the explicit
+ * cap is belt and braces. */
+#define HSD_MAX_EXTERN_SITES 65536u
+
+static void convert_extern_chains(Conv* c, uint32_t extern_off,
+                                  uint32_t nb_extern)
+{
+    uint32_t i;
+
+    for (i = 0; i < nb_extern; i++) {
+        uint32_t off = rd32_abs(c, extern_off + i * 8);
+        uint32_t guard;
+
+        for (guard = 0; guard < HSD_MAX_EXTERN_SITES; guard++) {
+            uint32_t next;
+            if (off == 0xFFFFFFFFu || !in_data(c, off, 4) || (off & 3u) ||
+                c->reloc[off] || c->num[off])
+            {
+                break;
+            }
+            next = be32(c->data + off);
+            conv_u32(c, off);
+            c->st.extern_sites++;
+            off = next;
+        }
+    }
+}
+
 static int convert_archive(unsigned char* data, size_t size, Conv* c)
 {
     uint32_t file_size = be32(data);
@@ -5082,6 +5141,7 @@ static int convert_archive(unsigned char* data, size_t size, Conv* c)
     c->public_off = public_off;
     c->nb_public = nb_public;
     convert_relocs(c, reloc_off, nb_reloc);
+    convert_extern_chains(c, public_off + nb_public * 8, nb_extern);
     c->st.roots_total = nb_public;
     convert_roots(c, public_off, nb_public, symbols_off);
     conv_orphan_matanim_trees(c);
