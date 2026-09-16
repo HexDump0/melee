@@ -1063,9 +1063,13 @@ static int gl_setup(char* error, size_t error_size)
     return 1;
 }
 
+static void uni_cache_reset(void);
+
 int gx_gl_attach(int width, int height, char* error, size_t error_size)
 {
     gx_hle_set_texture_invalidate_hook(gx_gl_invalidate_texture);
+    /* A new context means new programs and new uniform state. */
+    uni_cache_reset();
     if (width > 0) {
         gl_width = width;
     }
@@ -1825,6 +1829,105 @@ static int draw_state_matches(const GxHleDrawState* s)
            memcmp(&last_applied_state, s, sizeof(*s)) == 0;
 }
 
+/* ------------------------------------------------------- uniform value cache
+ *
+ * `upload_draw_uniforms` below issues **52** glUniform* calls and runs once per
+ * draw.  A measured browser frame was 461 draws, so ~24,000 GL calls a frame.
+ * Native GL does not care -- the desktop renders that same scene in 8.6 ms --
+ * but in a browser every one of them crosses the JS/wasm boundary at roughly
+ * half a microsecond, which is ~12 ms and was essentially the whole of the
+ * browser's 15 ms render time (P-801).
+ *
+ * Most of those values do not change from one draw to the next, so keep a
+ * shadow copy per uniform location and skip the call when the bytes match.
+ * Uniform state is **per program** in GL, so values survive the ztex and
+ * display-filter programs binding in between and the cache stays valid; only
+ * the main `program`'s uniforms go through here, so locations cannot collide
+ * with another program's.  gx_gl_attach() drops the cache with the context.
+ */
+#define GX_UNI_SLOTS 512
+#define GX_UNI_BYTES 256
+
+static struct {
+    unsigned short size;
+    unsigned char valid;
+    unsigned char v[GX_UNI_BYTES];
+} uni_cache[GX_UNI_SLOTS];
+
+static unsigned long uni_calls_total;
+static unsigned long uni_calls_skipped;
+
+/* MELEE_GX_UNI_STATS=1 reports how many uploads the cache removed. */
+void gx_gl_uniform_stats(unsigned long* total, unsigned long* skipped)
+{
+    *total = uni_calls_total;
+    *skipped = uni_calls_skipped;
+}
+
+static void uni_cache_reset(void)
+{
+    memset(uni_cache, 0, sizeof uni_cache);
+}
+
+/* True when the value differs from what the program already holds (and then
+ * records it).  Anything we cannot cache -- an unknown location, or a value
+ * larger than a slot -- reports "changed" so it is always uploaded. */
+static int uni_dirty(GLint loc, const void* data, size_t bytes)
+{
+    /* MELEE_GX_UNI_CACHE=0 forces every upload, so a run can be compared
+     * against itself frame for frame.  That equivalence is the whole licence
+     * for this cache. */
+    static int enabled = -1;
+    if (enabled < 0) {
+        const char* e = getenv("MELEE_GX_UNI_CACHE");
+        enabled = (e == NULL || e[0] != '0');
+    }
+    if (!enabled || loc < 0 || loc >= GX_UNI_SLOTS || bytes > GX_UNI_BYTES) {
+        return 1;
+    }
+    uni_calls_total++;
+    if (uni_cache[loc].valid && uni_cache[loc].size == (unsigned short) bytes &&
+        memcmp(uni_cache[loc].v, data, bytes) == 0)
+    {
+        uni_calls_skipped++;
+        return 0;
+    }
+    memcpy(uni_cache[loc].v, data, bytes);
+    uni_cache[loc].size = (unsigned short) bytes;
+    uni_cache[loc].valid = 1;
+    return 1;
+}
+
+#define UNI_1I(loc, x)                                                        \
+    do {                                                                      \
+        GLint uv_ = (GLint) (x);                                              \
+        if (uni_dirty((loc), &uv_, sizeof uv_))                               \
+            glUniform1i((loc), uv_);                                          \
+    } while (0)
+#define UNI_1F(loc, x)                                                        \
+    do {                                                                      \
+        GLfloat uv_ = (GLfloat) (x);                                          \
+        if (uni_dirty((loc), &uv_, sizeof uv_))                               \
+            glUniform1f((loc), uv_);                                          \
+    } while (0)
+#define UNI_3F(loc, a, b, c)                                                  \
+    do {                                                                      \
+        GLfloat uv_[3] = { (GLfloat) (a), (GLfloat) (b), (GLfloat) (c) };     \
+        if (uni_dirty((loc), uv_, sizeof uv_))                                \
+            glUniform3f((loc), uv_[0], uv_[1], uv_[2]);                       \
+    } while (0)
+#define UNI_V(fn, loc, n, elems, type, p)                                     \
+    do {                                                                      \
+        if (uni_dirty((loc), (p), (size_t) (n) * (elems) * sizeof(type)))     \
+            fn((loc), (n), (p));                                              \
+    } while (0)
+#define UNI_1IV(loc, n, p) UNI_V(glUniform1iv, loc, n, 1, GLint, p)
+#define UNI_1FV(loc, n, p) UNI_V(glUniform1fv, loc, n, 1, GLfloat, p)
+#define UNI_2IV(loc, n, p) UNI_V(glUniform2iv, loc, n, 2, GLint, p)
+#define UNI_2FV(loc, n, p) UNI_V(glUniform2fv, loc, n, 2, GLfloat, p)
+#define UNI_4IV(loc, n, p) UNI_V(glUniform4iv, loc, n, 4, GLint, p)
+#define UNI_4FV(loc, n, p) UNI_V(glUniform4fv, loc, n, 4, GLfloat, p)
+
 static void upload_draw_uniforms(const GxHleDrawState* s)
 {
     GLint orders[MAX_TEV_STAGES][4];
@@ -1891,9 +1994,9 @@ static void upload_draw_uniforms(const GxHleDrawState* s)
         }
     }
 
-    glUniform1i(u_stages, stages);
-    glUniform4fv(u_tev_color, 4, &colors[0][0]);
-    glUniform4fv(u_tev_kcolor, 4, &kcolors[0][0]);
+    UNI_1I(u_stages, stages);
+    UNI_4FV(u_tev_color, 4, &colors[0][0]);
+    UNI_4FV(u_tev_kcolor, 4, &kcolors[0][0]);
     {
         GLint ch_enable[4];
         GLint ch_amb_src[4];
@@ -1941,50 +2044,50 @@ static void upload_draw_uniforms(const GxHleDrawState* s)
             light_dir[i][2] = l->dir[2];
             light_dir[i][3] = 0.0f;
         }
-        glUniform1iv(u_ch_enable, 4, ch_enable);
-        glUniform1iv(u_ch_amb_src, 4, ch_amb_src);
-        glUniform1iv(u_ch_mat_src, 4, ch_mat_src);
-        glUniform1iv(u_ch_diff_fn, 4, ch_diff_fn);
-        glUniform1iv(u_ch_attn_fn, 4, ch_attn_fn);
-        glUniform1iv(u_ch_light_mask, 4, ch_light_mask);
-        glUniform4fv(u_ch_amb, 4, &ch_amb[0][0]);
-        glUniform4fv(u_ch_mat, 4, &ch_mat[0][0]);
-        glUniform4fv(u_light_pos, 8, &light_pos[0][0]);
-        glUniform4fv(u_light_color, 8, &light_color[0][0]);
-        glUniform4fv(u_light_a, 8, &light_a[0][0]);
-        glUniform4fv(u_light_k, 8, &light_k[0][0]);
-        glUniform4fv(u_light_dir, 8, &light_dir[0][0]);
+        UNI_1IV(u_ch_enable, 4, ch_enable);
+        UNI_1IV(u_ch_amb_src, 4, ch_amb_src);
+        UNI_1IV(u_ch_mat_src, 4, ch_mat_src);
+        UNI_1IV(u_ch_diff_fn, 4, ch_diff_fn);
+        UNI_1IV(u_ch_attn_fn, 4, ch_attn_fn);
+        UNI_1IV(u_ch_light_mask, 4, ch_light_mask);
+        UNI_4FV(u_ch_amb, 4, &ch_amb[0][0]);
+        UNI_4FV(u_ch_mat, 4, &ch_mat[0][0]);
+        UNI_4FV(u_light_pos, 8, &light_pos[0][0]);
+        UNI_4FV(u_light_color, 8, &light_color[0][0]);
+        UNI_4FV(u_light_a, 8, &light_a[0][0]);
+        UNI_4FV(u_light_k, 8, &light_k[0][0]);
+        UNI_4FV(u_light_dir, 8, &light_dir[0][0]);
     }
-    glUniform4iv(u_tev_order, MAX_TEV_STAGES, &orders[0][0]);
-    glUniform4iv(u_tev_cin, MAX_TEV_STAGES, &cins[0][0]);
-    glUniform4iv(u_tev_cop, MAX_TEV_STAGES, &cops[0][0]);
-    glUniform4iv(u_tev_ain, MAX_TEV_STAGES, &ains[0][0]);
-    glUniform4iv(u_tev_aop, MAX_TEV_STAGES, &aops[0][0]);
-    glUniform4iv(u_tev_sel, MAX_TEV_STAGES, &sels[0][0]);
-    glUniform2iv(u_tev_reg, MAX_TEV_STAGES, &regs[0][0]);
-    glUniform4iv(u_swap, 16, &swaps[0][0]);
-    glUniform1i(u_alpha_test, gl_options.no_alpha_test ? 0 : 1);
+    UNI_4IV(u_tev_order, MAX_TEV_STAGES, &orders[0][0]);
+    UNI_4IV(u_tev_cin, MAX_TEV_STAGES, &cins[0][0]);
+    UNI_4IV(u_tev_cop, MAX_TEV_STAGES, &cops[0][0]);
+    UNI_4IV(u_tev_ain, MAX_TEV_STAGES, &ains[0][0]);
+    UNI_4IV(u_tev_aop, MAX_TEV_STAGES, &aops[0][0]);
+    UNI_4IV(u_tev_sel, MAX_TEV_STAGES, &sels[0][0]);
+    UNI_2IV(u_tev_reg, MAX_TEV_STAGES, &regs[0][0]);
+    UNI_4IV(u_swap, 16, &swaps[0][0]);
+    UNI_1I(u_alpha_test, gl_options.no_alpha_test ? 0 : 1);
     {
         GLint acomp[2] = { s->alpha_comp0, s->alpha_comp1 };
         GLfloat aref[2] = { (GLfloat) s->alpha_ref0,
                             (GLfloat) s->alpha_ref1 };
-        glUniform2iv(u_acomp, 1, acomp);
-        glUniform2fv(u_aref, 1, aref);
-        glUniform1i(u_aop, s->alpha_op);
+        UNI_2IV(u_acomp, 1, acomp);
+        UNI_2FV(u_aref, 1, aref);
+        UNI_1I(u_aop, s->alpha_op);
     }
-    glUniform1i(u_fog_enable, s->fog_enable);
-    glUniform1i(u_fog_type, s->fog_type);
-    glUniform1f(u_fog_a, s->fog_a);
-    glUniform1f(u_fog_b, s->fog_b);
-    glUniform1f(u_fog_c, s->fog_c);
-    glUniform3f(u_fog_color, s->fog_color[0], s->fog_color[1],
+    UNI_1I(u_fog_enable, s->fog_enable);
+    UNI_1I(u_fog_type, s->fog_type);
+    UNI_1F(u_fog_a, s->fog_a);
+    UNI_1F(u_fog_b, s->fog_b);
+    UNI_1F(u_fog_c, s->fog_c);
+    UNI_3F(u_fog_color, s->fog_color[0], s->fog_color[1], 
                 s->fog_color[2]);
-    glUniform1i(u_fog_adj_enable, s->fog_adj_enable);
-    glUniform1f(u_fog_adj_center,
+    UNI_1I(u_fog_adj_enable, s->fog_adj_enable);
+    UNI_1F(u_fog_adj_center, 
                 (GLfloat) s->fog_adj_center * (GLfloat) gl_width / 640.0f);
-    glUniform1fv(u_fog_adj, 10, s->fog_adj_k);
-    glUniform1f(u_fog_width, (GLfloat) gl_width);
-    glUniform1f(u_depth_near, s->depth_range[0]);
+    UNI_1FV(u_fog_adj, 10, s->fog_adj_k);
+    UNI_1F(u_fog_width, (GLfloat) gl_width);
+    UNI_1F(u_depth_near, s->depth_range[0]);
     /* P-680: GXSetPointSize drives gl_PointSize in the shared VS.
      *
      * P-799: **the argument is in 1/6 pixel units, not pixels**, so passing
@@ -1994,11 +2097,11 @@ static void upload_draw_uniforms(const GxHleDrawState* s)
      * than points -- the owner's screenshot.  They are legitimately
      * untextured (every one of the ~7M point vertices in a match arrives with
      * no TEX0), so their size is the whole of their appearance. */
-    glUniform1f(u_point_size, gx_raster_size(s->point_size));
-    glUniform1i(u_tex_enable, gl_options.textures);
-    glUniform1i(u_ras_flat, !gl_options.lighting);
-    glUniform1i(u_dst_alpha_enable, s->dst_alpha_enable);
-    glUniform1f(u_dst_alpha, (GLfloat) s->dst_alpha / 255.0f);
+    UNI_1F(u_point_size, gx_raster_size(s->point_size));
+    UNI_1I(u_tex_enable, gl_options.textures);
+    UNI_1I(u_ras_flat, !gl_options.lighting);
+    UNI_1I(u_dst_alpha_enable, s->dst_alpha_enable);
+    UNI_1F(u_dst_alpha, (GLfloat) s->dst_alpha / 255.0f);
 
     /* P-672 indirect state.  GX_ITS_1..256 divide the coordinate by 2^n. */
     {
@@ -2045,14 +2148,14 @@ static void upload_draw_uniforms(const GxHleDrawState* s)
         for (i = 0; i < 8; ++i) {
             coord_srtg[i] = s->texgen[i].type == GX_TG_SRTG ? 1 : 0;
         }
-        glUniform2iv(u_ind_order, 4, &ind_order[0][0]);
-        glUniform2fv(u_ind_scale, 4, &ind_scale[0][0]);
-        glUniform4fv(u_ind_mtx0, 4, &ind_mtx0[0][0]);
-        glUniform4fv(u_ind_mtx1, 4, &ind_mtx1[0][0]);
-        glUniform4iv(u_tev_ind_a, MAX_TEV_STAGES, &tev_ind_a[0][0]);
-        glUniform4iv(u_tev_ind_b, MAX_TEV_STAGES, &tev_ind_b[0][0]);
-        glUniform1i(u_num_ind_stages, s->num_ind_stages);
-        glUniform1iv(u_coord_srtg, 8, coord_srtg);
+        UNI_2IV(u_ind_order, 4, &ind_order[0][0]);
+        UNI_2FV(u_ind_scale, 4, &ind_scale[0][0]);
+        UNI_4FV(u_ind_mtx0, 4, &ind_mtx0[0][0]);
+        UNI_4FV(u_ind_mtx1, 4, &ind_mtx1[0][0]);
+        UNI_4IV(u_tev_ind_a, MAX_TEV_STAGES, &tev_ind_a[0][0]);
+        UNI_4IV(u_tev_ind_b, MAX_TEV_STAGES, &tev_ind_b[0][0]);
+        UNI_1I(u_num_ind_stages, s->num_ind_stages);
+        UNI_1IV(u_coord_srtg, 8, coord_srtg);
     }
 }
 

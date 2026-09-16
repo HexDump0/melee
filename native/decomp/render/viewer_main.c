@@ -267,6 +267,17 @@ static void match_present(void)
                     (double) match_view.last_render_ns / 1e6, draws,
                     match_view.last_verts);
         }
+        if ((match_view.frames % 30) == 0 &&
+            getenv("MELEE_GX_UNI_STATS") != NULL)
+        {
+            extern void gx_gl_uniform_stats(unsigned long*, unsigned long*);
+            unsigned long total = 0, skipped = 0;
+            gx_gl_uniform_stats(&total, &skipped);
+            fprintf(stderr,
+                    "[match] uniform uploads %lu of %lu (%.1f%% skipped)\n",
+                    total - skipped, total,
+                    total ? 100.0 * (double) skipped / (double) total : 0.0);
+        }
         if ((match_view.frames % 30) == 0) {
             fprintf(stderr,
                     "[match] frame %u draws=%d verts=%zu lists=%zu prims=%zu "
@@ -902,6 +913,14 @@ int main(int argc, char** argv)
         }
     }
     printf("viewer: %d frames, %d draws\n", frame_count, draws);
+    if (getenv("MELEE_GX_UNI_STATS") != NULL) {
+        extern void gx_gl_uniform_stats(unsigned long*, unsigned long*);
+        unsigned long total = 0, skipped = 0;
+        gx_gl_uniform_stats(&total, &skipped);
+        printf("viewer: uniform uploads %lu of %lu issued (%.1f%% skipped)\n",
+               total - skipped, total,
+               total ? 100.0 * (double) skipped / (double) total : 0.0);
+    }
 
     hud_shutdown();
     render_scene_close(&v->scene);
