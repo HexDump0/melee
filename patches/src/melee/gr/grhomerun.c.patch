@@ -1,0 +1,37 @@
+diff --git a/src/melee/gr/grhomerun.c b/src/melee/gr/grhomerun.c
+index a864db5ff..138b2d865 100644
+--- a/src/melee/gr/grhomerun.c
++++ b/src/melee/gr/grhomerun.c
+@@ -44,7 +44,32 @@ static int grHr_804D6ADC;
+ static f32 grHr_804D6AE0;
+ static f32 grHr_804D6AE4;
+ static void* yakumono_param;
++#ifdef PORT_PC
++/* P-793: this is a `GrJoint` table -- three `s16` -- declared as `int[2]` and
++ * cast at the use site.  Big-endian, the eight bytes `00 00 00 0A 00 00 00 00`
++ * read back as `{ .x = 0, .y = 10, .z = 0 }`: joint 0, map id 10.  Map 10 is
++ * the Home-Run ground (`grHr_StageCallbacks` entry 10, `grHomeRun_8021D680`),
++ * and joint 0 owns floor line 3, the numbered distance strip.
++ *
++ * Little-endian the same bytes read as `{ .x = 10, .y = 0, .z = 0 }`, so
++ * `Ground_801C2FE0` never matches map 10 and never calls `mpLib_80055E9C(0)`.
++ * That call is what copies each collision vertex's `pos` into `x10`/`x14`, the
++ * previous-frame position.  Every frame `grHomeRun_8021D680` re-runs
++ * `mpLib_80056758(3, 0, 0, 20000, 0)`, which stretches line 3 from its stored
++ * base out to x = 34652; with `x10`/`x14` frozen at the base vertices
++ * (28.7466 -> 14652.3018), `mpGetSpeed` remaps the fighter from the base
++ * segment onto the stretched one *every* frame -- a fixed 2.3676x scaling
++ * about x = 28.75 -- and `Fighter_procUpdate` adds that delta straight to
++ * `cur_pos`.  The sandbag's distance therefore runs away exponentially the
++ * instant it lands on the numbered ground, with zero ground or self velocity
++ * to show for it.  (Same consequence as P-772 on Zebes, different cause.)
++ *
++ * Spell the table as the type it is used at.  The console path is untouched,
++ * so the emitted `.data` and the 100% match are unchanged. */
++static GrJoint grHr_804D4998[] = { { 0, 0xA, 0 } };
++#else
+ static int grHr_804D4998[2] = { 0xA, 0 };
++#endif
+ static char grHr_804D49A0[] = "/GrHr";
+ 
+ StageCallbacks grHr_StageCallbacks[11] = {
