@@ -1378,3 +1378,124 @@ stream, a union variant) puts that on the record. 49 of 106 walkers are
 cross-checked at the time of writing; the rest either walk arrays through a
 computed base, which this cannot check, or name a type no header defines
 (`ftCo_AttackEntry` lives in a `.c`).
+
+
+## ADR-0025: Browser target is wasm32 + SDL3 + WebGL2, with rebased MEM1 and local range reads
+
+**Context.** P-502 asked whether the compiled port can become a browser
+application and, specifically, what blocks disc delivery, threading, audio,
+and 60 Hz pacing. A read-only audit on 2026-09-16 found that this is credible,
+but it is a platform port rather than another renderer rewrite.
+
+The existing architecture is a good fit in four important ways:
+
+- the compiled product is already 32-bit (ADR-0012), so wasm32 preserves the
+  four-byte pointer width on which the HSD layouts depend;
+- `native/decomp/gx/gx_gl.c` already targets GLES3 / GLSL ES 300 and exposes
+  `gx_gl_attach`, which is the correct seam for a WebGL2 context;
+- SDL3 already owns the product window, input, and audio boundaries; and
+- ISO/CISO access is concentrated in `native/platform/disc.c`, so browser
+  storage does not need to leak into game code.
+
+There are nevertheless two correctness blockers before rendering matters:
+
+1. `native/platform/os.c` maps 24 MiB at `0x80000000`, while
+   `native/platform/dvd.c` and the SDK DVDFS path dereference that mapping.
+   Touching the end of that range in wasm32 requires linear memory through
+   `0x81800000` (2,072 MiB) before ordinary heap headroom. Emscripten's default
+   maximum is 2 GiB; a larger high-address build is useful only as a diagnostic
+   for hidden address assumptions, not as a shippable browser design.
+2. `CMD_BE` and `PORT_BF_BE` use GCC `scalar_storage_order` for the remaining
+   big-endian bit-fields. Emscripten uses Clang, and ADR-0022 already records
+   that Clang ignores this attribute. A wasm build that merely suppresses the
+   warning would compile incorrect command and flag layouts.
+
+The rest are bounded portability tasks rather than architecture blockers:
+
+- `native/CMakeLists.txt` applies i686/GCC flags including `-m32`, SSE,
+  `-mfpmath=sse`, and `-fexec-charset=CP932`; wasm needs a target-specific flag
+  set. Clang 22 rejects `-fexec-charset=CP932`, and 15 compiled files contain
+  non-ASCII source text, so their required bytes need a generated CP932 source
+  view or another measured, build-time solution.
+- `gm_main()` enters synchronous scene loops and does not return. The existing
+  `VIWaitForRetrace` platform boundary is the narrowest place to yield to the
+  browser while preserving the game state machines.
+- a retail image is roughly 1.4 GiB and cannot be copied into MEMFS or wasm
+  memory. The existing CISO block reader needs a backend-neutral `read_at`
+  source backed by browser `File`/`Blob` range reads.
+- POSIX-only `mmap`, signal, `execinfo`, `dladdr`, EGL-bootstrap, and process
+  diagnostics need browser implementations or product-safe stubs.
+
+**Proposed decision.** Define the browser product as: open the page, select a
+locally owned ISO/GCM/CISO, and execute the compiled game locally. No game
+asset is hosted, uploaded, placed in a service-worker cache, or committed.
+
+Use this architecture, subject to the review gates below:
+
+1. Target wasm32 with a pinned Emscripten/SDL3 version. Add a web-specific
+   compile definition for browser behavior; the reviewer must decide whether
+   it is `PORT_WASM` layered on top of `PORT_PC` or a sibling before patches
+   spread through the tree.
+2. Allocate the 24 MiB MEM1 arena at a normal, aligned wasm address. Centralize
+   GC physical/cached address to host-pointer translation, and replace the
+   finite high-bit pointer classifications in `lbfile.c`, `lbmemory.c`, and
+   `ftdata.c` with explicit helpers. Do not reserve more than 2 GiB merely to
+   preserve `0x80000000`.
+3. Make the remaining big-endian bit-fields portable before boot work. Keep
+   every layout assertion enabled. Candidate implementations are explicit
+   masks/accessors or generated Clang-safe declarations; silently ignoring
+   `scalar_storage_order` is not an option.
+4. Start single-threaded. Use narrowly scoped Asyncify suspension at
+   `VIWaitForRetrace` and disc waits as the first full-game vertical slice,
+   then measure 600 scripted frames. Refactor to a cooperative frame step if
+   Asyncify's size or runtime cost fails the gate. Pthreads/OffscreenCanvas are
+   an optional, separate build only after profiling justifies the deployment
+   cost.
+5. Keep the selected browser `File` in JavaScript and service asynchronous
+   byte-range requests with `Blob.slice().arrayBuffer()`. Reuse the current
+   ISO/CISO parsing behind a `read_at` abstraction and a bounded coalescing
+   cache. Never preload the whole image into MEMFS; evaluate worker-only
+   WORKERFS only as a measured alternative.
+6. Reuse the GLES GX HLE through `gx_gl_attach` and request WebGL2 explicitly.
+   Compile out EGL context creation. Do not revive the parked Aurora/WebGPU
+   migration (ADR-0017). Treat depth/EFB readback as the first renderer risk,
+   because WebGL2 is stricter than desktop GLES.
+7. Start the existing AX-to-SDL audio stream only from an explicit user
+   gesture. Persist only memory-card files, settings, and bounded metadata in
+   IDBFS/OPFS; do not persist a duplicate disc image by default.
+
+**Review and delivery gates.** Do not begin the next row until the preceding
+gate has evidence in a test or handoff.
+
+| Gate | Deliverable | Acceptance |
+|---|---|---|
+| W0 compiler/ABI | pinned toolchain, wasm compile/link census, CP932 proof, portable bit-fields | all compiled-game TUs link; pointer/layout asserts pass; native CTest and the matched GameCube build do not regress |
+| W1 memory/runtime | rebased MEM1, address helpers, browser OS stubs, retrace yield | asset-free boot reaches the same controlled stop; 600 deterministic frames agree with native; Asyncify cost recorded |
+| W2 local disc | `File`/`Blob` range reader and bounded cache | ISO/GCM/CISO header, FST, and first archive agree with native; peak wasm memory does not scale with disc size |
+| W3 graphics/input | SDL canvas, WebGL2 attach, keyboard/gamepad path | synthetic GX fixture and scripted frontend render in Chromium and Firefox; framebuffer comparison recorded |
+| W4 product path | title/menu/match, click-to-start audio, persistent card | title -> CSS -> stage select -> match; PCM hash before resampling agrees; save survives refresh |
+| W5 release | parity harness, browser/device matrix, budgets | native CTest remains green, no game data in web artifacts, memory/frame-time/download-size results published |
+
+Parallel work is safe only with explicit ownership: one integration owner for
+`native/CMakeLists.txt`; a compiler/ABI lane; a MEM1/OS/VI lane; a mostly-new
+disc/web-shell lane; and a GX/input lane after any active renderer claim is
+released. Agents should prefer new files until W0 fixes the shared interfaces.
+
+The primary references used for the proposal are Emscripten's
+[memory settings](https://emscripten.org/docs/tools_reference/settings_reference.html),
+[Asyncify](https://emscripten.org/docs/porting/asyncify.html),
+[filesystem](https://emscripten.org/docs/api_reference/Filesystem-API.html),
+[pthreads](https://emscripten.org/docs/porting/pthreads.html), and
+[OpenGL/WebGL](https://emscripten.org/docs/porting/multimedia_and_graphics/OpenGL-support.html)
+documentation plus SDL3's
+[Emscripten guide](https://wiki.libsdl.org/SDL3/README-emscripten) and
+[main-callback contract](https://wiki.libsdl.org/SDL3/README-main-functions).
+
+**Consequences.** The first useful milestone is a compile/ABI proof, not a web
+UI. This ordering can reject the port cheaply if Clang cannot preserve the
+runtime data contract. If it passes, most game, converter, GX, AX, and input
+code remains shared with native. The browser build gains asynchronous platform
+adapters and hosting constraints, while avoiding a second gameplay engine, a
+server-streaming product, and redistribution of game content.
+
+**Status:** proposed (2026-09-16), pending independent architecture review.

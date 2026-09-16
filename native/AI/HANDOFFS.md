@@ -29,6 +29,7 @@ something the next agent must know, or finish a task that changes interfaces.
 
 | Date | Task | Agent | File |
 |---|---|---|---|
+| 2026-09-16 | P-502 WASM/browser feasibility audit, pending review | codex (gpt-5) | [`2026-09-16-P-502-wasm-feasibility.md`](handoffs/2026-09-16-P-502-wasm-feasibility.md) — repo evidence, critical blockers, proposed W0-W5 gates, and exact independent-review checklist |
 | 2026-09-16 | P-758 windup: burn-down + four crash fixes | claude (opus-5) | [`2026-09-16-P-758-windup.md`](handoffs/2026-09-16-P-758-windup.md) — coverage 76.87% -> 82.83%, P-778/P-771/P-770/P-755, and why four "biggest targets on the disc" were measurement artifacts |
 | 2026-09-16 | P-758 head item landed; rest is orphan `HSD_AnimJoint` trees | claude (opus-5) | [`2026-09-16-P-758-head-item-and-the-orphan-animjoint-trees.md`](handoffs/2026-09-16-P-758-head-item-and-the-orphan-animjoint-trees.md) — coverage 76.87% -> 79.50%, the array bound a relocation check does not give, and why P-771 is not this chain |
 | 2026-09-15 | Stability program (P-756..P-761) | claude (opus-5) | [`2026-09-15-stability-program.md`](handoffs/2026-09-15-stability-program.md) — three bug classes, the coverage denominator, and what is already settled |
