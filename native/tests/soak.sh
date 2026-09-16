@@ -70,6 +70,14 @@
 # If you do put this on another machine, note **the disc image can never go on
 # a public CI runner** (AGENTS.md rule 0); a self-hosted box you own is the
 # only correct home for it.
+#
+# **Snapshot the binary if anything else might rebuild while you sweep.**  A
+# full matrix takes several minutes; if another agent relinks
+# `melee_decomp_boot` in the middle, the children that try to exec it during
+# the relink fail with exit 126 and are reported as "died with no triage
+# output".  That looks exactly like a mass regression and is not one -- 292 of
+# 754 runs once, on a tree that was fine.  `cp build/native/melee_decomp_boot
+# /tmp/boot-snapshot` and sweep against the copy.
 
 set -u -o pipefail
 

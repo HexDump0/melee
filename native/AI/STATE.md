@@ -2,7 +2,16 @@
 
 Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716, P-718, P-719, P-720, P-737, P-738, P-739, P-742 and P-743 fixed, P-699/P-702/P-711/P-715/P-717/P-740/P-741 open)
 
-> **Matrix status, end of 2026-09-15: 81 of 754 runs fail (10.7%), nine
+> **Matrix status, 2026-09-16: 58 of 754 runs fail (7.7%), eleven distinct.**
+> Fixed since the 81 reading: **P-769** (`conv_joint` skipped the JObj union
+> for SPLINE joints, so the `HSD_Spline` stayed big-endian and its NaN went
+> into the collision mesh) and **P-777** (`grMc_CarState` overlaid
+> `grMc_8049F440` and reached `grMc_8049F4B8` by assumed adjacency, clobbering
+> `Ground_804D6950` with the float 0.1f). Mute City's 26 failures are gone
+> entirely. Largest remaining: Dream Land's `HSD_ObjAlloc` assert (26),
+> `HSD_JObjAddAnim` on Venom/Corneria (11), position sanity (8).
+>
+> **Earlier reading, for the trend: 81 of 754 on 2026-09-15, nine
 > distinct.** It was 240/780 when the fighter x stage sweep first ran. Fixed
 > since: P-767 and P-774 (cross-symbol overlays, G-176 class), P-764 (the
 > `vis_table` walk running off the end) and P-765 (G&W's fifth
