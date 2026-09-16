@@ -229,6 +229,72 @@ static void log_shield_state(void)
  * throw flag, `Item_8026862C`, the item's own state table -- so count the
  * live item GObjs and name what they are.  Items are class 6 on GX link 6
  * (`Item_8026862C` -> `GObj_SetupGXLink(gobj, ..., 6, 0)`). */
+/* P-779, and it is a detector rather than a fix because the crash is three
+ * steps downstream of the damage.
+ *
+ * The owner's panic is `ftcoll.c:1296 "attack power over 500!! inf"`, and the
+ * capture that named it reads:
+ *
+ *     P779-HIT kind=0 dmg=0.000000 vel=-9.93e22,2.53e23,0.000000 flag=1
+ *
+ * The hitbox damage is **zero** and the multipliers are sane; the `inf` is
+ * manufactured inside `it_8026B1D4` (it_26B1.c:68), which adds
+ * `sqrt(vel.x^2 + vel.y^2 + vel.z^2) * itCommonData->x80_float[5]` when the
+ * item's `flags.x14` is set.  `9.93e22` squared is `9.87e45`, well past the
+ * `3.4e38` a float can hold, so the square alone is already `inf` -- the
+ * item's *velocity* is the bug and the damage assert is just where it
+ * surfaces.
+ *
+ * A capsule moving at 1e23 is never legitimate, and it is wrong long before
+ * it touches anybody, so check it every frame: that turns an owner-only
+ * report into something the soak can hit, and prints the item's identity at
+ * the moment it goes wrong rather than at the moment it kills someone.
+ * Capped, because a stuck item would otherwise print every frame. */
+#define ITEM_VEL_SANE 1.0e6f
+#define ITEM_VEL_REPORTS 8
+
+static void check_item_velocity(void)
+{
+    static int reports;
+    HSD_GObj* gobj;
+
+    if (reports >= ITEM_VEL_REPORTS || HSD_GObjGXLinkHead == NULL) {
+        return;
+    }
+    for (gobj = HSD_GObjGXLinkHead[6]; gobj != NULL; gobj = gobj->next_gx) {
+        Item* it;
+        float x, y, z;
+
+        if (gobj->classifier != HSD_GOBJ_CLASS_ITEM ||
+            gobj->user_data == NULL)
+        {
+            continue;
+        }
+        it = (Item*) gobj->user_data;
+        x = it->x40_vel.x;
+        y = it->x40_vel.y;
+        z = it->x40_vel.z;
+        /* `!(v == v)` catches NaN, which fails every ordered comparison and
+         * would otherwise slip through the magnitude test (the mplib.c:4804
+         * lesson from P-769). */
+        if (!(x == x) || !(y == y) || !(z == z) || x > ITEM_VEL_SANE ||
+            x < -ITEM_VEL_SANE || y > ITEM_VEL_SANE || y < -ITEM_VEL_SANE ||
+            z > ITEM_VEL_SANE || z < -ITEM_VEL_SANE)
+        {
+            reports++;
+            boot_triage_note(
+                "[item] BAD VELOCITY: frame=%u kind=%d vel=(%g,%g,%g) "
+                "pos=(%.2f,%.2f) life=%.1f owner=%p\n",
+                frame, (int) it->kind, (double) x, (double) y, (double) z,
+                (double) it->pos.x, (double) it->pos.y,
+                (double) it->xD44_lifeTimer, (void*) it->owner);
+            if (reports >= ITEM_VEL_REPORTS) {
+                return;
+            }
+        }
+    }
+}
+
 static void log_item_trace(void)
 {
     HSD_GObj* gobj;
@@ -807,6 +873,7 @@ static void match_boot_frame(void)
      * frontend, where start_frame is 0 and everything past that returns. */
     log_stadium_display();
     log_item_trace();
+    check_item_velocity();
     log_shield_state();
     /* Also before the gate: MELEE_STUCK_TRACE is for the owner's own play,
      * which never enters the harness's match flow (P-780). */

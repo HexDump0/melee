@@ -159,6 +159,16 @@ if [ "${1:-}" = "--run-one" ]; then
             sub(/ frozen at.*$/, "", s)
             stuck = s
         }
+        # A wild item velocity (P-779) is the same shape of problem: the run
+        # keeps going, and the crash it eventually causes is three steps
+        # downstream in the damage maths, so it needs its own key to be
+        # counted at all.
+        /^\[item\] BAD VELOCITY: / && baditem == "" {
+            s = $0
+            sub(/^.*kind=/, "kind=", s)
+            sub(/ pos=.*$/, "", s)
+            baditem = s
+        }
         /^\[boot\] controlled stop: / { sig = $4 }
         /^\[boot\] STOP: / { stop = substr($0, index($0, "STOP: ") + 6) }
         /^\[boot\] summary:/ { summary = 1 }
@@ -181,6 +191,8 @@ if [ "${1:-}" = "--run-one" ]; then
                 printf "%s assertion \"%s\"\n", (where != "" ? where : "?"), assertion
             else if (stuck != "")
                 print "fighter stuck: " stuck
+            else if (baditem != "")
+                print "item velocity: " baditem
             else if (sig == "SIGALRM")
                 print "hang: boot timeout (SIGALRM)" (culprit != "" ? " in " culprit : "")
             else if (sig != "")
