@@ -18,6 +18,10 @@
 #   link     --use-port=sdl3 -sMAX_WEBGL_VERSION=2 -sMIN_WEBGL_VERSION=2
 #            plus linear memory sized past the end of MEM1 (2.25 GiB) with
 #            growth off, so 0x80000000 is a valid index and the reservation is
+#            ASYNCIFY, because the disc read is asynchronous in a browser and
+#            the game calls it synchronously from inside nested scene loops;
+#            the suspend unwinds the wasm stack and resumes when the range
+#            arrives.  Its size and frame-time cost is the W2 measurement.
 #            a single up-front yes/no -- see os.c:map_gc_ram.  Growth is off
 #            deliberately: Mozilla bug 1660420 reports Memory.grow failing when
 #            the maximum is 4 GB, and we never need to grow.
@@ -84,6 +88,9 @@ echo "compile failures: $nfail"
 
 echo "linking"
 emcc "$OUT"/obj/*.o -o "$OUT/melee.html" --use-port=sdl3 \
+  --shell-file "$W/native/tools/wasm_shell.html" \
   -sINITIAL_MEMORY=2415919104 -sMAXIMUM_MEMORY=2415919104 \
-  -sALLOW_MEMORY_GROWTH=0 -sMAX_WEBGL_VERSION=2 -sMIN_WEBGL_VERSION=2
+  -sALLOW_MEMORY_GROWTH=0 -sMAX_WEBGL_VERSION=2 -sMIN_WEBGL_VERSION=2 \
+  -sASYNCIFY=1 -sASYNCIFY_STACK_SIZE=65536 -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 \
+  -sEXPORTED_RUNTIME_METHODS=callMain,HEAPU8
 echo "linked: $(du -h "$OUT/melee.wasm" | cut -f1) wasm -> $OUT/melee.html"

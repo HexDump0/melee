@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Melee (wasm)</title>
+<style>
+  body { font: 14px system-ui, sans-serif; margin: 0; background: #14181c; color: #e7ecf0; }
+  header { padding: 12px 16px; border-bottom: 1px solid #263038; display: flex;
+           gap: 16px; align-items: center; flex-wrap: wrap; }
+  #canvas { display: block; background: #000; margin: 0 auto; }
+  #log { font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap;
+         padding: 10px 16px; max-height: 40vh; overflow-y: auto; color: #94a1ab; }
+  .note { color: #94a1ab; }
+</style>
+</head>
+<body>
+<header>
+  <label>Disc image: <input type="file" id="disc" accept=".iso,.gcm,.ciso"></label>
+  <span class="note" id="status">choose your own legally-owned image — it is read locally and never uploaded</span>
+</header>
+<canvas id="canvas" tabindex="-1" width="780" height="493"></canvas>
+<div id="log"></div>
+<script>
+  var logEl = document.getElementById('log');
+  var statusEl = document.getElementById('status');
+  /* A native panic arrives via printf, so the abort's JS stack carries no
+     message on its own.  Keep a ring of recent output and dump it with the
+     abort as one block, at error level so console filters do not hide it. */
+  var recent = [];
+  function log(t) {
+    recent.push(t);
+    if (recent.length > 40) recent.shift();
+    logEl.textContent += t + "\n";
+    logEl.scrollTop = logEl.scrollHeight;
+    try { console.log("[melee] " + t); } catch (e) {}
+    /* Also beam each line at the dev server: browser extensions and console
+       filters have eaten this output before, and the server log is the one
+       place it cannot be lost.  Dev harness only. */
+    try { fetch("/L/" + encodeURIComponent(t).slice(0, 700)); } catch (e) {}
+  }
+  var Module = {
+    /* Do not run main() on load: the game opens the disc almost immediately,
+       so it must not start before a file has been chosen. */
+    noInitialRun: true,
+    canvas: document.getElementById('canvas'),
+    print: log,
+    printErr: log,
+    onAbort: function (what) {
+      var dump = "=== MELEE ABORT: " + what + " ===\n" +
+                 "--- last " + recent.length + " lines of game output ---\n" +
+                 recent.join("\n");
+      try { console.error(dump); } catch (e) {}
+      try { fetch("/ABORT/" + encodeURIComponent(String(what)).slice(0, 700)); }
+      catch (e) {}
+      logEl.textContent += "\n" + dump + "\n";
+      logEl.scrollTop = logEl.scrollHeight;
+    },
+  };
+  document.getElementById('disc').addEventListener('change', function (e) {
+    var f = e.target.files[0];
+    if (!f) return;
+    Module.meleeDiscFile = f;               /* read by disc.c's wasm backend */
+    statusEl.textContent = f.name + " — " + (f.size / (1024*1024)).toFixed(0) + " MB, streaming by range";
+    e.target.disabled = true;
+    log("starting with " + f.name);
+    try { Module.callMain([]); }
+    catch (err) { log("callMain threw: " + err); }
+  });
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>

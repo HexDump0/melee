@@ -1,5 +1,44 @@
 #include "platform/disc.h"
 
+#ifdef PORT_WASM
+#include <emscripten.h>
+
+/* Browser backend (P-502/W2).
+ *
+ * The disc is never loaded into memory -- on console it never was either, and
+ * the game streams files off it on demand.  The page keeps the user's chosen
+ * File in JavaScript and serves byte ranges from Blob.slice(); only the range
+ * being read crosses into wasm memory.
+ *
+ * The read is asynchronous and the game calls it synchronously from inside
+ * nested scene loops, so this suspends the wasm stack with Asyncify and
+ * resumes when the range arrives.  `off` and `size` cross as doubles: both are
+ * far below 2^53 for a 1.4 GiB image, and that avoids a BigInt boundary. */
+EM_ASYNC_JS(int, melee_disc_read_range, (double off, int dst, double size), {
+    var f = Module.meleeDiscFile;
+    if (!f) return 0;
+    try {
+        var buf = await f.slice(off, off + size).arrayBuffer();
+        if (buf.byteLength !== size) return 0;
+        HEAPU8.set(new Uint8Array(buf), dst);
+        return 1;
+    } catch (e) {
+        return 0;
+    }
+});
+
+EM_JS(double, melee_disc_file_size, (void), {
+    return Module.meleeDiscFile ? Module.meleeDiscFile.size : 0;
+});
+
+static int wasm_read_at(void *ctx, uint64_t off, void *dst, size_t size) {
+    (void) ctx;
+    return melee_disc_read_range((double) off, (int) (intptr_t) dst,
+                                 (double) size);
+}
+static void wasm_close(void *ctx) { (void) ctx; }
+#endif
+
 #include <stdint.h>
 #include <limits.h>
 #include <stdio.h>
@@ -127,6 +166,20 @@ static int disc_open(Disc *d, const char *path) {
     FILE *fp;
     long end;
     memset(d, 0, sizeof(*d));
+#ifdef PORT_WASM
+    /* The page has already chosen the image; the path names a disc file the
+     * caller wants, not a host file we can open. */
+    {
+        double sz = melee_disc_file_size();
+        (void) path;
+        if (sz <= 0.0) return 0;
+        d->read_at = wasm_read_at;
+        d->close_fn = wasm_close;
+        d->ctx = NULL;
+        d->file_size = (uint64_t) sz;
+        return disc_sniff(d);
+    }
+#endif
     fp = fopen(path, "rb");
     if (fp == NULL) return 0;
     if (fseek(fp, 0, SEEK_END) != 0 || (end = ftell(fp)) < 0) {

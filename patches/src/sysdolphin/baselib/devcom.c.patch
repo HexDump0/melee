@@ -1,0 +1,22 @@
+diff --git a/src/sysdolphin/baselib/devcom.c b/src/sysdolphin/baselib/devcom.c
+index 9193913b0..8c576910e 100644
+--- a/src/sysdolphin/baselib/devcom.c
++++ b/src/sysdolphin/baselib/devcom.c
+@@ -406,6 +406,17 @@ int HSD_DevComRequest(int file, uintptr_t src, uintptr_t dest, size_t size,
+         !(HSD_DevComGetDestType(type) == DEVCOMDEST_SBUF
+             && size > DEVCOM_BUF_SIZE));
+ 
++#ifdef PORT_PC
++    /* P-502/W2: a DevCom destination arrived unaligned in the browser build
++     * but not on the desktop, and the assertion alone does not say which
++     * transfer.  Name it before dying. */
++    if ((src % 32) != 0 || (dest % 32) != 0 || (size % 32) != 0) {
++        OSReport("DevCom UNALIGNED: file=%d src=0x%08x dest=0x%08x size=0x%x "
++                 "type=0x%x\n",
++                 (int) file, (unsigned) src, (unsigned) dest, (unsigned) size,
++                 (unsigned) type);
++    }
++#endif
+     HSD_ASSERT(0x1EF, src % 32 == 0);
+     HSD_ASSERT(0x1F0, dest % 32 == 0);
+     HSD_ASSERT(0x1F1, size % 32 == 0);
