@@ -2,6 +2,36 @@
 
 Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716, P-718, P-719, P-720, P-737, P-738, P-739, P-742 and P-743 fixed, P-699/P-702/P-711/P-715/P-717/P-740/P-741 open)
 
+> **The browser build stopped decoding subaction commands wrongly
+> (2026-09-16, P-796, branch `wasm`).** `CMD_BE` was GCC's
+> `scalar_storage_order("big-endian")`, which reproduces MWCC's MSB-first
+> bit-field allocation **and** the big-endian storage order -- on GCC. Clang
+> ignores the attribute in silence and the port's `-w` hid the warning, so the
+> WebAssembly build read a real "play sound" word (`0x44000000`) as **opcode 4
+> instead of 17** while booting, rendering, playing audio and holding 60 fps.
+> Everything downstream of the command interpreter was running other people's
+> instructions.
+>
+> Fixed by stating the layout instead of asking for it: the 76 command structs
+> (plus `gmScriptEventDefault` and three `ColorOverlay_x8_t` groups) are
+> generated host-order declarations in
+> `native/decomp/shim/decomp_cmd_bits.h`, read through `CMD_U()` / `CO_X8()`,
+> which byte-swap one word at the point of the read. The **data stays raw** --
+> it must, because a script carries relocated host pointers inline
+> (`Command_05`, `Command_07`), so the "swap the stream at load" route in the
+> W0 note corrupts every jump. `PORT_BF_BE`'s two groups sit in one byte and
+> are simply padded and reversed. No `scalar_storage_order` is left in the
+> tree.
+>
+> **Desktop behaviour is bit-identical**, proved by 924,000 differential field
+> reads against the attribute version and re-proved after the first attempt
+> regressed `decomp_match` -- the read-site sweep had grepped for member names
+> rather than for the pointer and missed six sites plus one compiled C table
+> (`itsamusgrapple.c`) that was written *positionally*. `ctest bit_order` now
+> walks all 231 fields on both compilers. G-190, ADR-0022 amendment.
+> Three cross-TU signature mismatches `wasm-ld` found are fixed too (P-797);
+> the browser link is clean. The GameCube build was run for the first time in this tree (`orig/GALE01/sys/main.dol` had never been populated): **`main.dol` is byte-identical to retail**, and it caught a regression the token-stream argument could not.
+
 > **Programme status, 2026-09-16.** Matrix **59 of 754 (7.8%)**, ten distinct,
 > from 240/780 when the fighter x stage sweep first ran. Descriptor coverage
 > **79.50%** (166,368 of 209,261), from 73.60% at the P-756 baseline -- P-758's

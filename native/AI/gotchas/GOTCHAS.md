@@ -3505,3 +3505,52 @@ them, and their size had to be. Quads, for contrast, were textured 1.19M to
 The census cost one `if` and a `printf` and replaced a day of plausible
 reasoning. When an artifact has a shape that suggests a mechanism, count how
 often that mechanism actually occurs before building on it.
+## G-193: an attribute that one compiler honours and another ignores in silence
+
+**Symptom:** the WebAssembly build decoded the subaction command word
+`0x44000000` -- a real "play sound" -- as **opcode 4 instead of 17**, and
+compiled without a warning.  Everything downstream of the command interpreter
+(sounds, hitboxes, GFX, throws, item animations) was therefore running other
+people's instructions, on a build that otherwise looked healthy: it booted,
+rendered, played audio and held 60 fps.
+
+**Cause:** `CMD_BE` expanded, on the host, to
+`__attribute__((scalar_storage_order("big-endian")))`.  GCC implements it.
+**Clang does not implement it at all** and drops it with
+`-Wunknown-attributes`, which the port's `-w` hides.  There is no error, no
+link failure and no runtime fault -- the bit-fields simply come out
+little-endian and LSB-first.
+
+**The trap is the class, not this attribute.** A portability fix that relies on
+a *compiler extension* is only as good as the compilers you have tried, and the
+failure mode when one of them declines is silent wrong data rather than a
+diagnostic.  Two of these were in the tree (`CMD_BE`, `PORT_BF_BE`) and neither
+announced itself when a third compiler arrived.
+
+**Fix (P-502):** state the layout instead of asking for it.
+`native/decomp/shim/decomp_cmd_bits.h` declares all 76 command structs over one
+32-bit word in *host* order -- the console's fields reversed and padded to the
+top -- and `CMD_U(cmd)` byte-swaps the word where it is read.  No attribute, so
+every compiler agrees.  `PORT_BF_BE`'s two groups live in a single byte, where
+MSB-first allocation is the whole of it and padding plus reversal is enough on
+its own.
+
+**Two things that look like fixes and are not:**
+
+- *Reversing the field order.* Only right for a group that fills its storage
+  unit; 13 of the 76 do not (G-180).  The generator pads to the top of the
+  word first.
+- *Byte-swapping the command stream at load*, which the P-502/W0 note proposed
+  on the grounds that `sizeof(CmdUnion) == 4` makes a script "a uniform array
+  of 32-bit words".  **It is not one.**  `Command_05` (Subroutine) and
+  `Command_07` (Goto) carry a **relocated host pointer** in the following word
+  (`lbcommand.c`), so a blanket swap corrupts every jump.  The converter also
+  has no way to find where the scripts start and end -- finding them by
+  accident is exactly what G-178 was.
+
+**Regression:** `ctest bit_order` walks every field of every command struct,
+122,884 reads, comparing the port's decode against the console's arithmetic.
+It is attribute-free, so it runs identically under GCC and Emscripten, and
+`native/tools/wasm_census.sh` runs it under node after linking.
+`native/tools/gen_cmd_bits.py --check` fails if the generated header drifts
+from the declarations in `<melee/lb/types.h>`.

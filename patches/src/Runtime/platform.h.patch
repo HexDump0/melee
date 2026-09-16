@@ -1,8 +1,8 @@
 diff --git a/src/Runtime/platform.h b/src/Runtime/platform.h
-index 3e752d28e..f245dc033 100644
+index 3e752d28e..f80385efb 100644
 --- a/src/Runtime/platform.h
 +++ b/src/Runtime/platform.h
-@@ -24,11 +24,54 @@
+@@ -24,11 +24,57 @@
  /// @deprecated Use #true instead.
  #undef TRUE
  
@@ -19,11 +19,14 @@ index 3e752d28e..f245dc033 100644
 +/// three `u8` bit-fields without adding five bits of padding puts `b0` at
 +/// 0x04 rather than 0x80.  The attribute has no such trap and leaves the
 +/// declaration readable.  See G-180/G-181.
-+#ifdef PORT_PC
-+#define PORT_BF_BE __attribute__((scalar_storage_order("big-endian")))
-+#else
++/// @note Clang **ignores** `scalar_storage_order` in silence (ADR-0022), so
++/// this marker cannot carry the layout on every host compiler.  Both groups it
++/// marks sit in a **one-byte** storage unit, where there is no byte order to
++/// get wrong and MSB-first allocation is all the attribute was doing, so each
++/// declares its fields padded and reversed by hand instead.  Wider groups
++/// cannot be fixed that way and need the CMD_U() treatment in
++/// <melee/lb/types.h>; see <decomp_cmd_bits.h>.
 +#define PORT_BF_BE
-+#endif
 +
 +#ifdef PORT_PC
 +/// Boot entropy for the one seed Melee draws (see gmmain.c).

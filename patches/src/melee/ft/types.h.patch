@@ -1,5 +1,5 @@
 diff --git a/src/melee/ft/types.h b/src/melee/ft/types.h
-index 7b2896b18..a2eebc1ed 100644
+index 7b2896b18..38f472e69 100644
 --- a/src/melee/ft/types.h
 +++ b/src/melee/ft/types.h
 @@ -1295,6 +1295,38 @@ typedef struct Fighter_x1670_t {
@@ -50,12 +50,23 @@ index 7b2896b18..a2eebc1ed 100644
      /* fp+21FC */ u8 filler_x21FC[0x2200 - 0x21FD];
      /* fp+2200 */ u32 cmd_vars[4];
      /* fp+2210 */ union {
-@@ -1941,7 +1973,7 @@ struct Fighter {
+@@ -1941,10 +1973,19 @@ struct Fighter {
  };
  ASSERT_SIZE(struct Fighter, 0x23EC);
  
--struct gmScriptEventDefault {
++#ifdef PORT_PC
++/* Host order, read through CMD_U(); see <decomp_cmd_bits.h>.  Same shape as
++ * Command_00: the opcode is the top six bits of the command word. */
+ struct gmScriptEventDefault {
++    u32 value1 : 26;
++    u32 opcode : 6;
++};
++#else
 +struct CMD_BE gmScriptEventDefault {
      u32 opcode : 6;
      u32 value1 : 26;
  };
++#endif
+ 
+ struct ftData_UnkCountStruct {
+     void* data;

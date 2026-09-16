@@ -1,0 +1,80 @@
+diff --git a/src/melee/it/kinds/itsamusgrapple.c b/src/melee/it/kinds/itsamusgrapple.c
+index 6359df9e3..b11cc93d2 100644
+--- a/src/melee/it/kinds/itsamusgrapple.c
++++ b/src/melee/it/kinds/itsamusgrapple.c
+@@ -49,6 +49,24 @@ ItemStateTable it_803F73A8[] = {
+     { -1, NULL, itSamusgrapple_UnkMotion8_Phys, NULL },
+ };
+ 
++#ifdef PORT_PC
++/* Same values, by name.  This table is compiled C data, not archive bytes, so
++ * it round-trips through whatever field order the struct has -- but only if it
++ * is not written *positionally*, and the host declarations put the console's
++ * last field first (see <decomp_cmd_bits.h>). */
++const itSamusGrapple_Hitbox it_803B8660 = {
++    { .opcode = 11, .id = 0, .hit_group = 0, .only_hit_grabbed = 0,
++      .bone = 139, .use_common_bone_ids = 0, .damage = 0 },
++    { .size = 1200, .z_offset = 0 },
++    { .y_offset = 0, .x_offset = 0 },
++    { .angle = 361, .knockback_growth = 100, .weight_set_knockback = 0,
++      .item_hit_interaction = 1, .ignore_thrown_fighters = 0,
++      .ignore_fighter_scale = 0, .clank = 1, .rebound = 0 },
++    { .base_knockback = 0, .element = 8, .shield_damage = 0,
++      .hit_sfx_severity = 1, .hit_sfx_kind = 2, .hit_grounded = 1,
++      .hit_aerial = 0 },
++};
++#else
+ const itSamusGrapple_Hitbox it_803B8660 = {
+     { 11, 0, 0, 0, 139, 0, 0 },
+     { 1200, 0 },
+@@ -56,6 +74,7 @@ const itSamusGrapple_Hitbox it_803B8660 = {
+     { 361, 100, 0, 1, 0, 0, 1, 0 },
+     { 0, 8, 0, 1, 2, 1, 0 },
+ };
++#endif
+ 
+ const Vec3 it_803B8674 = { 0.0f, 0.0f, 0.0f };
+ 
+@@ -173,7 +192,14 @@ void it_802B7160(Fighter_GObj* gobj, itSamusGrapple_HitboxData* data)
+         fp->x2219_b3 = 1;
+         ftColl_800768A0(fp, hitbox);
+     }
++#ifdef PORT_PC
++    /* `*(u16*)(data + 2) & 0x3FF` is `create_hitbox_0.damage`: the console's
++     * last 10 bits of the first command word.  It only reads that way while
++     * the struct's bytes are big-endian, which they are not on the host. */
++    damage = NULL;
++#else
+     damage = (u16*) ((u8*) data + 2);
++#endif
+     {
+         u32 bone = data->create_hitbox.create_hitbox_0.bone;
+         if (data->create_hitbox.create_hitbox_0.use_common_bone_ids) {
+@@ -183,8 +209,12 @@ void it_802B7160(Fighter_GObj* gobj, itSamusGrapple_HitboxData* data)
+             hitbox->jobj = fp->parts[bone].joint;
+         }
+     }
++#ifdef PORT_PC
++    damage_arg = data->create_hitbox.create_hitbox_0.damage;
++#else
+     damage_arg = *damage;
+     damage_arg &= 0x3FF;
++#endif
+     ftColl_8007ABD0(hitbox, damage_arg, gobj);
+     hitbox->scale = data->create_hitbox.create_hitbox_1.size * 0.003906f;
+     hitbox->b_offset.x =
+@@ -212,7 +242,14 @@ void it_802B7160(Fighter_GObj* gobj, itSamusGrapple_HitboxData* data)
+     hitbox->sfx_kind =
+         ((struct spawn_hitbox_4*) (hitbox_flags - 3))->hit_sfx_kind;
+     hitbox->x40_b2 = ((struct spawn_hitbox_4*) (hitbox_flags - 3))->hit_aerial;
++#ifdef PORT_PC
++    /* `hitbox_flags` is `&create_hitbox_4` stepped three bytes in and read
++     * MSB-first, i.e. `create_hitbox_4.hit_grounded`; same story as `damage`
++     * above.  Say which field it is. */
++    hitbox->x40_b3 = data->create_hitbox.create_hitbox_4.hit_grounded;
++#else
+     hitbox->x40_b3 = hitbox_flags->hit_grounded;
++#endif
+     hitbox->x42_b5 = 1;
+     hitbox->x42_b7 = 1;
+     hitbox->x41_b4 = 0;

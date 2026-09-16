@@ -1,8 +1,8 @@
 diff --git a/src/melee/gm/types.h b/src/melee/gm/types.h
-index 5c4a5e2ec..fddd6fc60 100644
+index 5c4a5e2ec..90c285243 100644
 --- a/src/melee/gm/types.h
 +++ b/src/melee/gm/types.h
-@@ -19,9 +19,21 @@
+@@ -19,9 +19,36 @@
  #include <melee/mn/types.h>
  
  /// @deprecated Replace with inline bitfields
@@ -20,8 +20,30 @@ index 5c4a5e2ec..fddd6fc60 100644
 + * the cause was understood to be this union; it is left alone. */
  typedef union UnkFlagStruct {
      u8 byte;
--    struct {
++#ifdef PORT_PC
++    /* MSB-first, written out: the group fills its byte, so reversing the
++     * declaration order is the whole of it (there is no byte order inside one
++     * byte).  PORT_BF_BE used to say this with an attribute Clang drops. */
+     struct {
++        u8 b7 : 1;
++        u8 b6 : 1;
++        u8 b5 : 1;
++        u8 b4 : 1;
++        u8 b3 : 1;
++        u8 b2 : 1;
++        u8 b1 : 1;
++        u8 b0 : 1;
++    };
++#else
 +    struct PORT_BF_BE {
          u8 b0 : 1;
          u8 b1 : 1;
          u8 b2 : 1;
+@@ -31,6 +58,7 @@ typedef union UnkFlagStruct {
+         u8 b6 : 1;
+         u8 b7 : 1;
+     };
++#endif
+ } UnkFlagStruct;
+ 
+ struct UnkMultimanData {

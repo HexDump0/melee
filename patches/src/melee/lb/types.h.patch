@@ -1,29 +1,59 @@
 diff --git a/src/melee/lb/types.h b/src/melee/lb/types.h
-index bac2f7765..e57e48af6 100644
+index bac2f7765..e7093df18 100644
 --- a/src/melee/lb/types.h
 +++ b/src/melee/lb/types.h
-@@ -2,6 +2,16 @@
+@@ -2,6 +2,19 @@
  #define MELEE_LB_TYPES_H
  
  #include <Runtime/platform.h>
-+#ifdef PORT_PC
-+/* MWCC packs bitfields MSB-first on the big-endian target; GCC reads them
-+ * LSB-first from the little-endian load.  Marking the archive command
-+ * structs as big-endian storage makes the host read the raw big-endian
-+ * command words with the console's field order (G-082). */
-+#define CMD_BE __attribute__((scalar_storage_order("big-endian")))
-+#else
++/* `CMD_BE` used to expand, on the host, to
++ * `__attribute__((scalar_storage_order("big-endian")))`, which reproduces
++ * MWCC's MSB-first bit-field allocation *and* the big-endian storage order --
++ * on GCC.  **Clang ignores the attribute in silence** (ADR-0022), so a
++ * WebAssembly build decoded a real "play sound" command as opcode 4 instead of
++ * 17 while compiling without a word of complaint: P-502's gate zero.
++ *
++ * The host now states the layout explicitly instead, in <decomp_cmd_bits.h>,
++ * and reads it through CMD_U() below.  The marker stays on the declarations it
++ * always marked, but it is empty everywhere: those declarations are now
++ * compiled only for the GameCube, where it was always empty. */
 +#define CMD_BE
-+#endif
 +
  
  #include <melee/gr/forward.h>
  #include <melee/lb/forward.h> // IWYU pragma: export
-@@ -330,12 +340,12 @@ struct ColorOverlay_UnkInner {
+@@ -330,12 +343,40 @@ struct ColorOverlay_UnkInner {
  
  union ColorOverlay_x8_t {
      GXColor light_color;
--    struct {
++#ifdef PORT_PC
++    /* Host order, same treatment as the command structs: fields reversed and
++     * padded to the top of the word, byte-swapped where they are read.  Read
++     * these three through CO_X8() (below); `light_color` is bytes and must be
++     * read raw, which is why the union is not simply swapped in place. */
++    u32 host_word;
+     struct {
++        s32 yz : 13;
++        s32 x : 13;
++        s32 unk : 6;
++    } light_rot1;
++    struct {
++        s32 yz : 12;
++        s32 x : 12;
++        u32 x0_7 : 1;
++        u32 light_enable : 1;
++        u32 x0_5 : 1;
++        u32 x0_4 : 1;
++        u32 x0_3 : 1;
++        u32 x0_2 : 1;
++        u32 x0_1 : 1;
++        u32 x0_0 : 1;
++    } light_rot2;
++    struct {
++        u32 timer : 26;
++        u32 unk : 6;
++    } unk;
++#else
 +    struct CMD_BE {
          s32 unk : 6;
          s32 x : 13;
@@ -34,7 +64,7 @@ index bac2f7765..e57e48af6 100644
          u32 x0_0 : 1;
          u32 x0_1 : 1;
          u32 x0_2 : 1;
-@@ -347,7 +357,7 @@ union ColorOverlay_x8_t {
+@@ -347,11 +388,21 @@ union ColorOverlay_x8_t {
          s32 x : 12;
          s32 yz : 12;
      } light_rot2;
@@ -43,11 +73,32 @@ index bac2f7765..e57e48af6 100644
          u32 unk : 6;
          u32 timer : 26;
      } unk;
-@@ -523,19 +533,19 @@ struct lbColl_8000A10C_arg0_t {
++#endif
+ };
++
++#ifdef PORT_PC
++/* One ColorOverlay word, in host order.  `light_color` stays raw. */
++#define CO_X8(p)                                                              \
++    (&(union ColorOverlay_x8_t) {                                             \
++        .host_word = __builtin_bswap32(*(u32 const*) (p)) })
++#else
++#define CO_X8(p) (p)
++#endif
+ ASSERT_SIZE(union ColorOverlay_x8_t, 0x4);
+ 
+ struct ColorOverlay {
+@@ -523,226 +574,235 @@ struct lbColl_8000A10C_arg0_t {
      Vec3 x14;
  };
  
 -struct Command_00 {
++#ifdef PORT_PC
++/* The console's layout for all 76 of these, without the attribute Clang drops
++ * on the floor -- see <decomp_cmd_bits.h>, which is generated from the
++ * declarations below and is what P-502's gate zero needed.  Read them through
++ * CMD_U(), further down, which supplies the byte swap. */
++#include <decomp_cmd_bits.h>
++#else
 +struct CMD_BE Command_00 {
      u32 code : 6;
      u32 value : 26;
@@ -66,12 +117,15 @@ index bac2f7765..e57e48af6 100644
 +struct CMD_BE Command_04 {
      u32 x;
  };
++#endif
  struct Command_05 {
-@@ -544,205 +554,205 @@ struct Command_05 {
+     CmdUnion* ptr;
+ };
  struct Command_07 {
      CmdUnion* ptr;
  };
 -struct Command_09 {
++#ifndef PORT_PC
 +struct CMD_BE Command_09 {
      u32 id : 6;
      u32 param_1 : 8;
@@ -316,7 +370,7 @@ index bac2f7765..e57e48af6 100644
      u32 opcode : 6;
      u32 boneId : 8;
      u32 useCommonBoneIDs : 1;
-@@ -750,23 +760,23 @@ struct spawn_gfx_0 {
+@@ -750,23 +810,23 @@ struct spawn_gfx_0 {
      u32 useUnkBone : 1;
      u32 unk1 : 15;
  };
@@ -345,7 +399,7 @@ index bac2f7765..e57e48af6 100644
      u32 opcode : 6;
      u32 id : 3;
      u32 hit_group : 3;
-@@ -775,15 +785,15 @@ struct spawn_hitbox_0 {
+@@ -775,15 +835,15 @@ struct spawn_hitbox_0 {
      u32 use_common_bone_ids : 1;
      u32 damage : 10;
  };
@@ -364,7 +418,7 @@ index bac2f7765..e57e48af6 100644
      u32 angle : 9;
      u32 knockback_growth : 9;
      u32 weight_set_knockback : 9;
-@@ -793,7 +803,7 @@ struct spawn_hitbox_3 {
+@@ -793,7 +853,7 @@ struct spawn_hitbox_3 {
      u32 clank : 1;
      u32 rebound : 1;
  };
@@ -373,7 +427,7 @@ index bac2f7765..e57e48af6 100644
      u32 base_knockback : 9;
      u32 element : 5;
      s32 shield_damage : 8;
-@@ -802,7 +812,7 @@ struct spawn_hitbox_4 {
+@@ -802,7 +862,7 @@ struct spawn_hitbox_4 {
      u32 hit_grounded : 1;
      u32 hit_aerial : 1;
  };
@@ -382,7 +436,7 @@ index bac2f7765..e57e48af6 100644
      u32 x0 : 8;
      u32 x1_b0 : 1;
      u32 x1_b1 : 1;
-@@ -813,14 +823,14 @@ struct spawn_hitbox_5 {
+@@ -813,14 +873,14 @@ struct spawn_hitbox_5 {
      u32 x1_b6 : 1;
      u32 x1_b7 : 1;
  };
@@ -399,8 +453,11 @@ index bac2f7765..e57e48af6 100644
      u32 base_knockback : 9;
      u32 element : 5;
      u32 x40_b0 : 1;
-@@ -832,54 +842,68 @@ struct it_create_hitbox_4 {
+@@ -830,56 +890,72 @@ struct it_create_hitbox_4 {
+     u32 x40_b3 : 1;
+     u32 x40_b2 : 1;
  };
++#endif
  struct spawn_hitbox_skip {
      u8 _0[0xF];
 +#ifdef PORT_PC
@@ -424,6 +481,7 @@ index bac2f7765..e57e48af6 100644
 +#endif
  };
 -struct sound_effect_0 {
++#ifndef PORT_PC
 +struct CMD_BE sound_effect_0 {
      u32 opcode : 6;
      u32 behavior : 8;
@@ -478,7 +536,7 @@ index bac2f7765..e57e48af6 100644
      u32 opcode : 6;
      u32 boneId : 8;
      u32 use_alt_bone : 1;
-@@ -887,36 +911,36 @@ struct footstep_fx_0 {
+@@ -887,41 +963,46 @@ struct footstep_fx_0 {
      u32 x2_b0_7 : 8;
      u32 x3_b0_7 : 8;
  };
@@ -522,3 +580,41 @@ index bac2f7765..e57e48af6 100644
      s16 angle : 16;
      s16 decay : 16;
  };
++#endif
+ 
+ union CmdUnion {
++#ifdef PORT_PC
++    /* CMD_U() byte-swaps the console's word into here. */
++    u32 host_word;
++#endif
+     struct Command_00 Command_00;
+     struct Command_02 Command_02;
+     struct Command_03 Command_03;
+@@ -1002,6 +1083,27 @@ union CmdUnion {
+     struct wind_fx_3 wind_fx_3;
+ };
+ 
++#ifdef PORT_PC
++/* One command word, read the console's way.
++ *
++ * The stream stays raw big-endian archive data -- it has to; `Command_05` and
++ * `Command_07` carry relocated host pointers inline, so it is not a uniform
++ * array of swappable words.  Every read of a bit-field member therefore goes
++ * `CMD_U(cmd)->member.field`, which swaps that one word into host order for
++ * the host-order declarations in <decomp_cmd_bits.h> to read.  On the
++ * GameCube it expands to `(cmd)->u`, which is what the line said before.
++ *
++ * Not for `Command_05.ptr` / `Command_07.ptr`: those two words are pointers,
++ * not fields, and lbcommand.c reads them through `->u` directly.  Nor for the
++ * places that cast `cmd->u` to `u16*` and do the swap themselves (itanimlist.c
++ * `CMD_U16`, ftaction.c's gfx-id read). */
++#define CMD_U(c)                                                              \
++    (&(union CmdUnion) {                                                      \
++        .host_word = __builtin_bswap32(*(u32 const*) (c)->u) })
++#else
++#define CMD_U(c) ((c)->u)
++#endif
++
+ struct CommandInfo {
+     f32 timer;       // 0x00
+     f32 frame_count; // 0x04

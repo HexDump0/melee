@@ -24,7 +24,9 @@
 #            arrives.  Its size and frame-time cost is the W2 measurement.
 #            a single up-front yes/no -- see os.c:map_gc_ram.  Growth is off
 #            deliberately: Mozilla bug 1660420 reports Memory.grow failing when
-#            the maximum is 4 GB, and we never need to grow.
+#            the maximum is 4 GB, and we never need to grow.  MAXIMUM_MEMORY is
+#            therefore not passed -- emcc only honours it with growth on, and
+#            leaving it in the line read as load-bearing when it was dead.
 #            gx_gl.c calls glBlitFramebuffer, which is WebGL2-only; emcc links
 #            the WebGL1 library unless asked
 set -e
@@ -89,8 +91,19 @@ echo "compile failures: $nfail"
 echo "linking"
 emcc "$OUT"/obj/*.o -o "$OUT/melee.html" --use-port=sdl3 \
   --shell-file "$W/native/tools/wasm_shell.html" \
-  -sINITIAL_MEMORY=2415919104 -sMAXIMUM_MEMORY=2415919104 \
-  -sALLOW_MEMORY_GROWTH=0 -sMAX_WEBGL_VERSION=2 -sMIN_WEBGL_VERSION=2 \
+  -sINITIAL_MEMORY=2415919104 -sALLOW_MEMORY_GROWTH=0 -sMAX_WEBGL_VERSION=2 -sMIN_WEBGL_VERSION=2 \
   -sASYNCIFY=1 -sASYNCIFY_STACK_SIZE=65536 -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 \
   -sEXPORTED_RUNTIME_METHODS=callMain,HEAPU8
 echo "linked: $(du -h "$OUT/melee.wasm" | cut -f1) wasm -> $OUT/melee.html"
+
+# Gate zero, checked on the target that broke it.  MWCC's MSB-first bit-field
+# allocation is stated explicitly in native/decomp/shim/decomp_cmd_bits.h
+# because Clang ignores the attribute that used to carry it; this recomputes
+# that header from the decompilation and runs the field-by-field test through
+# node, so a drift or a regression fails the build rather than the game.
+echo "gate zero: command bit order"
+"$W/native/tools/gen_cmd_bits.py" --check
+# shellcheck disable=SC2086
+emcc "$W/native/tests/test_bit_order.c" -o "$OUT/test_bit_order.js" \
+  -I"$W/native/tests" $INCS $BASE $SHIM
+node "$OUT/test_bit_order.js"
