@@ -168,11 +168,25 @@ the decoded dest type **and, under `PORT_WASM`, an
 
 ```sh
 source ~/projects/emsdk/emsdk_env.sh
-native/tools/wasm_census.sh /tmp/w && cd /tmp/w && python3 -m http.server 8790
-# open localhost:8790/melee.html, pick the .ciso, press Enter at the title
-tr -d '\0' < server.log | grep -oP 'GET /(L|ABORT)/\K[^ ]*' \
+native/tools/wasm_census.sh /tmp/w
+cd /tmp/w && python3 -m http.server 8801 > srv.log 2>&1 &
+# Then CHECK IT IS YOURS before asking the owner for anything:
+curl -s -o /dev/null -w '%{size_download}\n' http://localhost:8801/melee.wasm
+stat -c%s /tmp/w/melee.wasm          # the two numbers must agree
+# open localhost:8801/melee.html, pick the .ciso, press Enter at the title
+tr -d '\0' < srv.log | grep -oP 'GET /(L|ABORT)/\K[^ ]*' \
   | python3 -c "import sys,urllib.parse;[print(urllib.parse.unquote(l)) for l in sys.stdin]"
 ```
+
+**Do not reuse port 8790, and do not trust an HTTP 200.** Previous sessions
+left servers running on 8741, 8752 and 8790; `python3 -m http.server` dies
+immediately with `Address already in use` and, if you backgrounded it, says so
+only in its own log. `curl` then answers 200 from *somebody else's* directory
+and the owner runs a stale build. It cost a round trip here: the owner's run
+came back with `devcom.c` **line 410** and no `DevCom UNALIGNED:` line, which
+is how we know it was a build with no diagnostic patch at all -- 410 is where
+`dest % 32 == 0` sits in the *pristine* file, 421 with the patch applied. The
+byte size of `melee.wasm` is the cheap way to tell builds apart.
 
 **Delete the diagnostic patch with the fix.**
 
