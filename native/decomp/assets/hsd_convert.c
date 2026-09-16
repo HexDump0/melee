@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 119u
+#define HSD_CONVERTER_VERSION 121u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -2008,10 +2008,32 @@ static void conv_dynamics_desc(Conv* c, uint32_t off)
     if (!in_data(c, off, 0x14) || !mark(c, off)) {
         return;
     }
-    conv_u32(c, off + 0x04); /* count */
-    conv_u32(c, off + 0x08); /* pos */
-    conv_u32(c, off + 0x0C);
-    conv_u32(c, off + 0x10);
+    /* **Nine words, not five.**  This object is declared `DynamicsDesc` --
+     * `{ void* data; int count; Vec3 pos }`, which is 0x14 -- but every stage's
+     * `on_touch_line` hands the same pointer to `lbColl_80008D30`, which reads
+     * it as `lbColl_80008D30_arg1` (lb/forward.h:103): nine `u32`, `state,
+     * damage, kb_angle, unkC, unk10, unk14, element, sfx_severity, sfx_kind`.
+     * The two views agree where they overlap -- `count` and `damage` are the
+     * same word at +0x04 -- and diverge after +0x10, which is exactly where
+     * this walker used to stop.
+     *
+     * Both halves bit the owner at once on Mute City.  The damage word read
+     * `0x08000000` for the `int` 8, so a buried fighter took 134217728
+     * environment damage and `ftcoll.c:229` asserted (P-783); with that fixed
+     * the still-raw `sfx_kind` indexed `lbColl_803B9880[kind * 3 + severity]`
+     * -- a 28-byte table -- at 117440512, which segfaults in
+     * `lbColl_80005BB0` and, where it does not, hands `lbAudioAx_80024184` a
+     * garbage sound id.  That is the audio clipping and going wild on an item
+     * pickup (P-785).
+     *
+     * `conv_u32` leaves relocation fields alone, so covering +0x00 is safe
+     * even where `data` really is a pointer, and `data` is read back *after*
+     * the conversion rather than before. */
+    if (in_data(c, off, 0x24)) {
+        conv_u32_range(c, off, 9);
+    } else {
+        conv_u32_range(c, off, 5);
+    }
     /* `data` may legally be 0: it is the data-section base for the first
      * record block (GrCs.dat flag3 stores offset 0), not a null pointer. */
     data = rd32(c, off + 0x00);
@@ -2071,12 +2093,25 @@ static void conv_kraid_param(Conv* c, uint32_t off)
  * range can simply cover the whole block.  The decomp names only +0x2C..0x4C
  * and calls +0x10..0x2B padding, but the raw bytes there are floats
  * (-12, 2, 15) like the rest, and nothing reads them either way. */
+/* `x8` and `xC` are the two descriptors `grMuteCity_801F2BBC`
+ * (grmutecity.c:1987) hands back, and **nothing else in GrMc.dat points at
+ * them**, so without this they have no walker at all. */
 static void conv_mutecity_param(Conv* c, uint32_t off)
 {
+    uint32_t dyn;
+
     if (!in_data(c, off, 0x50) || !mark(c, off)) {
         return;
     }
     conv_u32_range(c, off, 20);
+    dyn = rd32(c, off + 0x08);
+    if (dyn != 0) {
+        conv_dynamics_desc(c, dyn);
+    }
+    dyn = rd32(c, off + 0x0C);
+    if (dyn != 0) {
+        conv_dynamics_desc(c, dyn);
+    }
 }
 
 /* GrBb.dat (Big Blue) `yakumono_param` (`grBb_YakumonoParam`,
@@ -3291,6 +3326,40 @@ static void conv_ft_common_data(Conv* c, uint32_t off)
             }
             if (anim != 0) {
                 conv_anim_joint(c, anim);
+            }
+        }
+    }
+    /* pData[1] (`Fighter_804D6550`, fighter.c:189) is the item-throw attribute
+     * table: `ftCo_ItemThrowAttrs { f32 speed; f32 angle; f32 mul }`, indexed
+     * by `motion_id - ftCo_MS_LightThrowF` from motion 94 up.  Left
+     * big-endian, `ftCo_80095D5C` built a throw velocity of about 1e23, and
+     * `it_8026B1D4` squares it -- 9.93e22 squared is 9.87e45, past what a
+     * float holds -- so the item's damage came out `inf` and `ftcoll.c:1296`
+     * asserted.  The owner hit that three times (P-779).
+     *
+     * Bounded by `next_pointed_at_after`, not by a guessed entry count: the
+     * table's length is not stored anywhere, and over-running a fighter table
+     * is what P-739 was.  Its consumer reads `*(float*)(array_element -
+     * 0x468)`, which looks like a G-176 cross-symbol overlay and is not --
+     * `ftCo_MS_LightThrowF` is 94 and `94 * 12 == 0x468`, so that is just the
+     * array index with the bias folded into the offset. */
+    {
+        uint32_t table = rd32(c, off + 1 * 4);
+        if (table != 0) {
+            uint32_t end = next_pointed_at_after(c, table);
+            uint32_t pub =
+                next_public_after(c, c->public_off, c->nb_public, table);
+            uint32_t e;
+            if (pub < end) {
+                end = pub;
+            }
+            for (e = table; e + 12 <= end; e += 12) {
+                if (!in_data(c, e, 12)) {
+                    break;
+                }
+                conv_u32(c, e + 0x00);
+                conv_u32(c, e + 0x04);
+                conv_u32(c, e + 0x08);
             }
         }
     }
