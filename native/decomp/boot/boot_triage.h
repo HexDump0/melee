@@ -85,4 +85,11 @@ void boot_triage_install_crash_reporter(void);
  * handler's capture.  label says what prompted it, e.g. "panic". */
 void boot_triage_print_backtrace(FILE* out, const char* label);
 
+/* Post-mortem game-state dump.  The triage layer has no access to the
+ * engine's types, so whoever owns that state registers a printer here and
+ * every stop path -- assert, panic, signal -- calls it.  Unregistered is the
+ * normal case for the unit-test binaries and prints nothing. */
+void boot_triage_set_state_dumper(void (*fn)(FILE* out));
+void boot_triage_dump_state(FILE* out);
+
 #endif /* MELEE_DECOMP_BOOT_TRIAGE_H */

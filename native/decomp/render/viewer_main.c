@@ -480,6 +480,7 @@ int main(int argc, char** argv)
      * owner crash reports this session arrived with no frames because of it
      * (P-784). */
     boot_triage_install_crash_reporter();
+    match_boot_install_crash_dump();
     memset(&opt, 0, sizeof(opt));
     memset(v, 0, sizeof(*v));
     opt.disc = RENDER_SCENE_DISC_DEFAULT;

@@ -125,6 +125,7 @@ int main(int argc, char** argv)
     boot_triage_set_frame_budget(frames);
     boot_triage_install_stop_target(&stop);
     match_boot_init(match_frame);
+    match_boot_install_crash_dump();
     install_handlers();
     if (watchdog && timeout != 0) {
         alarm(timeout);
@@ -147,6 +148,9 @@ int main(int argc, char** argv)
             boot_triage_note("[boot] STOP: %s\n",
                              boot_triage_stop_reason());
         }
+        /* P-796: the harness longjmps out of the signal handler, so the game
+         * state is still standing here; print it next to the stack. */
+        match_boot_dump_fighters(out);
     }
 
     boot_triage_note("[boot] audio: frames=%u hash=%016llx\n",

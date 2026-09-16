@@ -40,6 +40,7 @@
 #include <melee/gr/ground.h>
 #include <melee/gr/types.h>
 #include <sysdolphin/baselib/tobj.h>
+#include <sysdolphin/baselib/jobj.h>
 
 #include <sysdolphin/baselib/gobj.h>
 #include <sysdolphin/baselib/random.h>
@@ -1239,6 +1240,154 @@ static void log_stadium_display(void)
         shown != NULL ? shown->image_ptr : NULL,
         (void*) gp->u.display.xD4, (void*) gp->u.display.xD8,
         (void*) gp->u.display.xDC, (int) gp->u.display.xF8_0);
+}
+
+/* ------------------------------------------------------------------------
+ * Post-mortem fighter dump (P-796).
+ *
+ * Every member of the `lbvector.c` position-sanity family dies in the *render*
+ * pass, one call below `ftLib_80086A8C`, and the backtrace on its own says
+ * only that some joint's world matrix is absurd.  P-772 and P-781 each needed
+ * two hardware watchpoints to get from that stack to the transform that was
+ * actually wrong -- and a watchpoint is exactly what is unavailable when the
+ * report arrives from the owner's own play session.
+ *
+ * So print, at the moment of the stop, what the watchpoints had to go and
+ * find.  `prev_pos` and `pos_delta` are last frame's values, so the fighter
+ * lines alone separate the two causes the family has had so far: a position
+ * that was *integrated* into the absurd value (P-793's runaway, where
+ * `pos_delta` is huge too) from one that was *written* (P-772, where
+ * `prev_pos` is a few units away from a position of 1e14).  The joint chain
+ * separates a bad fighter position from a bad animation track: walking from
+ * the camera bone up to the root, the first level whose world translation is
+ * sane is the level below the corruption.
+ *
+ * Read-only and re-entrancy-guarded: it runs on a path that is already dying,
+ * so it must never be the reason a crash report is empty.
+ */
+static int crash_dump_active;
+
+/* Written as the engine's own assert is written, not as `isnan() || fabs()`:
+ * a NaN fails both comparisons, and that is the case both earlier instances
+ * of this family turned out to be. */
+static int pos3d_bad(float v)
+{
+    return !(v > -50000.0f && v < 50000.0f);
+}
+
+static int vec3_bad(const Vec3* v)
+{
+    return pos3d_bad(v->x) || pos3d_bad(v->y) || pos3d_bad(v->z);
+}
+
+static void dump_joint_chain(FILE* out, HSD_JObj* joint)
+{
+    int level;
+
+    for (level = 0; joint != NULL && level < 24; level++) {
+        const float* m = &joint->mtx[0][0];
+        Vec3 world;
+        world.x = joint->mtx[0][3];
+        world.y = joint->mtx[1][3];
+        world.z = joint->mtx[2][3];
+        fprintf(out,
+                "[crash]     j%-2d %p id=%u t=(%.6g,%.6g,%.6g) "
+                "s=(%.6g,%.6g,%.6g) world=(%.6g,%.6g,%.6g)%s\n",
+                level, (void*) joint, (unsigned) joint->id, joint->translate.x,
+                joint->translate.y, joint->translate.z, joint->scale.x,
+                joint->scale.y, joint->scale.z, world.x, world.y, world.z,
+                vec3_bad(&world) ? "  <== BAD" : "");
+        (void) m;
+        joint = joint->parent;
+    }
+}
+
+void match_boot_dump_fighters(FILE* out)
+{
+    HSD_GObj* gobj;
+    int n;
+
+    if (out == NULL || crash_dump_active || HSD_GObjGXLinkHead == NULL) {
+        return;
+    }
+    crash_dump_active = 1;
+    fprintf(out, "[crash] fighters at frame %u (mode %u scene %u):\n", frame,
+            (unsigned) gm_GetCurrentGameMode(),
+            (unsigned) gm_GetCurrentSceneIndex());
+    n = 0;
+    for (gobj = HSD_GObjGXLinkHead[5]; gobj != NULL && n < 8;
+         gobj = gobj->next_gx)
+    {
+        Fighter* fp;
+        CmSubject* box;
+        int bone = -1;
+        HSD_JObj* joint = NULL;
+
+        if (gobj->classifier != HSD_GOBJ_CLASS_FIGHTER ||
+            gobj->user_data == NULL)
+        {
+            continue;
+        }
+        n++;
+        fp = (Fighter*) gobj->user_data;
+        fprintf(out,
+                "[crash]   #%d gobj=%p kind=%d player=%d motion=%d anim=%d "
+                "ga=%d facing=%.3g scale=(%.4g,%.4g,%.4g)\n",
+                n - 1, (void*) gobj, (int) fp->kind, (int) fp->player_id,
+                (int) fp->motion_id, (int) fp->anim_id,
+                (int) fp->ground_or_air, fp->facing_dir, fp->x34_scale.x,
+                fp->x34_scale.y, fp->x34_scale.z);
+        fprintf(out,
+                "[crash]     cur=(%.6g,%.6g,%.6g) prev=(%.6g,%.6g,%.6g) "
+                "delta=(%.6g,%.6g,%.6g)%s\n",
+                fp->cur_pos.x, fp->cur_pos.y, fp->cur_pos.z, fp->prev_pos.x,
+                fp->prev_pos.y, fp->prev_pos.z, fp->pos_delta.x,
+                fp->pos_delta.y, fp->pos_delta.z,
+                vec3_bad(&fp->cur_pos) ? "  <== BAD" : "");
+        fprintf(out,
+                "[crash]     self_vel=(%.6g,%.6g,%.6g) kb=(%.6g,%.6g,%.6g) "
+                "gr_vel=%.6g\n",
+                fp->self_vel.x, fp->self_vel.y, fp->self_vel.z,
+                fp->x8c_kb_vel.x, fp->x8c_kb_vel.y, fp->x8c_kb_vel.z,
+                fp->gr_vel);
+        box = fp->x890_cameraBox;
+        if (box != NULL) {
+            fprintf(out,
+                    "[crash]     cambox=%p state=%d pos=(%.6g,%.6g,%.6g) "
+                    "bone_pos=(%.6g,%.6g,%.6g)%s\n",
+                    (void*) box, (int) box->state, box->pos.x, box->pos.y,
+                    box->pos.z, box->bone_pos.x, box->bone_pos.y,
+                    box->bone_pos.z,
+                    vec3_bad(&box->bone_pos) ? "  <== BAD" : "");
+        }
+        /* The same two inputs `ftLib_800866DC` uses, and in the same order:
+         * a bone index out of range or a nonzero offset changes which of the
+         * two readings of `lb_8000B1CC` applies, and P-781 spent a while
+         * ruling both out by hand. */
+        if (fp->ft_data != NULL && fp->ft_data->x0 != NULL) {
+            bone = fp->ft_data->x0->camera_zoom_target_bone;
+            fprintf(out, "[crash]     cam_bone=%d offset=(%.6g,%.6g,%.6g)\n",
+                    bone, fp->co_attrs.x170.x, fp->co_attrs.x170.y,
+                    fp->co_attrs.x170.z);
+        }
+        if (bone >= 0 && bone < 256 && fp->parts != NULL) {
+            joint = fp->parts[bone].joint;
+        }
+        if (joint != NULL) {
+            fprintf(out, "[crash]     camera-bone chain (bone -> root):\n");
+            dump_joint_chain(out, joint);
+        }
+    }
+    if (n == 0) {
+        fprintf(out, "[crash]   (no live fighters)\n");
+    }
+    fflush(out);
+    crash_dump_active = 0;
+}
+
+void match_boot_install_crash_dump(void)
+{
+    boot_triage_set_state_dumper(match_boot_dump_fighters);
 }
 
 int match_boot_classic_active(void)

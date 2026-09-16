@@ -53,5 +53,11 @@ void HSD_Panic(const char* arg0, u32 line, const char* arg2)
 void __assert(const char* str, u32 arg1, const char* arg2)
 {
     OSReport("assertion \"%s\" failed", arg2);
+    /* P-796: before the panic tears the process down, print the game state a
+     * backtrace cannot carry.  The position-sanity asserts in `lbvector.c`
+     * fire in the render pass with the guilty transform already several calls
+     * out of scope, and the owner's reports arrive as a stack and nothing
+     * else.  Prints nothing unless a dumper is registered. */
+    boot_triage_dump_state(stderr);
     HSD_Panic(str, arg1, "");
 }

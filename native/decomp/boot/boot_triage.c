@@ -34,6 +34,7 @@ static unsigned long category_calls[BOOT_CAT_COUNT];
 static BootSymbol symbols[BOOT_MAX_SYMBOLS];
 static BootSymbol real[BOOT_MAX_SYMBOLS];
 static sigjmp_buf* stop_target;
+static void (*state_dumper)(FILE* out);
 
 volatile sig_atomic_t boot_triage_stopped;
 
@@ -57,6 +58,18 @@ void boot_triage_init(FILE* out, int trace, unsigned long limit)
 FILE* boot_triage_out(void)
 {
     return out_stream;
+}
+
+void boot_triage_set_state_dumper(void (*fn)(FILE* out))
+{
+    state_dumper = fn;
+}
+
+void boot_triage_dump_state(FILE* out)
+{
+    if (state_dumper != NULL && out != NULL) {
+        state_dumper(out);
+    }
 }
 
 static BootSymbol* record(BootSymbol* table, const char* name,
@@ -205,6 +218,7 @@ static void crash_reporter(int signo)
     boot_triage_capture_crash(signo);
     /* print_crash prints the `controlled stop:` line itself. */
     boot_triage_print_crash(stderr);
+    boot_triage_dump_state(stderr);
     fflush(stderr);
     signal(signo, SIG_DFL);
     raise(signo);

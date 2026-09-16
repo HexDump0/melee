@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 126u
+#define HSD_CONVERTER_VERSION 127u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -2409,10 +2409,16 @@ static void conv_icemt_param(Conv* c, uint32_t off)
 
 /* Gr*.dat `yakumono_param` fallback: stage-specific dynamic-object parameters
  * whose layout this converter does not know yet.  For Zebes the word at +0x2C
- * is a relocation target to a bury DynamicsDesc stored directly before the
+ * is a relocation target to a bury descriptor stored directly before the
  * symbol (`ftCo_800C08A0` reads its `count` as the acid damage), so the sign
- * of the Zebes layout is `desc == off - sizeof(DynamicsDesc)`.  The check is
- * self-validating: unknown stages are marked but left big-endian. */
+ * of the Zebes layout is that the gap to it is exactly one descriptor.  The
+ * check is self-validating: unknown stages are marked but left big-endian.
+ *
+ * **That gap is 0x24, not `sizeof(DynamicsDesc)`.**  The object is declared
+ * `DynamicsDesc` (0x14) but `ftCo_800C08A0` hands it to `lbColl_80008D30`,
+ * which reads nine `u32` -- see `conv_dynamics_desc` for the full argument --
+ * and the archive agrees: Zebes leaves 0x24 between the descriptor and the
+ * parameter block, which is the nine-word view's size. */
 static void conv_yakumono_param(Conv* c, uint32_t off)
 {
     uint32_t desc;
@@ -2423,13 +2429,14 @@ static void conv_yakumono_param(Conv* c, uint32_t off)
     desc = rd32(c, off + 0x2C);
     if (desc == off - 0x24 && in_data(c, off, 0x190)) {
         int i;
-        /* DynamicsDesc { DynamicsData* data; u32 count; Vec3 pos } stored
-         * immediately before the Zebes parameter block. */
-        conv_u32(c, desc + 0x00);
-        conv_u32(c, desc + 0x04); /* bury/acid damage */
-        conv_u32(c, desc + 0x08);
-        conv_u32(c, desc + 0x0C);
-        conv_u32(c, desc + 0x10);
+        /* Nine words, not five.  Stopping at +0x10 left `element`,
+         * `sfx_severity` and `sfx_kind` big-endian, so the acid's
+         * `sfx_kind = 8` reached `lbColl_80005BB0` as 0x08000000 and
+         * `lbColl_803B9880[kind * 3 + severity]` read 402653208 entries past
+         * a 42-entry table: SIGSEGV the first time the acid buried a fighter
+         * (P-796).  P-785 fixed exactly this in `conv_dynamics_desc` and this
+         * second copy of the walk was missed. */
+        conv_u32_range(c, desc, 9);
         conv_u32(c, off + 0x00);
         conv_u32(c, off + 0x04);
         conv_u32(c, off + 0x08);

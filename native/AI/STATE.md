@@ -1249,3 +1249,23 @@ safe generated fallback. `decomp_efb` pins both behaviors with alternating
 scanlines (~128 after copy filtering) and a black base/white forced authored
 LOD. Its display-copy and authored-mip regressions remain covered by
 `decomp_efb` (G-189).
+
+**Brinstar's acid (2026-09-16, P-796).** The bury descriptor Zebes keeps
+immediately before its `yakumono_param` was converted five words deep, so
+`element`, `sfx_severity` and `sfx_kind` stayed big-endian and the first
+burial indexed a 42-entry sound table 400 million entries out. It converts
+nine words now, which is what the archive's own layout says: the gap the
+Zebes test keys on is `0x24`, the size of the nine-word `lbColl_80008D30_arg1`
+view, not `DynamicsDesc`'s `0x14`. P-785 fixed this exact five-vs-nine split
+in `conv_dynamics_desc` and missed the second copy of the walk.
+
+**Crash reports now carry game state, not just a stack (P-796/P-797).**
+`__assert`, `HSD_Panic` and the SIGSEGV handler all call
+`match_boot_dump_fighters` through a dumper registered with `boot_triage`.
+It prints every live fighter's kinematics -- `prev_pos` and `pos_delta` are
+last frame's values, so an *integrated* runaway is distinguishable from a
+*written* position without a second run -- and the camera bone's joint chain
+from the bone to the root, marking the first level whose world translation is
+out of range. The `lbvector.c` position-sanity family (P-772, P-781, and the
+owner's `y` assert) has so far cost two hardware watchpoints per instance to
+get from the backtrace to the guilty transform; this is that walk, printed.
