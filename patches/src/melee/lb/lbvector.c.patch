@@ -1,0 +1,26 @@
+diff --git a/src/melee/lb/lbvector.c b/src/melee/lb/lbvector.c
+index e85b461fa..1e43e8b07 100644
+--- a/src/melee/lb/lbvector.c
++++ b/src/melee/lb/lbvector.c
+@@ -368,7 +368,21 @@ Vec3* lbVector_WorldToScreen(HSD_CObj* cobj, const Vec3* pos3d,
+ {
+     u8 _[16];
+ 
++#ifdef PORT_PC
++    /* `MTXOrtho`/`MTXPerspective`/`MTXFrustum` are declared to take `Mtx`
++     * (`f32[3][4]`, 48 bytes) but every one of them writes `m[3][0..3]` as
++     * well (mtx44.c:99) -- 64 bytes -- so every caller that passes a real
++     * `Mtx` overruns its local by 16.  On the console that lands in the
++     * padding the decompilation declares just above (the `u8 _[...]` here),
++     * which is why it is harmless there and why the padding exists.  GCC lays
++     * the frame out differently and the stack canary aborts the process:
++     * "*** stack smashing detected ***" a few minutes into a match (P-789).
++     * `Mtx` and `Mtx44` both decay to `f32(*)[4]`, so widening the
++     * declaration is the whole fix. */
++    Mtx44 projMtx;
++#else
+     Mtx projMtx;
++#endif
+     float projection[7]; // projection params
+     float viewport[6];   // viewport params
+     Mtx m;
