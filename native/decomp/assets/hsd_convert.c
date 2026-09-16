@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 105u
+#define HSD_CONVERTER_VERSION 106u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -158,9 +158,13 @@ typedef struct Conv {
     int stage_layout; /* selected `yakumono_param` layout */
     uint32_t reloc_off; /* relocation table, for next_pointed_at_after */
     uint32_t nb_reloc;
+    uint32_t public_off; /* public symbol table, for next_public_after */
+    uint32_t nb_public;
 } Conv;
 
 static uint32_t next_pointed_at_after(Conv* c, uint32_t off);
+static uint32_t next_public_after(Conv* c, uint32_t public_off,
+                                  uint32_t nb_public, uint32_t off);
 
 static uint32_t be32(const unsigned char* p)
 {
@@ -3046,9 +3050,19 @@ static int ft_x48_vis_lookup_slot(const char* name, size_t name_len)
  *     are followed by the `21 22 23 ... 2d` part-index runs and by zeros,
  *     none of which is a relocation;
  *   - stop at the first offset something else points at, which is where the
- *     next object starts even if the pointers run on with no gap.  For
- *     0x8d14 that is 0x8d24, the `x4` run of the following entry, and it
- *     gives the same four elements the relocation bound does. */
+ *     next object starts even if the pointers run on with no gap.  This one
+ *     earns its keep: `PlMr.dat`'s 0x8d54 holds a pointer and continues the
+ *     relocation run, but an article field at 0x8d84 points at it, and
+ *     0xfc68 -- what it points to -- fails every `HSD_AnimJoint` test;
+ *   - **stop at the next public symbol.**  A relocation run walks straight
+ *     into a neighbouring object that nothing *points* at, because the game
+ *     reaches it by name instead -- and `ftData` itself is exactly that
+ *     object.  In `PlCa.dat` the third array is at 0x99f8 and
+ *     `ftDataCaptain` is at 0x9a04, three slots later, so without this the
+ *     walk reads `ftData->x0`, `->x4`, `->xC` ... as animation joints,
+ *     `ftCo_DatAttrs` and the `x1C` table among them.  Falcon, Donkey and
+ *     both wireframes do it.  `next_public_after` exists for exactly this
+ *     and says so: clamp to the next symbol rather than trust a run. */
 /* DWARF: ftData_x1C */
 static void conv_ft_part_anim(Conv* c, uint32_t off)
 {
@@ -3070,6 +3084,13 @@ static void conv_ft_part_anim(Conv* c, uint32_t off)
         return;
     }
     end = next_pointed_at_after(c, anims);
+    {
+        uint32_t pub =
+            next_public_after(c, c->public_off, c->nb_public, anims);
+        if (pub < end) {
+            end = pub;
+        }
+    }
     for (p = anims; p + 4 <= end && c->reloc[p]; p += 4) {
         uint32_t animjoint = rd32(c, p);
         if (animjoint != 0) {
@@ -4915,6 +4936,8 @@ static int convert_archive(unsigned char* data, size_t size, Conv* c)
 
     c->reloc_off = reloc_off;
     c->nb_reloc = nb_reloc;
+    c->public_off = public_off;
+    c->nb_public = nb_public;
     convert_relocs(c, reloc_off, nb_reloc);
     c->st.roots_total = nb_public;
     convert_roots(c, public_off, nb_public, symbols_off);
