@@ -16,8 +16,18 @@
 #define GC_MAGIC 0xc2339f3du
 #define MAX_FST_ENTRIES 1000000u
 
+/* Every physical read funnels through seek_read(), so one function pointer is
+ * the whole backend seam (P-502/W2).  A browser has no 1.4 GiB file to open:
+ * the image stays in JavaScript as a File and byte ranges arrive through
+ * Blob.slice(), so disc.c must not assume stdio.  The CISO block mapping above
+ * this layer is backend-agnostic and is unchanged. */
+typedef int (*DiscReadAt)(void *ctx, uint64_t off, void *dst, size_t size);
+typedef void (*DiscCloseFn)(void *ctx);
+
 typedef struct Disc {
-    FILE *fp;
+    DiscReadAt read_at;
+    DiscCloseFn close_fn;
+    void *ctx;
     uint64_t file_size;
     uint32_t block_size;
     int ciso;
@@ -41,12 +51,25 @@ static void set_error(char *dst, size_t n, const char *msg) {
         snprintf(dst, n, "%s", msg);
     }
 }
+/* stdio backend: the native and test builds.  The LONG_MAX guard belongs here
+ * rather than in the caller -- it is a limitation of fseek's offset type, not
+ * of the disc format, and a browser backend has no such limit. */
+static int stdio_read_at(void *ctx, uint64_t off, void *dst, size_t size) {
+    FILE *fp = (FILE *)ctx;
+    if (off > (uint64_t)LONG_MAX)
+        return 0;
+    if (fseek(fp, (long)off, SEEK_SET) != 0)
+        return 0;
+    return fread(dst, 1, size, fp) == size;
+}
+static void stdio_close(void *ctx) {
+    if (ctx != NULL) fclose((FILE *)ctx);
+}
+
 static int seek_read(Disc *d, uint64_t off, void *dst, size_t size) {
-    if (!range_ok(off, size, d->file_size) || off > (uint64_t)LONG_MAX)
+    if (!range_ok(off, size, d->file_size))
         return 0;
-    if (fseek(d->fp, (long)off, SEEK_SET) != 0)
-        return 0;
-    return fread(dst, 1, size, d->fp) == size;
+    return d->read_at(d->ctx, off, dst, size);
 }
 static int disc_read(Disc *d, uint64_t off, void *dst, size_t size) {
     unsigned char *out = (unsigned char *)dst;
@@ -73,19 +96,13 @@ static int disc_read(Disc *d, uint64_t off, void *dst, size_t size) {
     return 1;
 }
 static void disc_close(Disc *d) {
-    if (d->fp != NULL) fclose(d->fp);
+    if (d->close_fn != NULL) d->close_fn(d->ctx);
     memset(d, 0, sizeof(*d));
 }
-static int disc_open(Disc *d, const char *path) {
+/* Format sniffing, shared by every backend: detect CISO and precompute the
+ * block ordinals.  Assumes read_at/ctx/file_size are already set. */
+static int disc_sniff(Disc *d) {
     unsigned char hdr[CISO_HEADER_SIZE];
-    long end;
-    memset(d, 0, sizeof(*d));
-    d->fp = fopen(path, "rb");
-    if (d->fp == NULL) return 0;
-    if (fseek(d->fp, 0, SEEK_END) != 0 || (end = ftell(d->fp)) < 0) {
-        disc_close(d); return 0;
-    }
-    d->file_size = (uint64_t)end;
     if (d->file_size >= CISO_HEADER_SIZE && seek_read(d, 0, hdr, sizeof(hdr)) &&
         le32(hdr) == CISO_MAGIC) {
         d->block_size = le32(hdr + 4);
@@ -104,6 +121,22 @@ static int disc_open(Disc *d, const char *path) {
         d->ciso = 1;
     }
     return 1;
+}
+
+static int disc_open(Disc *d, const char *path) {
+    FILE *fp;
+    long end;
+    memset(d, 0, sizeof(*d));
+    fp = fopen(path, "rb");
+    if (fp == NULL) return 0;
+    if (fseek(fp, 0, SEEK_END) != 0 || (end = ftell(fp)) < 0) {
+        fclose(fp); return 0;
+    }
+    d->read_at = stdio_read_at;
+    d->close_fn = stdio_close;
+    d->ctx = fp;
+    d->file_size = (uint64_t)end;
+    return disc_sniff(d);
 }
 
 static int fst_find(Disc *d, const char *wanted, uint32_t *off, uint32_t *size) {
