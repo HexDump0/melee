@@ -1,0 +1,46 @@
+diff --git a/src/melee/gr/grzebes.c b/src/melee/gr/grzebes.c
+index 1fd1c921f..3536ac168 100644
+--- a/src/melee/gr/grzebes.c
++++ b/src/melee/gr/grzebes.c
+@@ -143,9 +143,41 @@ typedef struct grZe_BubbleSpawnPos {
+     /* 0x1C */ f32 pad_1C[2];
+ } grZe_BubbleSpawnPos;
+ 
++#ifdef PORT_PC
++/* G-176, ninth instance -- and the first that a pointer bias cannot fix.
++ *
++ * Three overlay casts in this file read these as one object:
++ * `grZe_BubbleState { Vec3 positions[4]; grZe_BubbleEntry bubbles[20]; }` and
++ * `grZe_BubbleSpawnPos`, both cast from `&grZe_8049F140`.  That works only
++ * because the console linker emitted the three back to back --
++ * 0x8049F140 + 0x18 = 0x8049F158 and + 0x30 = 0x8049F170, exactly
++ * `positions[2]` and `bubbles[0]`.
++ *
++ * The port builds with `-fdata-sections`, so the three land wherever the
++ * linker likes.  `grZebes_UpdateCollisionColumns` then read bubble entries out
++ * of unrelated data and fed the result to `mpVtxSetPos`, putting a Zebes
++ * collision vertex at x = 7.9e13; `mpGetSpeed` turned that into a ~1e14
++ * per-frame platform delta, `Fighter_procUpdate` added it straight to the
++ * fighter's position, and `lbVector_WorldToScreen` asserted (P-772).
++ *
++ * The struct spans *three* symbols, so biasing one base pointer -- the P-777
++ * fix -- cannot reconcile it.  Put them in one object instead and keep the
++ * three names as members, so every existing reference and every overlay cast
++ * still resolves, with the adjacency now guaranteed by the language rather
++ * than by the linker.  The console path below is untouched. */
++static struct grZe_LowMem {
++    Vec3 f140[2];
++    Vec3 f158[2];
++    grZe_BubbleEntry f170[20];
++} grZe_lowmem;
++#define grZe_8049F140 (grZe_lowmem.f140)
++#define grZe_8049F158 (grZe_lowmem.f158)
++#define grZe_8049F170 (grZe_lowmem.f170)
++#else
+ /* 8049F140 */ static Vec3 grZe_8049F140[2];
+ /* 8049F158 */ static Vec3 grZe_8049F158[2];
+ /* 8049F170 */ static grZe_BubbleEntry grZe_8049F170[20];
++#endif
+ 
+ typedef struct grZe_BubbleScales {
+     f32 values[7];
