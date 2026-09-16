@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 109u
+#define HSD_CONVERTER_VERSION 110u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -108,6 +108,7 @@ enum {
     STAGE_PARAM_KRAID,
     STAGE_PARAM_MUTECITY,
     STAGE_PARAM_BIGBLUE,
+    STAGE_PARAM_OLDPUPUPU,
 };
 
 typedef struct StageParamMarker {
@@ -143,6 +144,11 @@ static const StageParamMarker stage_param_markers[] = {
     { "GrdKraidAntenna1", STAGE_PARAM_KRAID },
     { "GrdFzeroAdver1", STAGE_PARAM_MUTECITY },
     { "GrdBigBlueArch2", STAGE_PARAM_BIGBLUE },
+    /* P-770: Dream Land.  `GrdOldpupupu` appears in 62 of GrOp.dat's 72
+     * publics and in **no other archive on the disc**, and GrOp.dat matches
+     * none of the markers above, which is why it was falling through to the
+     * raw fallback. */
+    { "GrdOldpupupu", STAGE_PARAM_OLDPUPUPU },
 };
 
 typedef struct Conv {
@@ -2023,6 +2029,42 @@ static void conv_bigblue_param(Conv* c, uint32_t off)
     conv_u32_range(c, off, 0x144 / 4);
 }
 
+/* GrOp.dat (Dream Land) `yakumono_param` (`struct grOldpupupu_YakumonoParam`,
+ * groldpupupu.c:25): four `s16`, two `int`, then nine `f32` -- 0x34 bytes,
+ * which is exactly the symbol's extent in the archive.
+ *
+ * It is **not** a flat `conv_u32_range` like Mute City or Big Blue: the first
+ * two words are four `s16`, and swapping them as `u32` would exchange the
+ * pairs.  `x0` and `x2` are the cloud respawn timers, 3000 and 4000 frames.
+ * Left big-endian they read -18421 and -24561, a negative respawn never
+ * gates, and `groldpupupu.c:408` spawns cloud objects **every frame** -- 448
+ * of them -- until `HSD_MemAlloc` fails with 512 bytes free and
+ * `memory.c:55` asserts.  It looked like a heap-sizing bug and is not; the
+ * arena is a correct 24 MB (P-770, 26 of the matrix failures).
+ *
+ * No `DWARF:` annotation: the struct is declared inside `groldpupupu.c`, not
+ * a header, so `dwarf_types.c` cannot include it -- the same gap recorded for
+ * `ItCollDynamics`. Confirmed instead against the archive: the raw fields read
+ * 3000, 4000, 30, 0, 600, 1200, 0.2, -17, 76, -18, -74, 40, -10, 180, 360,
+ * every one of them plausible, and the symbol's extent is 0x34 to the byte. */
+static void conv_oldpupupu_param(Conv* c, uint32_t off)
+{
+    int i;
+
+    if (!in_data(c, off, 0x34) || !mark(c, off)) {
+        return;
+    }
+    conv_u16(c, off + 0x00); /* x0: min respawn frames */
+    conv_u16(c, off + 0x02); /* x2: max respawn frames */
+    conv_u16(c, off + 0x04); /* x4 */
+    conv_u16(c, off + 0x06); /* x6 */
+    conv_u32(c, off + 0x08); /* x8:  int */
+    conv_u32(c, off + 0x0C); /* xC:  int */
+    for (i = 0x10; i <= 0x30; i += 4) {
+        conv_u32(c, off + (uint32_t) i); /* x10..x30: f32 */
+    }
+}
+
 /* Gr*.dat `yakumono_param` fallback: stage-specific dynamic-object parameters
  * whose layout this converter does not know yet.  For Zebes the word at +0x2C
  * is a relocation target to a bury DynamicsDesc stored directly before the
@@ -2099,6 +2141,9 @@ static void conv_stage_yakumono(Conv* c, uint32_t off)
         break;
     case STAGE_PARAM_MUTECITY:
         conv_mutecity_param(c, off);
+        break;
+    case STAGE_PARAM_OLDPUPUPU:
+        conv_oldpupupu_param(c, off);
         break;
     case STAGE_PARAM_BIGBLUE:
         conv_bigblue_param(c, off);
