@@ -2,7 +2,19 @@
 
 Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716, P-718, P-719, P-720, P-737, P-738, P-739, P-742 and P-743 fixed, P-699/P-702/P-711/P-715/P-717/P-740/P-741 open)
 
-> **Matrix status, 2026-09-16: 58 of 754 runs fail (7.7%), eleven distinct.**
+> **Programme status, 2026-09-16.** Matrix **59 of 754 (7.8%)**, ten distinct,
+> from 240/780 when the fighter x stage sweep first ran. Descriptor coverage
+> **79.50%** (166,368 of 209,261), from 73.60% at the P-756 baseline -- P-758's
+> head item, the `ftData->x1C` part-animation joint arrays, is in. ctest 32/32,
+> GameCube 100.00% matched. **32,430 descriptors short of the 95% gate**, and
+> the console diff (P-760) has not started.
+>
+> **Worth noting the two axes moved independently again:** P-758's head item
+> raised coverage 2.6 points and changed the matrix count by nothing. Every
+> crash fixed this session was found by the soak, not by coverage.
+>
+> **Matrix status, 2026-09-16 (earlier): 58 of 754 runs fail (7.7%), eleven
+> distinct.**
 > Fixed since the 81 reading: **P-769** (`conv_joint` skipped the JObj union
 > for SPLINE joints, so the `HSD_Spline` stayed big-endian and its NaN went
 > into the collision mesh) and **P-777** (`grMc_CarState` overlaid
