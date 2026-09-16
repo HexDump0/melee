@@ -879,6 +879,32 @@ static void match_boot_frame(void)
      * which never enters the harness's match flow (P-780). */
     if (stuck_trace) {
         check_fighter_stuck();
+        /* A fighter that runs away rather than wedging never trips the stuck
+         * rule -- the Home-Run Contest sandbag slides forever, so `motion_id`
+         * and `cur_anim_frame` both keep advancing while the contest waits for
+         * it to come to rest.  Position is the thing to watch there, and
+         * `log_match_state` already prints it; it is just gated to
+         * `GM_DEBUG_VS` and to two slots.  With the trace on, print all four
+         * every second in whatever mode is running (P-793). */
+        if ((frame % 60) == 0) {
+            int slot;
+            for (slot = 0; slot < MATCH_STUCK_SLOTS; slot++) {
+                HSD_GObj* g = Player_GetEntity(slot);
+                Fighter* f;
+                Vec3 p;
+                if (g == NULL || g->user_data == NULL) {
+                    continue;
+                }
+                f = (Fighter*) g->user_data;
+                ftLib_80086644((Fighter_GObj*) g, &p);
+                fprintf(stderr,
+                        "[pos] f=%u slot %d kind %d motion=%d "
+                        "pos=(%.1f,%.1f,%.1f) vel=(%.2f,%.2f)\n",
+                        frame, slot, (int) f->kind, (int) f->motion_id,
+                        (double) p.x, (double) p.y, (double) p.z,
+                        (double) f->self_vel.x, (double) f->self_vel.y);
+            }
+        }
     }
     /* P-749: HSD_ShadowSetSize asks for a fixed 32 KB and the owner sees it
      * fail after a 1P stage ends, so the question is whether the HSD heap
