@@ -1377,6 +1377,49 @@ static int texture_is_dynamic_i4(const GxHleTexture* t)
     return 0;
 }
 
+/* A copy format and a sample format can differ and still be the same bytes.
+ *
+ * The copy-texture formats (`_GX_TF_CTF`, 0x20) name *which channels the EFB
+ * copy takes*, not how the result is stored: `GX_CTF_R4` is `0x0 | 0x20`, and
+ * its storage is bit-for-bit an `GX_TF_I4` -- same 4bpp, same 8x8 tiles.  So a
+ * pipeline that copies as `GX_CTF_R4` and samples as `GX_TF_I4` is correct,
+ * and `HSD_ShadowInit` (shadow.c:108) does exactly that: `GXSetTexCopyDst(w,
+ * h, 0x20, 0)` into an image the shadow allocates as `GX_TF_I4`.  Every
+ * fighter's shadow therefore tripped the P-738 mismatch warning on every
+ * frame it was sampled -- thousands of lines an hour, all of them false, on
+ * any stage with shadows (P-790).
+ *
+ * The mapping is **not** a blanket `& ~0x20`: `GX_CTF_R8` is `0x8 | 0x20` and
+ * `0x8` is `GX_TF_C4`, a paletted format with nothing in common with an 8bpp
+ * copy.  So the compatible pairs are spelled out, and anything not listed
+ * still warns. */
+static int gx_copy_format_compatible(unsigned copied, unsigned sampled)
+{
+    static const struct {
+        unsigned ctf;
+        unsigned tf;
+    } same_layout[] = {
+        { 0x20, 0x00 }, /* GX_CTF_R4  -> I4   (4bpp, 8x8 tiles)  */
+        { 0x22, 0x02 }, /* GX_CTF_RA4 -> IA4  (8bpp, 8x4 tiles)  */
+        { 0x23, 0x03 }, /* GX_CTF_RA8 -> IA8  (16bpp, 4x4 tiles) */
+        { 0x27, 0x01 }, /* GX_CTF_A8  -> I8   (8bpp, 8x4 tiles)  */
+        { 0x28, 0x01 }, /* GX_CTF_R8  -> I8                      */
+        { 0x29, 0x01 }, /* GX_CTF_G8  -> I8                      */
+        { 0x2A, 0x01 }, /* GX_CTF_B8  -> I8                      */
+    };
+    size_t i;
+
+    if (copied == sampled) {
+        return 1;
+    }
+    for (i = 0; i < sizeof(same_layout) / sizeof(same_layout[0]); i++) {
+        if (copied == same_layout[i].ctf && sampled == same_layout[i].tf) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static GLuint texture_for(const GxHleTexture* t)
 {
     size_t i;
@@ -1422,7 +1465,7 @@ static GLuint texture_for(const GxHleTexture* t)
         if (c != NULL) {
             int mismatch = c->width != (unsigned) t->width ||
                            c->height != (unsigned) t->height ||
-                           c->format != t->format;
+                           !gx_copy_format_compatible(c->format, t->format);
             if (mismatch || efb_trace_enabled()) {
                 fprintf(stderr,
                         "gx_gl: %s EFB copy %p: copied %ux%u fmt=%u, "
