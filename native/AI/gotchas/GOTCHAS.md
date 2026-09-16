@@ -3994,3 +3994,37 @@ crash for silently applying the wrong attacker, which is the worse failure.
 reads as if the assignment always happens. They show up when a soak runs long
 enough for the "no entry matched" case to occur, which is why the 5400-frame
 matrix found this and the 900-frame one never did. P-819.
+
+## G-203: byte-identical captures are only meaningful at a fixed -O level
+
+**What happened.** `-O3` was measured as a free 2.5% (67.65e9 -> 65.96e9
+instructions on a 900-frame heavy match). Then the capture comparison that
+this tree uses to prove "no behaviour change" failed on every stage tried:
+0.04% to 0.27% of bytes differ, max delta 65. That is triangle edges moving by
+a subpixel -- floating-point evaluation changing, not a gross error.
+
+**It is not FP contraction.** GCC defaults to `-ffp-contract=fast`, so that is
+the first suspect; `-O3 -ffp-contract=off` still differs. The remaining
+candidates are `-O3`'s extra inlining changing where values round, its
+vectorisation, or `-O3` exploiting undefined behaviour that `-O2` leaves
+alone -- which is not a remote worry in a tree that compiles `src/` with `-w`
+and already needs `-fno-strict-aliasing` because the decompilation type-puns
+constantly (see the `MELEE_DECOMP_UB_OPTIONS` comment in CMakeLists).
+
+**The consequence for how we verify things, which is the point of this entry.**
+A byte-identical capture proves that *your change* did nothing, **holding the
+compiler configuration fixed**. It does not prove the program is
+configuration-independent, and it cannot be used to validate a codegen change
+-- optimisation level, LTO, PGO, a compiler upgrade, or a different target.
+For those, byte-identical is the wrong instrument and its failure is not
+by itself evidence of a bug.
+
+**So:**
+
+- Keep proving ordinary changes with captures. It works, it is cheap, and it
+  caught nothing false in this session across a dozen comparisons.
+- For a codegen change, expect capture differences and decide on *magnitude
+  and cause*, not on equality. 2.5% did not justify the investigation here.
+- **If someone does want `-O3`, LTO or PGO, the first task is explaining the
+  difference, not measuring the speedup.** The speedup is already measured and
+  it is small.
