@@ -17,7 +17,13 @@
 
 #define GX_HLE_MAX_DRAWS 1024
 #define GX_HLE_MAX_VERTS (1 << 18)
-#define GX_HLE_MAX_TEXTURES 512
+/* Raised from 512 after the owner hit it in normal play: HUD textures cycled
+ * through unrelated art for seconds at a time (P-740).  A GxHleTexture is
+ * ~64 bytes, so 2048 costs about 128 KB of BSS -- cheap next to reproducing
+ * the bug.  GX_HLE_MAX_DRAWS is deliberately left alone: nothing has been
+ * observed hitting it, and gx_hle.c now reports each cap the first time it
+ * is exhausted rather than dropping work silently. */
+#define GX_HLE_MAX_TEXTURES 2048
 #define GX_HLE_MAX_TLUTS 32
 #define GX_HLE_MAX_TEXOBJS 128
 #define GX_HLE_MAX_STAGES 8

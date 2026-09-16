@@ -2179,6 +2179,29 @@ void GXLoadTlut(GXTlutObj* tlut_obj, u32 tlut_name)
     gx.tluts[name] = slot != NULL ? *slot : gx.pending_tlut;
 }
 
+/* Each cap gets one line on stderr, the first time it is hit.  Silence is what
+ * made P-740 hard to attribute: the table filling, the draw list filling and
+ * the vertex buffer filling all just dropped work with no signal at all. */
+static void gx_hle_report_overflow(const char* what, unsigned cap)
+{
+    static const char* reported[8];
+    static unsigned n_reported;
+    unsigned i;
+
+    for (i = 0; i < n_reported; i++) {
+        if (reported[i] == what) {
+            return;
+        }
+    }
+    if (n_reported < sizeof(reported) / sizeof(reported[0])) {
+        reported[n_reported++] = what;
+    }
+    fprintf(stderr,
+            "[gx] %s (%u) exhausted in one frame; the rest of the frame is "
+            "dropped.  Raise the cap in gx_hle.h (P-740).\n",
+            what, cap);
+}
+
 void GXLoadTexObj(GXTexObj* obj, GXTexMapID id)
 {
     int i = texobj_find(obj);
@@ -2197,6 +2220,24 @@ void GXLoadTexObj(GXTexObj* obj, GXTexMapID id)
             gx.cur.texmap[id] = (int) frame_tcount;
         }
         frame_tcount++;
+    } else {
+        /* P-740, and it is no longer latent -- the owner sees HUD textures
+         * cycling through unrelated art for a few seconds at a time.
+         *
+         * Returning here without touching `texmap[id]` leaves the slot bound
+         * to whatever texture last occupied it, so every later draw in the
+         * frame samples that instead.  That is the G-173 failure: silently
+         * aliasing an unsupported index turns a missing resource into *moving*
+         * corruption, which is far harder to recognise than a blank texture.
+         * Unbind instead, so an overflow looks like a missing texture.
+         *
+         * It started showing now because the P-758 conversion work made more
+         * texture animations actually run, so more textures are loaded per
+         * frame than when the cap was chosen. */
+        if ((int) id >= 0 && (int) id < 8) {
+            gx.cur.texmap[id] = -1;
+        }
+        gx_hle_report_overflow("GX_HLE_MAX_TEXTURES", GX_HLE_MAX_TEXTURES);
     }
 }
 
