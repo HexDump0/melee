@@ -3927,3 +3927,39 @@ first, and a bad one is *printed* rather than followed.
 wrong is, by construction, walking corrupt state — so it must treat every
 pointer it reads as hostile. It is the one piece of code that cannot assume
 its invariants hold, because it only ever runs when they have not. P-816.
+
+## G-202: the vertex pipeline is arithmetic, not decisions or bandwidth
+
+**Context.** After P-813/P-814 halved a match's CPU work, `render` is the whole
+remaining frame cost, and a profile of a heavy scene puts ~50% of cycles in the
+CPU vertex pipeline: `exec_primitive` 15.5%, `texgen_coord` 10.7%, the vertex
+`memcpy` 10.6%, `read_comp` 8.2%.
+
+Those four numbers suggest three obvious optimisations. **Two of the three are
+worth almost nothing, and they were measured rather than argued:**
+
+| Change | Reasoning that justified it | Measured |
+|---|---|---|
+| Hoist texgen matrix resolution out of the per-vertex loop (P-816) | two `tex_mtx_slot` classifications per coord per vertex, all loop-invariant | **-0.77%** |
+| Shrink the vertex from 144 to 96 bytes (P-817) | `uv[8][3]` is 96 bytes, in-match texgen count never exceeds 3, 21 MB/frame | **-0.17%** |
+| Inline `read_comp`, precompute `1/2^frac` (earlier, `gx_match_perf.md`) | a type switch and a shift per component per vertex | **0.01%, reverted** |
+
+**Why the intuition is wrong.** A tight loop over a contiguous array is the
+case modern hardware is best at: the branches are perfectly predicted, the
+prefetcher covers the stride, and a bulk `glBufferData` is bandwidth the
+machine has to spare. The profile attributes cycles to those lines because
+that is where the *work* is, not because there is waste there. **A line being
+hot does not mean it contains anything removable.**
+
+**What this leaves.** The remaining cost is genuine per-vertex arithmetic, and
+the only large win left is not doing it on the CPU at all -- transform and
+texgen in a vertex shader, matrices as uniforms. That deletes all three rows
+above at once, and it is the change that matters most for the browser target,
+where CPU is scarcest.
+
+**The procedural lesson.** Three profile-driven micro-optimisations, three
+plausible arguments, ~1% between them. **Size the prize with a throwaway probe
+before building the safe version** -- P-817 was answered in ten minutes by
+changing `uv[8]` to `uv[4]` and breaking the load-time cases on purpose, which
+is a measurement, not a patch. Had that been built properly first, it would
+have been days of work for 0.17%.
