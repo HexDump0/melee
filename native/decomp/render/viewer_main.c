@@ -258,13 +258,20 @@ static void match_present(void)
             match_view.last_verts = vc;
         }
         if (interval > 25000000ull) {
+            /* swap= is the rest of the interval: the time SDL_GL_SwapWindow
+             * blocked.  Without it a spike whose game and render are both
+             * under a millisecond has no visible cause at all, and the
+             * pacing code deliberately reports sleep=0 for exactly those
+             * frames (it skips its own delay once the swap has already
+             * blocked), which makes them look emptier still. */
             fprintf(stderr, "[match] spike frame=%u interval=%.1fms "
-                    "game=%.2fms sleep=%.2fms render=%.2fms draws=%d "
-                    "verts=%zu\n",
+                    "game=%.2fms sleep=%.2fms render=%.2fms swap=%.2fms "
+                    "draws=%d verts=%zu\n",
                     match_view.frames, (double) interval / 1e6,
                     (double) match_view.game_ns / 1e6,
                     (double) match_view.sleep_ns / 1e6,
-                    (double) match_view.last_render_ns / 1e6, draws,
+                    (double) match_view.last_render_ns / 1e6,
+                    (double) match_view.swap_ns / 1e6, draws,
                     match_view.last_verts);
         }
         if ((match_view.frames % 30) == 0 &&
@@ -298,13 +305,14 @@ static void match_present(void)
             fprintf(stderr,
                     "[match] frame %u draws=%d verts=%zu lists=%zu prims=%zu "
                     "game=%.2fms cpu=%.2fms sleep=%.2fms render=%.2fms "
-                    "frame=%.2fms max=%.2fms\n",
+                    "swap=%.2fms frame=%.2fms max=%.2fms\n",
                     match_view.frames, draws, match_view.last_verts,
                     gx_hle_display_list_count(), gx_hle_primitive_count(),
                     (double) match_view.game_ns / 1e6,
                     (double) (match_view.cpu_ns / 30) / 1e6,
                     (double) match_view.sleep_ns / 1e6,
                     (double) match_view.last_render_ns / 1e6,
+                    (double) match_view.swap_ns / 1e6,
                     (double) interval / 1e6,
                     (double) match_view.max_interval_ns / 1e6);
             match_view.max_interval_ns = 0;
@@ -700,7 +708,40 @@ int main(int argc, char** argv)
         SDL_Quit();
         return 1;
     }
-    SDL_GL_SetSwapInterval(1);
+    /*
+     * Hard vsync by default, matching the console's 60 Hz presentation.
+     *
+     * But it is the compositor that decides when a swap returns, and when it
+     * withholds frame callbacks -- window occluded, another client taking the
+     * scanout, a driver hiccup -- SDL_GL_SwapWindow blocks for however long
+     * that lasts.  The owner sees bursts of 150-226 ms intervals on frames
+     * whose game and render are both under a millisecond, which is ten-plus
+     * vblanks spent inside the swap and nothing to do with the game.
+     *
+     * MELEE_SWAP_INTERVAL picks the policy so that can be tested rather than
+     * argued about: 1 (default) hard vsync, -1 adaptive (tear-free when the
+     * frame is on time, immediate when it is late, so a missed vblank costs
+     * one frame instead of stalling until the next callback), 0 immediate --
+     * which is not as reckless as it sounds here, because this loop already
+     * paces itself to 60 Hz and re-anchors rather than burst-catching-up.
+     * A request the driver refuses falls back to hard vsync and says so.
+     */
+    {
+        const char* e = getenv("MELEE_SWAP_INTERVAL");
+        int want = e != NULL ? atoi(e) : 1;
+        if (want != 1 && !SDL_GL_SetSwapInterval(want)) {
+            fprintf(stderr,
+                    "viewer: swap interval %d refused (%s); using vsync\n",
+                    want, SDL_GetError());
+            want = 1;
+        }
+        if (want == 1) {
+            SDL_GL_SetSwapInterval(1);
+        }
+        if (want != 1) {
+            fprintf(stderr, "viewer: swap interval %d\n", want);
+        }
+    }
     {
         int dw = 0;
         int dh = 0;
