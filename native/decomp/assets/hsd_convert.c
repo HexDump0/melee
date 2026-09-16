@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 103u
+#define HSD_CONVERTER_VERSION 104u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -2920,6 +2920,7 @@ static void conv_ft_common_data(Conv* c, uint32_t off)
  * verbatim into the runtime and read as sizes (ftData_80085A14 asserts when
  * they stay big-endian).  Also the x8->x0 model_num and a few leaf structs. */
 #define FT_WAITANIM_SIZE 0x18
+#define FT_DATA_X1C_SIZE 0x0C
 
 /* FtPartsVisLookup { int count; TempS* } with TempS { int count; u8* }.
  * The lookups hang off ftData_x8.x0.vis_table[costume][4].  `vis->xC[idx]`
@@ -3014,6 +3015,67 @@ static int ft_x48_vis_lookup_slot(const char* name, size_t name_len)
         return 10;
     }
     return -1;
+}
+
+/* One entry of `ftData->x1C`, the part-animation table:
+ *
+ *     ftData_x1C { u16 x0; u16 x2; u8* x4; HSD_AnimJoint** x8; }
+ *
+ * (`decomp/src/melee/ft/types.h:717`).  `x0` is the first Fighter_Part and
+ * `x2` the part-list count.
+ *
+ * `x4` is `x2` **bytes** of part indices -- `ftAnim_80070F28` and
+ * `ftAnim_800707B0` read them as `u8` -- so it is byte data and stays
+ * big-endian.
+ *
+ * `x8` is the array `ftAnim_ApplyPartAnim` (ftanim.c:1281) indexes with
+ * `Fighter_x8B0_t.x11` to get the `HSD_AnimJoint` it hands to
+ * `ftAnim_80070904`, and **nothing in the archive records its length**: `x2`
+ * bounds `x4`, not this.  That is why it was never followed, and it is the
+ * head of P-758: every `HSD_AObjDesc`/`HSD_FObjDesc` chain hanging off these
+ * joints stayed big-endian across the 34 `PlXx.dat` files -- about 20,600
+ * descriptors, 82% of the cold words in the `Pl*` family.
+ *
+ * Bound it by evidence, two ways at once and never by a guessed count.
+ * Walking one element past a fighter table is what P-739 was, and what
+ * follows these arrays is the `CMD_BE` command scripts, so a wrong bound
+ * trades a crash for silently wrong data:
+ *
+ *   - stop at the first slot that is not a relocation field.  In `PlMr.dat`
+ *     the three arrays at 0x8d14/0x8d34/0x8d48 hold four pointers each and
+ *     are followed by the `21 22 23 ... 2d` part-index runs and by zeros,
+ *     none of which is a relocation;
+ *   - stop at the first offset something else points at, which is where the
+ *     next object starts even if the pointers run on with no gap.  For
+ *     0x8d14 that is 0x8d24, the `x4` run of the following entry, and it
+ *     gives the same four elements the relocation bound does. */
+/* DWARF: ftData_x1C */
+static void conv_ft_part_anim(Conv* c, uint32_t off)
+{
+    uint32_t anims;
+    uint32_t end;
+    uint32_t p;
+
+    if (!in_data(c, off, FT_DATA_X1C_SIZE) || !mark(c, off)) {
+        return;
+    }
+    conv_u16(c, off + 0x00); /* x0: first Fighter_Part */
+    conv_u16(c, off + 0x02); /* x2: part-list count    */
+    /* +0x04 is the u8 part-index run -- byte data, never swapped. */
+    if (!c->reloc[off + 0x08]) {
+        return;
+    }
+    anims = rd32(c, off + 0x08);
+    if (anims == 0 || !in_data(c, anims, 4)) {
+        return;
+    }
+    end = next_pointed_at_after(c, anims);
+    for (p = anims; p + 4 <= end && c->reloc[p]; p += 4) {
+        uint32_t animjoint = rd32(c, p);
+        if (animjoint != 0) {
+            conv_anim_joint(c, animjoint);
+        }
+    }
 }
 
 static void conv_ft_data(Conv* c, uint32_t off, const char* name,
@@ -3218,12 +3280,12 @@ static void conv_ft_data(Conv* c, uint32_t off, const char* name,
             }
         }
     }
-    /* ftData->x1C is a table of part-animation descriptor pointers.
+    /* ftData->x1C is a table of `ftData_x1C*` part-animation descriptors.
      * Fighter.x8B0 has five runtime slots, but fighter archives serialize
-     * only a relocation-backed leading run.  Each descriptor starts with two
-     * u16 numeric fields: the first Fighter_Part and the part-list count.  If
-     * left big-endian, landing's part-animation command turns part 0x29 into
-     * 0x2900 and indexes far beyond Fighter.parts. */
+     * only a relocation-backed leading run.  conv_ft_part_anim converts each
+     * descriptor's two u16 and follows its `x8` animation-joint array; before
+     * it did the latter, the AObj/FObj chains under those joints were never
+     * reached (P-758's head item). */
     {
         uint32_t table = rd32(c, off + 0x1C);
         if (table != 0) {
@@ -3234,11 +3296,10 @@ static void conv_ft_data(Conv* c, uint32_t off, const char* name,
                     break;
                 }
                 entry = rd32(c, slot);
-                if (entry == 0 || !in_data(c, entry, 0x0C)) {
+                if (entry == 0 || !in_data(c, entry, FT_DATA_X1C_SIZE)) {
                     break;
                 }
-                conv_u16(c, entry + 0x00);
-                conv_u16(c, entry + 0x02);
+                conv_ft_part_anim(c, entry);
             }
         }
     }
