@@ -31,6 +31,7 @@ static void rgb565(uint16_t v, uint8_t* out)
     out[0] = expand5((v >> 11) & 31);
     out[1] = expand6((v >> 5) & 63);
     out[2] = expand5(v & 31);
+    out[3] = 255;
 }
 
 static void rgb5a3(uint16_t v, uint8_t* out)
@@ -170,8 +171,18 @@ static void decode_cmpr(const uint8_t* src, uint8_t* dst, int w, int h)
                 p[2][c] = (uint8_t) ((2 * p[0][c] + p[1][c]) / 3);
                 p[3][c] = (uint8_t) ((p[0][c] + 2 * p[1][c]) / 3);
             } else for (c = 0; c < 3; ++c) p[2][c] = (uint8_t) ((p[0][c] + p[1][c]) / 2);
-            p[2][3] = 255; p[3][3] = c0 > c1 ? 255 : 0;
-            if (c0 <= c1) p[3][0] = p[3][1] = p[3][2] = 0;
+            p[2][3] = 255;
+            p[3][3] = c0 > c1 ? 255 : 0;
+            /* GX CMPR keeps the interpolated RGB channels for selector 3
+             * in transparent mode; only alpha becomes zero.  Desktop DXT1
+             * instead specifies transparent black.  Stage art uses the GX
+             * value with alpha ignored, so zeroing RGB drops its solid fill
+             * and leaves only the stippled detail. */
+            if (c0 <= c1) {
+                p[3][0] = p[2][0];
+                p[3][1] = p[2][1];
+                p[3][2] = p[2][2];
+            }
             for (y = 0; y < 4; ++y) { bits[y * 4] = *src++; }
             for (y = 0; y < 4; ++y) for (x = 0; x < 4; ++x)
                 put(dst, w, h, bx * 8 + sx + x, by * 8 + sy + y,

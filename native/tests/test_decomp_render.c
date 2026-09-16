@@ -826,9 +826,40 @@ static int direct_test(void)
             printf("direct: FAIL RGB565 decode: %s\n", err);
             fail = 1;
         } else {
-            if (rgba[0] != 107 || rgba[1] != 69) {
-                printf("direct: FAIL expand r=%u g=%u (want 107/69)\n",
-                       rgba[0], rgba[1]);
+            if (rgba[0] != 107 || rgba[1] != 69 || rgba[2] != 57 ||
+                rgba[3] != 255) {
+                printf("direct: FAIL RGB565 rgba=%u,%u,%u,%u "
+                       "(want 107,69,57,255)\n", rgba[0], rgba[1], rgba[2],
+                       rgba[3]);
+                fail = 1;
+            }
+            free(rgba);
+        }
+    }
+
+    /* GX CMPR differs from desktop DXT1 in transparent mode: selector 3
+     * retains the average RGB of its endpoints and clears only alpha.  Stage
+     * materials that ignore alpha use that entry as a fourth colour. */
+    {
+        static const unsigned char cmpr[32] = {
+            0x00, 0x00, 0xFF, 0xFF, 0x3F, 0xFF, 0xFF, 0xFF,
+            0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        };
+        uint8_t* rgba = NULL;
+        char err[64];
+        if (gx_texture_decode(cmpr, sizeof(cmpr), 8, 8, TEX_FMT_CMPR,
+                              &rgba, err, sizeof(err)) != 0) {
+            printf("direct: FAIL CMPR decode: %s\n", err);
+            fail = 1;
+        } else {
+            if (rgba[0] != 0 || rgba[1] != 0 || rgba[2] != 0 ||
+                rgba[3] != 255 || rgba[4] != 127 || rgba[5] != 127 ||
+                rgba[6] != 127 || rgba[7] != 0) {
+                printf("direct: FAIL CMPR endpoint=%u,%u,%u,%u "
+                       "transparent=%u,%u,%u,%u\n", rgba[0], rgba[1],
+                       rgba[2], rgba[3], rgba[4], rgba[5], rgba[6], rgba[7]);
                 fail = 1;
             }
             free(rgba);

@@ -58,30 +58,25 @@ never-initialized handles.
   unknown. `decomp_efb` forces LOD 1 on a black base/white authored level, so
   restoring generation makes the probe read black instead of white.
 
-# Display-copy deflicker filtering and screen-door art (P-763)
+# Correction: the dotted stage art was uninitialized texture alpha
 
-**Date:** 2026-09-15
+**Date:** 2026-09-16
 **Agent:** codex (gpt-5)
 
-Yoshi's Story (`GrSt.dat`) and Yoshi's Island (`GrYt.dat`) deliberately render
-foliage, waves, grass and background sprites with alternating EFB pixels. The
-raw EFB therefore looks sparse or transparent. Melee never presents that raw
-image: `HSD_VICopyEFB2XFBPtr` calls `GXSetCopyFilter` before `GXCopyDisp`, and
-`GXNtsc480IntDf` supplies `vf=true` with coefficients
-`{8,8,10,12,10,8,8}`. Both functions were stubs in the HLE, so the GL window
-skipped the resolve that the art was authored for.
+The P-763 display-copy and authored-mipmap changes closed genuine GX parity
+gaps, but did not fix the reported sparse foliage, waves, grass and background
+sprites on Yoshi's Story (`GrSt.dat`) and Yoshi's Island (`GrYt.dat`). Treat
+that visual diagnosis as superseded.
 
-The hardware groups the seven programmed coefficients into three source-row
-weights: `[0]+[1]` for the row above, `[2]+[3]+[4]` for the current row and
-`[5]+[6]` for the row below, dividing the result by 64. For Melee this is the
-familiar 16/32/16 (quarter/half/quarter) filter. `gx_hle.c` now captures the
-filter only when a frame reaches `GXCopyDisp`; `gx_gl.c` copies the completed
-EFB to a private texture and performs that three-row RGB resolve immediately
-before presentation. Mid-frame `GXCopyTex` reads remain raw, and alpha remains
-the current row, matching the GX copy boundary.
+The actual common path was `native/gx/texture.c`. `rgb565()` expanded only the
+three colour channels, but its callers copied a four-byte pixel. In CMPR this
+left both opaque palette endpoints with uninitialized alpha. These stages use
+source-alpha blending for the affected textures, so stack garbage became the
+apparent dotted coverage. Setting the expanded endpoint alpha to 255 restores
+the solid artwork on both stages. CMPR selector 3 in transparent mode keeps
+GX's interpolated RGB and clears only alpha.
 
-`decomp_efb` draws 480 alternating black/white scanlines and requires the
-filtered center pixel to be about 128. The two stage captures are
-`/tmp/codex-grst-filtered2.bmp` and `/tmp/codex-gryt-filtered2.bmp`; a real
-60-frame game render also exercised the captured `GXCopyDisp` path under
-ASan/UBSan.
+The direct decoder test now checks RGBA for RGB565 plus opaque and transparent
+CMPR selectors. Fresh offscreen, dummy-audio match captures on both stages
+visually confirm dense foliage/grass rather than dots. The P-763 display-copy
+test remains useful, but must not be cited as the fix for this artifact.

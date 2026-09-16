@@ -3419,33 +3419,31 @@ Melee's apparent randomness comes from how many calls have happened by the
 time you get there.  A port that boots deterministically will repeat a
 sequence when the input timing repeats, and that is correct.
 
-## G-189: screen-door art belongs to the display copy, not the texture decoder
+## G-189: initialize alpha when expanding RGB565/CMPR endpoints
 
 **Symptom:** foliage and waves on Yoshi's Story/Yoshi's Island, plus moving
 background sprites such as the Bullet Bill, look transparent and break into
 individual coloured dots. The same pattern appears across unrelated textures
 and stages.
 
-**Misleading first lead:** some affected CMPR textures have authored mip
-chains, while the GL backend generated its own. That mismatch was real, but
-`GrYt.dat` reproduced the defect with mipmapping disabled on every affected
-texture. A cause that cannot explain the non-mipped case is not the common
-cause.
+**Misleading first leads:** authored mip chains and the missing display-copy
+filter were both real parity gaps fixed by P-763. Neither fixed the
+owner-reported artifact, and `GrYt.dat` reproduced it with mipmapping disabled.
+Disabling alpha compare and culling also left it unchanged.
 
-**Cause:** the dots are deliberate EFB screen-door coverage. Melee enables
-the NTSC vertical filter on every display copy, but the port stubbed both
-`GXSetCopyFilter` and `GXCopyDisp` and presented the raw EFB. The missing
-operation was downstream of every material and texture, explaining why the
-same visual signature crossed stages and dynamic background objects.
+**Cause:** `rgb565()` wrote only `out[0..2]`. The direct RGB565 decoder and
+CMPR palette builder then copied `out[3]` as alpha, so opaque endpoint texels
+received whatever byte happened to be on the stack. The affected stage
+materials enable source-alpha blending, turning the random alpha into sparse
+foliage, waves and sprites. This common decoder path explains why unrelated
+textures and stages shared the signature.
 
-**Fix:** capture the seven GX coefficients at `GXCopyDisp` and resolve the
-completed EFB before presentation. The seven coefficients do **not** mean
-seven separately sampled scanlines: hardware groups them 2/3/2 over the row
-above/current/row below and divides by 64. Melee's
-`8/8/10/12/10/8/8` becomes `16/32/16`. Filter RGB only; keep the current
-row's alpha, and do not filter mid-frame `GXCopyTex` captures.
+**Fix:** every RGB565 expansion writes alpha 255. CMPR's transparent selector
+still clears alpha, but retains the GX interpolated RGB rather than desktop
+DXT1's transparent black.
 
-**Regression:** `decomp_efb` feeds alternating black/white scanlines through
-the display copy and requires a grey (~128) center pixel. The same test forces
-LOD 1 on a black base plus white authored mip level, preventing the genuine
-mipmap bug from being lost behind the display-filter diagnosis.
+**Regression:** `decomp_render --direct` checks all four decoded RGB565
+channels and a CMPR block containing both an opaque endpoint and a transparent
+selector. Full-match headless captures on `GrSt` and `GrYt` confirm the
+foliage and grass are solid. P-763's separate EFB and authored-mip regressions
+remain valid.

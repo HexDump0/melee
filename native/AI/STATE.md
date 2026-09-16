@@ -1231,22 +1231,21 @@ TUs and two of the four symbols are non-`static`, so it needs the `hsd_4D11.c`
 alias treatment rather than a quick rebase, and getting it wrong would corrupt
 the trophy gallery rather than fix it.
 
-**P-763 (2026-09-15, dotted/transparent stage backgrounds):** the foliage,
-waves and background sprites in Yoshi's Story (`GrSt.dat`) and Yoshi's Island
-(`GrYt.dat`) use deliberate screen-door coverage in the EFB. The port exposed
-those individual pixels because `GXSetCopyFilter` and `GXCopyDisp` were stubs.
-The HLE now captures the display-copy filter, and the GL backend resolves the
-completed EFB with GX's 2/3/2 grouping of Melee's
-`8/8/10/12/10/8/8` coefficients (`16/32/16` across adjacent rows). This is a
-presentation-only RGB pass: alpha stays on the current row and mid-frame
-`GXCopyTex` captures still read the unfiltered EFB.
+**Dotted/transparent stage backgrounds (2026-09-16 correction):** P-763's
+display-copy filter and authored-mip work was valid parity work, but it did
+not fix the reported Yoshi's Story/Yoshi's Island artifact. The shared cause
+was in `rgb565()`: it initialized RGB but not alpha, while both the RGB565 and
+CMPR decoders copied all four bytes. CMPR endpoint texels therefore received
+stack-garbage alpha; the affected blended canopy, grass, wave and background
+sprite textures appeared as sparse coloured dots. `rgb565()` now makes every
+endpoint opaque and the CMPR transparent selector retains GX's interpolated
+RGB while clearing alpha. Direct decoder tests pin both behaviors. Fresh
+headless match captures on `GrSt` and `GrYt` show the solid artwork restored.
 
-The initial mipmap lead was secondary but real. Registered archive images now
+P-763's mipmap lead was secondary but real. Registered archive images now
 decode their authored tiled mip levels instead of replacing them with
 `glGenerateMipmap`; runtime buffers with unknown readable bounds retain the
 safe generated fallback. `decomp_efb` pins both behaviors with alternating
 scanlines (~128 after copy filtering) and a black base/white forced authored
-LOD. Static captures are `/tmp/codex-grst-filtered2.bmp` and
-`/tmp/codex-gryt-filtered2.bmp`; a 60-frame full-game capture exercised the
-real `GXCopyDisp` path. Release `ctest` is 32/32, and ASan/UBSan passes the EFB
-probe, `GrSt.dat` render and 60-frame full game with no report (G-189).
+LOD. Its display-copy and authored-mip regressions remain covered by
+`decomp_efb` (G-189).
