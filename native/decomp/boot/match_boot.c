@@ -453,16 +453,23 @@ static unsigned stuck_frames; /* MELEE_STUCK_TRACE=<frames> overrides */
 static void report_stuck(const char* why, int slot, const Fighter* fp,
                          unsigned still)
 {
+    /* `stocks` is what makes a Sleep report mean anything.  `ftCo_MS_Sleep`
+     * (11) is the state a fighter is in between being KO'd and reappearing on
+     * the revival platform, and staying there forever is **correct** for a
+     * fighter that is out of stocks -- so without the stock count, "asleep for
+     * 1500 frames" cannot be told apart from "eliminated, working as
+     * intended".  With stocks > 0 it is a stalled respawn and a real bug. */
     fprintf(stderr,
-            "[stuck] %s: slot %d pad %u kind %d %u frames: "
+            "[stuck] %s: slot %d pad %u kind %d stocks %d %u frames: "
             "motion_id=%d anim_frame=%.2f pos=(%.2f,%.2f) "
-            "lstick=(%.3f,%.3f) held=0x%04x hitlag=%.1f\n",
+            "lstick=(%.3f,%.3f) held=0x%04x hitlag=%.1f invis=%d\n",
             why, slot, (unsigned) fp->x61A_controller_index, (int) fp->kind,
-            still, (int) fp->motion_id, (double) fp->cur_anim_frame,
-            (double) fp->cur_pos.x, (double) fp->cur_pos.y,
-            (double) fp->input.lstick[0].x, (double) fp->input.lstick[0].y,
+            (int) Player_GetStocks(slot), still, (int) fp->motion_id,
+            (double) fp->cur_anim_frame, (double) fp->cur_pos.x,
+            (double) fp->cur_pos.y, (double) fp->input.lstick[0].x,
+            (double) fp->input.lstick[0].y,
             (unsigned) fp->input.held_buttons[0],
-            (double) fp->dmg.x195c_hitlag_frames);
+            (double) fp->dmg.x195c_hitlag_frames, (int) fp->invisible);
 }
 
 static void check_fighter_stuck(void)
