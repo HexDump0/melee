@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 121u
+#define HSD_CONVERTER_VERSION 122u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -747,6 +747,22 @@ static void conv_aobjdesc(Conv* c, uint32_t off)
     conv_u32(c, off + 0x00);
     conv_u32(c, off + 0x04);
     conv_u32(c, off + 0x0C);
+    /* `obj_id` is a plain numeric ID on AnimJoint tracks and a **JObj offset**
+     * on the WObj/Light tracks -- `HSD_AObjLoadDesc` (aobj.c:199) looks the ID
+     * up and falls back to `HSD_JObjLoadJoint((void*) obj_id)` when it misses.
+     * The relocation table tells the two apart exactly, and that is the whole
+     * rule: an ID is a number and never a relocation field, a JObj offset
+     * always is.  `conv_aobjdesc_ref` already did this for the roots known to
+     * carry the second kind, but the same descriptors reach here through
+     * ordinary AnimJoint trees too, and there the joint stayed big-endian --
+     * `JObjLoad` then walked into `HSD_MObjLoadDesc` with a garbage material
+     * and segfaulted on entry to every Target Test stage (P-786). */
+    if (c->reloc[off + 0x0C]) {
+        uint32_t obj = rd32(c, off + 0x0C);
+        if (obj != 0 && in_data(c, obj, HSD_JOINT_SIZE)) {
+            conv_joint(c, obj);
+        }
+    }
     fobj = rd32(c, off + 0x08);
     if (fobj != 0) {
         /* FObj desc chain */
