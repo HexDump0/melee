@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 124u
+#define HSD_CONVERTER_VERSION 125u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -294,6 +294,33 @@ static void conv_u16(Conv* c, uint32_t off)
     c->num[off] = 1;
     wr16(c->data + off, be16(c->data + off));
 }
+
+/* A pointer field the relocation table does not name is not a pointer.
+ *
+ * `ItemStateDesc.x4_matanim_joint` and `.x8_shapeanim_joint` are **extern
+ * patch sites** in several archives -- the linked list `HSD_ArchiveLocateExtern`
+ * walks, where each site holds the *offset of the next site* and the game
+ * patches them all to NULL at load (`lbArchive_InitializeDAT`).  Since
+ * `convert_extern_chains` byte-swaps those links (P-771), they now read as
+ * plausible in-range data offsets, and following one walks straight into
+ * unrelated structures: in `GrCn.dat` this marched a `conv_matanim_joint`
+ * chain through four sites into `conv_texanim(0x5fc68)`, which is the Arwing
+ * laser's **model root joint**.  Marking it there made the real `conv_joint`
+ * bail, so the PObj stayed big-endian and `GXSetVtxDesc` segfaulted (P-782).
+ *
+ * The relocation table separates the two exactly, the same way it does for
+ * `AObjDesc.obj_id` in P-786: a real pointer field is in it, a patch site or
+ * a numeric id is not.  This is the narrow fix at the site that produced a
+ * crash; the general form is a `follow()` helper used by every walker that
+ * dereferences a descriptor field, and the P-782 row argues for it. */
+static uint32_t follow_ptr(Conv* c, uint32_t field)
+{
+    if (!in_data(c, field, 4) || !c->reloc[field]) {
+        return 0;
+    }
+    return rd32(c, field);
+}
+
 
 static void conv_vtxdesc(Conv* c, uint32_t off);
 static void conv_pobj(Conv* c, uint32_t off);
@@ -2411,6 +2438,67 @@ static void conv_yakumono_param(Conv* c, uint32_t off)
     }
 }
 
+/* Does `off` look like a stage's touch-line descriptor?
+ *
+ * The Target Test stages keep theirs in `yakumono_param` and nothing else in
+ * the archive points at them, exactly like Mute City's -- `grTMewtwo_UnkStruct`
+ * (grtmewtwo.c:17) is **eight** `DynamicsDesc*` and nothing else, and Ganon's
+ * and Jigglypuff's are three and one.  Left raw, a buried fighter takes the
+ * `damage` word byte-reversed: `0x0A000000` for 10, which asserts at
+ * `ftcoll.c:229` on entry to a Target Test stage (P-787).
+ *
+ * Shape-tested rather than keyed per stage, because there are 27 of these
+ * archives and only a marker symbol would distinguish them.  The test is
+ * strict on purpose: `conv_dynamics_desc` writes nine words, so a false
+ * positive corrupts rather than skips.  A real one is nine plain numbers --
+ * `state, damage, kb_angle, unkC, unk10, unk14, element, sfx_severity,
+ * sfx_kind` -- so **none of the nine may be a relocation field**, and all nine
+ * must be small non-negative when read big-endian.  A joint, a float block or
+ * a pointer table fails that immediately; floats in particular carry a large
+ * exponent in the top bits.
+ *
+ * It is also idempotent: once converted the words are host order, so reading
+ * them big-endian gives large values and the test declines, which keeps a
+ * second visit from re-swapping. */
+static int looks_like_touch_line_desc(Conv* c, uint32_t off)
+{
+    int i;
+
+    if (!in_data(c, off, 0x24)) {
+        return 0;
+    }
+    for (i = 0; i < 9; i++) {
+        uint32_t w = off + (uint32_t) i * 4;
+        if (c->reloc[w] || be32(c->data + w) > 0xFFFFu) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Follow every pointer in an otherwise unrecognised `yakumono_param` that
+ * points at one of those descriptors.  Bounded by the symbol's own extent,
+ * the way the rest of this file bounds an untyped block. */
+static void conv_yakumono_touch_lines(Conv* c, uint32_t off)
+{
+    uint32_t end = next_pointed_at_after(c, off);
+    uint32_t pub = next_public_after(c, c->public_off, c->nb_public, off);
+    uint32_t w;
+
+    if (pub < end) {
+        end = pub;
+    }
+    if (end <= off || end - off > 0x400) {
+        return;
+    }
+    for (w = off; w + 4 <= end; w += 4) {
+        uint32_t target = follow_ptr(c, w);
+        if (target != 0 && looks_like_touch_line_desc(c, target)) {
+            conv_dynamics_desc(c, target);
+        }
+    }
+}
+
 static void conv_stage_yakumono(Conv* c, uint32_t off)
 {
     c->st.yakumono_params++;
@@ -2480,6 +2568,7 @@ static void conv_stage_yakumono(Conv* c, uint32_t off)
         break;
     default:
         conv_yakumono_param(c, off);
+        conv_yakumono_touch_lines(c, off);
         break;
     }
 }
@@ -2874,32 +2963,6 @@ static void conv_item_dynamics(Conv* c, uint32_t off)
  * by up to 15 bytes of alignment padding and then the Article.  Walking eight
  * entries unconditionally interprets following metadata as animation roots
  * for short arrays and misses states in long arrays. */
-/* A pointer field the relocation table does not name is not a pointer.
- *
- * `ItemStateDesc.x4_matanim_joint` and `.x8_shapeanim_joint` are **extern
- * patch sites** in several archives -- the linked list `HSD_ArchiveLocateExtern`
- * walks, where each site holds the *offset of the next site* and the game
- * patches them all to NULL at load (`lbArchive_InitializeDAT`).  Since
- * `convert_extern_chains` byte-swaps those links (P-771), they now read as
- * plausible in-range data offsets, and following one walks straight into
- * unrelated structures: in `GrCn.dat` this marched a `conv_matanim_joint`
- * chain through four sites into `conv_texanim(0x5fc68)`, which is the Arwing
- * laser's **model root joint**.  Marking it there made the real `conv_joint`
- * bail, so the PObj stayed big-endian and `GXSetVtxDesc` segfaulted (P-782).
- *
- * The relocation table separates the two exactly, the same way it does for
- * `AObjDesc.obj_id` in P-786: a real pointer field is in it, a patch site or
- * a numeric id is not.  This is the narrow fix at the site that produced a
- * crash; the general form is a `follow()` helper used by every walker that
- * dereferences a descriptor field, and the P-782 row argues for it. */
-static uint32_t follow_ptr(Conv* c, uint32_t field)
-{
-    if (!in_data(c, field, 4) || !c->reloc[field]) {
-        return 0;
-    }
-    return rd32(c, field);
-}
-
 static void conv_item_state_array(Conv* c, uint32_t off, int count)
 {
     int i;
