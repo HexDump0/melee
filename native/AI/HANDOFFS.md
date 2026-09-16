@@ -29,6 +29,7 @@ something the next agent must know, or finish a task that changes interfaces.
 
 | Date | Task | Agent | File |
 |---|---|---|---|
+| 2026-09-16 | P-758 head item landed; rest is orphan `HSD_AnimJoint` trees | claude (opus-5) | [`2026-09-16-P-758-head-item-and-the-orphan-animjoint-trees.md`](handoffs/2026-09-16-P-758-head-item-and-the-orphan-animjoint-trees.md) — coverage 76.87% -> 79.50%, the array bound a relocation check does not give, and why P-771 is not this chain |
 | 2026-09-15 | Stability program (P-756..P-761) | claude (opus-5) | [`2026-09-15-stability-program.md`](handoffs/2026-09-15-stability-program.md) — three bug classes, the coverage denominator, and what is already settled |
 | 2026-09-10 | P-107 bind-pose fix | follow-up | _this entry is the code itself; no separate note_ |
 | 2026-09-10 | P-201 animation start | opencode (deepseek-flash) | [`2026-09-10-P-201-animation-start.md`](handoffs/2026-09-10-P-201-animation-start.md) |
