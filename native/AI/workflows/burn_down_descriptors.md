@@ -52,6 +52,27 @@ And one rule that is not a gate but will waste a day if you forget it:
 
 ---
 
+## Working in parallel with another agent (read this first)
+
+Another Claude session is fixing crashes from the P-759 soak matrix at the same
+time, and **its fixes land in the same file as yours** -- three of the last four
+were in `hsd_convert.c`. The split that keeps you both out of trouble:
+
+- **You own `native/decomp/assets/hsd_convert.c` for adding walkers.** The other
+  session has agreed not to edit it while you are running; if it finds a
+  converter bug it will spec it into `TASKS.md` for you instead of editing.
+- **You do not touch** `patches/src/**`, `decomp/src/**`, `src/**`,
+  `native/decomp/boot/**`, or `native/tests/soak.sh`. Those are the other
+  session's.
+- **`HSD_CONVERTER_VERSION` is the one guaranteed conflict.** You both bump it.
+  If you hit a merge conflict on that line, take the **higher** number and move
+  on -- the value only has to increase, it does not have to be contiguous.
+- **`git pull --rebase` before every commit**, and re-read
+  `AI/agent_communication.md`. Claim your files there before you start.
+- **Do not run the full soak matrix.** It is 754 runs and pins four cores for
+  nine minutes, and the owner's machine thermally throttles. Use the targeted
+  form in Verification below. The other session owns the full-matrix runs.
+
 ## Setup
 
 ```sh
@@ -178,6 +199,19 @@ MELEE_NO_ASSET_CACHE=1 ./build/native/test_decomp_assets "iso/<image>.ciso" | ta
 # raise MELEE_COVERAGE_FLOOR to the new number, and the decomp_layout floor
 ctest --test-dir build/native
 ```
+
+Then a **targeted** soak -- one stage, every fighter, four jobs:
+
+```sh
+MELEE_SOAK_JOBS=4 MELEE_SOAK_SEEDS=1 MELEE_SOAK_FIGHTERS=all \
+  MELEE_SOAK_STAGES=31 native/tests/soak.sh ./build/native/melee_decomp_boot /tmp/soak-758
+```
+
+29 runs, about 40 seconds. Pick the stage your walker's data actually affects.
+**Expect some failures**: the matrix is not green yet (81 of 754 fail as of
+2026-09-16, in nine known bugs listed in `TASKS.md` as P-770..P-777). What
+matters is that your change does not *add* one -- compare against the same
+command run before your change, not against zero.
 
 If coverage went up and all 32 tests pass, commit. One walker (or one family)
 per commit, with the struct named and the coverage delta in the message.
