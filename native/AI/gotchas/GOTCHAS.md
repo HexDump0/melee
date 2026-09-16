@@ -3907,3 +3907,23 @@ S16.
 
 **Also fixed by this.** The `lbvector.c:397` **x** twin on Onett, which had
 been filed separately. One walker bound, two soak cells green. P-797.
+
+## G-204
+
+**Symptom.** A crash report is truncated: the signal handler's state dump
+prints a line or two and then takes a second SIGSEGV of its own, so the
+original crash is never described.
+
+**Cause.** `match_boot_dump_fighters` walks GX link 5 and trusts
+`gobj->classifier == HSD_GOBJ_CLASS_FIGHTER`. On the frontend a gobj passed
+that test whose `user_data` was not a `Fighter`, and the dump faulted
+following its `x890_cameraBox`.
+
+**Fix.** MEM1 is a fixed 24 MB mapping at `0x80000000`, so every pointer the
+dump is about to follow is checked against that window (and for alignment)
+first, and a bad one is *printed* rather than followed.
+
+**The general point.** A diagnostic that runs after something has already gone
+wrong is, by construction, walking corrupt state — so it must treat every
+pointer it reads as hostile. It is the one piece of code that cannot assume
+its invariants hold, because it only ever runs when they have not. P-816.

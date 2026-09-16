@@ -1344,11 +1344,40 @@ static const char* fighter_kind_name(int kind)
     return names[kind];
 }
 
+/* A crash dump that crashes tells you nothing.
+ *
+ * `match_boot_dump_fighters` runs from the signal handler and from `__assert`,
+ * and it walks whatever state the game was in -- which, by definition, is
+ * state that has just gone wrong.  The owner hit exactly that: a gobj on the
+ * fighter GX link whose `user_data` was not a `Fighter` (kind -1, player 255,
+ * `self_vel` all NaN) got through the `classifier` test, and the dump faulted
+ * on its `x890_cameraBox` before printing a single useful line about the
+ * *real* crash (P-816).
+ *
+ * MEM1 is a fixed 24 MB mapping at 0x80000000 (`native/platform/os.c`), so a
+ * pointer that is going to be dereferenced can be checked first.  This is not
+ * a guarantee that the object is what it claims -- it cannot be -- but it
+ * turns "the report dies" into "the report says the pointer was bad", which
+ * is the more useful of the two and is the one the next reader needs. */
+#define MEM1_BASE 0x80000000u
+#define MEM1_SIZE (24u * 1024u * 1024u)
+
+static int mem1_ok(const void* p, size_t n)
+{
+    uintptr_t a = (uintptr_t) p;
+
+    if (p == NULL || (a & 3u) != 0) {
+        return 0;
+    }
+    return a >= MEM1_BASE && n <= (size_t) MEM1_SIZE &&
+           a - MEM1_BASE <= (uintptr_t) MEM1_SIZE - n;
+}
+
 static void dump_joint_chain(FILE* out, HSD_JObj* joint)
 {
     int level;
 
-    for (level = 0; joint != NULL && level < 24; level++) {
+    for (level = 0; mem1_ok(joint, sizeof(*joint)) && level < 24; level++) {
         const float* m = &joint->mtx[0][0];
         Vec3 world;
         world.x = joint->mtx[0][3];
@@ -1413,6 +1442,12 @@ static void dump_fighter(FILE* out, const char* tag, HSD_GObj* gobj)
     int bone = -1;
     HSD_JObj* joint = NULL;
 
+    if (!mem1_ok(fp, sizeof(*fp))) {
+        fprintf(out, "[crash]   %s gobj=%p user_data=%p NOT IN MEM1 -- not a "
+                     "Fighter; skipped\n",
+                tag, (void*) gobj, (void*) fp);
+        return;
+    }
     fprintf(out,
             "[crash]   %s gobj=%p kind=%s(%d) player=%d motion=%d anim=%d "
             "ga=%d facing=%.3g scale=(%.4g,%.4g,%.4g)\n",
@@ -1440,7 +1475,9 @@ static void dump_fighter(FILE* out, const char* tag, HSD_GObj* gobj)
             (void*) fp->item_gobj, (void*) fp->x1984_heldItemSpec,
             (void*) fp->mv.pk.speciallw.x0);
     box = fp->x890_cameraBox;
-    if (box != NULL) {
+    if (box != NULL && !mem1_ok(box, sizeof(*box))) {
+        fprintf(out, "[crash]     cambox=%p BAD POINTER\n", (void*) box);
+    } else if (box != NULL) {
         fprintf(out,
                 "[crash]     cambox=%p state=%d pos=(%.6g,%.6g,%.6g) "
                 "bone_pos=(%.6g,%.6g,%.6g)%s\n",
@@ -1452,13 +1489,17 @@ static void dump_fighter(FILE* out, const char* tag, HSD_GObj* gobj)
      * a bone index out of range or a nonzero offset changes which of the
      * two readings of `lb_8000B1CC` applies, and P-781 spent a while
      * ruling both out by hand. */
-    if (fp->ft_data != NULL && fp->ft_data->x0 != NULL) {
+    if (mem1_ok(fp->ft_data, sizeof(*fp->ft_data)) &&
+        mem1_ok(fp->ft_data->x0, sizeof(*fp->ft_data->x0)))
+    {
         bone = fp->ft_data->x0->camera_zoom_target_bone;
         fprintf(out, "[crash]     cam_bone=%d offset=(%.6g,%.6g,%.6g)\n",
                 bone, fp->co_attrs.x170.x, fp->co_attrs.x170.y,
                 fp->co_attrs.x170.z);
     }
-    if (bone >= 0 && bone < 256 && fp->parts != NULL) {
+    if (bone >= 0 && bone < 256 &&
+        mem1_ok(fp->parts, ((size_t) bone + 1) * sizeof(fp->parts[0])))
+    {
         joint = fp->parts[bone].joint;
     }
     if (joint != NULL) {
