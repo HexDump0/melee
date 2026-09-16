@@ -1290,3 +1290,18 @@ runs far past the viewport, filtered to direct-mode positions (models index
 their positions through `GXSetArray`; effects and 2D submit them directly), so
 it separates a wrong-geometry bug from a wrong-shading one without a second
 run. That distinction is what a screenshot of a flat polygon cannot give.
+
+**GX raster sizes are 1/6 pixel units (2026-09-16, P-799).**
+`GXSetPointSize`/`GXSetLineWidth` take a `u8` where 6 is one pixel and 255 is
+the 42.5 px maximum the register can express; `psdisp.c` names the unit at the
+only place that sets it. The port passed the raw byte to `gl_PointSize` and
+`glLineWidth`, so every point sprite was six times too wide in GX pixels and
+wider again on a taller framebuffer. Fountain of Dreams' background twinkles
+drew as ~10 px flat grey squares instead of 1-2 px points.
+
+Worth carrying forward from how that one went: the shape of the artifact
+argued for a texture-coordinate bug, `GXEnableTexOffsets` really is unimplemented,
+and implementing it changed nothing. A census of primitive topologies is what
+settled it -- **of ~7.1M point vertices in a 400-frame match, zero carry
+`TEX0`** -- so no texcoord could be the problem and the size had to be. The
+census cost one counter and replaced a day of plausible reasoning.

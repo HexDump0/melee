@@ -1614,7 +1614,13 @@ static int efb_test(void)
         GXSetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_COPY);
         GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
         GXSetCullMode(GX_CULL_NONE);
-        GXSetPointSize(5, GX_TO_ONE);
+        /* P-799: the argument is in **1/6 pixel** units, so 30 is the 5 px
+         * this case wants.  It read `5` while the backend passed the raw byte
+         * to `gl_PointSize`, so the case and the bug agreed with each other
+         * and neither was right.  `psdisp.c` is the authority on the unit:
+         * `w = (pp->size > 42.5) ? 255.0f : 6.0f * pp->size`, and 255/6 is
+         * exactly 42.5. */
+        GXSetPointSize(30, GX_TO_ONE);
         GXClearVtxDesc();
         GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
         GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);

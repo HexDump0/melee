@@ -1736,6 +1736,20 @@ static void apply_viewport(const GxHleDrawState* s)
     glDepthRangef(s->depth_range[0], s->depth_range[1]);
 }
 
+/* GX point and line raster sizes are `u8` in **1/6 pixel** units against the
+ * 640x480 EFB, so 6 is one pixel and 255 is the 42.5 px maximum the register
+ * can express.  `psdisp.c` says so itself, at the one place that sets them:
+ * `w = (pp->size > 42.5) ? 255.0f : 6.0f * pp->size`.  Convert to pixels and
+ * then to this framebuffer's scale, and never round a visible primitive away
+ * to nothing (P-799). */
+static GLfloat gx_raster_size(unsigned char raw)
+{
+    float px = (raw ? (float) raw : 1.0f) / 6.0f;
+    float scale = gl_height > 0 ? (float) gl_height / 480.0f : 1.0f;
+    float out = px * scale;
+    return (GLfloat) (out < 1.0f ? 1.0f : out);
+}
+
 static void apply_draw_state(const GxHleDrawState* s)
 {
     /* Wireframe is an inspection mode: GX culling would hide the interior and
@@ -1780,8 +1794,9 @@ static void apply_draw_state(const GxHleDrawState* s)
         glBlendEquation(GL_FUNC_ADD);
     }
 
-    /* P-680: GX line width; GLES may clamp wide lines to 1. */
-    glLineWidth((GLfloat) (s->line_width ? s->line_width : 1));
+    /* P-680: GX line width; GLES may clamp wide lines to 1.
+     * P-799: 1/6 pixel units, the same as the point size. */
+    glLineWidth(gx_raster_size(s->line_width));
     if (s->z_enable) {
         glEnable(GL_DEPTH_TEST);
     } else {
@@ -1970,8 +1985,16 @@ static void upload_draw_uniforms(const GxHleDrawState* s)
     glUniform1fv(u_fog_adj, 10, s->fog_adj_k);
     glUniform1f(u_fog_width, (GLfloat) gl_width);
     glUniform1f(u_depth_near, s->depth_range[0]);
-    /* P-680: GXSetPointSize drives gl_PointSize in the shared VS. */
-    glUniform1f(u_point_size, (GLfloat) (s->point_size ? s->point_size : 1));
+    /* P-680: GXSetPointSize drives gl_PointSize in the shared VS.
+     *
+     * P-799: **the argument is in 1/6 pixel units, not pixels**, so passing
+     * the raw byte drew every point sprite six times too wide, and wider
+     * again on a framebuffer taller than the GX 480.  Fountain of Dreams'
+     * background sparkles came out as a scatter of flat grey squares rather
+     * than points -- the owner's screenshot.  They are legitimately
+     * untextured (every one of the ~7M point vertices in a match arrives with
+     * no TEX0), so their size is the whole of their appearance. */
+    glUniform1f(u_point_size, gx_raster_size(s->point_size));
     glUniform1i(u_tex_enable, gl_options.textures);
     glUniform1i(u_ras_flat, !gl_options.lighting);
     glUniform1i(u_dst_alpha_enable, s->dst_alpha_enable);
