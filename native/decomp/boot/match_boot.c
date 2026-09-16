@@ -512,6 +512,7 @@ static void install_match_selection(void)
  * harness's GM_DEBUG_VS. */
 static int stuck_trace;
 static unsigned stuck_frames; /* MELEE_STUCK_TRACE=<frames> overrides */
+static unsigned pos_period = 60; /* MELEE_POS_TRACE=<frames> */
 
 #define MATCH_STUCK_SLOTS 4
 #define MATCH_STUCK_LIVE_FRAMES 120
@@ -887,12 +888,14 @@ static void match_boot_frame(void)
          * `log_match_state` already prints it; it is just gated to
          * `GM_DEBUG_VS` and to two slots.  With the trace on, print all four
          * every second in whatever mode is running (P-793). */
-        /* Once a second is too coarse for a launch: the Home-Run sandbag
-         * covers 34,000 units between two samples, so the interesting frames
-         * are invisible.  `MELEE_STUCK_TRACE=<n>` doubles as the sampling
-         * period here -- set it to 1 to print every frame while chasing
-         * something that moves. */
-        if ((frame % (stuck_frames ? 1u : 60u)) == 0) {
+        /* Once a second is too coarse for a launch -- the Home-Run sandbag
+         * covers 34,000 units between two samples, so every interesting frame
+         * is invisible.  `MELEE_POS_TRACE=<n>` sets the sampling period in
+         * frames; it is **separate from** `MELEE_STUCK_TRACE`'s value, which
+         * is the wedge threshold.  Folding the two into one number made
+         * `=1` mean "every 60 frames" and `=2` mean "every frame", which is
+         * exactly the kind of switch that wastes someone's evening. */
+        if ((frame % pos_period) == 0) {
             int slot;
             /* The camera's interest is what drives Home-Run Contest's ground
              * streaming: `grHomeRun_8021D680` derives the 64-segment window
@@ -1235,6 +1238,13 @@ void match_boot_init(unsigned frame_in)
             long n = strtol(e, NULL, 0);
             stuck_trace = 1;
             stuck_frames = n > 1 ? (unsigned) n : 0;
+            {
+                const char* pe = getenv("MELEE_POS_TRACE");
+                long pn = pe != NULL ? strtol(pe, NULL, 0) : 0;
+                if (pn > 0) {
+                    pos_period = (unsigned) pn;
+                }
+            }
             boot_platform_set_frame_hook(match_boot_frame);
         }
     }
