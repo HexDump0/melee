@@ -1264,6 +1264,7 @@ with generated fallback only for unknown runtime buffers. Focused EFB probes,
 
 | Commit | What |
 |---|---|
+| cherry-pick series | **The browser port landed on master as 19 linear commits** (wasm branch stays at `9a371e10a` as the test tree). Gate zero (`CMD_U` host-order command structs, P-806), cross-TU signatures (P-807), DevCom DMA alignment + callback adapters (P-808), uniform-upload cache (P-801), optimised wasm build. Mainline P-796..P-800 and G-190..G-192 keep their numbers; the browser rows were renumbered to P-806..P-810 / G-193..G-198. **Rebuild & re-apply patches**: `scripts/apply_decomp_patches.sh` before the next native build -- the synth, lb/types.h and itanimlist patches are new here. |
 | `c7bb28b6f` | P-502 WASM/browser feasibility audit: proposed ADR-0025, W0-W5 evidence gates, and independent-review handoff; documentation only, no implementation claim remains |
 | `ddbd1dd0f` | `grvenom.c` arwing overlays named instead of offset-computed; P-774 (G-176, 8th instance batch); P-775 verdict + P-776 sweep handoff in the same commit's TASKS updates |
 | `b77204cb0` | GX display-copy deflicker plus authored mip chains (P-763); owner retest confirmed this did **not** fix the dotted/transparent stage-background bug, which remains open |

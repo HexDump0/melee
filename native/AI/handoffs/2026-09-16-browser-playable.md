@@ -6,6 +6,12 @@
 **Supersedes:** `2026-09-16-P-502-browser-running.md` and
 `2026-09-16-P-502-gate-zero-and-signatures.md` on every point below.
 
+**Renumbered at the merge:** this branch's P-796..P-800 collided with
+unrelated mainline work, so they became **P-806..P-810** (gate zero,
+signatures, DevCom alignment, CP932, itanimlist) and the branch's
+G-190..G-195 became **G-193..G-198**.  Commits and notes dated before
+the merge may use the old numbers.
+
 ## State
 
 Owner-confirmed on Firefox with his own `.ciso`: boots, memory-card screen,
@@ -35,10 +41,10 @@ Three claims in them are wrong and each cost real time today.
    `-Wcast-function-type-strict` also sees explicit casts and reports **130
    across 49 files**. It is the decompilation's idiom for storing
    heterogeneous callbacks in one table (`(GObj_RenderFunc) (Event) fn`). The
-   flag is now a recorded decision (ADR-0022, second amendment). G-192.
+   flag is now a recorded decision (ADR-0022, second amendment). G-195.
 2. **"Byte-swap the subaction stream at load."** Disproved: `Command_05` and
    `Command_07` carry relocated host pointers inline, so a blanket word swap
-   corrupts every jump. G-190.
+   corrupts every jump. G-193.
 3. **"The GameCube build is proved by preprocessor token stream."** It was
    never *run* -- `decomp/orig/GALE01/sys/` was empty. It runs now, and it
    caught a regression the token argument could not: `CMD_U(c)` expands to
@@ -50,7 +56,7 @@ Three claims in them are wrong and each cost real time today.
 
 All three were latent on *every* target; wasm just refuses to ignore them.
 
-**A DMA destination x86 was aligning by luck (G-193).**
+**A DMA destination x86 was aligning by luck (G-196).**
 `static u32 hsd_SynthSFXLoadBuf[0x20 / 4];` is handed to `HSD_DevComRequest`,
 which asserts `dest % 32 == 0`. The console gets that from MEM1 section
 alignment, so the declaration never said it; a host compiler aligns a `u32[8]`
@@ -59,18 +65,18 @@ and on `lbl_804C4540`. **Look for others**: any static passed as `dest` to
 `HSD_DevComRequest`, `DVDRead*` or `ARQPostRequest`. Heap destinations are safe
 (`HSD_MemAlloc` -> `OSAllocFromHeap` is 32-aligned by construction).
 
-**130 mismatched function-pointer casts (G-192).** Three of them in `synth.c`
+**130 mismatched function-pointer casts (G-195).** Three of them in `synth.c`
 would have passed *garbage* rather than surplus arguments and got real
 adapters; the rest are covered by the flag.
 
-**The browser had never been optimised (G-194).** `wasm_census.sh` began as a
+**The browser had never been optimised (G-197).** `wasm_census.sh` began as a
 compile census and passed no `-O`. Two traps when you fix that:
 `wasm-opt --fpcast-emu` miscompiles under `-O2` (validator:
 `call* param number must match`), so emulation and `-O2` must be **separate**
 `wasm-opt` passes; and clang's `-O2` at compile time is where most of the win
 is anyway.
 
-**24,000 GL calls a frame (G-195).** `upload_draw_uniforms` issues 52
+**24,000 GL calls a frame (G-198).** `upload_draw_uniforms` issues 52
 `glUniform*` per draw, 461 draws. Native GL shrugs; a browser pays ~0.5 us a
 call across the JS boundary, ~12 ms of a 15 ms render. A per-location shadow
 copy now skips **94.8%**.
@@ -107,7 +113,7 @@ stat -c%s /tmp/w/melee.wasm        # these two MUST agree -- see below
 - **Print before you block.** `lbfile.c:waitForDisc` is a bare
   `do {} while (!discIsDone());`, which pins the only thread, so the `fetch()`
   beacons carrying your log cannot run. The last line that arrives is the
-  operation that hung. G-191.
+  operation that hung. G-194.
 
 Ask the owner to run it; he plays it himself and that is faster than any
 headless harness. Tell him to **hard-reload** -- the browser caches
@@ -135,7 +141,7 @@ headless harness. Tell him to **hard-reload** -- the browser caches
    arrives through a `<input type=file>` picker, so a harness needs either a
    `File` synthesised from a fetch or a dev-only path in `wasm_shell.html`.
    Weigh that against just asking the owner.
-4. **P-799 -- CP932.** Untouched. 15 compiled files carry non-ASCII literals
+4. **P-809 -- CP932.** Untouched. 15 compiled files carry non-ASCII literals
    and clang rejects `-fexec-charset=CP932`.
 5. **Mobile and Safari.** Untried, and the 2.25 GiB `INITIAL_MEMORY`
    reservation is the realistic failure. The MEM1 rebase design stays on file

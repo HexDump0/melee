@@ -3555,7 +3555,7 @@ It is attribute-free, so it runs identically under GCC and Emscripten, and
 `native/tools/gen_cmd_bits.py --check` fails if the generated header drifts
 from the declarations in `<melee/lb/types.h>`.
 
-## G-191: a diagnostic that cannot reach the screen it is diagnosing
+## G-194: a diagnostic that cannot reach the screen it is diagnosing
 
 **Symptom:** the browser build stopped dead after `[frontend] frame 0` with no
 output at all. Two rounds of diagnostics were added to `devcom.c` and
@@ -3584,7 +3584,7 @@ http.server` on a taken port dies with `Address already in use` into its own
 log, and `curl` then answers 200 from a stale directory. Compare the byte size
 of `melee.wasm` over HTTP against the file on disk before believing any run.
 
-## G-192: 130 function-pointer casts, and why the emulation flag is the fix
+## G-195: 130 function-pointer casts, and why the emulation flag is the fix
 
 **Symptom:** `RuntimeError: indirect call signature mismatch`, thrown on the
 Asyncify rewind after a disc read.
@@ -3615,9 +3615,9 @@ flag" rests on the undercount.
 Three of them were still worth fixing, because those three would have received
 **garbage** rather than merely surplus arguments (`synth.c`'s DevCom
 callbacks: `(u32, uintptr_t)`, `(void)` and `(void)` handed to a
-`(int, int, void*, bool)` slot). See the P-798 commit.
+`(int, int, void*, bool)` slot). See the P-808 commit.
 
-## G-193: the DMA alignment x86 was passing by luck
+## G-196: the DMA alignment x86 was passing by luck
 
 **Symptom:** `assertion "dest % 32 == 0" failed` in `devcom.c`, browser only,
 `dest=0x00118c50`.
@@ -3638,7 +3638,7 @@ now states it, here and on `lbl_804C4540` which has the same role.
 safe -- `HSD_MemAlloc` goes to `OSAllocFromHeap`, which is 32-aligned by
 construction.
 
-## G-194: the browser build had never been optimised
+## G-197: the browser build had never been optimised
 
 **Symptom:** the first playable browser build ran at ~34 fps with choppy audio.
 
@@ -3659,9 +3659,9 @@ cost was all in rendering.
 - Clang's `-O2` at compile time is where most of the win is anyway; the link
   optimiser is second-order.
 
-**The real bottleneck was call count, not code quality.** See G-195.
+**The real bottleneck was call count, not code quality.** See G-198.
 
-## G-195: 24,000 GL calls a frame, and why only the browser cares
+## G-198: 24,000 GL calls a frame, and why only the browser cares
 
 **Symptom:** `render=15ms` in the browser against `8.6ms` on the desktop, for
 the *same scene and the same code*.

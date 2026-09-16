@@ -1232,7 +1232,7 @@ also fails in that case.
 and it was never carried out: `native/tools/wasm_census.sh` compiles with `-w`,
 so the Emscripten build suppressed `-Wunknown-attributes` along with everything
 else and ran with every command decoded wrongly -- the "it would misbehave"
-case above, in production, for a day (G-190).
+case above, in production, for a day (G-193).
 
 **There are now no annotated sites left to guard.** All 81 `CMD_BE` and 6
 `PORT_BF_BE` groups state their layout explicitly instead:
@@ -1246,7 +1246,7 @@ case above, in production, for a day (G-190).
 - `PORT_BF_BE`'s two groups occupy a single byte, where there is no byte order,
   so they are padded and reversed in place.
 
-**Second amendment, same day (P-798).** There is a *second* class the first
+**Second amendment, same day (P-808).** There is a *second* class the first
 amendment did not cover, and it needs the opposite decision.
 
 `scalar_storage_order` was one compiler extension used in 87 places, and
@@ -1442,7 +1442,7 @@ computed base, which this cannot check, or name a type no header defines
 > | rebase MEM1; "do not reserve more than 2 GiB to preserve `0x80000000`" | **not needed on desktop browsers.** 2,072 MiB is *address space*, not RAM: the reservation costs **59 MB resident** (9.6 GB virtual) and Chromium and Firefox both allow it. `os.c:map_gc_ram` reserves instead of mapping under `PORT_WASM`. The rebase design stays on file as the fallback for the first device that refuses; mobile and Safari are untested and are the realistic failure. |
 > | W1 memory first, W3 graphics/input much later | **backwards.** The browser never reached the memory question -- `main()` returned on the absent disc first -- and SDL3, WebGL2, audio and input all attached unchanged before anyone worked on them. The disc reader (W2) was the first real gate. |
 > | Asyncify "refactor to a cooperative frame step if its cost fails the gate" | **passes.** 6.8 MB -> 18 MB binary (2.7x), and **15-17 ms over 210 frames**. It costs size, not speed; the Worker + SharedArrayBuffer alternative stays on the shelf. |
-> | "portable bit-fields" as a W0 task with candidate implementations | **done, and the shape matters:** generated host-order declarations read through an accessor that byte-swaps, *without* converting the stream. Byte-swapping the stream at load is not available -- a script is not a uniform array of words (G-190). |
+> | "portable bit-fields" as a W0 task with candidate implementations | **done, and the shape matters:** generated host-order declarations read through an accessor that byte-swaps, *without* converting the stream. Byte-swapping the stream at load is not available -- a script is not a uniform array of words (G-193). |
 > | `PORT_WASM` a sibling of `PORT_PC` or layered? | **layered.** 60 patch files are gated on `PORT_PC`; a sibling means editing all of them forever. |
 > | pin the SDL3 port vs vendor SDL3 | **`--use-port=sdl3` satisfies the port unchanged.** |
 >

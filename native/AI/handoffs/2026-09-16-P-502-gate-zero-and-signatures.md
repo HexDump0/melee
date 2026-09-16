@@ -5,6 +5,8 @@
 **Toolchain:** Emscripten **6.0.9** (pinned), emsdk at `~/projects/emsdk`
 **Reads:** `2026-09-16-P-502-browser-running.md` first; this amends it.
 
+**IDs renumbered at the merge:** P-796->P-806, P-797->P-807, P-798->P-808, P-799->P-809, P-800->P-810; G-190->G-193 ... G-195->G-198.  The originals collided with unrelated mainline rows.
+
 ## What changed
 
 | | before | after |
@@ -68,13 +70,13 @@ day.
    `Command_05` (Subroutine) and `Command_07` (Goto) carry a **relocated host
    pointer** in the word after the opcode (`lbcommand.c:61,74`), so a blanket
    swap corrupts every jump in the game. Finding the scripts is the other half
-   of the problem and is G-178 exactly. This route is closed; see G-190.
+   of the problem and is G-178 exactly. This route is closed; see G-193.
 3. **Gate zero was wider than "the `CMD_BE` structs".** `PORT_BF_BE` in
    `Runtime/platform.h` is a second `scalar_storage_order` macro, and there
    were four more sites past the 76: `gmScriptEventDefault` and three unnamed
    groups in `union ColorOverlay_x8_t`. All are fixed.
 
-## Gate zero: how it is fixed (P-796)
+## Gate zero: how it is fixed (P-806)
 
 **State the layout, do not ask a compiler for it.**
 `native/decomp/shim/decomp_cmd_bits.h` declares all 76 command structs over one
@@ -134,7 +136,7 @@ that predate this work.
   one-struct perturbation fails it, so it is not vacuous.
 - `decomp_match` pins an exact trajectory and reproduces it.
 
-## Signature mismatches (P-797)
+## Signature mismatches (P-807)
 
 All three were the same thing: a caller's local `extern` disagreeing with the
 definition, which GCC accepts in silence and `wasm-ld` reports, and in each
@@ -152,7 +154,7 @@ Fixed under `PORT_PC`. The link is clean. Expect more of the class only from
 tables are the place to look, and wasm traps on a mismatched `call_indirect`
 rather than misbehaving, so they will announce themselves.
 
-## Open: the DevCom alignment crash (P-798) -- needs one browser run
+## Open: the DevCom alignment crash (P-808) -- needs one browser run
 
 `HSD_ASSERT(0x1F0, dest % 32 == 0)` at the title -> menu transition, browser
 only. **Ruled out already:** `OSSetArenaLo/Hi` are `0x80003000`/`0x81800000` on
@@ -200,13 +202,13 @@ byte size of `melee.wasm` is the cheap way to tell builds apart.
   non-GCC build must set `-Werror=unknown-attributes`") was never carried out,
   which is how this shipped, and that there are now no annotated sites to
   guard.
-- **P-800 filed, not fixed:** `itAnimlistCmdUnk` in `itanimlist.c` has no
+- **P-810 filed, not fixed:** `itAnimlistCmdUnk` in `itanimlist.c` has no
   endian marker at all and is read from raw archive bytes, so the item animlist
   opcode comes out byte-reversed. It is the same family as the `CMD_U16`
   accessors two screens above it. Left open on purpose: fixing it changes
-  desktop gameplay, and everything in P-796 is provably behaviour-neutral.
+  desktop gameplay, and everything in P-806 is provably behaviour-neutral.
 
 ## Still untouched
 
-CP932 (P-799), and the browser/device matrix -- mobile and Safari are the
+CP932 (P-809), and the browser/device matrix -- mobile and Safari are the
 realistic failures for the 2.25 GiB reservation, and neither has been tried.

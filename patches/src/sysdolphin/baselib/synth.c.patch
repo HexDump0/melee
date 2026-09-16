@@ -185,7 +185,7 @@ index 6210fbc4f..f4cf9ab2c 100644
 + * shape at the call site.  PPC and x86 ignore the surplus; **wasm traps** --
 + * `call_indirect` checks the callee's type against the table entry, and the
 + * browser reported `RuntimeError: indirect call signature mismatch` on the
-+ * Asyncify rewind after a disc read (P-798).  Adapt instead of lying about the
++ * Asyncify rewind after a disc read (P-808).  Adapt instead of lying about the
 + * type; the console's mapping is r3 -> first parameter, r4 -> second. */
 +static void HSD_Synth_8038AD74_devcom(int dcReq, int args, void* buf,
 +                                      bool cancelflag)

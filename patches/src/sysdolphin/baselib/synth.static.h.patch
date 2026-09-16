@@ -10,7 +10,7 @@ index 9489045d2..704e6cf44 100644
 +/* DMA destination: HSD_DevComRequest asserts `dest % 32 == 0`.  On the console
 + * this lands in MEM1 where the section alignment made that true and the
 + * declaration never had to say so; a host compiler aligns a u32[8] to 4, and
-+ * wasm-ld put it on a 16-byte boundary -- `dest=0x00118c50`, P-798.  x86 has
++ * wasm-ld put it on a 16-byte boundary -- `dest=0x00118c50`, P-808.  x86 has
 + * been passing on luck.  State the alignment the hardware requires. */
 +static u32 hsd_SynthSFXLoadBuf[0x20 / 4] ATTRIBUTE_ALIGN(32);
  static AXVPB* HSD_Synth_804C2AE0[0x80 / 4];

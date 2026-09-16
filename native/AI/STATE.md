@@ -4,7 +4,7 @@ Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by ow
 
 > **The browser port is playable: it boots from a local disc, reaches the
 > memory-card screen, title and character select, and plays a match
-> (2026-09-16, P-798/P-801, branch `wasm`).** Owner-confirmed on Firefox with
+> (2026-09-16, P-808/P-801, branch `wasm`).** Owner-confirmed on Firefox with
 > his own `.ciso`. Three defects stood between the title screen and a match,
 > and each was latent on every target rather than browser-specific:
 >
@@ -12,16 +12,16 @@ Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by ow
 >   is a `static u32[8]` handed to `HSD_DevComRequest`, which asserts
 >   `dest % 32 == 0`; the console got that from MEM1 section alignment and the
 >   declaration never said it. `ATTRIBUTE_ALIGN(32)`, here and on
->   `lbl_804C4540` (G-193).
+>   `lbl_804C4540` (G-196).
 > - **130 function-pointer casts** (`(GObj_RenderFunc) (Event) fn`) that PPC
 >   and x86 ignore and wasm traps on. `EMULATE_FUNCTION_POINTER_CASTS` is now a
 >   recorded decision rather than an uncommitted local hack; three casts in
->   `synth.c` that would have passed *garbage* got real adapters (G-192,
+>   `synth.c` that would have passed *garbage* got real adapters (G-195,
 >   ADR-0022 second amendment).
 > - **The browser had never been optimised.** `wasm_census.sh` began as a
 >   compile census and passed no `-O` flag, so every browser build was `-O0`
->   (G-194). With `-O2` plus a uniform-upload cache that **skips 94.8% of
->   ~24,000 GL calls a frame** (G-195, P-801), the binary went 21.2 -> 9.2 MB
+>   (G-197). With `-O2` plus a uniform-upload cache that **skips 94.8% of
+>   ~24,000 GL calls a frame** (G-198, P-801), the binary went 21.2 -> 9.2 MB
 >   and desktop render 8.56 -> 6.15 ms.
 >
 > **It is playable, not finished.** One stage, two characters, one session, one
@@ -31,8 +31,13 @@ Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by ow
 > choppy (P-804), and mobile/Safari remain the realistic failures for the
 > 2.25 GiB reservation.
 
+> **Renumbered at the merge into master (2026-09-16).** This branch's
+> P-796..P-800 and G-190..G-195 became **P-806..P-810** and **G-193..G-198**
+> because mainline already had unrelated rows with those numbers. Rows,
+> comments and commit messages written before the merge use the originals.
+
 > **The browser build stopped decoding subaction commands wrongly
-> (2026-09-16, P-796, branch `wasm`).** `CMD_BE` was GCC's
+> (2026-09-16, P-806, branch `wasm`).** `CMD_BE` was GCC's
 > `scalar_storage_order("big-endian")`, which reproduces MWCC's MSB-first
 > bit-field allocation **and** the big-endian storage order -- on GCC. Clang
 > ignores the attribute in silence and the port's `-w` hid the warning, so the
@@ -57,8 +62,8 @@ Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by ow
 > regressed `decomp_match` -- the read-site sweep had grepped for member names
 > rather than for the pointer and missed six sites plus one compiled C table
 > (`itsamusgrapple.c`) that was written *positionally*. `ctest bit_order` now
-> walks all 231 fields on both compilers. G-190, ADR-0022 amendment.
-> Three cross-TU signature mismatches `wasm-ld` found are fixed too (P-797);
+> walks all 231 fields on both compilers. G-193, ADR-0022 amendment.
+> Three cross-TU signature mismatches `wasm-ld` found are fixed too (P-807);
 > the browser link is clean. The GameCube build was run for the first time in this tree (`orig/GALE01/sys/main.dol` had never been populated): **`main.dol` is byte-identical to retail**, and it caught a regression the token-stream argument could not.
 
 > **Programme status, 2026-09-16.** Matrix **59 of 754 (7.8%)**, ten distinct,
