@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 117u
+#define HSD_CONVERTER_VERSION 119u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -954,6 +954,49 @@ static void conv_matanim_joint(Conv* c, uint32_t off)
  * HSD_ShapeAnimJoint** } (src/melee/sc/types.h).  `SceneDesc.models` and the
  * `.scemdls` sections (IfAll "Stc_scemdls" et al.) are NULL-terminated arrays
  * of those descriptors; HSD_JObjAddAnimAll walks the anim arrays. */
+/* One `DynamicModelDesc`.  Factored out of `conv_dynamic_models` so the
+ * stage's `quake_model_set` can reach it: that public is a **single** desc,
+ * not the NULL-terminated array of desc *pointers* the scene sections use --
+ * `grLib_801C9AF4` reads `stage_info.quake_model_set->joint` and
+ * `->anims[quake_idx]` directly (grlib.c:240,249). */
+/* DWARF: DynamicModelDesc */
+static void conv_dynamic_model_desc(Conv* c, uint32_t desc)
+{
+    uint32_t arr;
+    int k;
+
+    if (desc == 0 || !in_data(c, desc, 0x10)) {
+        return;
+    }
+    if (rd32(c, desc + 0x00) != 0) {
+        conv_joint(c, rd32(c, desc + 0x00));
+    }
+    arr = rd32(c, desc + 0x04);
+    for (k = 0; k < 64 && arr != 0; k++) {
+        uint32_t a = rd32(c, arr + (uint32_t) k * 4);
+        if (a == 0 || !in_data(c, a, HSD_ANIMJOINT_SIZE)) {
+            break;
+        }
+        conv_anim_joint(c, a);
+    }
+    arr = rd32(c, desc + 0x08);
+    for (k = 0; k < 64 && arr != 0; k++) {
+        uint32_t a = rd32(c, arr + (uint32_t) k * 4);
+        if (a == 0 || !in_data(c, a, HSD_MATANIMJOINT_SIZE)) {
+            break;
+        }
+        conv_matanim_joint(c, a);
+    }
+    arr = rd32(c, desc + 0x0C);
+    for (k = 0; k < 64 && arr != 0; k++) {
+        uint32_t a = rd32(c, arr + (uint32_t) k * 4);
+        if (a == 0 || !in_data(c, a, HSD_SHAPEANIMJOINT_SIZE)) {
+            break;
+        }
+        conv_shapeanim_joint(c, a);
+    }
+}
+
 static void conv_dynamic_models(Conv* c, uint32_t off)
 {
     uint32_t p = off;
@@ -5073,6 +5116,17 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
         } else if (name_ends_with(name, length, "_scene_data")) {
             c->st.roots_unknown++;
             conv_scene_desc(c, data_off);
+        } else if (length > 11 && memcmp(name, "visual", 6) == 0 &&
+                   name_ends_with(name, length, "Scene")) {
+            /* Vi*.dat `visual<n>Scene` / `visual<n>InfoScene`: the cutscene
+             * `SceneDesc` -- `un_804D6FB8->models[i]->joint`,
+             * `->cameras->desc` and `->cameras->anims[0]` in vi0801.c:75-135
+             * and its siblings.  Nine roots across the `Vi*` family, walked
+             * by nothing until now, which is the "one missing root rule" the
+             * P-758 row predicted for `Vi*`.  `standScene` and `cut*Scene`
+             * below already take this path. */
+            c->st.roots_unknown++;
+            conv_scene_desc(c, data_off);
         } else if (length == 10 && memcmp(name, "standScene", 10) == 0) {
             /* GmRgStnd: trophy-stand scene desc (vi1201/v2, gmregtyfall). */
             c->st.roots_unknown++;
@@ -5090,6 +5144,27 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
                    memcmp(name, "gmIntroEasyTable", 16) == 0) {
             /* GmIntEz.dat Classic-mode intro layout. */
             conv_intro_easy_table(c, data_off);
+        } else if (length == 15 &&
+                   memcmp(name, "quake_model_set", 15) == 0) {
+            /* Gr*.dat: a single `DynamicModelDesc` -- the stage's
+             * earthquake model plus its per-QuakeKind animation array,
+             * `HSD_JObjLoadJoint(->joint)` and
+             * `HSD_JObjAddAnimAll(jobj, ->anims[quake_idx])` in grlib.c:240
+             * and :249.  Present in 99 archives and walked by nothing until
+             * now, so every stage's quake model and its animations stayed
+             * big-endian. */
+            c->st.roots_unknown++;
+            conv_dynamic_model_desc(c, data_off);
+        } else if (length == 10 && memcmp(name, "ALDYakuAll", 10) == 0) {
+            /* Gr*.dat: a NULL-terminated array of pointers, read from index
+             * **1**, whose elements are assigned straight to
+             * `ItemStateDesc.xC_script` (ground.c:494).  Those are `CMD_BE`
+             * command scripts -- byte streams that must stay big-endian
+             * (G-178) -- and the pointers themselves are relocation targets
+             * the relocation pass already handled.  **There is nothing here
+             * to convert**; it is named so it stops counting as an unhandled
+             * root in 105 archives. */
+            c->st.roots_unknown++;
         } else if (length == 16 &&
                    memcmp(name, "dbLoadCommonData", 16) == 0) {
             /* DbCo.dat: three char** name tables; the relocation pass and the
