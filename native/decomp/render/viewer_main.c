@@ -394,6 +394,7 @@ static int run_match(SDL_Window* window, SDL_GLContext context,
         if (getenv("MELEE_TITLE_TEST") != NULL ||
             getenv("MELEE_CPU_TEST") != NULL ||
             getenv("MELEE_STADIUM_TRACE") != NULL ||
+            getenv("MELEE_STUCK_TRACE") != NULL ||
             getenv("MELEE_RNG_TRACE") != NULL)
         {
             match_boot_init(0);

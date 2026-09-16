@@ -421,29 +421,91 @@ static void install_match_selection(void)
  * wedge lasts until the match ends. */
 #define MATCH_STUCK_FRAMES 420
 
+/* `MELEE_STUCK_TRACE` is the owner-facing half of P-780, and it answers a
+ * different question from the soak's.
+ *
+ * The soak only needs "did a fighter wedge", once, without crying wolf over
+ * 754 runs, so it waits 420 frames and prints one line.  The owner is sitting
+ * in front of the game and already knows a fighter is wedged -- what he cannot
+ * see is *which layer* stopped.  Three are indistinguishable from the couch:
+ *
+ *   - the pad never reached the fighter        (input delivery)
+ *   - the pad reached it and the state machine ignored it   (logic)
+ *   - the state machine advanced and the animation did not  (ftAnim/FObj)
+ *
+ * So the trace prints `fp->input`, `motion_id` *and* `cur_anim_frame`
+ * together.  `input.lstick[0]` moving while `motion_id` does not is the second
+ * case; everything frozen together is the first; `motion_id` changing with
+ * `cur_anim_frame` pinned is the third -- and that third one would put this
+ * with P-781, which is also an animation-layer failure.
+ *
+ * It also reports repeatedly rather than once, because the useful signal is
+ * whether the numbers move *at all* during the wedge, and it covers four
+ * slots and any game mode, since the owner plays ordinary VS rather than the
+ * harness's GM_DEBUG_VS. */
+static int stuck_trace;
+static unsigned stuck_frames; /* MELEE_STUCK_TRACE=<frames> overrides */
+
+#define MATCH_STUCK_SLOTS 4
+#define MATCH_STUCK_LIVE_FRAMES 120
+#define MATCH_STUCK_REPEAT 120
+
+static void report_stuck(int slot, const Fighter* fp, unsigned still)
+{
+    fprintf(stderr,
+            "[stuck] slot %d pad %u kind %d frozen %u frames: "
+            "motion_id=%d anim_frame=%.2f pos=(%.2f,%.2f) "
+            "lstick=(%.3f,%.3f) held=0x%04x hitlag=%.1f\n",
+            slot, (unsigned) fp->x61A_controller_index, (int) fp->kind, still,
+            (int) fp->motion_id, (double) fp->cur_anim_frame,
+            (double) fp->cur_pos.x, (double) fp->cur_pos.y,
+            (double) fp->input.lstick[0].x, (double) fp->input.lstick[0].y,
+            (unsigned) fp->input.held_buttons[0],
+            (double) fp->dmg.x195c_hitlag_frames);
+}
+
 static void check_fighter_stuck(void)
 {
-    static int last_motion[2];
-    static float last_x[2], last_y[2];
-    static unsigned still[2];
-    static int reported[2];
+    static int last_motion[MATCH_STUCK_SLOTS];
+    static float last_x[MATCH_STUCK_SLOTS], last_y[MATCH_STUCK_SLOTS];
+    static unsigned still[MATCH_STUCK_SLOTS];
+    static int reported[MATCH_STUCK_SLOTS];
+    int slots = stuck_trace ? MATCH_STUCK_SLOTS : 2;
+    unsigned threshold = stuck_trace
+                             ? (stuck_frames ? stuck_frames
+                                             : MATCH_STUCK_LIVE_FRAMES)
+                             : MATCH_STUCK_FRAMES;
     int slot;
 
-    if (gm_GetCurrentGameMode() != GM_DEBUG_VS) {
+    /* The harness only ever runs GM_DEBUG_VS and the gate keeps it from
+     * reporting on the frontend; the owner's matches are ordinary VS, so
+     * with the trace on, "a fighter exists" is the gate instead. */
+    if (!stuck_trace && gm_GetCurrentGameMode() != GM_DEBUG_VS) {
         return;
     }
-    for (slot = 0; slot < 2; slot++) {
+    for (slot = 0; slot < slots; slot++) {
         HSD_GObj* gobj = Player_GetEntity(slot);
         Fighter* fp;
         if (gobj == NULL) {
+            still[slot] = 0;
+            reported[slot] = 0;
             continue;
         }
         fp = (Fighter*) gobj->user_data;
+        if (fp == NULL) {
+            continue;
+        }
         if ((int) fp->motion_id == last_motion[slot] &&
             fp->cur_pos.x == last_x[slot] && fp->cur_pos.y == last_y[slot])
         {
             still[slot]++;
-            if (still[slot] == MATCH_STUCK_FRAMES && !reported[slot]) {
+            if (stuck_trace) {
+                if (still[slot] >= threshold &&
+                    ((still[slot] - threshold) % MATCH_STUCK_REPEAT) == 0)
+                {
+                    report_stuck(slot, fp, still[slot]);
+                }
+            } else if (still[slot] == threshold && !reported[slot]) {
                 reported[slot] = 1;
                 boot_triage_note(
                     "[match] STUCK: slot %d motion_id=%d frozen at "
@@ -452,6 +514,13 @@ static void check_fighter_stuck(void)
                     still[slot]);
             }
         } else {
+            if (stuck_trace && still[slot] >= threshold) {
+                fprintf(stderr,
+                        "[stuck] slot %d recovered after %u frames: "
+                        "motion_id=%d -> %d\n",
+                        slot, still[slot], last_motion[slot],
+                        (int) fp->motion_id);
+            }
             still[slot] = 0;
             last_motion[slot] = (int) fp->motion_id;
             last_x[slot] = fp->cur_pos.x;
@@ -680,6 +749,11 @@ static void match_boot_frame(void)
     log_stadium_display();
     log_item_trace();
     log_shield_state();
+    /* Also before the gate: MELEE_STUCK_TRACE is for the owner's own play,
+     * which never enters the harness's match flow (P-780). */
+    if (stuck_trace) {
+        check_fighter_stuck();
+    }
     /* P-749: HSD_ShadowSetSize asks for a fixed 32 KB and the owner sees it
      * fail after a 1P stage ends, so the question is whether the HSD heap
      * shrinks across scene changes.  Print the free total next to the mode
@@ -792,7 +866,9 @@ static void match_boot_frame(void)
      * `gmVsMelee_StartData`, put the matrix selection back (P-759). */
     install_match_selection();
     log_match_selection();
-    check_fighter_stuck();
+    if (!stuck_trace) {
+        check_fighter_stuck(); /* already run above when tracing */
+    }
     /* `onEnterDebugVs` starts every player with 0 stocks (the debug menu
      * usually overrides this) and the current game mode only flips to
      * GM_DEBUG_VS one scene later, so top the human players up while the VS
@@ -976,6 +1052,19 @@ void match_boot_init(unsigned frame_in)
     if (getenv("MELEE_CPU_TEST") != NULL) {
         cpu_test = 1;
         boot_platform_set_frame_hook(match_boot_frame);
+    }
+    {
+        /* `MELEE_STUCK_TRACE=<frames>` sets how long a fighter has to be
+         * frozen before it is reported; bare `=1` keeps the 2-second default,
+         * which is short enough to catch the wedge and long enough that
+         * standing still in Wait does not trip it. */
+        const char* e = getenv("MELEE_STUCK_TRACE");
+        if (e != NULL) {
+            long n = strtol(e, NULL, 0);
+            stuck_trace = 1;
+            stuck_frames = n > 1 ? (unsigned) n : 0;
+            boot_platform_set_frame_hook(match_boot_frame);
+        }
     }
     {
         const char* e;
