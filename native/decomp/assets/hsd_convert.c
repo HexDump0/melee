@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 112u
+#define HSD_CONVERTER_VERSION 113u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -115,6 +115,7 @@ enum {
     STAGE_PARAM_INISHIE2,
     STAGE_PARAM_GARDEN,
     STAGE_PARAM_OLDYOSHI,
+    STAGE_PARAM_ICEMT,
 };
 
 typedef struct StageParamMarker {
@@ -166,6 +167,7 @@ static const StageParamMarker stage_param_markers[] = {
     { "GrdInishie2Wa", STAGE_PARAM_INISHIE2 },
     { "GrdGardenKoya", STAGE_PARAM_GARDEN },
     { "GrdOldyoshi", STAGE_PARAM_OLDYOSHI },
+    { "GrdIcemt", STAGE_PARAM_ICEMT },
 };
 
 typedef struct Conv {
@@ -2191,6 +2193,93 @@ static void conv_oldyoshi_param(Conv* c, uint32_t off)
     }
 }
 
+/* An `s16` list terminated by -1, the shape `gricemt.c` uses for its three
+ * `s16*` tables (`field_ixs[i] == id` scans until the sentinel).  Bounded by
+ * the terminator *and* by the object's extent, so a table whose -1 is missing
+ * cannot run into the next object. */
+static void conv_s16_list(Conv* c, uint32_t off)
+{
+    uint32_t end;
+    uint32_t p;
+
+    if (off == 0 || !in_data(c, off, 2)) {
+        return;
+    }
+    end = next_pointed_at_after(c, off);
+    {
+        uint32_t pub = next_public_after(c, c->public_off, c->nb_public, off);
+        if (pub < end) {
+            end = pub;
+        }
+    }
+    for (p = off; p + 2 <= end; p += 2) {
+        uint32_t w = rd16(c, p);
+        conv_u16(c, p);
+        if (w == 0xFFFFu) {
+            break;
+        }
+    }
+}
+
+/* GrIm.dat (Icicle Mountain) `yakumono_param` (`grIceMt_YakumonoParam`,
+ * gricemt.c:66).
+ *
+ * **This one is deliberately partial, and the reason is on the record.** The
+ * declared struct and the archive agree on the layout -- the three `s16*`
+ * fields land on relocation entries at exactly +0xAC/+0xB0/+0xB4, which is
+ * where the declaration predicts them, and that is a strong confirmation.
+ * But they disagree about `x4`: the declaration says `s16` at +0x04, while
+ * the bytes there read -0.15f and continue a clean float ramp into +0x08.
+ * **`yakumono_param->x4` is never read anywhere in `gricemt.c`**, so rather
+ * than guess a type, it is skipped -- converting it would change a word no
+ * one looks at, and getting it wrong would be a silent corruption.
+ *
+ * Everything the engine actually reads is converted: `x0`/`x2` (frame
+ * counts), `x3A`, `x3C`/`x40`, `ft_max_y`, `x9C`/`xA0`, `xA4`/`xA6`/`xA8`,
+ * `xB8`, the `u16 kind` of the single `grZakoGenerator_SpawnDesc` at +0xBC
+ * (its `x2`/`respawn` are `u8` and stay put), and the three `s16` tables.
+ *
+ * **Nothing past +0xBC is touched.** The declaration says four `f32` at
+ * +0xC0..+0xCC, but the bytes there are `002e0001` repeated for another 0x54
+ * -- plainly not floats, and `grZakoGenerator_801CAE04(&yakumono_param->xBC)`
+ * takes the address of **one** desc, not an array. That region cannot be
+ * named from the decompilation, so it is left alone (P-758's rule). */
+static void conv_icemt_param(Conv* c, uint32_t off)
+{
+    int i;
+
+    if (!in_data(c, off, 0xC0) || !mark(c, off)) {
+        return;
+    }
+    conv_u16(c, off + 0x00);
+    conv_u16(c, off + 0x02);
+    /* +0x04 skipped: type unresolved and never read. */
+    for (i = 0x08; i <= 0x30; i += 4) {
+        conv_u32(c, off + (uint32_t) i); /* f32 ramp */
+    }
+    for (i = 0x34; i <= 0x3A; i += 2) {
+        conv_u16(c, off + (uint32_t) i);
+    }
+    for (i = 0x3C; i <= 0x94; i += 4) {
+        conv_u32(c, off + (uint32_t) i); /* f32 run */
+    }
+    conv_u16(c, off + 0x98); /* ft_max_y */
+    conv_u16(c, off + 0x9A);
+    conv_u32(c, off + 0x9C); /* f32 */
+    conv_u32(c, off + 0xA0); /* f32 */
+    conv_u16(c, off + 0xA4);
+    conv_u16(c, off + 0xA6);
+    conv_u16(c, off + 0xA8);
+    /* +0xAC/+0xB0/+0xB4 are `s16*`: relocation targets, already host order. */
+    conv_u16(c, off + 0xB8);
+    conv_u16(c, off + 0xBC); /* grZakoGenerator_SpawnDesc.kind */
+    for (i = 0xAC; i <= 0xB4; i += 4) {
+        if (c->reloc[off + (uint32_t) i]) {
+            conv_s16_list(c, rd32(c, off + (uint32_t) i));
+        }
+    }
+}
+
 /* Gr*.dat `yakumono_param` fallback: stage-specific dynamic-object parameters
  * whose layout this converter does not know yet.  For Zebes the word at +0x2C
  * is a relocation target to a bury DynamicsDesc stored directly before the
@@ -2288,6 +2377,9 @@ static void conv_stage_yakumono(Conv* c, uint32_t off)
         break;
     case STAGE_PARAM_OLDYOSHI:
         conv_oldyoshi_param(c, off);
+        break;
+    case STAGE_PARAM_ICEMT:
+        conv_icemt_param(c, off);
         break;
     case STAGE_PARAM_BIGBLUE:
         conv_bigblue_param(c, off);
