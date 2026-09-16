@@ -15,7 +15,13 @@
 #include <dolphin/gx.h>
 #include <stddef.h>
 
-#define GX_HLE_MAX_DRAWS 1024
+/* Raised from 1024 after the owner's Giant rounds reached 909 draws in a
+ * frame -- 89% of the cap, and overflowing it drops the rest of the frame's
+ * geometry.  A GxHleDraw is ~2 KB, almost all of it the captured
+ * GxHleDrawState, so 4096 costs about 8 MB of BSS against 2 MB; the pages are
+ * lazily committed, so the resident cost is what a frame actually uses.
+ * Both this and GX_HLE_MAX_VERTS now report when they are exhausted. */
+#define GX_HLE_MAX_DRAWS 4096
 #define GX_HLE_MAX_VERTS (1 << 18)
 /* Raised from 512 after the owner hit it in normal play: HUD textures cycled
  * through unrelated art for seconds at a time (P-740).  A GxHleTexture is

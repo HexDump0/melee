@@ -85,6 +85,8 @@ typedef struct {
     int begun;
 } GxHleState;
 
+static void gx_hle_report_overflow(const char* what, unsigned cap);
+
 static void (*texture_invalidate_hook)(const void* image);
 
 static int tex_invalidate_all(void)
@@ -1080,6 +1082,16 @@ static void submit_triangle(const GxHleVertex* a, const GxHleVertex* b,
     big_prim_check(a, b, c);
     if (!draw_active || frame_vcount + 3 > frame_vcap ||
         frame_dcount >= GX_HLE_MAX_DRAWS) {
+        /* Say which cap ran out.  The header has claimed since P-740 that
+         * each one reports the first time it is exhausted, but only the
+         * texture cap ever did -- geometry just stopped appearing, which is
+         * the G-173 failure: a missing resource that looks like a design
+         * decision instead of an error. */
+        if (draw_active && frame_vcount + 3 > frame_vcap) {
+            gx_hle_report_overflow("GX_HLE_MAX_VERTS", GX_HLE_MAX_VERTS);
+        } else if (draw_active) {
+            gx_hle_report_overflow("GX_HLE_MAX_DRAWS", GX_HLE_MAX_DRAWS);
+        }
         stat_skipped++;
         return;
     }
@@ -1104,6 +1116,11 @@ static void emit_vertex(const GxHleVertex* v)
 {
     if (!draw_active || frame_vcount >= frame_vcap ||
         frame_dcount >= GX_HLE_MAX_DRAWS) {
+        if (draw_active && frame_vcount >= frame_vcap) {
+            gx_hle_report_overflow("GX_HLE_MAX_VERTS", GX_HLE_MAX_VERTS);
+        } else if (draw_active) {
+            gx_hle_report_overflow("GX_HLE_MAX_DRAWS", GX_HLE_MAX_DRAWS);
+        }
         stat_skipped++;
         return;
     }
