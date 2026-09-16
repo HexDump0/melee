@@ -57,12 +57,30 @@ static void (*vi_present_hook)(void);
 static u32 vi_retrace_count;
 
 /* extern/dolphin/src/dolphin/gx/GXTexture.c: __GXGetTexTileShift (0x2B) */
+/* Three formats were in the wrong group here, and the transcription is worth
+ * spelling out against `__GXGetTexTileShift` (GXTexture.c:55) because each
+ * error had a different and non-obvious cost:
+ *
+ *   - **GX_TF_I4 was missing entirely**, so it fell to `default:` and got
+ *     shifts of 0.  `nx * ny` then counts *texels* instead of tiles and the
+ *     answer is 64x too large.  Every fighter's shadow is a 256x256 I4
+ *     buffer, so `HSD_ShadowSetSize` asked `HSD_MemAlloc` for **2 MB instead
+ *     of 32 KB**; three fighters fit in the arena and the fourth did not, and
+ *     a four-player match died in `Fighter_Create` with
+ *     `HSD_MemAlloc: 2097152 bytes FAILED, heap free = 826464`.
+ *   - **GX_TF_C8 and GX_TF_C14X2 were in the 3/3 group** rather than 3/2 and
+ *     2/2.  Those under-count, by half and by three quarters, which is the
+ *     dangerous direction: an undersized buffer is a silent heap overflow at
+ *     the first copy rather than a failed allocation.
+ *
+ * The SDK writes the first group as `GX_TF_I4, 0x8, GX_TF_CMPR, ...`, and
+ * `0x8` is `GX_TF_C4`; `0x9`/`0xA` (C8/C14X2) appear in the second and third
+ * groups.  Naming them makes the grouping checkable by eye. */
 static void gx_tex_tile_shift(u32 format, u32* row_tile_s, u32* col_tile_s)
 {
     switch (format) {
+    case GX_TF_I4:
     case GX_TF_C4:
-    case GX_TF_C8:
-    case GX_TF_C14X2:
     case GX_TF_CMPR:
     case GX_CTF_R4:
     case GX_CTF_Z4:
@@ -71,6 +89,7 @@ static void gx_tex_tile_shift(u32 format, u32* row_tile_s, u32* col_tile_s)
         break;
     case GX_TF_I8:
     case GX_TF_IA4:
+    case GX_TF_C8:
     case GX_TF_Z8:
     case GX_CTF_RA4:
     case GX_TF_A8:
@@ -86,6 +105,7 @@ static void gx_tex_tile_shift(u32 format, u32* row_tile_s, u32* col_tile_s)
     case GX_TF_RGB565:
     case GX_TF_RGB5A3:
     case GX_TF_RGBA8:
+    case GX_TF_C14X2:
     case GX_TF_Z16:
     case GX_TF_Z24X8:
     case GX_CTF_RA8:
