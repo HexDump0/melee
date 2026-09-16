@@ -3688,3 +3688,48 @@ millisecond, against restructuring the shader's uniform block and matching
 `std140` packing by hand -- the kind of change that corrupts rendering
 invisibly. The bigger remaining cost is `glBufferData` **per draw**, which
 reallocates the vertex buffer 461 times a frame.
+
+## G-199
+
+**Symptom.** `PANIC ... dobj.c line 312`, with
+`mobj has unexpected blending flags (0x31001060)` just above it, the first
+time a fighter uses one particular move. Owner-reported for Samus's throw;
+the stack is `ftCommon_SetAccessory` -> `HSD_JObjLoadJoint` -> `JObjLoad` ->
+`HSD_DObjLoadDesc`.
+
+**Cause.** A model the converter never walked. `DObjLoad` switches on
+`mobj->rendermode & 0x60000000` and panics on the one combination the three
+`case`s do not cover, so the printed number is the diagnosis: `0x31001060`
+byte-reversed is `0x60100031`, an ordinary rendermode that lands on
+`case 0x60000000`. **A rendermode whose reverse is a legal blending mode
+means the whole descriptor tree is still big-endian**, not that the data is
+corrupt.
+
+**Why the walker missed it.** `ftData->x48_items` is walked as an `Article*`
+array, and five fighters keep something else in a slot. The walk stopped at
+the first slot that failed the Article test, which is correct as far as it
+goes -- but everything behind that slot is then reachable by nothing. G&W's
+`items[10]` already had a named-slot rule for the same reason (P-765); the
+four model slots did not.
+
+**Two things this hid, and both are general.**
+
+1. **`MELEE_UNWALKED` cannot see an unwalked joint tree.** It only reports a
+   relocation target whose *own first word is a relocation* -- its test for
+   "descriptor rather than payload". An `HSD_JObjDesc` root starts with
+   `class_name`, which is NULL on every joint in a fighter archive, so the
+   whole tree is invisible to the report. `PlSs.dat` listed **zero** unwalked
+   descriptors while carrying this bug. Do not read a clean `MELEE_UNWALKED`
+   as "this archive is fully walked".
+2. **`MELEE_NO_ASSET_CACHE=1` or the converter does not run at all.**
+   `hsd_asset_convert` checks `~/.cache/melee/assets` *before* converting, so
+   a probe added to a walker prints nothing and the walker looks dead. This
+   costs the same fifteen minutes every time; the house rule about bumping
+   `HSD_CONVERTER_VERSION` is the other half of it.
+
+**Fix.** Name the slots (`ft_x48_named_slot`) and walk them, and clamp the
+array with `next_public_after`. The clamp is worth having on its own: in
+**every one of the 21 fighters that reach it**, the array ends exactly at the
+next public symbol, and that symbol is `ftData` itself -- so without the
+clamp the loop's last act is to offer `ftData->x0` to the Article test and
+rely on a heuristic to reject it. P-815.

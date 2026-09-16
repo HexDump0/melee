@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 127u
+#define HSD_CONVERTER_VERSION 128u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -3702,6 +3702,105 @@ static int ft_x48_vis_lookup_slot(const char* name, size_t name_len)
     return -1;
 }
 
+/* The other four fighters that keep something besides an `Article` in an
+ * `x48_items` slot -- and unlike G&W's lookup array, what they keep is a
+ * **model**, so leaving it unconverted crashes rather than merely misbehaves.
+ *
+ * Three of them hand the slot straight to `ftCommon_SetAccessory`, which is
+ * `HSD_JObjLoadJoint` (ftcommon.c:1003).  `DObjLoad` switches on
+ * `mobj->rendermode & 0x60000000` and panics on the fourth combination
+ * (dobj.c:194), so a big-endian `rendermode` is a guaranteed `HSD_Panic` the
+ * first time the move is used: the owner's report was
+ * `0x31001060`, which is `0x60100031` -- a perfectly ordinary rendermode --
+ * read from the wrong end.
+ *
+ *   - Samus  `items[4]`: `UNK_SAMUS_S1`, the throw grapple beam
+ *     (`ftSs_Init_CreateThrowGrappleBeam`, ftsamus.c:352).  Four pointers,
+ *     walked below.
+ *   - Kirby  `items[4]`: an `HSD_Joint*` (`ftKb_SpecialN_800F5898`,
+ *     ftkirbyspecials.c:206 -> `ftCo_ThrownKirby.c:126`).
+ *   - Yoshi  `items[3]`: an `HSD_Joint*` (`ftYs_SpecialN_8012CDD4`,
+ *     ftyoshispecialn.c:122 -> `ftCo_YoshiEgg.c:108`).
+ *   - Sheik  `items[4]` and `items[5]`: the chain joints
+ *     `ftSk_SpecialS_80110610` (ftseakspecials.c:84) picks between by motion
+ *     state and reads `item[2]` out of.
+ *
+ * All four are keyed on the symbol name for the reason the G&W comment above
+ * gives: the bytes do not distinguish them.  Each of the three plain slots
+ * has the same shape on disc -- `class_name` NULL, a small flags word read
+ * from the wrong end, a child pointer, `next` NULL -- which is an ordinary
+ * `HSD_JObjDesc` root and nothing an Article test can tell apart. */
+enum {
+    FT_X48_ARTICLE = 0,
+    FT_X48_JOINT,      /* HSD_Joint* -> HSD_JObjLoadJoint */
+    FT_X48_SAMUS_BEAM  /* UNK_SAMUS_S1 */
+};
+
+static int ft_x48_named_slot(const char* name, size_t name_len, int k)
+{
+    if (name_len >= 11 && memcmp(name, "ftDataSamus", 11) == 0) {
+        return k == 4 ? FT_X48_SAMUS_BEAM : FT_X48_ARTICLE;
+    }
+    if (name_len >= 11 && memcmp(name, "ftDataKirby", 11) == 0) {
+        return k == 4 ? FT_X48_JOINT : FT_X48_ARTICLE;
+    }
+    if (name_len >= 11 && memcmp(name, "ftDataYoshi", 11) == 0) {
+        return k == 3 ? FT_X48_JOINT : FT_X48_ARTICLE;
+    }
+    if (name_len >= 10 && memcmp(name, "ftDataSeak", 10) == 0) {
+        return (k == 4 || k == 5) ? FT_X48_JOINT : FT_X48_ARTICLE;
+    }
+    return FT_X48_ARTICLE;
+}
+
+/* `UNK_SAMUS_S1` (ftSamus/types.h:80): the four things
+ * `ftSs_Init_CreateThrowGrappleBeam` uses, in the order it uses them.  Every
+ * field is a pointer, so the relocation pass has already put the words
+ * themselves in host order -- what this walker is for is *following* them,
+ * which nothing did. */
+static void conv_ft_samus_grapple(Conv* c, uint32_t off)
+{
+    uint32_t joint;
+    uint32_t anims;
+    uint32_t anim;
+    uint32_t matanim;
+    int i;
+
+    if (!in_data(c, off, 0x10) || !mark(c, off)) {
+        return;
+    }
+    joint = rd32(c, off + 0x00);   /* x0_joint        -> SetAccessory */
+    anims = rd32(c, off + 0x04);   /* x4_anim_joints  -> [msid - ThrowF] */
+    anim = rd32(c, off + 0x08);    /* x8_anim_joint   -> JObjAddAnimAll */
+    matanim = rd32(c, off + 0x0C); /* xC_matanim_joint  (same call)     */
+
+    if (joint != 0) {
+        conv_joint(c, joint);
+    }
+    /* Four entries, not a guessed run: the index is `motion_state -
+     * ftCo_MS_ThrowF` and the four throws (F, B, Hi, Lw) are consecutive
+     * motion states (ftCommon/forward.h:508). */
+    if (anims != 0) {
+        for (i = 0; i < 4; i++) {
+            uint32_t e = anims + (uint32_t) i * 4;
+            uint32_t aj;
+            if (!in_data(c, e, 4) || !c->reloc[e]) {
+                break;
+            }
+            aj = rd32(c, e);
+            if (aj != 0) {
+                conv_anim_joint(c, aj);
+            }
+        }
+    }
+    if (anim != 0) {
+        conv_anim_joint(c, anim);
+    }
+    if (matanim != 0) {
+        conv_matanim_joint(c, matanim);
+    }
+}
+
 /* One entry of `ftData->x1C`, the part-animation table:
  *
  *     ftData_x1C { u16 x0; u16 x2; u8* x4; HSD_AnimJoint** x8; }
@@ -4350,17 +4449,28 @@ static void conv_ft_data(Conv* c, uint32_t off, const char* name,
     {
         uint32_t items = rd32(c, off + 0x48);
         int vis_slot = ft_x48_vis_lookup_slot(name, name_len);
+        /* Clamp the run to the next public symbol, for the reason
+         * `next_public_after` was written: a relocation run walks straight
+         * into a neighbouring object the game reaches by name.  `ftData`
+         * itself is that object here -- in `PlSs.dat` the array is at 0x9a68
+         * and `ftDataSamus` at 0x9a7c, five slots later, so the moment a slot
+         * below stops breaking the loop, k=5 reads `ftData->x0`. */
+        uint32_t items_end =
+            items != 0
+                ? next_public_after(c, c->public_off, c->nb_public, items)
+                : 0;
         if (items != 0) {
             int k;
             for (k = 0; k < 32; k++) {
                 uint32_t slot = items + (uint32_t) k * 4;
                 uint32_t article;
+                int named;
                 uint32_t attr;
                 float f4;
                 float sc;
                 uint32_t states;
 
-                if (!in_data(c, slot, 4)) {
+                if (!in_data(c, slot, 4) || slot >= items_end) {
                     break;
                 }
                 article = rd32(c, slot);
@@ -4369,6 +4479,15 @@ static void conv_ft_data(Conv* c, uint32_t off, const char* name,
                 }
                 if (!c->reloc[slot] || !in_data(c, article, 0x18)) {
                     break;
+                }
+                named = ft_x48_named_slot(name, name_len, k);
+                if (named == FT_X48_JOINT) {
+                    conv_joint(c, article);
+                    continue;
+                }
+                if (named == FT_X48_SAMUS_BEAM) {
+                    conv_ft_samus_grapple(c, article);
+                    continue;
                 }
                 if (k == vis_slot) {
                     /* Not an Article; see ft_x48_vis_lookup_slot above. */
