@@ -54,11 +54,17 @@ the wrong instrument for judging `-O3`/LTO/PGO.
 
 ## Open
 
-- **P-821 — web-only wrong opponent costume.** Owner's live bug. My converter
-  diagnosis was wrong (native is fine, the converter is target-independent).
-  The unrun discriminating test is in the row.
-- **P-822 — the vis_table NULL-hole ordering difference.** Real, unverified,
-  not P-821's cause.
+- **P-821 — web-only wrong opponent costume.** Owner's live bug, still
+  unexplained. I attributed it to the converter; that attribution was wrong,
+  because the converter is shared and native renders costumes correctly. The
+  unrun discriminating test is in the row. **Do not close it against P-820.**
+- **P-822 / P-820 — the vis_table NULL-hole ordering difference was real and
+  is fixed** (melee-a4, `80effa94f`, converter v130). It measured 13 of 17
+  tables stopping on a NULL hole with 2–14 live slots behind. Worth separating
+  from the paragraph above: the *defect* was found by reading code and was
+  correctly flagged as needing measurement before anyone acted on it; what was
+  wrong was pinning a browser-only symptom on it without first checking the
+  symptom reproduced on the same target.
 - **P-802 — should be re-scoped or closed.** Its premise (21 MB/frame vertex
   upload is expensive) measured at 0.17%.
 - **The only large win left** is transform + texgen in a vertex shader.
