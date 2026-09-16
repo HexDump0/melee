@@ -406,6 +406,60 @@ static void install_match_selection(void)
     gm_Mode_DebugVs_States[0].on_enter = match_boot_on_enter_debug_vs;
 }
 
+/* P-780: a fighter can wedge -- stop responding to input -- while the match
+ * keeps running normally.  The soak detects crashes, hangs and asserts, and a
+ * stuck fighter in a healthy game is none of those, so it was invisible.
+ *
+ * The signal is a fighter whose `motion_id` *and* position are both unchanged
+ * for a long stretch while the frame counter advances.  Either alone is
+ * normal: a fighter can stand still in Wait for a while, and a motion can run
+ * for many frames.  Both frozen together, for longer than any real animation,
+ * is not.
+ *
+ * The threshold is deliberately generous.  This must not cry wolf across 754
+ * matrix runs, so it is set well past the longest legitimate motion; a real
+ * wedge lasts until the match ends. */
+#define MATCH_STUCK_FRAMES 420
+
+static void check_fighter_stuck(void)
+{
+    static int last_motion[2];
+    static float last_x[2], last_y[2];
+    static unsigned still[2];
+    static int reported[2];
+    int slot;
+
+    if (gm_GetCurrentGameMode() != GM_DEBUG_VS) {
+        return;
+    }
+    for (slot = 0; slot < 2; slot++) {
+        HSD_GObj* gobj = Player_GetEntity(slot);
+        Fighter* fp;
+        if (gobj == NULL) {
+            continue;
+        }
+        fp = (Fighter*) gobj->user_data;
+        if ((int) fp->motion_id == last_motion[slot] &&
+            fp->cur_pos.x == last_x[slot] && fp->cur_pos.y == last_y[slot])
+        {
+            still[slot]++;
+            if (still[slot] == MATCH_STUCK_FRAMES && !reported[slot]) {
+                reported[slot] = 1;
+                boot_triage_note(
+                    "[match] STUCK: slot %d motion_id=%d frozen at "
+                    "(%.2f,%.2f) for %u frames\n",
+                    slot, (int) fp->motion_id, fp->cur_pos.x, fp->cur_pos.y,
+                    still[slot]);
+            }
+        } else {
+            still[slot] = 0;
+            last_motion[slot] = (int) fp->motion_id;
+            last_x[slot] = fp->cur_pos.x;
+            last_y[slot] = fp->cur_pos.y;
+        }
+    }
+}
+
 /* Report what actually loaded, not what was asked for.  A selection that
  * silently does not take would make a matrix sweep look like broad coverage
  * while re-running one scenario, which is worse than not sweeping. */
@@ -738,6 +792,7 @@ static void match_boot_frame(void)
      * `gmVsMelee_StartData`, put the matrix selection back (P-759). */
     install_match_selection();
     log_match_selection();
+    check_fighter_stuck();
     /* `onEnterDebugVs` starts every player with 0 stocks (the debug menu
      * usually overrides this) and the current game mode only flips to
      * GM_DEBUG_VS one scene later, so top the human players up while the VS

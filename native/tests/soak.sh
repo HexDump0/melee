@@ -151,6 +151,14 @@ if [ "${1:-}" = "--run-one" ]; then
             n = split(s, parts, "/")
             where = parts[n]
         }
+        # A wedged fighter (P-780) is not a crash, a hang or an assert, so it
+        # needs its own key or the soak scores the run as a pass.
+        /^\[match\] STUCK: / && stuck == "" {
+            s = $0
+            sub(/^\[match\] STUCK: /, "", s)
+            sub(/ frozen at.*$/, "", s)
+            stuck = s
+        }
         /^\[boot\] controlled stop: / { sig = $4 }
         /^\[boot\] STOP: / { stop = substr($0, index($0, "STOP: ") + 6) }
         /^\[boot\] summary:/ { summary = 1 }
@@ -171,6 +179,8 @@ if [ "${1:-}" = "--run-one" ]; then
         END {
             if (assertion != "")
                 printf "%s assertion \"%s\"\n", (where != "" ? where : "?"), assertion
+            else if (stuck != "")
+                print "fighter stuck: " stuck
             else if (sig == "SIGALRM")
                 print "hang: boot timeout (SIGALRM)" (culprit != "" ? " in " culprit : "")
             else if (sig != "")
