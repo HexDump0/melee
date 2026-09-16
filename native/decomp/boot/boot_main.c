@@ -144,13 +144,15 @@ int main(int argc, char** argv)
     } else {
         if (boot_triage_crash_signal_name()[0] != '\0') {
             boot_triage_print_crash(out);
+            /* P-796: the harness longjmps out of the signal handler, so the
+             * game state is still standing here; print it next to the stack.
+             * Only for a signal -- an assertion already dumped from
+             * `__assert`, before the panic unwound anything. */
+            match_boot_dump_fighters(out);
         } else if (boot_triage_stop_reason() != NULL) {
             boot_triage_note("[boot] STOP: %s\n",
                              boot_triage_stop_reason());
         }
-        /* P-796: the harness longjmps out of the signal handler, so the game
-         * state is still standing here; print it next to the stack. */
-        match_boot_dump_fighters(out);
     }
 
     boot_triage_note("[boot] audio: frames=%u hash=%016llx\n",
