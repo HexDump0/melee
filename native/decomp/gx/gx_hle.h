@@ -232,5 +232,8 @@ void gx_hle_reset_assets(void);
 /* Bytes remaining in the registered asset containing ptr, or (size_t) -1
  * when ptr is not inside one. */
 size_t gx_hle_asset_remaining(const void* ptr);
+/* True when ptr lies in a registered archive range: art the game loaded and
+ * does not write to, as opposed to a buffer it fills itself. */
+int gx_hle_image_is_asset(const void* ptr);
 
 #endif

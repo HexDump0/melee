@@ -41,6 +41,12 @@ void gx_gl_clear_textures(void);
  * cache key is the CPU pointer, so CPU-updated images (THP movie planes,
  * EFB copies) must invalidate it or the GL texture keeps the first decode. */
 void gx_gl_invalidate_texture(const void* image);
+/* MELEE_GX_TEX_STATS=1 reports these every 30 match frames.  A cache that is
+ * too small, or that is being invalidated more than it needs to be, does not
+ * fail -- it just stops being a cache, and frame time is the only symptom. */
+void gx_gl_texture_stats(unsigned long* hits, unsigned long* misses,
+                         unsigned long* evictions, unsigned long* decodes,
+                         unsigned long* invalidations, size_t* live);
 
 /* Renders the last frame captured by gx_hle into the pbuffer.  Returns the
  * number of draws submitted, or -1 on failure. */

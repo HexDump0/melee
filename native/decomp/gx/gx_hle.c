@@ -11,6 +11,7 @@
 
 #include <dolphin/gx.h>
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -85,6 +86,16 @@ typedef struct {
 } GxHleState;
 
 static void (*texture_invalidate_hook)(const void* image);
+
+static int tex_invalidate_all(void)
+{
+    static int forced = -1;
+    if (forced < 0) {
+        const char* e = getenv("MELEE_GX_TEX_INVALIDATE");
+        forced = e != NULL && e[0] == 'a';
+    }
+    return forced;
+}
 
 void gx_hle_set_texture_invalidate_hook(void (*fn)(const void* image))
 {
@@ -2355,8 +2366,26 @@ void GXInitTexObj(GXTexObj* obj, void* image_ptr, u16 width, u16 height,
     t->mipmap = mipmap;
     /* A re-init of the same image means its CPU bytes may have changed
      * (THP movie planes, streamed images); drop the decoded GL entry so the
-     * next load re-decodes instead of serving the first frame (P-685). */
-    if (image_ptr != NULL && texture_invalidate_hook != NULL) {
+     * next load re-decodes instead of serving the first frame (P-685).
+     *
+     * P-814: but only for images the game writes to.  HSD re-inits a texobj
+     * every time it binds a material, so invalidating unconditionally threw
+     * away and re-decoded the whole working set once per frame -- 87 decodes
+     * a frame in a two-player match, 70% of them CMPR art straight off the
+     * disc that cannot have changed.  That is what P-685 needed for the
+     * opening movie's planes, which are HSD_MemAlloc'd and CPU-updated in
+     * place; it was never needed for registered archive ranges.  EFB copy
+     * destinations are not covered by this test and do not need to be:
+     * efb_copy_tex invalidates its destination explicitly. */
+    if (image_ptr != NULL && texture_invalidate_hook != NULL &&
+        !gx_hle_image_is_asset(image_ptr)) {
+        texture_invalidate_hook(image_ptr);
+    } else if (image_ptr != NULL && texture_invalidate_hook != NULL &&
+               tex_invalidate_all()) {
+        /* MELEE_GX_TEX_INVALIDATE=all restores the unconditional behaviour, so
+         * a run can be compared against itself frame for frame.  That
+         * equivalence is the whole licence for skipping the invalidation
+         * (same argument as MELEE_GX_UNI_CACHE=0 in gx_gl.c). */
         texture_invalidate_hook(image_ptr);
     }
     gx.pending_tex = *t;
@@ -3112,6 +3141,9 @@ typedef struct GxAsset {
 
 static GxAsset* gx_assets;
 static size_t gx_asset_count;
+/* Bumped whenever the ranges change, so the memo below can be stamped rather
+ * than swept.  Starts at 1: a zeroed memo entry must never look current. */
+static size_t gx_asset_gen = 1;
 static size_t gx_asset_capacity;
 
 void gx_hle_register_asset(const void* base, size_t size)
@@ -3132,11 +3164,13 @@ void gx_hle_register_asset(const void* base, size_t size)
     gx_assets[gx_asset_count].base = (const unsigned char*) base;
     gx_assets[gx_asset_count].size = size;
     gx_asset_count++;
+    gx_asset_gen++;
 }
 
 void gx_hle_reset_assets(void)
 {
     gx_asset_count = 0;
+    gx_asset_gen++;
 }
 
 size_t gx_hle_asset_remaining(const void* ptr)
@@ -3150,4 +3184,43 @@ size_t gx_hle_asset_remaining(const void* ptr)
         }
     }
     return (size_t) -1;
+}
+
+/*
+ * Is this image inside a registered archive range -- that is, art the game
+ * loaded and does not write to -- rather than a buffer it fills itself?
+ *
+ * gx_hle_asset_remaining walks 125-odd ranges, which is nothing next to the
+ * texture decode it saves but far too much to pay per GXInitTexObj call.  The
+ * answer only changes when the range table does, so memoise it direct-mapped
+ * and stamp each entry with the table's generation; a collision costs one
+ * re-scan, and a stale entry is impossible rather than merely unlikely.
+ */
+#define GX_ASSET_MEMO 512 /* power of two */
+
+static struct {
+    const void* ptr;
+    size_t gen;
+    unsigned char is_asset;
+} asset_memo[GX_ASSET_MEMO];
+
+int gx_hle_image_is_asset(const void* ptr)
+{
+    unsigned int h = (unsigned int) (size_t) ptr;
+    size_t slot;
+    int r;
+
+    if (ptr == NULL) {
+        return 0;
+    }
+    h = (h >> 4) * 2654435761u;
+    slot = (size_t) (h >> 8) & (GX_ASSET_MEMO - 1);
+    if (asset_memo[slot].ptr == ptr && asset_memo[slot].gen == gx_asset_gen) {
+        return asset_memo[slot].is_asset;
+    }
+    r = gx_hle_asset_remaining(ptr) != (size_t) -1;
+    asset_memo[slot].ptr = ptr;
+    asset_memo[slot].gen = gx_asset_gen;
+    asset_memo[slot].is_asset = (unsigned char) r;
+    return r;
 }

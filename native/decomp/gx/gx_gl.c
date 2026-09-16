@@ -137,6 +137,28 @@ static GLint u_coord_srtg;  /* int[8]: toon coord samples the lit raster */
 
 static GlTextureCache tex_cache[MAX_GL_TEXTURES];
 static size_t tex_cache_count;
+
+/* P-814.  A cache that is too small does not fail, it just stops being a
+ * cache, and the only outward sign is the frame time -- so count the three
+ * events that distinguish "warm" from "thrashing" and let a run say which it
+ * is.  MELEE_GX_TEX_STATS=1 reports them. */
+static unsigned long tex_cache_hits;
+static unsigned long tex_cache_misses;
+static unsigned long tex_cache_evictions;
+static unsigned long tex_cache_decodes;
+static unsigned long tex_cache_invalidations;
+
+void gx_gl_texture_stats(unsigned long* hits, unsigned long* misses,
+                         unsigned long* evictions, unsigned long* decodes,
+                         unsigned long* invalidations, size_t* live)
+{
+    *hits = tex_cache_hits;
+    *misses = tex_cache_misses;
+    *evictions = tex_cache_evictions;
+    *decodes = tex_cache_decodes;
+    *invalidations = tex_cache_invalidations;
+    *live = tex_cache_count;
+}
 static GlDynamicCopy dynamic_copies[MAX_DYNAMIC_COPIES];
 static size_t dynamic_copy_count;
 static unsigned int tex_clock;
@@ -1296,6 +1318,7 @@ static int decode_texture_level(const GxHleTexture* t,
                                 unsigned char** rgba, char* error,
                                 size_t error_size)
 {
+    tex_cache_decodes++;
     if (t->format == TEX_FMT_CI4 || t->format == TEX_FMT_CI8) {
         return gx_texture_decode_ci(image, size, width, height,
                                     (int) t->format, palette,
@@ -1321,6 +1344,7 @@ static void gl_texture_cache_invalidate(const void* image)
             }
             tex_cache[i] = tex_cache[tex_cache_count - 1];
             tex_cache_count--;
+            tex_cache_invalidations++;
             continue;
         }
         i++;
@@ -1455,9 +1479,11 @@ static GLuint texture_for(const GxHleTexture* t)
             e->lod_bias == t->lod_bias && e->min_lod == t->min_lod &&
             e->max_lod == t->max_lod && e->anisotropy == t->anisotropy) {
             e->last_used = ++tex_clock;
+            tex_cache_hits++;
             return e->name;
         }
     }
+    tex_cache_misses++;
 
     /* P-738: if this image is a buffer some EFB capture wrote, say so, and
      * say it loudly when the draw's declared size or format disagrees with
@@ -1573,6 +1599,7 @@ static GLuint texture_for(const GxHleTexture* t)
                 glDeleteTextures(1, &e->name);
             }
             e->name = 0;
+            tex_cache_evictions++;
         } else {
             e = &tex_cache[tex_cache_count++];
         }

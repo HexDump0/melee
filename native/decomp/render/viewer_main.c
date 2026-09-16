@@ -268,6 +268,22 @@ static void match_present(void)
                     match_view.last_verts);
         }
         if ((match_view.frames % 30) == 0 &&
+            getenv("MELEE_GX_TEX_STATS") != NULL)
+        {
+            extern void gx_gl_texture_stats(unsigned long*, unsigned long*,
+                                            unsigned long*, unsigned long*,
+                                            unsigned long*, size_t*);
+            unsigned long hits = 0, misses = 0, evictions = 0, decodes = 0;
+            unsigned long invalidations = 0;
+            size_t live = 0;
+            gx_gl_texture_stats(&hits, &misses, &evictions, &decodes,
+                                &invalidations, &live);
+            fprintf(stderr,
+                    "[match] texcache hits=%lu misses=%lu evictions=%lu "
+                    "decodes=%lu invalidations=%lu live=%zu\n",
+                    hits, misses, evictions, decodes, invalidations, live);
+        }
+        if ((match_view.frames % 30) == 0 &&
             getenv("MELEE_GX_UNI_STATS") != NULL)
         {
             extern void gx_gl_uniform_stats(unsigned long*, unsigned long*);
