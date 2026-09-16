@@ -626,6 +626,36 @@ static void report_stuck(const char* why, int slot, const Fighter* fp,
             (double) fp->dmg.x195c_hitlag_frames, (int) fp->invisible);
 }
 
+/* Motion states in which the engine is deliberately holding the fighter with
+ * its animation frozen.  These are not wedges and must not be counted as
+ * such, because the stuck rule's second term is `cur_anim_frame`, and these
+ * states have no animation to advance.
+ *
+ * **Measured, not assumed.**  Kongo Jungle's barrel sets its own release
+ * countdown from `yakumono_param->unk20/unk24` (`grkongo.c:442`), and on the
+ * matrix's own seed it came out at **479 frames** -- longer than the
+ * detector's 420-frame threshold, so `BarrelWait` was guaranteed to report
+ * before the barrel had any chance to fire.  Four of the five `fighter stuck`
+ * rows in the 754-cell matrix were this, on three different stages, and with
+ * items on the Barrel Cannon is an item too, which is why Corneria was among
+ * them (P-817).
+ *
+ * The cost of the exemption is that a fighter genuinely wedged *inside* a
+ * barrel is no longer reported.  That is the right trade: the rule existed to
+ * catch the owner's "my character stopped responding" (P-780), and five false
+ * rows out of nine failures were burying every real one. */
+static int motion_is_parked(int motion)
+{
+    switch (motion) {
+    case 174: /* ftCo_MS_LiftWait   */
+    case 293: /* ftCo_MS_BarrelWait */
+    case 340: /* ftCo_MS_Barrel     */
+        return 1;
+    default:
+        return 0;
+    }
+}
+
 static void check_fighter_stuck(void)
 {
     static int last_motion[MATCH_STUCK_SLOTS];
@@ -683,6 +713,22 @@ static void check_fighter_stuck(void)
          * meant to produce.  `cur_anim_frame` is the right second term: a
          * looping Wait animation advances it, so standing still does not
          * trip, while a genuinely stalled motion pins it. */
+        /* A fighter riding a barrel or a lift is parked on purpose, and a
+         * fighter with no stocks left lying in `DeadDown` is eliminated and
+         * correct -- neither is a wedge.  `DeadDown` is gated on the stock
+         * count rather than exempted outright, because the same state with
+         * stocks remaining *is* a stalled respawn and worth reporting. */
+        if (motion_is_parked((int) fp->motion_id) ||
+            ((int) fp->motion_id == 0 && Player_GetStocks(slot) <= 0))
+        {
+            still[slot] = deaf[slot] = 0;
+            reported[slot] = 0;
+            last_motion[slot] = (int) fp->motion_id;
+            last_frame[slot] = fp->cur_anim_frame;
+            last_x[slot] = fp->cur_pos.x;
+            last_y[slot] = fp->cur_pos.y;
+            continue;
+        }
         if (motion_frozen && anim_frozen) {
             still[slot]++;
         } else {
