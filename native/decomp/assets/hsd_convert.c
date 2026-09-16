@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 129u
+#define HSD_CONVERTER_VERSION 130u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -4000,7 +4000,19 @@ static void conv_kirby_hat(Conv* c, uint32_t off)
     /* FtPartsDesc.vis_table, the same `void* (*)[4]` per-costume table
      * `conv_ft_data` walks, and bounded the same way: every real slot is a
      * relocation target and the first non-pointer word is past the end
-     * (P-764). */
+     * (P-764).
+     *
+     * **The two tests have to be in this order, and this one used to have
+     * them the other way round.**  A legitimately-NULL slot is not a
+     * relocation target, so testing `c->reloc[p]` first ended the walk at the
+     * first hole -- and the holes are not rare or late: measured across the
+     * disc, 13 of the 17 tables stop on a NULL slot, most of them at
+     * **costume 0, column 3**, with between 2 and 14 relocation-backed slots
+     * still behind them.  So only costume 0's first three lookups were ever
+     * converted and every later costume's part-visibility and TObj-index
+     * selection stayed big-endian, which is why the opponent rendered in the
+     * wrong costume colour while player 1 was right (P-820).  NULL is a legal
+     * hole; only a non-NULL word that is not a pointer is past the end. */
     vis_table = rd32(c, off + 0x08);
     if (vis_table != 0) {
         int costume;
@@ -4011,14 +4023,19 @@ static void conv_kirby_hat(Conv* c, uint32_t off)
                 uint32_t p = vis_table +
                              ((uint32_t) costume * 4 + (uint32_t) col) * 4;
                 uint32_t lookup;
-                if (!in_data(c, p, 4) || !c->reloc[p]) {
+                if (!in_data(c, p, 4)) {
                     ended = 1;
                     break;
                 }
                 lookup = rd32(c, p);
-                if (lookup != 0) {
-                    conv_ft_vis_lookup(c, lookup, n_models);
+                if (lookup == 0) {
+                    continue; /* a legal hole, not the end of the table */
                 }
+                if (!c->reloc[p]) {
+                    ended = 1;
+                    break;
+                }
+                conv_ft_vis_lookup(c, lookup, n_models);
             }
         }
     }
