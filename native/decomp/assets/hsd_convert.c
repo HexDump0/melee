@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 106u
+#define HSD_CONVERTER_VERSION 107u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -2382,6 +2382,92 @@ static void conv_item_model_desc(Conv* c, uint32_t off)
 }
 
 /* ItemDynamics { int count; BoneDynamicsDesc* dyn_descs }. */
+/* `ItCollDynamicsDesc { s32 bone_id; Vec3 offset; f32 size; }` -- five 4-byte
+ * fields, no byte members (itcoll.c:66).  Not `BoneDynamicsDesc`, which is
+ * 0x18 and a different shape, so the two arrays cannot share a loop.
+ *
+ * No `DWARF:` annotation is possible for this or for `ItCollDynamics`: both
+ * are declared inside `itcoll.c`, not a header, so `dwarf_types.c` cannot
+ * include them and the cross-check has nothing to compare against.
+ * Re-declaring them in `dwarf_types.c` would only check my transcription
+ * against itself.  P-757's row already records this class of gap. */
+#define ITCOLLDYNAMICSDESC_SIZE 0x14
+
+/* The `ItCollDynamics` half of `Article.x14_dynamics`.
+ *
+ * This is deliberately a second walker rather than four more lines in
+ * `conv_item_dynamics`, and `decomp_layout` is the reason: that walker is
+ * annotated `ItemDynamics`, which is 8 bytes, so reading +0x08 and +0x0C
+ * inside it failed the cross-check as "past the end of ItemDynamics".  The
+ * gate was right -- the object is not an `ItemDynamics`, it is two structs
+ * overlaid, and the walkers should say so.  Splitting keeps the first half
+ * honestly checked against DWARF and confines the unverifiable half here.
+ *
+ * `it_8027163C` casts `x14_dynamics` to `ItCollDynamics*` unconditionally and
+ * reads `count` whenever the pointer is non-NULL, so every one of these
+ * objects is 0x10 bytes as far as the engine is concerned.  It is still
+ * bounded by evidence rather than by that assumption: the extent has to reach
+ * 0x10 with nothing else starting inside it, and the descs pointer has to be
+ * a relocation field. */
+static void conv_itcoll_dynamics(Conv* c, uint32_t off)
+{
+    uint32_t descs;
+    uint32_t end;
+    int count;
+    int i;
+
+    if (!in_data(c, off, 0x10)) {
+        return;
+    }
+    end = next_pointed_at_after(c, off);
+    {
+        uint32_t pub = next_public_after(c, c->public_off, c->nb_public, off);
+        if (pub < end) {
+            end = pub;
+        }
+    }
+    if (end - off < 0x10) {
+        return;
+    }
+    conv_u32(c, off + 0x08); /* ItCollDynamics.count */
+    if (!c->reloc[off + 0x0C]) {
+        return;
+    }
+    descs = rd32(c, off + 0x0C);
+    count = (int) rd32(c, off + 0x08);
+    if (descs != 0 && count > 0 && count <= 64) {
+        for (i = 0; i < count; i++) {
+            uint32_t d = descs + (uint32_t) i * ITCOLLDYNAMICSDESC_SIZE;
+            if (!in_data(c, d, ITCOLLDYNAMICSDESC_SIZE)) {
+                break;
+            }
+            conv_u32(c, d + 0x00); /* bone_id  */
+            conv_u32(c, d + 0x04); /* offset.x */
+            conv_u32(c, d + 0x08); /* offset.y */
+            conv_u32(c, d + 0x0C); /* offset.z */
+            conv_u32(c, d + 0x10); /* size     */
+        }
+    }
+}
+
+/* `Article.x14_dynamics` is read through **two** structs, and the on-disc
+ * object is the union of both:
+ *
+ *   ItemDynamics   { int count; BoneDynamicsDesc* dyn_descs; }   (it/types.h:145)
+ *   ItCollDynamics { u8 _pad[8]; s32 count; ItCollDynamicsDesc* descs; }
+ *                                                                (itcoll.c:72)
+ *
+ * `ItCollDynamics::_pad[8]` *is* the `ItemDynamics` pair, so the second count
+ * lives at +0x08 and its descs at +0x0C.  This walked only the first pair, so
+ * the second count stayed big-endian: on a Party Ball the four words read
+ * `1`, `0x80337c10`, **`0x01000000`**, `0x80337c28`, and `it_8027163C`
+ * compares that 16,777,216 against 2 and fires
+ * `itcoll.c:1050 "item dynamics hit num over!"` -- 81 of 754 matrix runs once
+ * items were enabled, and the owner hit it in live play (P-778).
+ *
+ * The second half is `conv_itcoll_dynamics` above.  Keeping this one's own
+ * `in_data(c, off, 8)` means a short object at the very end of the data
+ * section still gets the half it is entitled to instead of losing both. */
 /* DWARF: ItemDynamics */
 static void conv_item_dynamics(Conv* c, uint32_t off)
 {
@@ -2404,6 +2490,7 @@ static void conv_item_dynamics(Conv* c, uint32_t off)
             conv_bone_dynamics_desc(c, d);
         }
     }
+    conv_itcoll_dynamics(c, off);
 }
 
 /* ItemStateDesc { AnimJoint*; MatAnimJoint*; ShapeAnimJoint*; UNK script }.
