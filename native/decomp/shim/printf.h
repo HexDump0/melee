@@ -10,6 +10,12 @@
  */
 #ifndef MELEE_SHIM_PRINTF_H
 #define MELEE_SHIM_PRINTF_H
+/* Searched before the system directory, so hand native builds back to glibc's
+ * real <printf.h> rather than quietly replacing it. */
+#ifndef PORT_WASM
+#include_next <printf.h>
+#else
 #include <stdarg.h>
 #include <stdio.h>
+#endif
 #endif
