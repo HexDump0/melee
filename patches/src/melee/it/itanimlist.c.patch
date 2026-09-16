@@ -1,0 +1,77 @@
+diff --git a/src/melee/it/itanimlist.c b/src/melee/it/itanimlist.c
+index 0504eb683..f52a1a60a 100644
+--- a/src/melee/it/itanimlist.c
++++ b/src/melee/it/itanimlist.c
+@@ -39,6 +39,33 @@ typedef struct itAnimlistCmdUnk {
+     u16 x2;
+ } itAnimlistCmdUnk;
+ 
++#ifdef PORT_PC
++/* The animlist command stream is archive data and stays big-endian, which is
++ * what the 81 `CMD_BE` sites in `lb/types.h` exist for -- but these reads
++ * bypass the union entirely by casting `cmd->u` to `u16*`/`s16*`, so
++ * `scalar_storage_order` never applies to them and a little-endian host reads
++ * every field byte-reversed.
++ *
++ * Measured on Green Greens, where a block taking damage runs this command with
++ * the bytes `28 00 | 00 00 | 05 15`: big-endian the bone index is
++ * `0x2800 & 0x3FF` = **0**, and little-endian it is `0x0028 & 0x3FF` = **40**.
++ * `it_80272CC0` then indexes `xBBC_dynamicBoneTable->bones[40]` on a model
++ * with far fewer bones, and `lb_8000B1CC` segfaults on the joint it gets back
++ * -- 18 of 156 Green Greens matches (P-788).  The effect id is wrong the same
++ * way, which is where the long-running `no effect from animlist <id>` reports
++ * come from: 1796 is `0x0704` read backwards. */
++static inline u16 itAnimlist_cmd_u16(const void* u, int i)
++{
++    const u8* b = (const u8*) u + (unsigned) i * 2;
++    return (u16) (((u16) b[0] << 8) | b[1]);
++}
++#define CMD_U16(u, i) itAnimlist_cmd_u16((u), (i))
++#define CMD_S16(u, i) ((s16) itAnimlist_cmd_u16((u), (i)))
++#else
++#define CMD_U16(u, i) (((u16*) (u))[i])
++#define CMD_S16(u, i) (((s16*) (u))[i])
++#endif
++
+ void it_80278F2C(Item_GObj* item_gobj, CommandInfo* cmd)
+ {
+     Vec3 sp20;
+@@ -48,20 +75,20 @@ void it_80278F2C(Item_GObj* item_gobj, CommandInfo* cmd)
+     s32 arg6;
+     PAD_STACK(4);
+ 
+-    arg2 = ((u16*) cmd->u)[0];
++    arg2 = CMD_U16(cmd->u, 0);
+     arg2 = arg2 & 0x3FF;
+     ++cmd->u;
+-    arg6 = (f32) ((u16*) cmd->u)[1];
+-    ef_id = ((u16*) cmd->u)[0];
++    arg6 = (f32) CMD_U16(cmd->u, 1);
++    ef_id = CMD_U16(cmd->u, 0);
+     ++cmd->u;
+-    sp20.x = 0.003906f * ((s16*) cmd->u)[0];
+-    sp20.y = 0.003906f * ((s16*) cmd->u)[1];
++    sp20.x = 0.003906f * CMD_S16(cmd->u, 0);
++    sp20.y = 0.003906f * CMD_S16(cmd->u, 1);
+     ++cmd->u;
+-    sp20.z = 0.003906f * ((s16*) cmd->u)[0];
+-    sp14.x = 0.003906f * ((s16*) cmd->u)[1];
++    sp20.z = 0.003906f * CMD_S16(cmd->u, 0);
++    sp14.x = 0.003906f * CMD_S16(cmd->u, 1);
+     ++cmd->u;
+-    sp14.y = 0.003906f * ((s16*) cmd->u)[0];
+-    sp14.z = 0.003906f * ((s16*) cmd->u)[1];
++    sp14.y = 0.003906f * CMD_S16(cmd->u, 0);
++    sp14.z = 0.003906f * CMD_S16(cmd->u, 1);
+     ++cmd->u;
+     it_80278800(item_gobj, ef_id, arg2, &sp20, &sp14, 0, arg6);
+ }
+@@ -171,7 +198,7 @@ void it_80279544(Item_GObj* item_gobj, CommandInfo* cmd)
+ {
+     Item* item = item_gobj->user_data;
+     HitCapsule* hit = &item->x5D4_hitboxes[cmd->u->set_hitbox_damage.idx].hit;
+-    u32 val = ((u16*) cmd->u)[1] & 0x1FFF;
++    u32 val = CMD_U16(cmd->u, 1) & 0x1FFF;
+     PAD_STACK(8);
+     it_80272460(hit, (u32) (item->xC3C * ((f32) val * item->xC40)), item_gobj);
+     ++cmd->u;

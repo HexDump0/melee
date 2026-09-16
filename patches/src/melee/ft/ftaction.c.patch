@@ -1,0 +1,26 @@
+diff --git a/src/melee/ft/ftaction.c b/src/melee/ft/ftaction.c
+index bf3d17f49..a2e621501 100644
+--- a/src/melee/ft/ftaction.c
++++ b/src/melee/ft/ftaction.c
+@@ -1222,7 +1222,21 @@ void ftAction_80072E4C(Fighter_GObj* gobj, CommandInfo* cmd)
+     }
+ 
+     if (gfx_id == -1) {
++#ifdef PORT_PC
++        /* Same class as itanimlist.c: the command stream is big-endian
++         * archive data, and this read casts `cmd->u` to `u16*` instead of
++         * going through a `CMD_BE` union member, so `scalar_storage_order`
++         * does not reach it.  The gfx id came out byte-reversed, which is
++         * what the recurring `no effect from animlist <id>` reports are --
++         * 1796 is `0x0704` read the wrong way round, and the real id is
++         * `0x0407`. */
++        {
++            const u8* b = (const u8*) cmd->u + 2;
++            gfx_id = (s32) (u16) (((u16) b[0] << 8) | b[1]);
++        }
++#else
+         gfx_id = ((u16*) cmd->u)[1];
++#endif
+     }
+     offset.z = 0.0f;
+     range.z = 0.0f;
