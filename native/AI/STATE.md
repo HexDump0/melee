@@ -1269,3 +1269,24 @@ from the bone to the root, marking the first level whose world translation is
 out of range. The `lbvector.c` position-sanity family (P-772, P-781, and the
 owner's `y` assert) has so far cost two hardware watchpoints per instance to
 get from the backtrace to the guilty transform; this is that walk, printed.
+
+**Particle command immediates were byte-reversed (2026-09-16, P-798).**
+`psReadFloat` assembles each float in a particle script one byte at a time,
+`bytes[0]` first, into a `union { f32; u8[4] }`. That byte is the most
+significant one on PowerPC and the least significant one here, so every
+immediate in every particle script -- size, position, velocity, gravity,
+friction -- arrived reversed. A reversed size turned Bowser's fire breath into
+a flat polygon across half the screen; the owner also saw it as "the right part
+of the screen flashing white" on other characters' moves, which was the same
+bug. The particle command bank is an opcode stream, so no converter can swap
+the floats inside it without decoding every opcode; it has to be fixed at the
+read, and it is, under `PORT_PC`.
+
+Two coverage gaps closed with it. `MELEE_SPECIAL_TEST` holds B with the stick
+neutral -- **no automated run had ever pressed B**, so no special move, and
+with it most of the particle system, had been drawn outside the owner's own
+play. `MELEE_BIG_PRIM` reports primitives whose view-space extent or NDC span
+runs far past the viewport, filtered to direct-mode positions (models index
+their positions through `GXSetArray`; effects and 2D submit them directly), so
+it separates a wrong-geometry bug from a wrong-shading one without a second
+run. That distinction is what a screenshot of a flat polygon cannot give.

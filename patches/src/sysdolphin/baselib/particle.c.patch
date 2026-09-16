@@ -1,0 +1,44 @@
+diff --git a/src/sysdolphin/baselib/particle.c b/src/sysdolphin/baselib/particle.c
+index 32483bc0c..78d9b2d0e 100644
+--- a/src/sysdolphin/baselib/particle.c
++++ b/src/sysdolphin/baselib/particle.c
+@@ -638,10 +638,39 @@ static inline void psEnableTexture(HSD_Particle* pp, u8* const* textures)
+ static inline void psReadFloat(u8** stream)
+ {
+     u8* p = *stream;
++#ifdef PORT_PC
++    /* The particle command stream is archive data and stays big-endian -- it
++     * is an opcode stream, so the converter cannot byte-swap the floats
++     * embedded in it without decoding every opcode first.  This assembles the
++     * float a byte at a time, and `bytes[0]` is the **most** significant byte
++     * on PowerPC and the **least** significant one here, so on a little-endian
++     * host every immediate in every particle script comes out byte-reversed.
++     * Filling the union from the other end is the whole fix; no caller and no
++     * archive changes.
++     *
++     * Measured from the owner's report of Bowser's fire breath drawing a flat
++     * polygon across half the screen: the emitted quad's corners are at
++     * +/-1.6066465e24 in view space, which is `0x67AA1C3E`, and those bytes
++     * reversed are `0x3E1CAA67` = **0.153** -- an ordinary particle size.
++     * `psDispSub` scales the billboard axes by `pp->size`, so one reversed
++     * immediate from opcode `0xA0` (set size target) is a sprite a hundred
++     * billion times too large, which rasterises as a flat wall of one texel.
++     * Every other immediate -- position, velocity, gravity, friction -- is
++     * read through here too, which is why this shows up on other characters'
++     * moves as well (P-798).
++     *
++     * Same class as P-788: a command stream read byte-wise rather than
++     * through a `CMD_BE` union. */
++    ((ParticleFloatBytes*) &hsd_804D78D0)->bytes[3] = *p++;
++    ((ParticleFloatBytes*) &hsd_804D78D0)->bytes[2] = *p++;
++    ((ParticleFloatBytes*) &hsd_804D78D0)->bytes[1] = *p++;
++    ((ParticleFloatBytes*) &hsd_804D78D0)->bytes[0] = *p++;
++#else
+     ((ParticleFloatBytes*) &hsd_804D78D0)->bytes[0] = *p++;
+     ((ParticleFloatBytes*) &hsd_804D78D0)->bytes[1] = *p++;
+     ((ParticleFloatBytes*) &hsd_804D78D0)->bytes[2] = *p++;
+     ((ParticleFloatBytes*) &hsd_804D78D0)->bytes[3] = *p++;
++#endif
+     *stream = p;
+ }
+ 

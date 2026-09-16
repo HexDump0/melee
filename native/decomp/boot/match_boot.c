@@ -80,6 +80,7 @@ static int stadium_trace;
 static int item_trace;
 static int item_verbose;
 static int shield_test;
+static int special_test;
 static int heap_trace;
 static int rng_trace;
 static void log_shield_state(void);
@@ -435,6 +436,24 @@ static void build_match_input(void)
          * on without the frontend's character-select timing. */
         if (shield_test && f >= 260) {
             p0->buttons |= PAD_TRIGGER_L;
+        }
+        /* MELEE_SPECIAL_TEST: no automated run has ever pressed B, so every
+         * special move -- and with it most of the particle and effect work --
+         * has never been drawn outside the owner's own play.  That is where
+         * P-798 lives.  Held rather than tapped: Bowser's fire breath and the
+         * other charge/stream specials only reach their effect while B is
+         * down, and the hold has to outlast the startup. */
+        if (special_test) {
+            unsigned phase = f % 120;
+            if (f >= 240 && phase < 50) {
+                /* Neutral stick: with the walk script's stick still held, B
+                 * is a side special and the neutral special -- the one that
+                 * streams particles -- never runs. */
+                p0->stick_x = 0;
+                p1->stick_x = 0;
+                p0->buttons |= PAD_BUTTON_B;
+                p1->buttons |= PAD_BUTTON_B;
+            }
         }
         /* Player 2 (channel 1): walk the other way, then idle. */
         if (f >= 180 && f < 480) {
@@ -1470,6 +1489,7 @@ void match_boot_init(unsigned frame_in)
             build_hit_test_input();
         } else {
             shield_test = getenv("MELEE_SHIELD_TEST") != NULL;
+            special_test = getenv("MELEE_SPECIAL_TEST") != NULL;
             build_match_input();
         }
         if (getenv("MELEE_HEAP_TRACE") != NULL) {

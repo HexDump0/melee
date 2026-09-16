@@ -849,9 +849,188 @@ static void transform_vertex(const GxRawVertex* raw, GxHleVertex* v)
 
 static size_t stat_degenerate;
 
+/* P-798: `MELEE_BIG_PRIM[=<ndc span>]` reports primitives that are far larger
+ * than anything the scene should contain.
+ *
+ * The owner's report is a flat cream polygon with hard straight edges filling
+ * the right of the frame whenever Bowser breathes fire, and "the same kind of
+ * thing on other characters on some moves".  A screenshot cannot say whether
+ * that is **geometry** (a quad with a vertex flung far away) or **shading** (a
+ * correctly sized quad sampling one texel, e.g. texcoords that never arrived),
+ * and those are unrelated bugs with unrelated fixes.  This answers that in one
+ * run.
+ *
+ * Two independent tests, because either alone gives the wrong answer here:
+ *
+ *   - **NDC span.**  The viewport is 2.0 wide in NDC, so a primitive spanning
+ *     much more than that covers the screen.  Only meaningful when the whole
+ *     primitive is in front of the eye: a triangle crossing the near plane has
+ *     a vanishing `w`, which sends the projected span to thousands for
+ *     perfectly ordinary geometry.  Those are excluded, which is why the test
+ *     alone is not enough.
+ *   - **View-space extent.**  Projection-independent, so it still catches the
+ *     near-plane crossers the first test drops.  A particle quad is a few
+ *     units across; the threshold is well past that and past any fighter.
+ *
+ * Off unless the variable is set -- this runs for every primitive in the
+ * frame -- and capped, so a bad frame reports the shape of the problem rather
+ * than filling the terminal. */
+static float big_prim_span = -1.0f;
+static float big_prim_extent;
+static int big_prim_left;
+/* Models feed positions through `GXSetArray` + an index (pobj.c is the only
+ * `GXSetArray` caller for `GX_VA_POS`), so a **direct-mode** position is the
+ * effect/particle/2D path -- psdisp's billboards among them.  Filtering on it
+ * keeps the stage geometry near the camera, which legitimately spans many
+ * screens, out of the report. */
+static int big_prim_direct_pos;
+static unsigned big_prim_vtxfmt;
+static unsigned big_prim_topology;
+
+static void big_prim_init(void)
+{
+    const char* e = getenv("MELEE_BIG_PRIM");
+    big_prim_span = 0.0f;
+    if (e != NULL) {
+        double n = atof(e);
+        big_prim_span = n > 0.0 ? (float) n : 8.0f;
+        big_prim_extent = 500.0f;
+        big_prim_left = 24;
+    }
+}
+
+static void big_prim_report(const GxHleVertex* const* v, int n,
+                            const char* why, float a, float b)
+{
+    const GxHleDrawState* st = &frame_draws[frame_dcount].state;
+    int tm = st->texmap[0];
+    const GxHleTexture* tx =
+        (tm >= 0 && (size_t) tm < frame_tcount) ? &frame_textures[tm] : NULL;
+    int i;
+
+    big_prim_left--;
+    fprintf(stderr,
+            "[bigprim] %s=(%.1f,%.1f) prim=%02x vtxfmt=%u verts=%d "
+            "tex=%ux%u fmt=%u wrap=%u/%u "
+            "stages=%u texgens=%u blend=%u pointsize=%u\n",
+            why, (double) a, (double) b, big_prim_topology, big_prim_vtxfmt,
+            n, tx ? (unsigned) tx->width : 0u,
+            tx ? (unsigned) tx->height : 0u, tx ? (unsigned) tx->format : 0u,
+            tx ? (unsigned) tx->wrap_s : 0u, tx ? (unsigned) tx->wrap_t : 0u,
+            (unsigned) st->num_stages, (unsigned) st->num_texgens,
+            (unsigned) st->blend_type, (unsigned) st->point_size);
+    for (i = 0; i < n; i++) {
+        fprintf(stderr,
+                "[bigprim]   v%d view=(%.3f,%.3f,%.3f) w=%.4f "
+                "ndc=(%.3f,%.3f) uv0=(%.4f,%.4f,%.4f)\n",
+                i, (double) v[i]->view[0], (double) v[i]->view[1],
+                (double) v[i]->view[2], (double) v[i]->clip[3],
+                v[i]->clip[3] != 0.0f
+                    ? (double) (v[i]->clip[0] / v[i]->clip[3])
+                    : 0.0,
+                v[i]->clip[3] != 0.0f
+                    ? (double) (v[i]->clip[1] / v[i]->clip[3])
+                    : 0.0,
+                (double) v[i]->uv[0][0], (double) v[i]->uv[0][1],
+                (double) v[i]->uv[0][2]);
+    }
+    fflush(stderr);
+}
+
+static void big_prim_check(const GxHleVertex* a, const GxHleVertex* b,
+                           const GxHleVertex* c)
+{
+    const GxHleVertex* v[3];
+    float minx, maxx, miny, maxy;
+    float lo[3], hi[3];
+    int near_plane = 0;
+    int off_screen = 0;
+    int i, k;
+
+    if (big_prim_span < 0.0f) {
+        big_prim_init();
+    }
+    if (big_prim_span == 0.0f || big_prim_left <= 0 || !big_prim_direct_pos) {
+        return;
+    }
+    v[0] = a;
+    v[1] = b;
+    v[2] = c;
+
+    for (k = 0; k < 3; k++) {
+        lo[k] = 1e30f;
+        hi[k] = -1e30f;
+    }
+    minx = miny = 1e30f;
+    maxx = maxy = -1e30f;
+    for (i = 0; i < 3; i++) {
+        float w = v[i]->clip[3];
+        for (k = 0; k < 3; k++) {
+            float p = v[i]->view[k];
+            if (!(p == p)) {
+                return; /* NaN: a different bug, and not this probe's. */
+            }
+            if (p < lo[k]) {
+                lo[k] = p;
+            }
+            if (p > hi[k]) {
+                hi[k] = p;
+            }
+        }
+        if (!(w > 1.0f)) {
+            near_plane = 1;
+        } else {
+            float x = v[i]->clip[0] / w;
+            float y = v[i]->clip[1] / w;
+            if (x < -1.05f || x > 1.05f || y < -1.05f || y > 1.05f) {
+                off_screen = 1;
+            }
+            if (x < minx) {
+                minx = x;
+            }
+            if (x > maxx) {
+                maxx = x;
+            }
+            if (y < miny) {
+                miny = y;
+            }
+            if (y > maxy) {
+                maxy = y;
+            }
+        }
+    }
+
+    {
+        float ex = hi[0] - lo[0];
+        float ey = hi[1] - lo[1];
+        float ez = hi[2] - lo[2];
+        float biggest = ex > ey ? ex : ey;
+        if (ez > biggest) {
+            biggest = ez;
+        }
+        /* A fullscreen quad is direct-mode, thousands of units across and
+         * entirely correct: the backdrop draws one every frame.  What makes
+         * the reported artifact different is that it runs *past* the
+         * viewport, so require that. */
+        if (biggest > big_prim_extent && (off_screen || near_plane)) {
+            big_prim_report(v, 3, "view-extent", biggest, ez);
+            return;
+        }
+    }
+    if (near_plane) {
+        return;
+    }
+    if ((maxx - minx) >= big_prim_span || (maxy - miny) >= big_prim_span) {
+        big_prim_report(v, 3, "ndc-span", maxx - minx, maxy - miny);
+    }
+}
+
 static void submit_triangle(const GxHleVertex* a, const GxHleVertex* b,
                             const GxHleVertex* c)
 {
+    /* Before the capture guard: the headless harness never begins a frame, so
+     * every triangle would be skipped here and the probe would see none. */
+    big_prim_check(a, b, c);
     if (!draw_active || frame_vcount + 3 > frame_vcap ||
         frame_dcount >= GX_HLE_MAX_DRAWS) {
         stat_skipped++;
@@ -949,6 +1128,19 @@ static void exec_primitive(u8 op, const u8* list, size_t length,
     }
 
     init_vertex_decoder(vtxfmt, &decoder);
+    {
+        int d;
+        big_prim_direct_pos = 0;
+        big_prim_vtxfmt = (unsigned) vtxfmt;
+        big_prim_topology = prim;
+        for (d = 0; d < decoder.count; ++d) {
+            if (decoder.attrs[d].attr == GX_VA_POS) {
+                big_prim_direct_pos =
+                    decoder.attrs[d].desc_type == GX_DIRECT;
+                break;
+            }
+        }
+    }
     for (i = 0; i < nverts; ++i) {
         GxRawVertex raw;
         GxHleVertex* v;
