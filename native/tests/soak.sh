@@ -504,6 +504,14 @@ while IFS=$'\t' read -r count key tag_str; do
         printf 'soak:              MELEE_MATCH_P0=%s MELEE_MATCH_P1=%s MELEE_MATCH_STAGE=%s \\\n' \
             "$r_p0" "$r_p1" "$r_stage"
     fi
+    # The item frequency is part of the cell, not part of the environment: the
+    # run above sets MELEE_MATCH_ITEMS from MELEE_SOAK_ITEMS, and leaving it
+    # out of the repro line hands back a command that runs a *different*
+    # match.  P-797's Brinstar Depths cell fails 3 out of 3 with items on and
+    # 0 out of 5 with them off, so the omission read as an ASLR-flaky bug and
+    # cost a session.  Always print what the child was actually given.
+    printf 'soak:              MELEE_MATCH_ITEMS=%s \\\n' \
+        "${MELEE_SOAK_ITEMS:--2}"
     printf 'soak:              %s --boot-frames %s --boot-timeout %s --boot-match %s\n' \
         "$boot" "$frames" "$timeout_s" "$match"
     printf 'soak:   log:   %s\n' "$r_log"

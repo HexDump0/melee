@@ -3818,3 +3818,30 @@ call sites. Decodes 26,187 -> 1,305; CMPR 18,198 -> 270, which is load time.
 3. **Keep the old behaviour behind a switch.** `MELEE_GX_TEX_INVALIDATE=all`
    restores it, which is what makes "byte-identical at frames 200/420/700" an
    A/B rather than an assertion -- the same argument as `MELEE_GX_UNI_CACHE=0`.
+
+## G-202
+
+**Symptom.** A soak cell fails reliably, but the `repro:` command the harness
+prints beside it passes every time you run it. The bug reads as
+ASLR-dependent or timing-dependent, and a session gets spent chasing that.
+
+**Cause.** `soak.sh` runs each child with
+`MELEE_MATCH_ITEMS="${MELEE_SOAK_ITEMS:--2}"` but the repro printer only
+echoed the seed, the two fighters and the stage. An items-on sweep therefore
+handed back a command for an **items-off match** — a different match, with a
+different RNG consumption, different articles and different collisions.
+
+**How much it mattered.** P-797's Brinstar Depths cell fails **3 runs out of
+3** with `MELEE_MATCH_ITEMS=4` and **0 out of 5** without it. The previous
+session recorded the bug as "ASLR-flaky, not deterministic" on the strength
+of the printed command, and that conclusion was an artefact of the printer.
+
+**Fix.** Print every variable the child was actually given. The general rule:
+**a repro line is part of the instrument, and an instrument that emits a
+command which does not reproduce is worse than one that emits none** — it
+converts a deterministic bug into a phantom and sends the next reader looking
+for nondeterminism that is not there.
+
+**Related.** G-190 is the same shape one level up: an instrument was right
+and the reading of it was wrong. Here the instrument itself was wrong, and it
+was wrong in the direction that looks like flakiness.
