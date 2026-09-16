@@ -72,8 +72,10 @@ unsigned boot_triage_stub_unique(void);
 const char* boot_triage_stop_reason(void);
 const char* boot_triage_crash_signal_name(void);
 
-/* Captured in the signal handler, symbolized after the longjmp. */
+/* Captured in the signal handler, symbolized after the longjmp.  The `_at`
+ * form also records the faulting address from `siginfo_t::si_addr`. */
 void boot_triage_capture_crash(int signo);
+void boot_triage_capture_crash_at(int signo, void* addr, int have_addr);
 void boot_triage_print_crash(FILE* out);
 
 /* Installs a SIGSEGV/SIGBUS/SIGFPE/SIGILL handler that prints the signal and

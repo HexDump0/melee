@@ -41,6 +41,13 @@ volatile sig_atomic_t boot_triage_stopped;
 static void* crash_frames[BOOT_MAX_FRAMES];
 static int crash_depth;
 static int crash_signo;
+/* P-800: the address the faulting access touched.  One number separates the
+ * two things a SIGSEGV in this codebase is ever caused by -- a null-ish
+ * offset means a NULL base with a struct member added to it and names the
+ * field, while a wild value means a dangling or byte-swapped pointer.  The
+ * handler has it for free and printing the stack without it threw it away. */
+static void* crash_addr;
+static int crash_have_addr;
 static const char* stop_reason;
 
 static const char* const category_names[BOOT_CAT_COUNT] = {
@@ -190,6 +197,13 @@ const char* boot_triage_stop_reason(void)
     return stop_reason;
 }
 
+void boot_triage_capture_crash_at(int signo, void* addr, int have_addr)
+{
+    crash_addr = addr;
+    crash_have_addr = have_addr;
+    boot_triage_capture_crash(signo);
+}
+
 void boot_triage_capture_crash(int signo)
 {
     crash_signo = signo;
@@ -213,9 +227,11 @@ void boot_triage_capture_crash(int signo)
  * report is printed on the spot and the signal is then re-raised with the
  * default action, so the process still dies the way it would have, a debugger
  * still sees the original signal, and the terminal has the stack either way. */
-static void crash_reporter(int signo)
+static void crash_reporter(int signo, siginfo_t* info, void* ctx)
 {
-    boot_triage_capture_crash(signo);
+    (void) ctx;
+    boot_triage_capture_crash_at(signo, info != NULL ? info->si_addr : NULL,
+                                 info != NULL);
     /* print_crash prints the `controlled stop:` line itself. */
     boot_triage_print_crash(stderr);
     boot_triage_dump_state(stderr);
@@ -237,9 +253,10 @@ void boot_triage_install_crash_reporter(void)
         return; /* let a sanitizer runtime report the failure itself */
     }
     memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = crash_reporter;
+    sa.sa_sigaction = crash_reporter;
     sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_NODEFER;
+    /* SA_SIGINFO for si_addr: see crash_addr. */
+    sa.sa_flags = SA_NODEFER | SA_SIGINFO;
     for (i = 0; i < sizeof(signals) / sizeof(signals[0]); i++) {
         sigaction(signals[i], &sa, NULL);
     }
@@ -317,8 +334,13 @@ void boot_triage_print_crash(FILE* out)
     if (crash_signo == 0) {
         return;
     }
-    fprintf(out, "[boot] controlled stop: %s\n",
-            boot_triage_crash_signal_name());
+    if (crash_have_addr) {
+        fprintf(out, "[boot] controlled stop: %s at %p\n",
+                boot_triage_crash_signal_name(), crash_addr);
+    } else {
+        fprintf(out, "[boot] controlled stop: %s\n",
+                boot_triage_crash_signal_name());
+    }
     fprintf(out, "[boot] backtrace (captured in handler):\n");
     for (i = 0; i < crash_depth; i++) {
         print_frame(out, i, crash_frames[i]);

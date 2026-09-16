@@ -27,9 +27,12 @@
 
 extern int gm_main(void);
 
-static void handle_signal(int signo)
+static void handle_signal(int signo, siginfo_t* info, void* ctx)
 {
-    boot_triage_capture_crash(signo);
+    (void) ctx;
+    /* P-800: si_addr separates a NULL base from a dangling pointer. */
+    boot_triage_capture_crash_at(signo, info != NULL ? info->si_addr : NULL,
+                                 info != NULL);
 }
 
 static void install_handlers(void)
@@ -42,9 +45,9 @@ static void install_handlers(void)
     size_t i;
 
     memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = handle_signal;
+    sa.sa_sigaction = handle_signal;
     sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_NODEFER;
+    sa.sa_flags = SA_NODEFER | SA_SIGINFO;
     for (i = 0; i < sizeof(signals) / sizeof(signals[0]); i++) {
         sigaction(signals[i], &sa, NULL);
     }

@@ -444,13 +444,37 @@ static void build_match_input(void)
          * other charge/stream specials only reach their effect while B is
          * down, and the hold has to outlast the startup. */
         if (special_test) {
-            unsigned phase = f % 120;
+            /* Four specials, not one.  The stick direction at the moment B is
+             * pressed is what picks the move, so a neutral-only script
+             * exercises a quarter of the special moves and none of the
+             * articles the other three spawn -- P-800 is Pikachu's *down*
+             * special, which nothing automated had ever run.  Each 120-frame
+             * phase holds one direction with B down for 50 frames; the
+             * fighter is airborne for part of every cycle thanks to the
+             * jumps the base script already presses, so the aerial variants
+             * run too. */
+            unsigned cycle = (f >= 240) ? ((f - 240) / 120) % 4 : 0;
+            unsigned phase = (f >= 240) ? (f - 240) % 120 : 0;
             if (f >= 240 && phase < 50) {
-                /* Neutral stick: with the walk script's stick still held, B
-                 * is a side special and the neutral special -- the one that
-                 * streams particles -- never runs. */
-                p0->stick_x = 0;
-                p1->stick_x = 0;
+                signed char sx = 0;
+                signed char sy = 0;
+                switch (cycle) {
+                case 1:
+                    sx = 90; /* side */
+                    break;
+                case 2:
+                    sy = 90; /* up */
+                    break;
+                case 3:
+                    sy = -90; /* down */
+                    break;
+                default:
+                    break; /* neutral */
+                }
+                p0->stick_x = sx;
+                p0->stick_y = sy;
+                p1->stick_x = sx;
+                p1->stick_y = sy;
                 p0->buttons |= PAD_BUTTON_B;
                 p1->buttons |= PAD_BUTTON_B;
             }
@@ -1321,9 +1345,110 @@ static void dump_joint_chain(FILE* out, HSD_JObj* joint)
     }
 }
 
+/* P-800: the gobj whose proc was running when the process died.
+ *
+ * The owner's Pikachu Thunder crash printed two fighters -- Peach and Fox --
+ * while the stack was three frames deep inside Pikachu's down special.  The
+ * walk below only sees GX link 5, so a gobj that is mid-teardown, or simply
+ * not on that link, is invisible exactly when it is the one that matters.
+ * `HSD_GObj_CurrentInvokedProcGObj` is the engine's own record of what
+ * `HSD_GObj_RunProcs` was invoking, so it names the culprit directly whether
+ * or not the link list still knows about it. */
+static void dump_items(FILE* out)
+{
+    HSD_GObj* gobj;
+    int n = 0;
+
+    if (HSD_GObjGXLinkHead == NULL) {
+        return;
+    }
+    for (gobj = HSD_GObjGXLinkHead[6]; gobj != NULL && n < 12;
+         gobj = gobj->next_gx)
+    {
+        Item* ip;
+        if (gobj->classifier != HSD_GOBJ_CLASS_ITEM ||
+            gobj->user_data == NULL)
+        {
+            continue;
+        }
+        ip = (Item*) gobj->user_data;
+        n++;
+        fprintf(out,
+                "[crash]   item #%d gobj=%p kind=%d entity=%p article=%p "
+                "pos=(%.4g,%.4g,%.4g)\n",
+                n - 1, (void*) gobj, (int) ip->kind, (void*) ip->entity,
+                (void*) ip->xC4_article_data, ip->pos.x, ip->pos.y,
+                ip->pos.z);
+    }
+    if (n == 0) {
+        fprintf(out, "[crash]   (no live items)\n");
+    }
+}
+
+static void dump_fighter(FILE* out, const char* tag, HSD_GObj* gobj)
+{
+    Fighter* fp = (Fighter*) gobj->user_data;
+    CmSubject* box;
+    int bone = -1;
+    HSD_JObj* joint = NULL;
+
+    fprintf(out,
+            "[crash]   %s gobj=%p kind=%d player=%d motion=%d anim=%d "
+            "ga=%d facing=%.3g scale=(%.4g,%.4g,%.4g)\n",
+            tag, (void*) gobj, (int) fp->kind, (int) fp->player_id,
+            (int) fp->motion_id, (int) fp->anim_id, (int) fp->ground_or_air,
+            fp->facing_dir, fp->x34_scale.x, fp->x34_scale.y,
+            fp->x34_scale.z);
+    fprintf(out,
+            "[crash]     cur=(%.6g,%.6g,%.6g) prev=(%.6g,%.6g,%.6g) "
+            "delta=(%.6g,%.6g,%.6g)%s\n",
+            fp->cur_pos.x, fp->cur_pos.y, fp->cur_pos.z, fp->prev_pos.x,
+            fp->prev_pos.y, fp->prev_pos.z, fp->pos_delta.x, fp->pos_delta.y,
+            fp->pos_delta.z, vec3_bad(&fp->cur_pos) ? "  <== BAD" : "");
+    fprintf(out,
+            "[crash]     self_vel=(%.6g,%.6g,%.6g) kb=(%.6g,%.6g,%.6g) "
+            "gr_vel=%.6g\n",
+            fp->self_vel.x, fp->self_vel.y, fp->self_vel.z,
+            fp->x8c_kb_vel.x, fp->x8c_kb_vel.y, fp->x8c_kb_vel.z, fp->gr_vel);
+    /* The article this fighter is holding on to.  P-800 died dereferencing
+     * one of these from `ftPk_SpecialLw_8012765C`, and the fighter lines
+     * alone could not say whether the pointer was stale. */
+    fprintf(out,
+            "[crash]     item_gobj=%p held=%p mv.pk.speciallw.x0=%p\n",
+            (void*) fp->item_gobj, (void*) fp->x1984_heldItemSpec,
+            (void*) fp->mv.pk.speciallw.x0);
+    box = fp->x890_cameraBox;
+    if (box != NULL) {
+        fprintf(out,
+                "[crash]     cambox=%p state=%d pos=(%.6g,%.6g,%.6g) "
+                "bone_pos=(%.6g,%.6g,%.6g)%s\n",
+                (void*) box, (int) box->state, box->pos.x, box->pos.y,
+                box->pos.z, box->bone_pos.x, box->bone_pos.y, box->bone_pos.z,
+                vec3_bad(&box->bone_pos) ? "  <== BAD" : "");
+    }
+    /* The same two inputs `ftLib_800866DC` uses, and in the same order:
+     * a bone index out of range or a nonzero offset changes which of the
+     * two readings of `lb_8000B1CC` applies, and P-781 spent a while
+     * ruling both out by hand. */
+    if (fp->ft_data != NULL && fp->ft_data->x0 != NULL) {
+        bone = fp->ft_data->x0->camera_zoom_target_bone;
+        fprintf(out, "[crash]     cam_bone=%d offset=(%.6g,%.6g,%.6g)\n",
+                bone, fp->co_attrs.x170.x, fp->co_attrs.x170.y,
+                fp->co_attrs.x170.z);
+    }
+    if (bone >= 0 && bone < 256 && fp->parts != NULL) {
+        joint = fp->parts[bone].joint;
+    }
+    if (joint != NULL) {
+        fprintf(out, "[crash]     camera-bone chain (bone -> root):\n");
+        dump_joint_chain(out, joint);
+    }
+}
+
 void match_boot_dump_fighters(FILE* out)
 {
     HSD_GObj* gobj;
+    char tag[16];
     int n;
 
     if (out == NULL || crash_dump_active || HSD_GObjGXLinkHead == NULL) {
@@ -1337,69 +1462,32 @@ void match_boot_dump_fighters(FILE* out)
     for (gobj = HSD_GObjGXLinkHead[5]; gobj != NULL && n < 8;
          gobj = gobj->next_gx)
     {
-        Fighter* fp;
-        CmSubject* box;
-        int bone = -1;
-        HSD_JObj* joint = NULL;
-
         if (gobj->classifier != HSD_GOBJ_CLASS_FIGHTER ||
             gobj->user_data == NULL)
         {
             continue;
         }
+        snprintf(tag, sizeof(tag), "#%d", n);
         n++;
-        fp = (Fighter*) gobj->user_data;
-        fprintf(out,
-                "[crash]   #%d gobj=%p kind=%d player=%d motion=%d anim=%d "
-                "ga=%d facing=%.3g scale=(%.4g,%.4g,%.4g)\n",
-                n - 1, (void*) gobj, (int) fp->kind, (int) fp->player_id,
-                (int) fp->motion_id, (int) fp->anim_id,
-                (int) fp->ground_or_air, fp->facing_dir, fp->x34_scale.x,
-                fp->x34_scale.y, fp->x34_scale.z);
-        fprintf(out,
-                "[crash]     cur=(%.6g,%.6g,%.6g) prev=(%.6g,%.6g,%.6g) "
-                "delta=(%.6g,%.6g,%.6g)%s\n",
-                fp->cur_pos.x, fp->cur_pos.y, fp->cur_pos.z, fp->prev_pos.x,
-                fp->prev_pos.y, fp->prev_pos.z, fp->pos_delta.x,
-                fp->pos_delta.y, fp->pos_delta.z,
-                vec3_bad(&fp->cur_pos) ? "  <== BAD" : "");
-        fprintf(out,
-                "[crash]     self_vel=(%.6g,%.6g,%.6g) kb=(%.6g,%.6g,%.6g) "
-                "gr_vel=%.6g\n",
-                fp->self_vel.x, fp->self_vel.y, fp->self_vel.z,
-                fp->x8c_kb_vel.x, fp->x8c_kb_vel.y, fp->x8c_kb_vel.z,
-                fp->gr_vel);
-        box = fp->x890_cameraBox;
-        if (box != NULL) {
-            fprintf(out,
-                    "[crash]     cambox=%p state=%d pos=(%.6g,%.6g,%.6g) "
-                    "bone_pos=(%.6g,%.6g,%.6g)%s\n",
-                    (void*) box, (int) box->state, box->pos.x, box->pos.y,
-                    box->pos.z, box->bone_pos.x, box->bone_pos.y,
-                    box->bone_pos.z,
-                    vec3_bad(&box->bone_pos) ? "  <== BAD" : "");
-        }
-        /* The same two inputs `ftLib_800866DC` uses, and in the same order:
-         * a bone index out of range or a nonzero offset changes which of the
-         * two readings of `lb_8000B1CC` applies, and P-781 spent a while
-         * ruling both out by hand. */
-        if (fp->ft_data != NULL && fp->ft_data->x0 != NULL) {
-            bone = fp->ft_data->x0->camera_zoom_target_bone;
-            fprintf(out, "[crash]     cam_bone=%d offset=(%.6g,%.6g,%.6g)\n",
-                    bone, fp->co_attrs.x170.x, fp->co_attrs.x170.y,
-                    fp->co_attrs.x170.z);
-        }
-        if (bone >= 0 && bone < 256 && fp->parts != NULL) {
-            joint = fp->parts[bone].joint;
-        }
-        if (joint != NULL) {
-            fprintf(out, "[crash]     camera-bone chain (bone -> root):\n");
-            dump_joint_chain(out, joint);
-        }
+        dump_fighter(out, tag, gobj);
     }
     if (n == 0) {
         fprintf(out, "[crash]   (no live fighters)\n");
     }
+    /* The gobj the engine was mid-proc on, whether or not it is on the link
+     * walked above.  Printed unconditionally: "the running gobj is also the
+     * first one listed" is itself worth knowing. */
+    if (HSD_GObj_CurrentInvokedProcGObj != NULL) {
+        HSD_GObj* cur = HSD_GObj_CurrentInvokedProcGObj;
+        fprintf(out, "[crash]   in-proc gobj=%p class=%d user_data=%p\n",
+                (void*) cur, (int) cur->classifier, cur->user_data);
+        if (cur->classifier == HSD_GOBJ_CLASS_FIGHTER &&
+            cur->user_data != NULL)
+        {
+            dump_fighter(out, "in-proc", cur);
+        }
+    }
+    dump_items(out);
     fflush(out);
     crash_dump_active = 0;
 }
