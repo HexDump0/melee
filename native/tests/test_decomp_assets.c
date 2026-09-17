@@ -398,6 +398,7 @@ int main(int argc, char** argv)
     failures += check_ft_data_tables(image, "PlDr.dat", "ftDataDrmario");
     failures += check_ft_data_tables(image, "PlFc.dat", "ftDataFalco");
     failures += check_ft_data_tables(image, "PlKb.dat", "ftDataKirby");
+    failures += check_kirby_hats(image);
     failures += check_ft_data_tables(image, "PlLk.dat", "ftDataLink");
     failures += check_ft_data_tables(image, "PlCl.dat", "ftDataClink");
     failures += check_ft_data_tables(image, "PlYs.dat", "ftDataYoshi");

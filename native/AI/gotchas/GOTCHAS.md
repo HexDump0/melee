@@ -4562,3 +4562,65 @@ not share a target, and an alias that merely compiles is the easy mistake:
 the duplicate write looks redundant rather than wrong, and nothing fails until
 something re-enters the scene. Check the arithmetic of every offset in the
 function, not just the first one. P-841.
+
+## G-218: one C struct, two on-disc layouts, and a guard that hid the second
+
+**Symptom.** `PANIC ... dobj.c line 312` with
+`mobj has unexpected blending flags (0x3c001000)` above it, the first time
+Kirby swallows Donkey Kong. The stack is `ftKb_SpecialNDrink_Anim` ->
+`ftKb_SpecialN_800F1BAC` -> `ftKb_SpecialN_800F0FC0` ->
+`ftKb_SpecialN_800EF438` -> `HSD_DObjLoadDesc`. The G-199 signature exactly:
+`0x3c001000` byte-reversed is `0x0010003c`, an ordinary rendermode landing on
+`case 0`, so the whole descriptor tree was still big-endian.
+
+**Cause.** `KirbyHatStruct` is declared once,
+
+    { HSD_Joint* hat_joint; FtPartsDesc desc; ftDynamics* hat_dynamics[5]; }
+
+but the archives use **two** layouts. Twenty hats are loaded by `ftKb_LoadHat`
+and match the declaration. Five -- Donkey Kong, Jigglypuff, Mewtwo, Falco and
+Mr. Game & Watch -- are loaded by the `LOAD_HAT` macro, which hands
+`ftParts_8007487C` a `(FtPartsDesc*) hat` and `ftAnim_80070200` a
+`&hat->desc.vis_table`. On those the head of the struct is a plain
+`ftData_x8`, there is **no `hat_joint`**, and every field is one word earlier.
+
+**Why nothing caught it.** `conv_kirby_hat` had a self-validating guard --
+`model_num` at +0x04 must not be a relocation -- which is right for the
+layout it knew and rejects all five of the other one. A guard that skips what
+it does not recognise is the correct default, but *it is not a report*: five
+archives were silently unconverted for as long as the walker existed, and
+their `model_num`, `vis_table`, costume TObj lists, part bitmask and joint
+tree all stayed big-endian. **When a validating walker refuses a root, count
+it.** A skip that no statistic moves is indistinguishable from success.
+
+**The decompilation's array index is not the disc's.** On the second layout
+the same slots are named `hat_dynamics[0]` and `[1]` by the declaration but
+are really the `ftData_x8_x8` costume table and a `u32` part bitmask --
+`ftKb_SpecialN_800EF040` reads `(u32) hat->hat_dynamics[1]` and shifts a bit
+per fighter part. A pointer field that is not a pointer is exactly the trap
+P-765 recorded for `x48_items`, and it has the same answer: key the slot on
+what the decompilation says per archive, never on the bytes.
+
+**`hats[k]` is the archive for `FighterKind k + 1`,** because index 0 of
+`ft_80459B88` is its `x0` field and `ftKb_SpecialN_800EED50` stores archive
+`kind` at `((HSD_Archive**) &ft_80459B88)[kind]`. So `ftkirby.c` reads Donkey
+Kong's hat as `hats[Ft_Kind_Captain]` and Jigglypuff's as
+`hats[Ft_Kind_Yoshi]`, and reading the source names as fighter names sends you
+to the wrong archive every time. **Get the mapping from the retail DOL, not
+from the identifiers**: `ftKb_Init_803CA9D0[kind]` is `{filename, symbol}`,
+`ftKb_Init_803C9CC8[kind * 2]` the loader, and each unloader passes its own
+kind as a literal (`ftKb_SpecialN_800EF69C(gobj, 3, ...)` for the hat the
+source calls `hats[Ft_Kind_Captain]`) -- three independent sources that agree.
+
+**Two words that must not be swapped.** G&W's `hat_dynamics[4] + 4` and `+ 8`
+are read through `u32*` and stored straight into `mat->diffuse` and
+`fp->x610_color_rgba[1]`. They are `GXColor`s -- on disc `0x000000ff`, opaque
+black, because G&W is a silhouette -- and a byte-swap reverses the channels.
+`ftkirby.c` calls the same pointer an `ftDynamics*` two functions away; the
+type in the source is wrong and the use is what counts.
+
+**`DW_AT_upper_bound` was never parsed,** so every array in
+`dwarf-layout.json` had a null size and `check_walker_offsets.py`'s "inside an
+array" branch had never once fired -- the summary line said `0 inside arrays`
+and nobody read it as a bug. A converter that writes into an array element
+was reported as converting an offset that is "not a field". P-842.

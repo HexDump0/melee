@@ -89,7 +89,8 @@ def read_dies(obj):
                 stack.append(None)
                 continue
             cur = {"offset": off, "tag": tag, "name": None, "size": None,
-                   "type": None, "loc": None, "bits": None, "children": []}
+                   "type": None, "loc": None, "bits": None, "upper": None,
+                   "children": []}
             dies[off] = cur
             parent = stack[depth - 1] if depth > 0 and len(stack) >= depth else None
             if parent is not None:
@@ -110,6 +111,12 @@ def read_dies(obj):
             cur["loc"] = attr_int(raw)
         elif name == "DW_AT_bit_size":
             cur["bits"] = attr_int(raw)
+        elif name == "DW_AT_upper_bound":
+            cur["upper"] = attr_int(raw)
+        elif name == "DW_AT_count":
+            # GCC emits one or the other depending on the array form.
+            n = attr_int(raw)
+            cur["upper"] = None if n is None else n - 1
         elif name == "DW_AT_type":
             ref = REF_RE.search(raw)
             if ref:

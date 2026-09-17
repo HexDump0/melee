@@ -82,6 +82,7 @@ unsigned pose_tree(HSD_JObj* root, float* out_min, float* out_max);
 int check_converted_joint(const char* tag, const unsigned char* rdata, const unsigned char* cdata, uint32_t host_base, uint32_t field_off, uint32_t raw_joint);
 int check_respawn_platform(const char* image);
 int check_cpu_attack_tables(const char* image);
+int check_kirby_hats(const char* image);
 int check_archive(const char* image, const char* path, ModelResult* result, int require_public);
 int cache_check(const char* image, const char* path);
 

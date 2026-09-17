@@ -301,9 +301,9 @@ add_test(NAME decomp_layout
             ${CMAKE_CURRENT_BINARY_DIR}/dwarf-layout.json
             ${CMAKE_CURRENT_SOURCE_DIR}/decomp/assets/hsd_convert.c
             # Ratchet, like MELEE_COVERAGE_FLOOR: the number of walkers with a
-            # `DWARF:` annotation may only go up.  51 as of 2026-09-16, when
-            # conv_ft_part_anim (`ftData_x1C`) landed for P-758.
-            51)
+            # `DWARF:` annotation may only go up.  55 as of 2026-09-17, when
+            # conv_ft_parts_block (`ftData_x8`) landed for P-842.
+            55)
 set_tests_properties(decomp_layout PROPERTIES
     PASS_REGULAR_EXPRESSION "dwarf_check: (PASS|SKIP)"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."

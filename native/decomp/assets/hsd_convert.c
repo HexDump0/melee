@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 134u
+#define HSD_CONVERTER_VERSION 135u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -3787,6 +3787,137 @@ static void conv_ft_vis_lookup(Conv* c, uint32_t off, int model_num)
     }
 }
 
+/* `FtPartsDesc.vis_table`: one row of four `FtPartsVisLookup*` per costume.
+ *
+ * **The two tests below have to be in this order, and this walk used to have
+ * them the other way round.**  A legitimately-NULL slot is not a relocation
+ * target, so testing `c->reloc[p]` first ended the walk at the first hole --
+ * and the holes are not rare or late: measured across the disc, 13 of the 17
+ * tables stop on a NULL slot, most of them at **costume 0, column 3**, with
+ * between 2 and 14 relocation-backed slots still behind them.  So only
+ * costume 0's first three lookups were ever converted and every later
+ * costume's part-visibility and TObj-index selection stayed big-endian, which
+ * is why the opponent rendered in the wrong costume colour while player 1 was
+ * right (P-820).  NULL is a legal hole; only a non-NULL word that is not a
+ * pointer is past the end.
+ *
+ * `ended` stops the *outer* loop too.  Breaking only the inner one left
+ * `costume` free to advance past the end of the table and find a later word
+ * that happened to be a relocation target -- for Pichu the `ftData_x8_x8.xC`
+ * costume table, three words on.  `conv_ft_vis_lookup` then read those
+ * TObj-index arrays as `FtPartsVisLookup` entries and `conv_u32` byte-swapped
+ * the words that hold two u16 indices each, so index 2 came back as
+ * 0x0200 = 512 and `ftParts_80075240` asserted "can't find tobj!" before the
+ * match started (P-764).  Fighters with fewer costumes have shorter tables,
+ * which is why only Roy, Pichu and Ganondorf hit it. */
+static void conv_ft_vis_table(Conv* c, uint32_t table, int n_models)
+{
+    int costume;
+    int ended = 0;
+
+    if (table == 0) {
+        return;
+    }
+    for (costume = 0; costume < 8 && !ended; costume++) {
+        int col;
+        for (col = 0; col < 4; col++) {
+            uint32_t p = table + ((uint32_t) costume * 4 + (uint32_t) col) * 4;
+            uint32_t lookup;
+            if (!in_data(c, p, 4)) {
+                ended = 1;
+                break;
+            }
+            lookup = rd32(c, p);
+            if (lookup == 0) {
+                continue; /* a legal hole, not the end of the table */
+            }
+            if (!c->reloc[p]) {
+                ended = 1;
+                break;
+            }
+            conv_ft_vis_lookup(c, lookup, n_models);
+        }
+    }
+}
+
+/* `struct ftData_x8` (ft/types.h:874): an `FtPartsDesc` followed by an
+ * `ftData_x8_x8`.
+ *
+ *     { u32 model_num; void* (*vis_table)[4]; u32 n_tobjs; u16** costumes; }
+ *
+ * `ftData->x8` is one, and so is the whole head of a Kirby copy archive that
+ * `LOAD_HAT` loads: `ftParts_8007487C` takes `(FtPartsDesc*) hat` and
+ * `ftAnim_80070200` takes `&hat->desc.vis_table`, which is +0x08.  Shared so
+ * the two cannot drift apart. */
+/* DWARF: ftData_x8 partial -- the trailing five u8 are byte data. */
+static void conv_ft_parts_block(Conv* c, uint32_t x8)
+{
+    uint32_t cost_tbl;
+    int n_tobjs;
+    int n_models;
+    int k;
+
+    /* x8 can legitimately be data offset 0 (G-023): the ftData_x8 tables of
+     * PlMr.dat live at the start of the data section. */
+    if (!in_data(c, x8, 0x18)) {
+        return;
+    }
+    conv_u32(c, x8 + 0x00); /* FtPartsDesc.model_num */
+    conv_u32(c, x8 + 0x08); /* ftData_x8_x8.x8 */
+    n_models = (int) rd32(c, x8 + 0x00);
+    if (n_models < 0 || n_models > 12) {
+        n_models = 0;
+    }
+    conv_ft_vis_table(c, rd32(c, x8 + 0x04), n_models);
+    /* ftData_x8_x8.xC: per-costume u16 arrays of TObj indices (the
+     * values are numeric and looked up in the model tree). */
+    n_tobjs = (int) rd32(c, x8 + 0x08);
+    cost_tbl = rd32(c, x8 + 0x0C);
+    if (cost_tbl != 0 && n_tobjs > 0 && n_tobjs <= 64) {
+        for (k = 0; k < 8; k++) {
+            uint32_t p = cost_tbl + (uint32_t) k * 4;
+            uint32_t arr;
+            int j;
+            if (!in_data(c, p, 4)) {
+                break;
+            }
+            /* **Eight is the cap, not the count.**  A fighter with fewer
+             * costumes ends this table early, and the words after it are
+             * whatever the archive put there.  Without this check `arr`
+             * is ordinary data used as an offset, and the inner loop
+             * byte-swaps `n_tobjs` u16 wherever it lands: in `PlEm.dat`
+             * it landed on the **symbol string** at 0x18 and transposed
+             * its first two halfwords, turning
+             * `PlyEmblem5K_Share_ACTION_WallDamage_figatree` into
+             * `lPEymblem5K_...`.  `ftData_80085CD8` then looked that name
+             * up in the animation archive it had just DMA'd in, got NULL,
+             * and left `fp->x590` NULL -- so the joints were never
+             * rebound and the previous animation's FObjs kept playing
+             * over the new data (P-797, G-203).  A slot that is not a
+             * relocation target is not a pointer; stop there. */
+            if (!c->reloc[p]) {
+                break;
+            }
+            arr = rd32(c, p);
+            if (arr == 0) {
+                continue;
+            }
+            for (j = 0; j < n_tobjs; j++) {
+                uint32_t u = arr + (uint32_t) j * 2;
+                if (!in_data(c, u, 2)) {
+                    break;
+                }
+                /* If the 4-byte word containing this u16 is a relocation
+                 * target, the reloc pass already byte-swapped it (two
+                 * u16s at once); converting again would undo it. */
+                if (!c->reloc[u & ~3u]) {
+                    conv_u16(c, u);
+                }
+            }
+        }
+    }
+}
+
 /* Fighter_WaitAnimData.x10_animCurrFlags is assigned to `Fighter.x594_s32`,
  * a union of MSB-first bitfield overlays (x594_b0..b7, x596_bits, x594_bits,
  * x597_bits).  MWCC packs the fields from the MSB of the big-endian word;
@@ -4077,8 +4208,8 @@ static void conv_ft_dynamics(Conv* c, uint32_t dyn)
 /* `ftDataKirbyCopy<X>` is **not an `ftData`**, and this is P-755.
  *
  * `ftKb_SpecialN_800EED50` (ftkirby.c:2773) loads each `PlKbCp*.dat` into
- * `((HSD_Archive**) &ft_80459B88)[kind]`, i.e. `ft_80459B88.hats[kind]`,
- * which is a **`KirbyHatStruct`** (ft/types.h:2020):
+ * `((HSD_Archive**) &ft_80459B88)[kind]`, i.e. `ft_80459B88.hats[kind - 1]`,
+ * which is a **`KirbyHatStruct`** (ft/types.h:2030):
  *
  *     { HSD_Joint* hat_joint; FtPartsDesc desc; ftDynamics* hat_dynamics[5]; }
  *
@@ -4094,117 +4225,224 @@ static void conv_ft_dynamics(Conv* c, uint32_t dyn)
  * (ftparts.c:518) does `vis->model_num = desc->model_num` and reports
  * "fighter parts model num over!" when it exceeds 11.  16,777,216 exceeds 11.
  *
- * The `FtPartsDesc` is **embedded at +0x04**, not behind a pointer the way
- * `ftData->x8` holds it, which is why the normal fighter path converts its
- * `model_num` and this one never did.
+ * **There are two layouts, and five archives use the second one (P-842).**
+ * Twenty hats are loaded by the inline `ftKb_LoadHat` (ftkirby.c:3250), which
+ * reads `hat->hat_joint` at +0x00 and `&hat->desc` at +0x04 -- the layout the
+ * declaration describes.  The other five are loaded by the `LOAD_HAT` macro
+ * (ftkirby.c:3578), which hands `ftParts_8007487C` a `(FtPartsDesc*) hat`
+ * and `ftAnim_80070200` a `&hat->desc.vis_table` -- so on those the head of
+ * the struct is a plain `ftData_x8`, with **no `hat_joint` at all**:
  *
- * **Four of the 24 do not have this layout and are deliberately left alone:**
- * `PlKbCpDk`, `PlKbCpFc`, `PlKbCpMt` and `PlKbCpPr` put their relocations at
- * +0x04/+0x0C/+0x14 instead of +0x00/+0x08, so whatever they are, they are
- * not a `KirbyHatStruct` -- read as one, their `model_num` comes out
- * 1,275,068,416.  The guard below is self-validating in the same spirit as
- * the `yakumono_param` fallback: `hat_joint` must be a relocation or null,
- * `model_num` must **not** be a relocation and must satisfy the engine's own
- * bound (`ftParts_8007487C` reports above 11), and `vis_table` must be a
- * relocation or null.  A root that fails is skipped rather than guessed at,
- * and recorded in P-755's row. */
-/* DWARF: KirbyHatStruct */
-static void conv_kirby_hat(Conv* c, uint32_t off)
+ *     +0x00 u32    model_num        +0x00 HSD_Joint* hat_joint
+ *     +0x04 vis_table               +0x04 u32        model_num
+ *     +0x08 u32    n_tobjs          +0x08 vis_table
+ *     +0x0C u16**  costume tobjs    +0x0C hat_dynamics[0]
+ *     +0x10 u32    part bitmask     +0x10 hat_dynamics[1]
+ *     +0x14 HSD_Joint* hat model    +0x14 hat_dynamics[2]
+ *       ("hat_dynamics[2]")
+ *
+ * The old guard -- `model_num` at +0x04 must not be a relocation -- rejected
+ * all five, so their `model_num`, `vis_table`, costume TObj lists, part mask
+ * **and the whole joint tree behind +0x14** stayed big-endian.  That last
+ * one is a guaranteed `HSD_Panic`: `ftKb_SpecialN_800EF438` (ftkirby.c:3023)
+ * hands the tree to `HSD_DObjLoadDesc`, `DObjLoad` switches on
+ * `mobj->rendermode & 0x60000000` and panics on the fourth combination
+ * (dobj.c:194).  The owner's report was `0x3c001000`, which byte-reversed is
+ * `0x0010003c` -- an ordinary rendermode landing on `case 0` -- the G-199
+ * signature, read from the wrong end.  It fires the first time Kirby swallows
+ * Donkey Kong, Jigglypuff, Mewtwo, Falco or Mr. Game & Watch.
+ *
+ * **Which archive is which hat is not guessable from the sources**, because
+ * `hats[k]` holds the archive for `FighterKind k + 1`: index 0 of
+ * `ft_80459B88` is its `x0` field, not `hats[0]`.  `ftkirby.c` therefore
+ * reads Donkey Kong's hat as `hats[Ft_Kind_Captain]` and Jigglypuff's as
+ * `hats[Ft_Kind_Yoshi]`.  The mapping was read out of the retail DOL:
+ * `ftKb_Init_803CA9D0[kind]` is `{filename, symbol}` and
+ * `ftKb_Init_803C9CC8[kind * 2]` the loader, and the two agree with the
+ * literal kind each unloader passes (`ftKb_SpecialN_800EF69C(gobj, 3, ...)`
+ * for the hat `ftkirby.c` calls `hats[Ft_Kind_Captain]`).
+ *
+ * The slot table below is keyed on the archive symbol for the reason P-765
+ * gives: the bytes do not distinguish an `Article` from an `ftDynamics` from
+ * a joint, and slot [1] of a `LOAD_HAT` hat is not a pointer at all.  Every
+ * entry comes from a named use in the decompilation --
+ * `ftKb_SpecialN_800F16D0` (ftkirby.c:3794) names every `Article` slot,
+ * `ftdynamics.c:134-300` every `ftDynamics` slot, and `ftkirbyspecialmars.c`,
+ * `ftkirbyspecialiceclimber.c` and `ftkirbyspecialyoshi.c` the rest.  After
+ * this table **no slot in any of the 25 archives is unaccounted for.** */
+enum {
+    KB_SLOT_NONE = 0,
+    KB_SLOT_ARTICLE,    /* it_8026B3F8((Article*) ...)                 */
+    KB_SLOT_JOINT,      /* ftCommon_SetAccessory / HSD_JObjLoadJoint   */
+    KB_SLOT_ANIM_JOINT, /* HSD_JObjAddAnimAll((HSD_AnimJoint*) ...)    */
+    KB_SLOT_DYNAMICS,   /* ftDynamics                                  */
+    KB_SLOT_VIS_LOOKUP, /* FtPartsVisLookup[]                          */
+    KB_SLOT_GXCOLOR     /* raw GXColor words -- copied, never read     */
+};
+
+typedef struct KirbyHat {
+    const char* copy;         /* public symbol after "ftDataKirbyCopy" */
+    unsigned char parts_first; /* the LOAD_HAT layout: ftData_x8 at +0x00 */
+    unsigned char slot[7];     /* hat_dynamics[0..6] */
+} KirbyHat;
+
+/* `parts_first` marks its [0] and [1] `KB_SLOT_NONE`: on that layout they are
+ * the `ftData_x8_x8` costume table and the part bitmask, both handled by the
+ * head walk rather than as slots. */
+static const KirbyHat kirby_hats[] = {
+    /* the `ftKb_LoadHat` layout */
+    { "Mario", 0, { KB_SLOT_ARTICLE } },   /* ft_80459B88.x0->xC, MarioFire */
+    { "Fox", 0, { KB_SLOT_ARTICLE, KB_SLOT_ARTICLE } },
+    { "Captain", 0, { 0 } },
+    { "Koopa", 0, { KB_SLOT_ARTICLE, KB_SLOT_DYNAMICS } },
+    { "Link", 0, { KB_SLOT_ARTICLE, KB_SLOT_ARTICLE, KB_SLOT_DYNAMICS } },
+    { "Seak", 0, { KB_SLOT_ARTICLE, KB_SLOT_ARTICLE, KB_SLOT_DYNAMICS } },
+    { "Ness", 0, { KB_SLOT_ARTICLE, KB_SLOT_ARTICLE } },
+    { "Peach", 0, { KB_SLOT_ARTICLE, KB_SLOT_ARTICLE } },
+    { "Popo", 0, { KB_SLOT_ARTICLE, KB_SLOT_JOINT } },
+    { "Pikachu", 0, { KB_SLOT_ARTICLE, KB_SLOT_ARTICLE, KB_SLOT_DYNAMICS } },
+    { "Samus", 0, { KB_SLOT_ARTICLE } },
+    { "Yoshi", 0,
+      { KB_SLOT_JOINT, KB_SLOT_ANIM_JOINT, KB_SLOT_ANIM_JOINT,
+        KB_SLOT_ANIM_JOINT, KB_SLOT_ANIM_JOINT, KB_SLOT_ARTICLE } },
+    { "Luigi", 0, { KB_SLOT_ARTICLE } },
+    { "Mars", 0, { KB_SLOT_JOINT, KB_SLOT_DYNAMICS } },
+    { "Zelda", 0, { KB_SLOT_DYNAMICS } },
+    { "Clink", 0, { KB_SLOT_ARTICLE, KB_SLOT_ARTICLE, KB_SLOT_DYNAMICS } },
+    { "Drmario", 0, { KB_SLOT_ARTICLE } },
+    { "Pichu", 0, { KB_SLOT_ARTICLE, KB_SLOT_ARTICLE, KB_SLOT_DYNAMICS } },
+    { "Ganon", 0, { 0 } },
+    { "Emblem", 0, { KB_SLOT_JOINT, KB_SLOT_DYNAMICS } },
+    /* the `LOAD_HAT` layout */
+    { "Donkey", 1, { KB_SLOT_NONE, KB_SLOT_NONE, KB_SLOT_JOINT } },
+    { "Purin", 1,
+      { KB_SLOT_NONE, KB_SLOT_NONE, KB_SLOT_JOINT, KB_SLOT_DYNAMICS } },
+    { "Mewtwo", 1,
+      { KB_SLOT_NONE, KB_SLOT_NONE, KB_SLOT_JOINT, KB_SLOT_ARTICLE,
+        KB_SLOT_DYNAMICS } },
+    { "Falco", 1,
+      { KB_SLOT_NONE, KB_SLOT_NONE, KB_SLOT_JOINT, KB_SLOT_ARTICLE,
+        KB_SLOT_ARTICLE } },
+    /* G&W's [4] is the one slot that must be left alone.  `ftkirby.c:2683`
+     * calls its +0x04 `ftDynamicBones` and its +0x08 `x4`, but the two words
+     * are `GXColor`s: `ftKb_SpecialN_800F1420` stores +0x04 into
+     * `mat->diffuse` and `ftKb_SpecialN_800F14B4` stores +0x08 into
+     * `fp->x610_color_rgba[1]`, both as raw 4-byte copies.  On disc they read
+     * `0x000000ff` (opaque black -- G&W is a silhouette) and `0xffffff80`.
+     * Byte-swapping them would reverse the channels. */
+    { "Gamewatch", 1,
+      { KB_SLOT_NONE, KB_SLOT_NONE, KB_SLOT_JOINT, KB_SLOT_VIS_LOOKUP,
+        KB_SLOT_GXCOLOR, KB_SLOT_ARTICLE, KB_SLOT_ARTICLE } }
+};
+
+/* DWARF: KirbyHatStruct partial -- the bound is 0x18, the head plus the three
+ * slots every layout has; each later slot is range-checked on its own, and a
+ * `LOAD_HAT` hat is not this struct past +0x0C at all. */
+static void conv_kirby_hat(Conv* c, uint32_t off, const char* name,
+                           size_t name_len)
 {
-    uint32_t joint;
-    uint32_t vis_table;
+    static const size_t prefix = sizeof("ftDataKirbyCopy") - 1;
+    const KirbyHat* hat = NULL;
+    size_t k;
     int n_models;
     int i;
 
-    if (!in_data(c, off, 0x20)) {
+    for (k = 0; k < ARRAY_SIZE(kirby_hats); k++) {
+        size_t n = strlen(kirby_hats[k].copy);
+        if (name_len == prefix + n &&
+            memcmp(name + prefix, kirby_hats[k].copy, n) == 0)
+        {
+            hat = &kirby_hats[k];
+            break;
+        }
+    }
+    /* An archive the table does not name is skipped rather than guessed at,
+     * the way the old shape guard skipped what it could not recognise. */
+    if (hat == NULL || !in_data(c, off, 0x18)) {
         return;
     }
-    /* Self-validating: refuse a root whose shape contradicts the type. */
-    if (c->reloc[off + 0x04] || be32(c->data + off + 0x04) > 11u) {
-        return;
+    /* Self-validating: refuse a root whose bytes contradict its layout.
+     * `model_num` must not be a relocation and must satisfy the engine's own
+     * bound (`ftParts_8007487C` reports above 11); the pointer beside it
+     * must be a relocation or null. */
+    {
+        uint32_t model = hat->parts_first ? off + 0x00 : off + 0x04;
+        uint32_t ptr = hat->parts_first ? off + 0x04 : off + 0x08;
+        if (c->reloc[model] || be32(c->data + model) > 11u) {
+            return;
+        }
+        if (rd32(c, ptr) != 0 && !c->reloc[ptr]) {
+            return;
+        }
     }
-    if (rd32(c, off + 0x00) != 0 && !c->reloc[off + 0x00]) {
-        return;
-    }
-    if (rd32(c, off + 0x08) != 0 && !c->reloc[off + 0x08]) {
+    if (!hat->parts_first && rd32(c, off + 0x00) != 0 && !c->reloc[off + 0x00])
+    {
         return;
     }
     if (!mark(c, off)) {
         return;
     }
-    joint = rd32(c, off + 0x00);
-    if (joint != 0) {
-        conv_joint(c, joint);
+
+    if (hat->parts_first) {
+        conv_ft_parts_block(c, off);
+        /* `ftKb_SpecialN_800EF040` reads this as `u32 mask` and shifts a bit
+         * per fighter part, so it is a number, not the pointer the
+         * declaration calls `hat_dynamics[1]`. */
+        conv_u32(c, off + 0x10);
+    } else {
+        uint32_t joint = rd32(c, off + 0x00);
+        if (joint != 0) {
+            conv_joint(c, joint);
+        }
+        conv_u32(c, off + 0x04); /* FtPartsDesc.model_num */
+        n_models = (int) rd32(c, off + 0x04);
+        if (n_models < 0 || n_models > 12) {
+            n_models = 0;
+        }
+        conv_ft_vis_table(c, rd32(c, off + 0x08), n_models);
     }
-    conv_u32(c, off + 0x04); /* FtPartsDesc.model_num */
-    n_models = (int) rd32(c, off + 0x04);
+    n_models = (int) rd32(c, off + (hat->parts_first ? 0x00u : 0x04u));
     if (n_models < 0 || n_models > 12) {
         n_models = 0;
     }
-    /* FtPartsDesc.vis_table, the same `void* (*)[4]` per-costume table
-     * `conv_ft_data` walks, and bounded the same way: every real slot is a
-     * relocation target and the first non-pointer word is past the end
-     * (P-764).
-     *
-     * **The two tests have to be in this order, and this one used to have
-     * them the other way round.**  A legitimately-NULL slot is not a
-     * relocation target, so testing `c->reloc[p]` first ended the walk at the
-     * first hole -- and the holes are not rare or late: measured across the
-     * disc, 13 of the 17 tables stop on a NULL slot, most of them at
-     * **costume 0, column 3**, with between 2 and 14 relocation-backed slots
-     * still behind them.  So only costume 0's first three lookups were ever
-     * converted and every later costume's part-visibility and TObj-index
-     * selection stayed big-endian, which is why the opponent rendered in the
-     * wrong costume colour while player 1 was right (P-820).  NULL is a legal
-     * hole; only a non-NULL word that is not a pointer is past the end. */
-    vis_table = rd32(c, off + 0x08);
-    if (vis_table != 0) {
-        int costume;
-        int ended = 0;
-        for (costume = 0; costume < 8 && !ended; costume++) {
-            int col;
-            for (col = 0; col < 4; col++) {
-                uint32_t p = vis_table +
-                             ((uint32_t) costume * 4 + (uint32_t) col) * 4;
-                uint32_t lookup;
-                if (!in_data(c, p, 4)) {
-                    ended = 1;
-                    break;
-                }
-                lookup = rd32(c, p);
-                if (lookup == 0) {
-                    continue; /* a legal hole, not the end of the table */
-                }
-                if (!c->reloc[p]) {
-                    ended = 1;
-                    break;
-                }
-                conv_ft_vis_lookup(c, lookup, n_models);
-            }
+
+    for (i = 0; i < (int) ARRAY_SIZE(hat->slot); i++) {
+        uint32_t p = off + 0x0C + (uint32_t) i * 4;
+        uint32_t target;
+        if (hat->slot[i] == KB_SLOT_NONE) {
+            continue;
+        }
+        if (!in_data(c, p, 4) || !c->reloc[p]) {
+            continue;
+        }
+        target = rd32(c, p);
+        if (target == 0) {
+            continue;
+        }
+        switch (hat->slot[i]) {
+        case KB_SLOT_ARTICLE:
+            /* The item kind is passed as -1, as `ftData->x48_items` does:
+             * none of the `It_Kind_Kirby_*` copy items appears in the
+             * per-kind special-attribute tables. */
+            conv_article(c, target, -1);
+            break;
+        case KB_SLOT_JOINT:
+            conv_joint(c, target);
+            break;
+        case KB_SLOT_ANIM_JOINT:
+            conv_anim_joint(c, target);
+            break;
+        case KB_SLOT_DYNAMICS:
+            conv_ft_dynamics(c, target);
+            break;
+        case KB_SLOT_VIS_LOOKUP:
+            conv_ft_vis_lookup(c, target, n_models);
+            break;
+        case KB_SLOT_GXCOLOR:
+        default:
+            break;
         }
     }
-    /* **`hat_dynamics[]` is deliberately not walked.**  Its name is wrong:
-     * the slots are overloaded per fighter kind and only one of the uses in
-     * `ftkirby.c` is actually an `ftDynamics`.
-     *
-     *   [0] `it_8026B3F8((Article*) hat->hat_dynamics[0], ...)`  (3751-3815)
-     *   [1] `u32 mask = (u32) hat->hat_dynamics[1];`             (2851, 3153)
-     *   [2] `HSD_Joint* root = (HSD_Joint*) hat->hat_dynamics[2];`   (3023)
-     *   [3] `lookup = (FtPartsVisLookup*) hat->hat_dynamics[3];`     (3751)
-     *   [4] `hats[Pichu]->hat_dynamics[4]->ftDynamicBones`           (2683)
-     *       but also `*(u32*) ((u8*) hat->hat_dynamics[4] + 8)`      (3756)
-     *
-     * Slot [1] is not even a pointer.  This is the same trap as G&W's
-     * `ftData->x48_items[10]` (P-765), where a slot that passes the Article
-     * test is really an `FtPartsVisLookup[]` -- and that row's conclusion
-     * applies here too: **a shape heuristic does not work, the slot has to be
-     * keyed on what the decompilation says per kind.**  That is a table of
-     * per-fighter special cases and is left for a follow-up; walking these as
-     * `ftDynamics` would corrupt four uses out of five.  `conv_ft_dynamics`
-     * is factored out and ready for whoever writes it.
-     *
-     * `i` is unused for now. */
-    (void) i;
 }
 
 static void conv_ft_data(Conv* c, uint32_t off, const char* name,
@@ -4319,113 +4557,7 @@ static void conv_ft_data(Conv* c, uint32_t off, const char* name,
         }
     }
 
-    /* x8 can legitimately be data offset 0 (G-023): the ftData_x8 tables of
-     * PlMr.dat live at the start of the data section. */
-    if (in_data(c, x8, 0x18)) {
-        uint32_t cost_tbl;
-        int n_tobjs;
-        int n_models;
-        int k;
-        conv_u32(c, x8 + 0x00); /* FtPartsDesc.model_num */
-        conv_u32(c, x8 + 0x08); /* ftData_x8_x8.x8 */
-        n_models = (int) rd32(c, x8 + 0x00);
-        if (n_models < 0 || n_models > 12) {
-            n_models = 0;
-        }
-        {
-            uint32_t vis_table = rd32(c, x8 + 0x04);
-            int costume;
-            int ended = 0;
-            if (vis_table != 0) {
-                for (costume = 0; costume < 8 && !ended; costume++) {
-                    int col;
-                    for (col = 0; col < 4; col++) {
-                        uint32_t p = vis_table +
-                                     ((uint32_t) costume * 4 +
-                                      (uint32_t) col) * 4;
-                        uint32_t lookup;
-                        if (!in_data(c, p, 4)) {
-                            ended = 1;
-                            break;
-                        }
-                        lookup = rd32(c, p);
-                        if (lookup == 0) {
-                            continue;
-                        }
-                        /* Every real vis_table slot is a relocation target;
-                         * the first non-pointer word is past the table (the
-                         * costume TObj array follows it).
-                         *
-                         * `ended` stops the *outer* loop too.  Breaking only
-                         * the inner one left `costume` free to advance past
-                         * the end of the table and find a later word that
-                         * happened to be a relocation target -- for Pichu the
-                         * `ftData_x8_x8.xC` costume table, three words on.
-                         * conv_ft_vis_lookup then read those TObj-index
-                         * arrays as FtPartsVisLookup entries and `conv_u32`
-                         * byte-swapped the words that hold two u16 indices
-                         * each, so index 2 came back as 0x0200 = 512 and
-                         * `ftParts_80075240` asserted "can't find tobj!"
-                         * before the match started (P-764).  Fighters with
-                         * fewer costumes have shorter tables, which is why
-                         * only Roy, Pichu and Ganondorf hit it. */
-                        if (!c->reloc[p]) {
-                            ended = 1;
-                            break;
-                        }
-                        conv_ft_vis_lookup(c, lookup, n_models);
-                    }
-                }
-            }
-        }
-        /* ftData_x8_x8.xC: per-costume u16 arrays of TObj indices (the
-         * values are numeric and looked up in the model tree). */
-        n_tobjs = (int) rd32(c, x8 + 0x08);
-        cost_tbl = rd32(c, x8 + 0x0C);
-        if (cost_tbl != 0 && n_tobjs > 0 && n_tobjs <= 64) {
-            for (k = 0; k < 8; k++) {
-                uint32_t p = cost_tbl + (uint32_t) k * 4;
-                uint32_t arr;
-                int j;
-                if (!in_data(c, p, 4)) {
-                    break;
-                }
-                /* **Eight is the cap, not the count.**  A fighter with fewer
-                 * costumes ends this table early, and the words after it are
-                 * whatever the archive put there.  Without this check `arr`
-                 * is ordinary data used as an offset, and the inner loop
-                 * byte-swaps `n_tobjs` u16 wherever it lands: in `PlEm.dat`
-                 * it landed on the **symbol string** at 0x18 and transposed
-                 * its first two halfwords, turning
-                 * `PlyEmblem5K_Share_ACTION_WallDamage_figatree` into
-                 * `lPEymblem5K_...`.  `ftData_80085CD8` then looked that name
-                 * up in the animation archive it had just DMA'd in, got NULL,
-                 * and left `fp->x590` NULL -- so the joints were never
-                 * rebound and the previous animation's FObjs kept playing
-                 * over the new data (P-797, G-203).  A slot that is not a
-                 * relocation target is not a pointer; stop there. */
-                if (!c->reloc[p]) {
-                    break;
-                }
-                arr = rd32(c, p);
-                if (arr == 0) {
-                    continue;
-                }
-                for (j = 0; j < n_tobjs; j++) {
-                    uint32_t u = arr + (uint32_t) j * 2;
-                    if (!in_data(c, u, 2)) {
-                        break;
-                    }
-                    /* If the 4-byte word containing this u16 is a relocation
-                     * target, the reloc pass already byte-swapped it (two
-                     * u16s at once); converting again would undo it. */
-                    if (!c->reloc[u & ~3u]) {
-                        conv_u16(c, u);
-                    }
-                }
-            }
-        }
-    }
+    conv_ft_parts_block(c, x8);
     /* ftData->x1C is a table of `ftData_x1C*` part-animation descriptors.
      * Fighter.x8B0 has five runtime slots, so five is the cap, but fighter
      * archives serialize only a leading run.  conv_ft_part_anim converts each
@@ -5862,7 +5994,7 @@ static void convert_roots(Conv* c, uint32_t public_off, uint32_t nb_public,
             conv_ft_common_data(c, data_off);
         } else if (length >= 15 &&
                    memcmp(name, "ftDataKirbyCopy", 15) == 0) {
-            conv_kirby_hat(c, data_off);
+            conv_kirby_hat(c, data_off, name, length);
         } else if (length >= 6 && memcmp(name, "ftData", 6) == 0) {
             conv_ft_data(c, data_off, name, length);
         } else if (length == 12 && memcmp(name, "itPublicData", 12) == 0) {

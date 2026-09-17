@@ -1,5 +1,21 @@
 # State of the port
 
+> **Kirby's copy hats are converted for the first time (2026-09-17, P-842).**
+> `KirbyHatStruct` has **two on-disc layouts** and the converter knew one, so
+> the five hats the `LOAD_HAT` macro loads -- Donkey Kong, Jigglypuff, Mewtwo,
+> Falco and Mr. Game & Watch -- were skipped whole by a guard that was right
+> about the layout it knew and silent about the one it was not. Swallowing any
+> of the five panicked in `dobj.c:312` on a big-endian `rendermode`, the G-199
+> signature. `hat_dynamics[]` was also never walked *for any hat*: every
+> copied special's `Article`, every hat's `ftDynamics` and Marth's, Roy's, the
+> Ice Climbers' and Yoshi's extra models were unconverted too. The slot table
+> is now named per archive from the decompilation, and **no slot in any of the
+> 25 archives is unaccounted for**. Converter **v135**; coverage 82.85% ->
+> 83.13%; new `check_kirby_hats` asserts the panic's own condition -- it
+> reports `rendermode 0x3c000000 would panic DObjLoad` on the old converter.
+> Two words are deliberately left big-endian: G&W's `hat_dynamics[4] + 4/+8`
+> are `GXColor`s copied verbatim, whatever the source's type name says (G-218).
+
 > **Mods are a real layer now, and widescreen is the first thing built on it
 > (2026-09-17, ADR-0026/0027, P-831).** `mods/unbound/unbound.wasm` is a
 > 1.3 KB WebAssembly module that the desktop build loads out of `mods/` under

@@ -983,3 +983,142 @@ int check_cpu_attack_tables(const char* image)
     free(buffer);
     return failed;
 }
+
+/* Every `PlKbCp*.dat` is a `KirbyHatStruct` in one of two layouts, and the
+ * five that `LOAD_HAT` loads keep a second model in "`hat_dynamics[2]`"
+ * (+0x14) that `ftKb_SpecialN_800EF438` hands to `HSD_DObjLoadDesc`.  Left
+ * big-endian, `DObjLoad` falls through its three `case`s and calls
+ * `HSD_Panic` the first time Kirby swallows that fighter (P-842, G-199).
+ *
+ * The layout is derived here rather than copied from the converter's table,
+ * so the two are independent: a joint-first hat has a pointer at +0x00, a
+ * parts-first hat has `model_num` there.  What is then checked is the panic's
+ * own condition -- every `MObjDesc.rendermode` under every joint tree a hat
+ * hands to the engine must land on one of `DObjLoad`'s three cases. */
+static int check_hat_rendermodes(const char* path, unsigned char* joint,
+                                 const unsigned char* buffer, size_t size,
+                                 unsigned* mobjs, int depth)
+{
+    unsigned char* dobj;
+    uint32_t flags;
+    int failed = 0;
+
+    if (joint == NULL || !ptr_in_buffer(joint, buffer, size) || depth > 64) {
+        return 0;
+    }
+    flags = read_host_u32(joint + 0x04);
+    /* HSD_JOBJ_PTCL | HSD_JOBJ_SPLINE: the +0x10 union is not a DObj then. */
+    dobj = (flags & 0x60000000u) ? NULL : read_host_ptr(joint + 0x10);
+    for (; dobj != NULL && ptr_in_buffer(dobj, buffer, size);
+         dobj = read_host_ptr(dobj + 0x04))
+    {
+        unsigned char* mobj = read_host_ptr(dobj + 0x08);
+        uint32_t rendermode;
+        if (mobj == NULL || !ptr_in_buffer(mobj, buffer, size)) {
+            continue;
+        }
+        rendermode = read_host_u32(mobj + 0x04);
+        (*mobjs)++;
+        if ((rendermode & 0x60000000u) == 0x20000000u) {
+            fprintf(stderr,
+                    "decomp_assets: %s rendermode 0x%08x would panic "
+                    "DObjLoad\n",
+                    path, rendermode);
+            failed = 1;
+        }
+    }
+    if (!(flags & 0x01000000u)) { /* HSD_JOBJ_INSTANCE */
+        failed |= check_hat_rendermodes(path, read_host_ptr(joint + 0x08),
+                                        buffer, size, mobjs, depth + 1);
+    }
+    failed |= check_hat_rendermodes(path, read_host_ptr(joint + 0x0C), buffer,
+                                    size, mobjs, depth + 1);
+    return failed;
+}
+
+int check_kirby_hats(const char* image)
+{
+    DiscFileList list;
+    char error[256];
+    unsigned hats = 0;
+    unsigned models = 0;
+    unsigned mobjs = 0;
+    size_t i;
+    int failed = 0;
+
+    if (disc_list(image, "PlKbCp", ".dat", &list, error, sizeof(error)) != 0) {
+        fprintf(stderr, "decomp_assets: PlKbCp*.dat: %s\n", error);
+        return 1;
+    }
+    for (i = 0; i < list.count; i++) {
+        const char* path = list.names[i];
+        size_t size = 0;
+        unsigned char* buffer = load_archive(image, path, NULL, &size, error,
+                                             sizeof(error));
+        HsdConvertStats stats;
+        HSD_Archive archive;
+        unsigned char* hat = NULL;
+        unsigned char* joint;
+        uint32_t model_num;
+        int parts_first;
+        int j;
+
+        if (buffer == NULL) {
+            fprintf(stderr, "decomp_assets: %s: %s\n", path, error);
+            failed = 1;
+            continue;
+        }
+        if (!hsd_asset_convert(buffer, size, &stats) ||
+            HSD_ArchiveParse(&archive, buffer, size) != 0)
+        {
+            fprintf(stderr, "decomp_assets: %s conversion failed\n", path);
+            free(buffer);
+            failed = 1;
+            continue;
+        }
+        for (j = 0; (uint32_t) j < archive.header.nb_public && hat == NULL;
+             j++)
+        {
+            const char* name = archive.symbols + archive.public_info[j].symbol;
+            if (strncmp(name, "ftDataKirbyCopy", 15) == 0) {
+                hat = HSD_ArchiveGetPublicAddress(&archive, name);
+            }
+        }
+        if (hat == NULL) {
+            fprintf(stderr, "decomp_assets: %s has no ftDataKirbyCopy root\n",
+                    path);
+            free(buffer);
+            failed = 1;
+            continue;
+        }
+        hats++;
+        parts_first = !ptr_in_buffer(read_host_ptr(hat + 0x00), buffer, size);
+        model_num = read_host_u32(hat + (parts_first ? 0x00 : 0x04));
+        /* ftParts_8007487C reports "fighter parts model num over!" above 11;
+         * every hat on disc carries exactly one model. */
+        if (model_num != 1) {
+            fprintf(stderr, "decomp_assets: %s model_num=%u (want 1)\n", path,
+                    model_num);
+            failed = 1;
+        }
+        joint = read_host_ptr(hat + (parts_first ? 0x14 : 0x00));
+        if (joint != NULL && ptr_in_buffer(joint, buffer, size)) {
+            models++;
+            failed |= check_hat_rendermodes(path, joint, buffer, size, &mobjs,
+                                            0);
+        }
+        free(buffer);
+    }
+    disc_list_free(&list);
+    if (hats != 25) {
+        fprintf(stderr, "decomp_assets: %u Kirby copy archives (want 25)\n",
+                hats);
+        failed = 1;
+    }
+    if (!failed) {
+        printf("decomp_assets: Kirby hats=%u models=%u mobjs=%u "
+               "rendermodes ok\n",
+               hats, models, mobjs);
+    }
+    return failed;
+}
