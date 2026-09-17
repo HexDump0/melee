@@ -92,16 +92,29 @@ void widescreen_on_camera_setup(UnboundCameraSetup* cam)
     case UNBOUND_PROJECTION_FRUSTUM:
         cam->aspect *= scale;
         break;
-    case UNBOUND_PROJECTION_ORTHO:
+    case UNBOUND_PROJECTION_ORTHO: {
         /*
-         * Widening an ortho camera keeps 2D elements the right *shape*, but
-         * they stay at their authored coordinates, so anything anchored to a
-         * screen edge now sits inside the new one.  Re-anchoring the HUD is
-         * its own task (P-834); this at least stops it being stretched.
+         * Widen about the camera's own centre, not about zero.
+         *
+         * Scaling both edges only works for a camera authored symmetrically;
+         * an asymmetric one -- `grpstadium.c:1176` is `left=0, right=250` --
+         * has its centre multiplied along with its width, so the view slides
+         * sideways instead of widening.  Hold the centre and grow the half
+         * width.
+         *
+         * Widening at all keeps 2D elements the right *shape*: the rect they
+         * are presented into got wider by exactly this factor, so an
+         * unwidened ortho camera would stretch them.  What it does not do is
+         * move them -- they stay at their authored coordinates, so anything
+         * anchored to a screen edge now sits inside the new one.  Re-anchoring
+         * the HUD is its own task (P-834).
          */
-        cam->ortho_left *= scale;
-        cam->ortho_right *= scale;
+        float centre = 0.5f * (cam->ortho_left + cam->ortho_right);
+        float half = 0.5f * (cam->ortho_right - cam->ortho_left) * scale;
+        cam->ortho_left = centre - half;
+        cam->ortho_right = centre + half;
         break;
+    }
     default:
         break;
     }
