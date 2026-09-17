@@ -86,6 +86,17 @@ void widescreen_on_camera_setup(UnboundCameraSetup* cam)
     if (cam->render_pass == UNBOUND_PASS_OFFSCREEN) {
         return;
     }
+    /*
+     * Only cameras that cover the whole EFB.  One that draws into a fixed
+     * sub-rectangle -- the off-screen-player magnifier renders its bubble
+     * through a camera whose viewport is the bubble's own width and height --
+     * is drawing into a shape the window never changed, since the EFB is
+     * fitted to the window uniformly.  Widening those squashes their
+     * contents.
+     */
+    if (cam->viewport_w < 639.0f || cam->viewport_h < 479.0f) {
+        return;
+    }
 
     switch (cam->projection) {
     case UNBOUND_PROJECTION_PERSPECTIVE:

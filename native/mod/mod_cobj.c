@@ -168,6 +168,8 @@ bool unbound_HSD_CObjSetCurrent(HSD_CObj* cobj)
     setup.camera = (unsigned) (uintptr_t) cobj;
     setup.projection = cobj->projection_type;
     setup.render_pass = pass_to_abi(pass);
+    setup.viewport_w = cobj->viewport.xmax - cobj->viewport.xmin;
+    setup.viewport_h = cobj->viewport.ymax - cobj->viewport.ymin;
     if (overlay_has(cobj)) {
         setup.role = UNBOUND_CAMERA_ROLE_OVERLAY;
     } else if (pass == HSD_RP_OFFSCREEN) {

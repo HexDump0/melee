@@ -30,7 +30,7 @@
  *     bump UNBOUND_ABI_VERSION.
  */
 
-#define UNBOUND_ABI_VERSION 1u
+#define UNBOUND_ABI_VERSION 2u
 
 /* Chains run low priority first; ties break on registration order. */
 #define UNBOUND_PRIORITY_EARLY 100
@@ -124,6 +124,18 @@ typedef struct UnboundCameraSetup {
     float aspect;
     float ortho_left;
     float ortho_right;
+    /*
+     * The camera's own viewport, in 640x480 EFB pixels (ABI 2).
+     *
+     * A camera that does not cover the whole EFB is drawing into a fixed
+     * sub-rectangle -- the off-screen-player magnifier's bubble, a shadow
+     * map -- and that rectangle's shape did not change when the window did,
+     * because the EFB is fitted to the window uniformly.  So a display mod
+     * must leave those alone, and this is how it tells.  It is a fact about
+     * the camera rather than a guess about what it draws.
+     */
+    float viewport_w;
+    float viewport_h;
 } UnboundCameraSetup;
 
 /* UNBOUND_HOOK_DISPLAY_RESIZED payload.  Read-only. */
