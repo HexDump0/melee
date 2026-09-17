@@ -36,7 +36,8 @@ typedef struct ModHandler {
  */
 static const int hook_effect[UNBOUND_HOOK_COUNT] = {
     UNBOUND_EFFECT_PRESENT, /* UNBOUND_HOOK_CAMERA_SETUP */
-    UNBOUND_EFFECT_PRESENT  /* UNBOUND_HOOK_DISPLAY_RESIZED */
+    UNBOUND_EFFECT_PRESENT, /* UNBOUND_HOOK_DISPLAY_RESIZED */
+    UNBOUND_EFFECT_PRESENT  /* UNBOUND_HOOK_FRAME */
 };
 
 static ModInstance mods[MOD_MAX];
@@ -248,6 +249,30 @@ int mod_host_scene_kind(void)
         return scene_override;
     }
     return mod_engine_scene_kind();
+}
+
+/*
+ * Drawing is only legal while the host has a pass open, which is around the
+ * frame hook.  A mod that squirrels the call away and makes it from a camera
+ * hook gets nothing rather than corrupting a vertex buffer mid-frame.
+ */
+static int drawing_open;
+
+void mod_set_drawing(int open) { drawing_open = open; }
+
+void mod_host_draw_color(float r, float g, float b, float a)
+{
+    if (drawing_open && display != NULL && display->draw_color != NULL) {
+        display->draw_color(r, g, b, a);
+    }
+}
+
+void mod_host_draw_text(float x, float y, float scale, const char* text,
+                        unsigned len)
+{
+    if (drawing_open && display != NULL && display->draw_text != NULL) {
+        display->draw_text(x, y, scale, text, len);
+    }
 }
 
 float mod_host_display_get_aspect(void)

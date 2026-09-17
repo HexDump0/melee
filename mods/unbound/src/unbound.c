@@ -21,12 +21,44 @@ void widescreen_init(void);
 void widescreen_on_display_resized(const UnboundDisplayResized* size);
 void widescreen_on_camera_setup(UnboundCameraSetup* cam);
 
+void credits_open(void);
+int credits_is_open(void);
+void credits_on_frame(const UnboundFrame* frame);
+
 void unbound_mod_init(void)
 {
     unbound_hook_enable(UNBOUND_HOOK_CAMERA_SETUP, UNBOUND_PRIORITY_NORMAL);
     unbound_hook_enable(UNBOUND_HOOK_DISPLAY_RESIZED, UNBOUND_PRIORITY_NORMAL);
+    unbound_hook_enable(UNBOUND_HOOK_FRAME, UNBOUND_PRIORITY_NORMAL);
 
     widescreen_init();
+}
+
+/*
+ * Until the menu entry exists (P-838) the credits are reached with Z from a
+ * non-gameplay screen, and the footer says so.  When the entry lands, this
+ * becomes `credits_open()` from the selection handler and the footer goes
+ * away -- credits.c does not change.
+ */
+static void unbound_on_frame(const UnboundFrame* frame)
+{
+    int i;
+
+    if (credits_is_open()) {
+        credits_on_frame(frame);
+        return;
+    }
+    if (frame->scene == UNBOUND_SCENE_GAMEPLAY) {
+        return;
+    }
+    for (i = 0; i < 4; ++i) {
+        if (unbound_buttons_pressed(i) & UNBOUND_BUTTON_Z) {
+            credits_open();
+            return;
+        }
+    }
+    unbound_draw_color(0.55f, 0.45f, 0.75f, 1.0f);
+    unbound_draw_text(8.0f, 462.0f, 1.0f, "MELEE UNBOUND   Z  CREDITS");
 }
 
 void unbound_mod_on_hook(unsigned hook)
@@ -39,6 +71,9 @@ void unbound_mod_on_hook(unsigned hook)
         break;
     case UNBOUND_HOOK_DISPLAY_RESIZED:
         widescreen_on_display_resized((const UnboundDisplayResized*) payload);
+        break;
+    case UNBOUND_HOOK_FRAME:
+        unbound_on_frame((const UnboundFrame*) payload);
         break;
     default:
         break;

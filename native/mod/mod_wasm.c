@@ -95,6 +95,32 @@ static int32_t host_scene_kind(wasm_exec_env_t env)
     return mod_host_scene_kind();
 }
 
+static void host_draw_color(wasm_exec_env_t env, float r, float g, float b,
+                            float a)
+{
+    (void) env;
+    mod_host_draw_color(r, g, b, a);
+}
+
+static void host_draw_text(wasm_exec_env_t env, float x, float y, float scale,
+                           const char* text, uint32_t len)
+{
+    (void) env;
+    mod_host_draw_text(x, y, scale, text, len);
+}
+
+static uint32_t host_buttons_held(wasm_exec_env_t env, int32_t port)
+{
+    (void) env;
+    return mod_engine_buttons_held(port);
+}
+
+static uint32_t host_buttons_pressed(wasm_exec_env_t env, int32_t port)
+{
+    (void) env;
+    return mod_engine_buttons_pressed(port);
+}
+
 /*
  * WAMR signature strings: `i` i32, `f` f32, `*~` a guest buffer plus its
  * length, which the runtime bounds-checks and hands over as a host pointer.
@@ -117,7 +143,11 @@ static NativeSymbol mod_natives[] = {
     { "display_height", (void*) host_display_height, "()i", NULL },
     { "display_set_aspect", (void*) host_display_set_aspect, "(f)", NULL },
     { "display_get_aspect", (void*) host_display_get_aspect, "()f", NULL },
-    { "scene_kind", (void*) host_scene_kind, "()i", NULL }
+    { "scene_kind", (void*) host_scene_kind, "()i", NULL },
+    { "draw_color", (void*) host_draw_color, "(ffff)", NULL },
+    { "draw_text", (void*) host_draw_text, "(fff*~)", NULL },
+    { "buttons_held", (void*) host_buttons_held, "(i)i", NULL },
+    { "buttons_pressed", (void*) host_buttons_pressed, "(i)i", NULL }
 };
 #pragma GCC diagnostic pop
 

@@ -42,6 +42,7 @@
 #include <melee/gm/forward.h>
 #include <melee/gm/gm_1A3F.h>
 #include <sysdolphin/baselib/cobj.h>
+#include <sysdolphin/baselib/controller.h>
 #include <sysdolphin/baselib/initialize.h>
 #include <sysdolphin/baselib/video.h>
 
@@ -102,6 +103,27 @@ static int pass_to_abi(HSD_RenderPass pass)
     default:
         return UNBOUND_PASS_OTHER;
     }
+}
+
+/*
+ * The pad copy the game itself reads, so a mod sees what the game saw on this
+ * frame rather than a separately-polled device.  `trigger` is the engine's
+ * own "went down this frame".
+ */
+unsigned mod_engine_buttons_held(int port)
+{
+    if (port < 0 || port > 3) {
+        return 0;
+    }
+    return HSD_PadCopyStatus[port].button;
+}
+
+unsigned mod_engine_buttons_pressed(int port)
+{
+    if (port < 0 || port > 3) {
+        return 0;
+    }
+    return HSD_PadCopyStatus[port].trigger;
 }
 
 /*

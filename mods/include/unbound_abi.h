@@ -30,7 +30,7 @@
  *     bump UNBOUND_ABI_VERSION.
  */
 
-#define UNBOUND_ABI_VERSION 3u
+#define UNBOUND_ABI_VERSION 4u
 
 /* Chains run low priority first; ties break on registration order. */
 #define UNBOUND_PRIORITY_EARLY 100
@@ -74,7 +74,19 @@ enum {
     /* The drawable changed size.  PRESENT by construction. */
     UNBOUND_HOOK_DISPLAY_RESIZED = 1,
 
-    UNBOUND_HOOK_COUNT = 2
+    /*
+     * Once per presented frame, after the game's own frame is drawn and
+     * before it reaches the screen (ABI 4).  This is where a mod draws an
+     * overlay and reads input.
+     *
+     * PRESENT: it runs after the game has finished deciding what this frame
+     * contains, so nothing a handler does here can change what was simulated.
+     * A hook that let a mod act *before* the game's frame would be SIM and is
+     * deliberately not this one.
+     */
+    UNBOUND_HOOK_FRAME = 2,
+
+    UNBOUND_HOOK_COUNT = 3
 };
 
 /* Mirrors HSD's projection kinds so a mod needs no decomp header. */
@@ -137,6 +149,39 @@ typedef struct UnboundCameraSetup {
     float viewport_w;
     float viewport_h;
 } UnboundCameraSetup;
+
+/*
+ * Controller buttons, matching the console's bits so a mod does not have to
+ * learn a second encoding.
+ */
+enum {
+    UNBOUND_BUTTON_DPAD_LEFT = 0x0001,
+    UNBOUND_BUTTON_DPAD_RIGHT = 0x0002,
+    UNBOUND_BUTTON_DPAD_DOWN = 0x0004,
+    UNBOUND_BUTTON_DPAD_UP = 0x0008,
+    UNBOUND_BUTTON_Z = 0x0010,
+    UNBOUND_BUTTON_R = 0x0020,
+    UNBOUND_BUTTON_L = 0x0040,
+    UNBOUND_BUTTON_A = 0x0100,
+    UNBOUND_BUTTON_B = 0x0200,
+    UNBOUND_BUTTON_X = 0x0400,
+    UNBOUND_BUTTON_Y = 0x0800,
+    UNBOUND_BUTTON_START = 0x1000
+};
+
+/*
+ * UNBOUND_HOOK_FRAME payload.  Read-only.
+ *
+ * Overlay drawing is in a fixed 640x480 space whatever the window is doing,
+ * the same space the game's own 2D is authored in, so a mod never has to
+ * think about the drawable.
+ */
+typedef struct UnboundFrame {
+    unsigned frame;    /* frames presented since boot */
+    int scene;         /* UNBOUND_SCENE_*, as of this frame */
+    float draw_width;  /* always 640 */
+    float draw_height; /* always 480 */
+} UnboundFrame;
 
 /* UNBOUND_HOOK_DISPLAY_RESIZED payload.  Read-only. */
 typedef struct UnboundDisplayResized {

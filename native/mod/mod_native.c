@@ -43,6 +43,27 @@ float unbound_display_get_aspect(void) { return mod_host_display_get_aspect(); }
 
 int unbound_scene_kind(void) { return mod_host_scene_kind(); }
 
+void unbound_draw_color(float r, float g, float b, float a)
+{
+    mod_host_draw_color(r, g, b, a);
+}
+
+void unbound_draw_text_raw(float x, float y, float scale, const char* text,
+                           unsigned len)
+{
+    mod_host_draw_text(x, y, scale, text, len);
+}
+
+unsigned unbound_buttons_held(int port)
+{
+    return mod_engine_buttons_held(port);
+}
+
+unsigned unbound_buttons_pressed(int port)
+{
+    return mod_engine_buttons_pressed(port);
+}
+
 static void* native_payload(void* ctx)
 {
     (void) ctx;

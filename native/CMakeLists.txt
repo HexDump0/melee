@@ -462,6 +462,7 @@ add_subdirectory(mod/wamr)
 add_library(melee_mod STATIC
     mod/mod.c
     mod/mod_cobj.c
+    mod/mod_menu.c
     mod/mod_wasm.c)
 target_include_directories(melee_mod BEFORE PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
@@ -487,7 +488,8 @@ target_link_libraries(melee_mod PUBLIC wamr_vm)
 # the clang and wasm-ld already on the machine.
 set(MELEE_UNBOUND_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/../mods/unbound/src/unbound.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../mods/unbound/src/widescreen.c)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../mods/unbound/src/widescreen.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../mods/unbound/src/credits.c)
 find_program(MELEE_WASM_CLANG NAMES clang)
 if(MELEE_WASM_CLANG)
   add_custom_command(

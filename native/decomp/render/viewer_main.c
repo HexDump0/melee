@@ -28,9 +28,38 @@
 
 /* The registry does not link the GL backend itself (melee_decomp_boot has no
  * renderer at all), so the target that owns a drawable hands it over. */
-static const ModDisplayBackend mod_gx_gl_display = { gx_gl_get_window_size,
-                                                     gx_gl_set_display_aspect,
-                                                     gx_gl_get_display_aspect };
+static void mod_draw_color(float r, float g, float b, float a)
+{
+    hud_set_color(r, g, b, a);
+}
+
+static void mod_draw_text(float x, float y, float scale, const char* text,
+                          unsigned len)
+{
+    /* The ABI passes (pointer, length) so a guest never has to be trusted to
+     * terminate a string; hud_text wants a C string. */
+    char buf[256];
+    if (len >= sizeof(buf)) {
+        len = sizeof(buf) - 1;
+    }
+    memcpy(buf, text, len);
+    buf[len] = '\0';
+    hud_text(x, y, scale, buf);
+}
+
+/* One asset hook slot, two consumers: the menu label work patches the bytes,
+ * then the GX HLE records the archive.  Patch first -- the HLE caches what it
+ * is given. */
+static void mod_register_asset(const void* bytes, size_t size)
+{
+    mod_menu_on_asset(bytes, size);
+    gx_hle_register_asset(bytes, size);
+}
+
+static const ModDisplayBackend mod_gx_gl_display = {
+    gx_gl_get_window_size, gx_gl_set_display_aspect, gx_gl_get_display_aspect,
+    mod_draw_color,        mod_draw_text
+};
 
 static void usage(const char* argv0)
 {
@@ -233,6 +262,24 @@ static void match_present(void)
         }
         draws = gx_gl_render_frame();
         match_view.last_render_ns = SDL_GetTicksNS() - frame_start;
+        /*
+         * Mods draw here: after the game's frame exists, before it is
+         * presented.  A fixed 640x480 space whatever the window is doing, so
+         * a mod never has to think about the drawable -- the same space the
+         * game's own 2D is authored in.
+         */
+        if (mod_hook_active(UNBOUND_HOOK_FRAME)) {
+            UnboundFrame info;
+            info.frame = match_view.frames;
+            info.scene = mod_host_scene_kind();
+            info.draw_width = 640.0f;
+            info.draw_height = 480.0f;
+            hud_begin(640, 480);
+            mod_set_drawing(1);
+            mod_dispatch(UNBOUND_HOOK_FRAME, &info, sizeof(info));
+            mod_set_drawing(0);
+            hud_end();
+        }
         /*
          * Tell mods about a resize only now, after the frame is on screen.
          *
@@ -498,7 +545,7 @@ static int run_match(SDL_Window* window, SDL_GLContext context,
             : (devnull != NULL ? devnull : stderr),
         0, 0);
     boot_triage_set_frame_budget(limit != 0 ? limit + 240 : 0);
-    hsd_asset_set_register_hook(gx_hle_register_asset);
+    hsd_asset_set_register_hook(mod_register_asset);
     /* Before the first frame, so a mod's display settings are in place for
      * it rather than applying one frame late. */
     mod_set_display_backend(&mod_gx_gl_display);
@@ -874,6 +921,12 @@ int main(int argc, char** argv)
             v->gl.only_draw = v->part;
         } else if (v->part_mode == 2) {
             v->gl.hide_draw = v->part;
+        }
+        /* The match path returns before the viewer's own hud_init, so a mod
+         * that draws would have had no renderer.  Not fatal if it fails:
+         * overlay drawing simply stays a no-op. */
+        if (!hud_init(error, sizeof(error))) {
+            fprintf(stderr, "viewer: hud init failed: %s\n", error);
         }
         status = run_match(window, context, shot, record, record_every,
                            dump_frame, match_frame, (unsigned) frames,

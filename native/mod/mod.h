@@ -19,6 +19,8 @@
  * the other would be a bug nobody found until a player did.
  */
 
+#include <stddef.h>
+
 #include "unbound_abi.h"
 
 typedef struct ModInstance ModInstance;
@@ -98,6 +100,11 @@ typedef struct ModDisplayBackend {
     void (*get_window_size)(int* width, int* height);
     void (*set_aspect)(float aspect);
     float (*get_aspect)(void);
+    /* Overlay drawing, valid only between the host's begin/end pass.  NULL
+     * on a target with no renderer, where a drawing mod becomes a no-op. */
+    void (*draw_color)(float r, float g, float b, float a);
+    void (*draw_text)(float x, float y, float scale, const char* text,
+                      unsigned len);
 } ModDisplayBackend;
 
 void mod_set_display_backend(const ModDisplayBackend* backend);
@@ -110,11 +117,21 @@ void mod_host_log(const char* msg, unsigned len);
 int mod_host_display_width(void);
 int mod_host_display_height(void);
 void mod_host_display_set_aspect(float aspect);
+void mod_host_draw_color(float r, float g, float b, float a);
+void mod_host_draw_text(float x, float y, float scale, const char* text,
+                        unsigned len);
+/* Opened by whoever owns the drawable, around the frame hook. */
+void mod_set_drawing(int open);
 float mod_host_display_get_aspect(void);
 int mod_host_scene_kind(void);
 
 /* What the engine's own scene index says.  Implemented in mod_cobj.c. */
 int mod_engine_scene_kind(void);
+
+/* Controller state, straight off the engine's pad copy.  Implemented in
+ * mod_cobj.c because it reads a decomp global. */
+unsigned mod_engine_buttons_held(int port);
+unsigned mod_engine_buttons_pressed(int port);
 
 /*
  * Force the scene kind reported to mods.
@@ -132,6 +149,9 @@ void mod_set_scene_override(int kind);
 /* Scan MELEE_MODS_DIR for folders with a mod.toml and add them.  Desktop. */
 void mod_wasm_scan(void);
 void mod_wasm_shutdown(void);
+
+/* Archive hook for the menu-label work (P-838); see mod_menu.c. */
+void mod_menu_on_asset(const void* bytes, size_t size);
 
 /* Add the mods compiled into this binary.  Browser. */
 void mod_native_scan(void);

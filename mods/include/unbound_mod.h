@@ -73,6 +73,28 @@ int unbound_config_int_raw(const char* key, unsigned len, int fallback);
 #define unbound_config_int(key, fallback)                                     \
     unbound_config_int_raw((key), (unsigned) (sizeof(key) - 1), (fallback))
 
+/*
+ * Overlay drawing.  Legal only from UNBOUND_HOOK_FRAME, where the host has a
+ * drawing pass open; calls from anywhere else are dropped.  Coordinates are
+ * the 640x480 space in the frame payload, y down, origin top-left.
+ */
+UNBOUND_IMPORT("draw_color")
+void unbound_draw_color(float r, float g, float b, float a);
+UNBOUND_IMPORT("draw_text")
+void unbound_draw_text_raw(float x, float y, float scale, const char* text,
+                           unsigned len);
+#define unbound_draw_text(x, y, scale, text)                                  \
+    unbound_draw_text_raw((x), (y), (scale), (text),                          \
+                          (unsigned) (sizeof(text) - 1))
+
+/*
+ * Controller state for a port, 0-3.  `held` is the buttons down now;
+ * `pressed` is the ones that went down this frame, which is what a menu
+ * wants.  Masks are UNBOUND_BUTTON_*.
+ */
+UNBOUND_IMPORT("buttons_held") unsigned unbound_buttons_held(int port);
+UNBOUND_IMPORT("buttons_pressed") unsigned unbound_buttons_pressed(int port);
+
 /* What kind of screen the game is showing right now; see unbound_abi.h. */
 UNBOUND_IMPORT("scene_kind") int unbound_scene_kind(void);
 
