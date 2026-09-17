@@ -1,0 +1,56 @@
+diff --git a/src/melee/mn/mninfo.c b/src/melee/mn/mninfo.c
+index ee883f171..578ae56ef 100644
+--- a/src/melee/mn/mninfo.c
++++ b/src/melee/mn/mninfo.c
+@@ -151,6 +151,43 @@ void mnInfo_80251AFC(void)
+     }
+ }
+ 
++#ifdef PORT_PC
++/* **This table is not floats; it is `MnInfoDataLayout`, and most of it is
++ * strings.** The decompilation types it `AnimLoopSettings[0x12]` because that
++ * is what the first twelve bytes are, and renders the rest as float literals
++ * -- `2.405757e8f` and friends -- which on the console are simply the bytes
++ * `4D 65 6E 4D`, i.e. `"MenM"`.
++ *
++ * A float literal is a *value*, and a big-endian machine stores that value's
++ * bytes in the order that spells the string. A little-endian one stores them
++ * backwards, so every four characters come out reversed:
++ * `MenMainConCo_Top_joint` became `MneMniaoCnopoT_ioj`. `mnInfo_80252758`
++ * looks those names up with `lbArchive_LoadSections`, found nothing, left
++ * `mnInfo_804A0958.joint` NULL, and the screen's GObj got no `hsd_obj` -- so
++ * `mnInfo_802522B8` read `jobj->aobj` off NULL and faulted at **0x7c**, which
++ * is exactly `offsetof(HSD_JObj, aobj)` (P-827).
++ *
++ * The layout also runs 0xE0 bytes while the array is 0xD8, the last name
++ * spilling into `gap_07_803EFCE0_data` -- another reason to state it as one
++ * object rather than two adjacent ones.
++ *
++ * Every value below was read back out of the compiled binary and reversed,
++ * not guessed: see the P-827 row for the dump. */
++static MnInfoDataLayout mnInfo_803EFC08_layout = {
++    { 0.0f, 199.0f, 0.0f },
++    { 0x505, 0x506, 0x507, 0x508 },
++    "%s.%s.%s",
++    "%s:%s:%s",
++    "Can't get user_data.\n",
++    "mninfo.c",
++    "user_data",
++    "MenMainConCo_Top_joint",
++    "MenMainConCo_Top_animjoint",
++    "MenMainConCo_Top_matanim_joint",
++    "MenMainConCo_Top_shapeanim_joint",
++};
++#define mnInfo_803EFC08 ((AnimLoopSettings*) &mnInfo_803EFC08_layout)
++#else
+ static AnimLoopSettings mnInfo_803EFC08[0x12] = {
+     { 0.0f, 199.0f, 0.0f },
+     { 1.8e-42f, 1.802e-42f, 1.803e-42f },
+@@ -171,6 +208,7 @@ static AnimLoopSettings mnInfo_803EFC08[0x12] = {
+     { 7.3738955e28f, 1.5307577e19f, 1.7539375e19f },
+     { 2.8395941e29f, 1.7935375e25f, 7.2243537e28f },
+ };
++#endif
+ #ifdef MUST_MATCH
+ #pragma push
+ #pragma force_active on

@@ -4297,3 +4297,42 @@ names in the archive spell out the aliasing.
   The same screen previously produced thirty frames of `_Unwind_Backtrace`
   and nothing else (G-210). One handler fix turned an undiagnosable report
   into a four-frame answer. P-826.
+
+## G-212
+
+**A whole class, not one bug: decompiled data typed as numbers but holding
+bytes is byte-reversed on a little-endian host.**
+
+**Symptom.** `SIGSEGV at 0x7c` on the Special/Info menu, from
+`mn_8022ED6C` <- `mnInfo_802522B8`. `0x7c` is exactly
+`offsetof(HSD_JObj, aobj)`, so the jobj was NULL — the screen's GObj never got
+an `hsd_obj` because its model never loaded.
+
+**Cause.** `mnInfo_803EFC08` is declared `AnimLoopSettings[0x12]` — three
+floats per entry — because its first twelve bytes really are one. The rest is
+`MnInfoDataLayout`: SIS ids, `printf` formats, assert strings, and the four
+**archive symbol names** the screen looks its model up with. The decompiler
+rendered those bytes as float literals like `2.405757e8f`.
+
+**Why that breaks.** A float literal is a *value*. `2.405757e8f` is the bit
+pattern `0x4D656E4D`; a big-endian machine stores it as `4D 65 6E 4D`, which
+spells `MenM`. A little-endian one stores it backwards. So every four
+characters reverse, and `MenMainConCo_Top_joint` is compiled as
+`MneMniaoCnopoT_ioj`. `lbArchive_LoadSections` found nothing, the joint stayed
+NULL, and the fault landed two call levels away with nothing pointing back.
+
+**How to spot it.** Absurd float literals in a decompiled initializer are the
+tell — `1.8e-42f`, `1.379729e31f`, `7.153577e22f`. Real game data does not
+look like that; ASCII reinterpreted as float does. Anything in the printable
+range shows up as `1e8`-ish or denormal.
+
+**How to fix it.** State the data as what it is. Declare the real struct with
+real string literals under `PORT_PC` and let the compiler lay it out, rather
+than swapping bytes at runtime. **Recover the values from the compiled
+binary** — dump the region, reverse each 4-byte group, read the ASCII — so the
+literals are transcribed rather than guessed.
+
+**Related.** Same root as `CMD_BE` (G-193) and `PORT_BF_BE` (G-180): the
+console's byte order is part of the data's meaning, and any declaration that
+loses that is wrong on the host. This is the *data-array* member of the
+family, and it is the one with no compiler support at all. P-827.
