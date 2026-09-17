@@ -64,6 +64,92 @@ static int gl_width = 640;
 static int gl_height = 480;
 static float clear_color[4] = { 0.05f, 0.06f, 0.09f, 1.0f };
 
+/*
+ * Presentation rect: where the 640x480 EFB lands inside the window.
+ *
+ * The EFB is a fixed 640x480 raster and the window is whatever the user
+ * dragged it to, so something has to reconcile them.  Scaling x and y
+ * independently -- which this file did until P-831 -- fills the window at the
+ * cost of stretching the image on every window that is not 4:3.
+ *
+ * Instead, fit a rect of `disp_aspect` inside the window, centre it, and map
+ * every EFB coordinate into that rect.  `disp_aspect` is the aspect the EFB
+ * contents are *authored* for, which is 4:3 for the retail game; the
+ * widescreen feature raises it to the window's own aspect, at which point the
+ * rect fills the window and the bars disappear.  Set it to 0 to fill the
+ * window unconditionally (the pre-P-831 behaviour), which the headless and
+ * probe paths want because they read back the whole surface.
+ */
+#define GX_EFB_WIDTH 640
+#define GX_EFB_HEIGHT 480
+
+static float disp_aspect = 4.0f / 3.0f;
+static int disp_x, disp_y, disp_w = 640, disp_h = 480;
+
+static void disp_update(void)
+{
+    float want;
+    if (gl_width <= 0 || gl_height <= 0) {
+        disp_x = disp_y = 0;
+        disp_w = gl_width;
+        disp_h = gl_height;
+        return;
+    }
+    if (disp_aspect <= 0.0f) {
+        disp_x = disp_y = 0;
+        disp_w = gl_width;
+        disp_h = gl_height;
+        return;
+    }
+    want = (float) gl_height * disp_aspect;
+    if (want <= (float) gl_width) {
+        disp_w = (int) (want + 0.5f);
+        disp_h = gl_height;
+    } else {
+        disp_w = gl_width;
+        disp_h = (int) ((float) gl_width / disp_aspect + 0.5f);
+    }
+    if (disp_w < 1) {
+        disp_w = 1;
+    }
+    if (disp_h < 1) {
+        disp_h = 1;
+    }
+    disp_x = (gl_width - disp_w) / 2;
+    disp_y = (gl_height - disp_h) / 2;
+}
+
+/* EFB pixels -> window pixels.  `disp_efb_y` returns a GL (bottom-up) row for
+ * a top-down EFB row and height. */
+static float disp_sx(void) { return (float) disp_w / (float) GX_EFB_WIDTH; }
+static float disp_sy(void) { return (float) disp_h / (float) GX_EFB_HEIGHT; }
+
+static int disp_efb_x(float x) { return (int) ((float) disp_x + x * disp_sx() + 0.5f); }
+
+static int disp_efb_y(float y, int h)
+{
+    int top = (int) ((float) disp_y + y * disp_sy() + 0.5f);
+    return gl_height - top - h;
+}
+
+void gx_gl_set_display_aspect(float aspect)
+{
+    disp_aspect = aspect;
+    disp_update();
+}
+
+float gx_gl_get_display_aspect(void) { return disp_aspect; }
+
+void gx_gl_get_window_size(int* width, int* height)
+{
+    if (width != NULL) {
+        *width = gl_width;
+    }
+    if (height != NULL) {
+        *height = gl_height;
+    }
+}
+
 static GLuint program;
 static GLint u_tex[8];
 static GLint u_tev_color;
@@ -1169,6 +1255,7 @@ int gx_gl_attach(int width, int height, char* error, size_t error_size)
         gl_height = height;
     }
     gpu_efb_copies = 1;
+    disp_update();
     return gl_setup(error, error_size);
 }
 
@@ -1180,6 +1267,7 @@ void gx_gl_set_size(int width, int height)
     if (height > 0) {
         gl_height = height;
     }
+    disp_update();
 }
 
 void gx_gl_set_options(const GxGlOptions* options)
@@ -1232,6 +1320,7 @@ int gx_gl_init(int width, int height, char* error, size_t error_size)
     gpu_efb_copies = 0;
     gl_width = width > 0 ? width : 640;
     gl_height = height > 0 ? height : 480;
+    disp_update();
 
     egl_display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (egl_display == EGL_NO_DISPLAY) {
@@ -1822,10 +1911,8 @@ static GLenum depth_func(unsigned char f)
  * (its camera viewport) instead of over the whole surface. */
 static void apply_viewport(const GxHleDrawState* s)
 {
-    GLfloat sx = (GLfloat) gl_width / 640.0f;
-    GLfloat sy = (GLfloat) gl_height / 480.0f;
-    GLint vx = (GLint) (s->viewport[0] * sx + 0.5f);
-    GLint vy = (GLint) (s->viewport[1] * sy + 0.5f);
+    GLfloat sx = disp_sx();
+    GLfloat sy = disp_sy();
     GLint vw = (GLint) (s->viewport[2] * sx + 0.5f);
     GLint vh = (GLint) (s->viewport[3] * sy + 0.5f);
 
@@ -1835,7 +1922,8 @@ static void apply_viewport(const GxHleDrawState* s)
     if (vh < 1) {
         vh = 1;
     }
-    glViewport(vx, gl_height - vy - vh, vw, vh);
+    glViewport(disp_efb_x(s->viewport[0]), disp_efb_y(s->viewport[1], vh), vw,
+               vh);
     glDepthRangef(s->depth_range[0], s->depth_range[1]);
 }
 
@@ -1848,7 +1936,7 @@ static void apply_viewport(const GxHleDrawState* s)
 static GLfloat gx_raster_size(unsigned char raw)
 {
     float px = (raw ? (float) raw : 1.0f) / 6.0f;
-    float scale = gl_height > 0 ? (float) gl_height / 480.0f : 1.0f;
+    float scale = disp_h > 0 ? (float) disp_h / 480.0f : 1.0f;
     float out = px * scale;
     return (GLfloat) (out < 1.0f ? 1.0f : out);
 }
@@ -2184,9 +2272,9 @@ static void upload_draw_uniforms(const GxHleDrawState* s)
                 s->fog_color[2]);
     UNI_1I(u_fog_adj_enable, s->fog_adj_enable);
     UNI_1F(u_fog_adj_center, 
-                (GLfloat) s->fog_adj_center * (GLfloat) gl_width / 640.0f);
+                (GLfloat) s->fog_adj_center * disp_sx());
     UNI_1FV(u_fog_adj, 10, s->fog_adj_k);
-    UNI_1F(u_fog_width, (GLfloat) gl_width);
+    UNI_1F(u_fog_width, (GLfloat) disp_w);
     UNI_1F(u_depth_near, s->depth_range[0]);
     /* P-680: GXSetPointSize drives gl_PointSize in the shared VS.
      *
@@ -2623,10 +2711,10 @@ static void efb_copy_tex(const GxHleDraw* d)
         }
         return;
     }
-    src_x = (int) d->copy_left * gl_width / 640;
-    src_y = (int) d->copy_top * gl_height / 480;
-    src_w = (int) d->copy_w * gl_width / 640;
-    src_h = (int) d->copy_h * gl_height / 480;
+    src_x = disp_x + (int) ((float) d->copy_left * disp_sx());
+    src_y = disp_y + (int) ((float) d->copy_top * disp_sy());
+    src_w = (int) ((float) d->copy_w * disp_sx());
+    src_h = (int) ((float) d->copy_h * disp_sy());
     if (src_w < 1) src_w = 1;
     if (src_h < 1) src_h = 1;
     if (src_x + src_w > gl_width) src_w = gl_width - src_x;
@@ -2826,7 +2914,9 @@ static void apply_display_filter(void)
     glUniform1i(u_display_filter_sampler, 0);
     /* One unit is one 480-line EFB scanline even when the host window is
      * larger; the scene itself is likewise scaled from the 640x480 EFB. */
-    glUniform1f(u_display_filter_step, 1.0f / 480.0f);
+    glUniform1f(u_display_filter_step,
+                gl_height > 0 ? (float) disp_h / (480.0f * (float) gl_height)
+                              : 1.0f / 480.0f);
     glUniform1fv(u_display_filter_weights, 3, weights);
     glBindVertexArray(vertex_vao);
     glDrawArrays(GL_TRIANGLES, 0, 3);
@@ -2857,9 +2947,20 @@ int gx_gl_render_frame(void)
     glDepthMask(GL_TRUE);
     /* ...and the scissor test from the last draw would clip the clear. */
     glDisable(GL_SCISSOR_TEST);
+    /* The letterbox bars are not part of the EFB, so they take black rather
+     * than the game's clear colour -- a stage's sky colour bleeding into the
+     * bars reads as a rendering bug.  Clear the surface black first, then the
+     * presentation rect with the real clear colour (P-831). */
+    if (disp_w != gl_width || disp_h != gl_height) {
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glEnable(GL_SCISSOR_TEST);
+        glScissor(disp_x, gl_height - disp_y - disp_h, disp_w, disp_h);
+    }
     glClearColor(clear_color[0], clear_color[1], clear_color[2],
                  clear_color[3]);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glDisable(GL_SCISSOR_TEST);
     glDisable(GL_BLEND);
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
@@ -2987,10 +3088,8 @@ int gx_gl_render_frame(void)
         /* GX scissor is in 640x480 EFB pixels; scale it onto the surface the
          * same way the projection/viewport stretch is applied. */
         {
-            GLfloat sx = (GLfloat) gl_width / 640.0f;
-            GLfloat sy = (GLfloat) gl_height / 480.0f;
-            GLint sc_x = (GLint) (s->scissor_x * sx + 0.5f);
-            GLint sc_y = (GLint) (s->scissor_y * sy + 0.5f);
+            GLfloat sx = disp_sx();
+            GLfloat sy = disp_sy();
             GLint sc_w = (GLint) (s->scissor_w * sx + 0.5f);
             GLint sc_h = (GLint) (s->scissor_h * sy + 0.5f);
             if (sc_w < 0) {
@@ -3000,7 +3099,8 @@ int gx_gl_render_frame(void)
                 sc_h = 0;
             }
             glEnable(GL_SCISSOR_TEST);
-            glScissor(sc_x, gl_height - sc_y - sc_h, sc_w, sc_h);
+            glScissor(disp_efb_x((float) s->scissor_x),
+                      disp_efb_y((float) s->scissor_y, sc_h), sc_w, sc_h);
         }
 
         /* P-680: a draw snapshot may mix triangle strips, lines and points;
@@ -3080,11 +3180,11 @@ static unsigned gx_gl_probe_rect(int gx_x, int gx_y, int gx_w, int gx_h,
     if (program == 0 || gl_width <= 0 || gl_height <= 0) {
         return 0;
     }
-    x0 = gx_x * gl_width / 640;
-    x1 = (gx_x + gx_w) * gl_width / 640;
+    x0 = disp_efb_x((float) gx_x);
+    x1 = disp_efb_x((float) (gx_x + gx_w));
     /* GX rows are top-down, GL rows bottom-up. */
-    y0 = gl_height - (gx_y + gx_h) * gl_height / 480;
-    y1 = gl_height - gx_y * gl_height / 480;
+    y0 = disp_efb_y((float) (gx_y + gx_h), 0);
+    y1 = disp_efb_y((float) gx_y, 0);
     if (x0 < 0) x0 = 0;
     if (y0 < 0) y0 = 0;
     if (x1 > gl_width) x1 = gl_width;

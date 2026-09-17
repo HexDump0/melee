@@ -18,6 +18,20 @@ int gx_gl_attach(int width, int height, char* error, size_t error_size);
 
 void gx_gl_set_size(int width, int height);
 
+/*
+ * Presentation aspect: the aspect ratio the 640x480 EFB is *authored* for.
+ * The EFB is fitted into the window at this aspect and centred, so a window
+ * of any other shape gets bars instead of a stretched picture.  4:3 is the
+ * retail value; the widescreen feature raises it to the window's own aspect.
+ * 0 fills the window unconditionally (pre-P-831 behaviour), which the
+ * headless probe paths want.
+ */
+void gx_gl_set_display_aspect(float aspect);
+float gx_gl_get_display_aspect(void);
+
+/* The real drawable size, for code that has to derive an aspect from it. */
+void gx_gl_get_window_size(int* width, int* height);
+
 /* Viewer toggles.  textures=0 forces white samples, lighting=0 forces the
  * flat raster colour, only_draw/hide_draw isolate a captured draw (-1 =
  * disabled), wireframe outlines each triangle. */
