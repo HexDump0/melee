@@ -449,6 +449,9 @@ set_source_files_properties(
 set_source_files_properties(
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/jobj.c
     PROPERTIES COMPILE_DEFINITIONS "MELEE_JOBJ_INTERNAL=1")
+set_source_files_properties(
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/sislib.c
+    PROPERTIES COMPILE_DEFINITIONS "MELEE_SISLIB_INTERNAL=1")
 
 # ---------------------------------------------------------------- mods
 #
@@ -485,7 +488,7 @@ target_compile_options(melee_mod PRIVATE
 set_source_files_properties(mod/mod_cobj.c
     PROPERTIES COMPILE_DEFINITIONS "MELEE_COBJ_INTERNAL=1")
 set_source_files_properties(mod/mod_menu.c
-    PROPERTIES COMPILE_DEFINITIONS "MELEE_JOBJ_INTERNAL=1")
+    PROPERTIES COMPILE_DEFINITIONS "MELEE_JOBJ_INTERNAL=1;MELEE_SISLIB_INTERNAL=1")
 target_link_libraries(melee_mod PUBLIC wamr_vm)
 
 # mods/unbound/unbound.wasm: the default mod, built from the same sources the

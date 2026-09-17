@@ -17,6 +17,12 @@
 #define SCREEN_W 640.0f
 #define SCREEN_H 480.0f
 
+/* The menu's own frame, so the page sits inside it. */
+#define PANEL_X 56.0f
+#define PANEL_Y 64.0f
+#define PANEL_W 528.0f
+#define PANEL_H 320.0f
+
 static int open_now;
 static unsigned opened_frame;
 
@@ -55,21 +61,26 @@ static float text_width(const struct Line* l)
 }
 
 /*
- * The main menu's description box, in the authored 640x480 space.  The game
- * leaves it empty for our entry (native/mod/mod_menu.c clears the menu's
- * description indices while it is hovered) rather than showing another
- * entry's text under the wrong heading.
+ * The main menu's description box, measured in the authored 640x480 space.
+ * The game leaves it empty for our entry -- native/mod/mod_menu.c sets the
+ * box to SIS string 0 while it is hovered -- rather than showing another
+ * entry's words under the wrong heading.
  */
-#define DESC_CENTRE_X 320.0f
+#define DESC_CENTRE_X 322.0f
 #define DESC_Y 411.0f
-#define DESC_SCALE 1.3f
+#define DESC_SCALE 1.05f
 
-static const char DESC_TEXT[] = "THE PORT, AND WHAT IT IS BUILT ON.";
+static const char DESC_TEXT[] = "THE PORT AND WHAT IT IS BUILT ON.";
+
+static float text_width_of(unsigned len, float scale)
+{
+    return (float) len * 6.0f * scale;
+}
 
 void credits_draw_description(void)
 {
-    float w = (float) (sizeof(DESC_TEXT) - 1) * 6.0f * DESC_SCALE;
-    unbound_draw_color(0.93f, 0.93f, 0.95f, 1.0f);
+    float w = text_width_of((unsigned) (sizeof(DESC_TEXT) - 1), DESC_SCALE);
+    unbound_draw_color(0.90f, 0.91f, 0.95f, 1.0f);
     unbound_draw_text_raw(DESC_CENTRE_X - 0.5f * w, DESC_Y, DESC_SCALE,
                           DESC_TEXT, (unsigned) (sizeof(DESC_TEXT) - 1));
 }
@@ -104,13 +115,22 @@ void credits_on_frame(const UnboundFrame* frame)
         }
     }
 
-    /* One quad.  Drawing this out of text cost a quad per glyph pixel and
-     * silently exhausted the host's vertex budget, which then dropped every
-     * line of the credits -- the backdrop appeared and nothing else did. */
-    unbound_draw_color(0.0f, 0.0f, 0.0f, 0.86f);
-    unbound_draw_rect(0.0f, 0.0f, SCREEN_W, SCREEN_H);
+    /*
+     * A panel inside the menu frame rather than a full-screen wash: this is
+     * meant to read as another page of the main menu, not as something
+     * printed over the top of it.
+     *
+     * One quad each.  Drawing a backdrop out of text costs a quad per glyph
+     * pixel and silently exhausts the host's vertex budget, which then drops
+     * everything after it -- the backdrop appeared and the credits did not.
+     */
+    unbound_draw_color(0.62f, 0.66f, 0.85f, 0.95f);
+    unbound_draw_rect(PANEL_X - 2.0f, PANEL_Y - 2.0f, PANEL_W + 4.0f,
+                      PANEL_H + 4.0f);
+    unbound_draw_color(0.05f, 0.04f, 0.12f, 0.96f);
+    unbound_draw_rect(PANEL_X, PANEL_Y, PANEL_W, PANEL_H);
 
-    y = 96.0f;
+    y = PANEL_Y + 22.0f;
     for (i = 0; i < CREDITS_COUNT; ++i) {
         const struct Line* l = &credits[i];
         y += l->gap;
@@ -124,11 +144,12 @@ void credits_on_frame(const UnboundFrame* frame)
         } else {
             unbound_draw_color(0.86f, 0.90f, 0.95f, 1.0f);
         }
-        unbound_draw_text_raw(0.5f * (SCREEN_W - text_width(l)), y, l->scale,
-                              l->text, l->len);
+        unbound_draw_text_raw(PANEL_X + 0.5f * (PANEL_W - text_width(l)), y,
+                              l->scale, l->text, l->len);
     }
 
-    unbound_draw_color(0.60f, 0.62f, 0.68f, 1.0f);
-    unbound_draw_text(0.5f * SCREEN_W - 54.0f, SCREEN_H - 40.0f, 1.0f,
-                      "B  OR  START  TO  CLOSE");
+    unbound_draw_color(0.62f, 0.64f, 0.72f, 1.0f);
+    unbound_draw_text(PANEL_X + 0.5f * PANEL_W - 60.0f,
+                      PANEL_Y + PANEL_H - 22.0f, 1.0f,
+                      "B  OR  START  TO  GO  BACK");
 }

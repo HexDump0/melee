@@ -36,6 +36,7 @@
 #include <sysdolphin/baselib/gobj.h>
 #include <sysdolphin/baselib/jobj.h>
 #include <sysdolphin/baselib/mobj.h>
+#include <sysdolphin/baselib/sislib.h>
 #include <sysdolphin/baselib/tobj.h>
 
 #include <stdio.h>
@@ -244,6 +245,36 @@ void unbound_HSD_JObjAnim(HSD_JObj* jobj)
  * reference before any rename or linker wrap can see it.  The table entry is
  * a writable global, so swapping the pointer reaches the same call.
  */
+static int unbound_menu_confirm_pressed(void)
+{
+    return (gm_GetButtonsTriggered(4) & PAD_CONFIRM) != 0;
+}
+
+/*
+ * Start, edge-detected here rather than taken from the engine.
+ *
+ * Neither source reports it: `gm_GetButtonsTriggered(4)` carries Confirm but
+ * not Start, and `HSD_PadCopyStatus[].trigger` reads 0 on the very frame the
+ * held mask shows 0x1000 -- traced, and it is why two earlier attempts at
+ * this did nothing at all.  The held mask is reliable, so the rising edge is
+ * computed from it.
+ */
+static unsigned start_held_last;
+
+static int unbound_menu_start_pressed(void)
+{
+    unsigned held = 0;
+    unsigned edge;
+    int port;
+
+    for (port = 0; port < 4; ++port) {
+        held |= mod_engine_buttons_held(port) & PAD_BUTTON_START;
+    }
+    edge = held & ~start_held_last;
+    start_held_last = held;
+    return edge != 0;
+}
+
 static void unbound_main_think(HSD_GObj* gp)
 {
     int hovered = entry_enabled &&
@@ -251,11 +282,17 @@ static void unbound_main_think(HSD_GObj* gp)
                   mn_804A04F0.hovered_selection == UNBOUND_SELECTION;
 
 
-    /* Accept Start as well as Confirm.  On the keyboard Z is A and Enter is
+    /*
+     * Accept Start as well as Confirm: on the keyboard Z is A and Enter is
      * Start, and pressing Enter on an entry and having nothing happen reads
-     * as broken rather than as a mapping. */
-    if (hovered &&
-        (gm_GetButtonsTriggered(4) & (PAD_CONFIRM | PAD_BUTTON_START)) != 0)
+     * as broken rather than as a mapping.
+     *
+     * Start is read straight off the pad rather than from
+     * `gm_GetButtonsTriggered(4)`, which carries Confirm but not Start --
+     * tested, and it is why the first attempt at this did nothing.
+     */
+    if (hovered && (unbound_menu_confirm_pressed() ||
+                    unbound_menu_start_pressed()))
     {
         /*
          * Handle our option here and do not let the retail think run: its
@@ -268,6 +305,48 @@ static void unbound_main_think(HSD_GObj* gp)
     if (real_main_think != NULL) {
         real_main_think(gp);
     }
+}
+
+/*
+ * The menu's description box, identified by the geometry `mn_80229A7C` builds
+ * it with.  82 sites create text objects; matching the box's own width and
+ * height is what separates this one from the rest -- gating on "main menu,
+ * our entry hovered" instead would be true for every one of them.
+ */
+#define DESC_BOX_W 364.68332f
+#define DESC_BOX_H 38.38772f
+
+/* SIS string 0.  `HSD_SisLib_803A6754` initialises a fresh text object with
+ * it, so it is the engine's own idea of "nothing yet". */
+#define SIS_EMPTY 0
+
+static HSD_Text* description_text;
+
+HSD_Text* unbound_HSD_SisLib_803A5ACC(int a, s32 b, f32 c, f32 d, f32 e,
+                                      f32 w, f32 h)
+{
+    HSD_Text* text = HSD_SisLib_803A5ACC(a, b, c, d, e, w, h);
+    if (w == DESC_BOX_W && h == DESC_BOX_H) {
+        description_text = text;
+    }
+    return text;
+}
+
+void unbound_HSD_SisLib_803A6368(HSD_Text* text, s32 index)
+{
+    if (entry_enabled && text != NULL && text == description_text &&
+        mn_804A04F0.cur_menu == MENU_KIND_MAIN &&
+        mn_804A04F0.hovered_selection == UNBOUND_SELECTION)
+    {
+        /*
+         * Blank, not printed: `HSD_SisLib_803A6B98` would render our own
+         * words in the game's font, but it dereferences `text->alloc_data`
+         * and an object from `803A5ACC` has none -- it faults at 0x8.  The
+         * mod draws the description instead; see learnings/mod_system.md.
+         */
+        index = SIS_EMPTY;
+    }
+    HSD_SisLib_803A6368(text, index);
 }
 
 int mod_menu_entry_hovered(void)

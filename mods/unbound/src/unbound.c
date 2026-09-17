@@ -51,6 +51,10 @@ static void unbound_on_frame(const UnboundFrame* frame)
     }
     if (credits_is_open()) {
         credits_on_frame(frame);
+        return;
+    }
+    if (unbound_menu_hovered()) {
+        credits_draw_description();
     }
 }
 

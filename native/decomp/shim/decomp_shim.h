@@ -69,6 +69,18 @@
 #endif
 
 /*
+ * The menu description box (P-838).  Our entry has no SIS string of its own,
+ * and borrowing another entry's reads as "View game records." under "Melee
+ * Unbound".  Both calls are intercepted: the creator identifies *which* text
+ * object is the description, and the setter blanks it for our entry.
+ */
+#ifndef MELEE_SISLIB_INTERNAL
+#define HSD_SisLib_803A5ACC unbound_HSD_SisLib_803A5ACC
+#define HSD_SisLib_803A6368 unbound_HSD_SisLib_803A6368
+#endif
+
+
+/*
  * S5: the engine stores a 32-bit address / 16.16 ratio into adjacent u16
  * fields with a `*(u32*) &pair = value` aliasing idiom (synth.c).  That is
  * only correct on big-endian: the host would put the low half in the first
