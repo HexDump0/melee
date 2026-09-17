@@ -54,6 +54,42 @@
 > plenty -- there is no way to read game state at all yet), HUD anchoring
 > (P-834), WAMR AOT (P-835). ctest 33/33.
 >
+> **The main menu has a sixth entry (2026-09-17, P-838).** "Melee Unbound"
+> sits under "Data" with the game's own pill, cursor, highlight and lighting,
+> and opens an Unbound credits page. Owner-checked in-game.
+>
+> **The menu was already built for it.** `mn_803EAE68` has **ten** anchor
+> joints, every loop over options is bounded by
+> `mn_803EB6B0[kind].selection_count`, and that table is a writable global --
+> so the entry is one assignment, not a patch, and joint 9 positioned itself
+> with no transform override. The label is generated at 176x30 IA4 by
+> `mods/unbound/tools/make_label.py` and substituted after the anim runs,
+> because the retail swap table is packed and frame 10 still resolves to
+> "Data".
+>
+> **One patch was unavoidable and is worth knowing about.** `mn_8022BFBC`'s
+> switch covers selections 0..4 with no default and `fn_8022C128`
+> dereferences the result every frame, so selection 5 segfaulted. **The shim
+> cannot reach it** -- mnmain.c both defines and calls it, and a compiler
+> resolves an intra-TU reference before any rename or linker wrap sees it.
+> `mn_8022DB10` had the identical problem and needed no patch, because the
+> table's `think` pointer is writable. That is the dividing line between what
+> the shim can hook and what it cannot.
+>
+> **Three bugs found on the way were ours, not the game's:** the HUD applies
+> one colour per batch, so every `hud_set_color` after the first was silently
+> discarded and the viewer's own overlay has been single-coloured all along;
+> drawing a backdrop out of text costs a quad per glyph pixel and exhausted
+> the 65,536-vertex budget, dropping everything drawn after it; and **neither**
+> `gm_GetButtonsTriggered(4)` **nor** `HSD_PadCopyStatus[].trigger` reports
+> Start, which two reasoned fixes failed to find and one trace settled in a
+> minute.
+>
+> ABI is at 7 -- the credits pulled a per-frame hook, overlay text, filled
+> rects and pad input into existence, which is the ABI growing from a real
+> feature rather than from guesswork. **Still in the port's font rather than
+> Melee's (P-839)**, and that task now records the exact route.
+
 > **Widescreen is gated to gameplay (2026-09-17, P-831, owner decision).**
 > Menus, splashes, results and cutscenes keep their authored 4:3 aspect and
 > get honest pillarbox bars; a match gets the wider view. Verified across the
