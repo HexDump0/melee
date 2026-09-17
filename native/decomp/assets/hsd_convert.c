@@ -4477,6 +4477,14 @@ static void conv_ft_data(Conv* c, uint32_t off, const char* name,
             size_t fi;
             int count;
 
+            if (getenv("MELEE_WAITANIM_TRACE") != NULL) {
+                fprintf(stderr,
+                        "[waitanim] %s pass=%d raw_ptr_field=0x%x reloc=%d "
+                        "num=%d\n",
+                        name != NULL ? name : "?", pass, start,
+                        (int) c->reloc[off + (pass == 0 ? 0x0C : 0x14)],
+                        (int) c->num[off + (pass == 0 ? 0x0C : 0x14)]);
+            }
             if (start == 0) {
                 continue;
             }
@@ -4523,6 +4531,48 @@ static void conv_ft_data(Conv* c, uint32_t off, const char* name,
                 conv_u32(c, e + 0x04);
                 conv_u32(c, e + 0x08);
                 conv_waitanim_flags(c, e + 0x10);
+            }
+            /* P-841: `ftData_80085A14` walks this array `ftData_Table_Unk0
+             * [kind].count` entries deep (295..479) and panics with "fighter
+             * figatree over! %x" when an `x8` exceeds 0x8000.  The bound
+             * above is a heuristic, so it can stop short of the count the
+             * game uses -- and every entry past it keeps its big-endian x8.
+             * Print both numbers so the two can be compared directly. */
+            if (getenv("MELEE_WAITANIM_TRACE") != NULL) {
+                int j;
+                int over = 0;
+                fprintf(stderr,
+                        "[waitanim] %s pass=%d start=0x%x end=0x%x count=%d\n",
+                        name != NULL ? name : "?", pass, start, end, count);
+                for (j = 0; j < count; j++) {
+                    uint32_t e = start + (uint32_t) j * FT_WAITANIM_SIZE;
+                    uint32_t v;
+                    if (!in_data(c, e, FT_WAITANIM_SIZE)) {
+                        break;
+                    }
+                    v = rd32(c, e + 0x08);
+                    if (v > 0x8000 && over++ < 4) {
+                        fprintf(stderr,
+                                "[waitanim]   converted entry over: i=%d "
+                                "off=0x%x x0=0x%x x4=0x%x x8=0x%x num=%d "
+                                "reloc=%d\n",
+                                j, e, rd32(c, e), rd32(c, e + 0x04), v,
+                                (int) c->num[e + 0x08],
+                                (int) c->reloc[e + 0x08]);
+                    }
+                }
+                for (j = count; j < count + 6; j++) {
+                    uint32_t e = start + (uint32_t) j * FT_WAITANIM_SIZE;
+                    if (!in_data(c, e, FT_WAITANIM_SIZE)) {
+                        break;
+                    }
+                    fprintf(stderr,
+                            "[waitanim]   past bound: i=%d off=0x%x x0=0x%x "
+                            "x4=0x%x x8=0x%x num=%d reloc=%d\n",
+                            j, e, rd32(c, e), rd32(c, e + 0x04),
+                            rd32(c, e + 0x08), (int) c->num[e + 0x08],
+                            (int) c->reloc[e + 0x08]);
+                }
             }
         }
     }

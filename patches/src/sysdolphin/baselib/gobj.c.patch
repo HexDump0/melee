@@ -1,0 +1,105 @@
+diff --git a/src/sysdolphin/baselib/gobj.c b/src/sysdolphin/baselib/gobj.c
+index 8a944852a..f51c03bee 100644
+--- a/src/sysdolphin/baselib/gobj.c
++++ b/src/sysdolphin/baselib/gobj.c
+@@ -9,6 +9,68 @@
+ #include "lobj.h"
+ #include "object.h"
+ 
++#ifdef PORT_PC
++#include "debug.h"
++
++/* P-836 / P-816: a proc turns up on `HSD_GObj_GObjProcHead[]` whose owning
++ * gobj has already been freed, and the walk in #HSD_GObj_RunProcs faults
++ * reading `gobj->p_link`.  `p_link` sits at +2, so a poisoned `gobj` of
++ * 0xFFFFFFFF wraps to 0x00000001 on a 32-bit host: a SIGSEGV *at address 0x1*
++ * in #HSD_GObj_RunProcs is the signature of this bug specifically, and not of
++ * the plain null deref it looks like.
++ *
++ * The console never trips over it.  There a freed proc's memory stays part of
++ * the #HSD_ObjAlloc free list and still reads back as a plausible pointer, so
++ * a stale list entry is walked harmlessly and the damage stays invisible.
++ * Here the same memory reads back as poison and takes the process with it.
++ *
++ * Until whoever leaves the stale entry behind is found, refuse to walk off
++ * the end of a corrupt chain, and name the callback that ran last -- that is
++ * the one that freed something still queued.  Skipping the rest of one
++ * priority level for one frame is visible at worst as a dropped frame of
++ * animation; the alternative is losing the process. */
++#define PORT_MEM1_BASE 0x80000000u
++#define PORT_MEM1_SIZE (24u * 1024u * 1024u)
++
++static int port_hsd_ptr_ok(const void* p, size_t n)
++{
++    uintptr_t a = (uintptr_t) p;
++
++    if (p == NULL || (a & 3u) != 0) {
++        return 0;
++    }
++    return a >= PORT_MEM1_BASE &&
++           a - PORT_MEM1_BASE <= (uintptr_t) PORT_MEM1_SIZE - n;
++}
++
++static HSD_GObjEvent port_last_invoked_fn;
++static HSD_GObjProc* port_last_invoked_proc;
++static int port_bad_proc_reports;
++
++/* `proc` is deliberately only dereferenced once it has been vouched for, so
++ * this is safe to call for a bad `proc` as well as for a bad `proc->gobj`. */
++static void port_report_bad_proc(const char* what, HSD_GObjProc* proc,
++                                 int s_link)
++{
++    if (port_bad_proc_reports++ >= 8) {
++        return;
++    }
++    OSReport("[gobj] bad %s in proc walk: s_link=%d proc=%p "
++             "(last invoked: proc=%p on_invoke=%p)\n",
++             what, s_link, (void*) proc, (void*) port_last_invoked_proc,
++             (void*) port_last_invoked_fn);
++    if (port_hsd_ptr_ok(proc, sizeof(*proc))) {
++        OSReport("[gobj]   gobj=%p on_invoke=%p child=%p next=%p prev=%p "
++                 "s_link=%u\n",
++                 (void*) proc->gobj, (void*) proc->on_invoke,
++                 (void*) proc->child, (void*) proc->next, (void*) proc->prev,
++                 (unsigned) proc->s_link);
++    }
++    OSReport("[gobj]   dropping the rest of priority %d for this frame\n",
++             s_link);
++}
++#endif
++
+ u8 HSD_GObj_CameraKind;
+ s8 HSD_GObj_LightKind;
+ u8 HSD_GObj_JObjKind;
+@@ -102,15 +164,31 @@ void HSD_GObj_RunProcs(void)
+         HSD_GObj_CurrentInvokedSLink = i;
+         proc = HSD_GObj_GObjProcHead[i];
+         while (proc != NULL) {
++#ifdef PORT_PC
++            if (!port_hsd_ptr_ok(proc, sizeof(*proc))) {
++                port_report_bad_proc("proc", proc, i);
++                break;
++            }
++#endif
+             HSD_GObj_NextInvokedProc = proc->next;
+             if (proc->flags_3 != HSD_GObj_804D783C) {
+                 proc->flags_3 = HSD_GObj_804D783C;
+                 gobj = proc->gobj;
++#ifdef PORT_PC
++                if (!port_hsd_ptr_ok(gobj, sizeof(*gobj))) {
++                    port_report_bad_proc("gobj", proc, i);
++                    break;
++                }
++#endif
+                 if (!(var_r31 & (1LL << gobj->p_link)) && !(proc->flags_1) &&
+                     !(proc->flags_2))
+                 {
+                     HSD_GObj_CurrentInvokedProcGObj = gobj;
+                     HSD_GObj_CurrentInvokedProc = proc;
++#ifdef PORT_PC
++                    port_last_invoked_proc = proc;
++                    port_last_invoked_fn = proc->on_invoke;
++#endif
+                     proc->on_invoke(proc->gobj);
+                     HSD_GObj_NextInvokedProc = proc->next;
+                     if (HSD_GObj_DelayedProcInfo.flags != 0) {

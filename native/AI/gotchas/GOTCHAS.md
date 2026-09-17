@@ -4499,3 +4499,66 @@ looking for the largest adjacent-column jump. It named the bug from the
 owner's screenshot alone (edge within 3 px of the predicted 4:3 boundary) and
 then confirmed the fix -- the jump at x=240 and x=1680 is now **0.00**, with
 the largest remaining discontinuities sitting on scene content.
+
+## G-216: a SIGSEGV at address 0x1 in the gobj walk means a freed `proc->gobj`
+
+**Read the fault address as a struct offset.** `offsetof(HSD_GObj, p_link)` is
+**+2**. A poisoned `gobj` of `0xFFFFFFFF` plus 2 wraps to `0x00000001` on a
+32-bit host, so `HSD_GObj_RunProcs`'s `gobj->p_link` read faults at **0x1**.
+That address is a fingerprint, not a null dereference -- do not go looking for
+a missing NULL check. The same arithmetic identifies other fields: a fault at
+`0x3` is `gx_link`, at `0x5` is `render_priority`.
+
+**Why the console never trips over it.** A freed `HSD_GObjProc` goes back on
+an `HSD_ObjAlloc` free list, where its memory still reads back as a plausible
+in-arena pointer. A stale entry left on `HSD_GObj_GObjProcHead[]` therefore
+gets walked harmlessly on retail and the bug stays invisible. Here the same
+memory reads back as poison and takes the process with it. **The port makes
+latent console bugs fatal** -- expect a class of these, and expect them to be
+real bugs that retail happened to survive.
+
+**The machinery is subtle enough to rule out first.** `HSD_GObj_NextInvokedProc`
+is fixed up by `HSD_GObjProc_UnqueueProc`, but *only* when
+`HSD_GObj_DelayedProcInfo.in_delayed_proc` is set. That is safe, because the
+one path that frees while walking (`delay_remove_gobj` -> `HSD_GObjFree`) sets
+the flag first, and every other free during `on_invoke` is covered by
+`HSD_GObj_RunProcs` re-reading `proc->next` *after* the callback returns. Both
+were checked and are correct; so is `HSD_GObj_ProcList`'s allocation in
+`HSD_GObjInit`, which matches its `p_link + s_link * (p_link_max + 1)`
+indexing exactly. Don't re-derive these.
+
+**What the guard does.** Validate `proc` and then `proc->gobj` against MEM1
+before dereferencing, report the **last callback that was actually invoked**
+(the prime suspect for having freed something still queued), and `break` out
+of that priority level rather than walking further down a chain whose `next`
+pointers are equally suspect. Dropping one priority for one frame is a dropped
+frame of animation; the alternative is losing the process. P-836, P-816.
+
+## G-217: retail reaches *two* tables off one base symbol -- name both
+
+**Symptom.** None, directly -- which is the point. `ftData_UnkIntPairs[].data`
+was never reset, so `ftDemo_SetArchiveData`'s `if (pair->data == NULL)` guard
+kept a pointer into a **freed archive** for the rest of the run, and
+`ftData_80085B98` then wrote `x14 = <dangling> + x4` into the shared
+`Fighter_WaitAnimData` array.
+
+**Cause.** `ft_800852B0` is a G-176 cross-symbol overlay, and the port's fix
+only undid half of it:
+
+```c
+unk0  = (ftData_UnkCountStruct*) &CostumeListsForeachCharacter[Ft_Kind_Max];
+pairs = (ftData_UnkCountStruct*) ((u8*) CostumeListsForeachCharacter + 5940);
+```
+
+`0x803C0EC0 + 33*8 = 0x803C0FC8` is `ftData_Table_Unk0`, but
+`0x803C0EC0 + 0x1734 = 0x803C25F4` is `ftData_UnkIntPairs` -- a **different
+table**. The PORT_PC path named `ftData_Table_Unk0` for both, so one loop
+cleared the same 33 `.data` fields twice and the other table was never
+touched.
+
+**The lesson.** When you de-overlay a symbol, *each* computed offset gets
+resolved separately against `symbols.txt`. Two expressions sharing a base do
+not share a target, and an alias that merely compiles is the easy mistake:
+the duplicate write looks redundant rather than wrong, and nothing fails until
+something re-enters the scene. Check the arithmetic of every offset in the
+function, not just the first one. P-841.
