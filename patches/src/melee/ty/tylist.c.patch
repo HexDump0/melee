@@ -1,5 +1,5 @@
 diff --git a/src/melee/ty/tylist.c b/src/melee/ty/tylist.c
-index 549cf42f7..73c4fd70b 100644
+index 549cf42f7..24b9a2579 100644
 --- a/src/melee/ty/tylist.c
 +++ b/src/melee/ty/tylist.c
 @@ -1,3 +1,8 @@
@@ -56,3 +56,42 @@ index 549cf42f7..73c4fd70b 100644
      text = row->text0;
      text->pos_x = f30;
      text->pos_y = f29;
+@@ -546,6 +582,12 @@ void _tyList_80313774(void)
+         Toy_80306A48(entry->jobjs[0], NULL,
+                      "ToyFigureListBase_Top_matanim_joint", NULL,
+                      archive->data, 0);
++#ifdef PORT_PC
++        if (getenv("MELEE_TROPHY_TRACE") != NULL) {
++            fprintf(stderr, "[toy] row text objs from EE8=0x%08x\n",
++                    (unsigned) _tyList_804D6EE8);
++        }
++#endif
+         entry->texts[0] = HSD_SisLib_803A5ACC(0, _tyList_804D6EE8, 0.0f, 0.0f,
+                                               17.2f, 640.0f, 64.0f);
+         entry->texts[1] = HSD_SisLib_803A5ACC(0, _tyList_804D6EE8, 0.0f, 0.0f,
+@@ -964,6 +1006,25 @@ void _tyList_8031457C(void)
+         _tyList_804D6EE8 =
+             HSD_SisLib_803A611C(0, entry->x4, 0xB, 0xB, 0, 0x3E, 0, 0);
+     }
++#ifdef PORT_PC
++    /* P-730.  The row names resolve to correct message ids (trace confirms
++     * msg == sorted + 3 for all 11) and still draw nothing, and row->text1's
++     * id is a constant -- so the id was never the problem and the text
++     * objects themselves are empty.
++     *
++     * They are built against _tyList_804D6EE8, SIS bank 0xB.  Everything on
++     * this screen that *does* render -- the counter -- uses
++     * _tyList_804D6EEC, bank 0xC.  Same function, same archive, different
++     * bank: if 0xB did not load, that is the whole bug, and it would look
++     * exactly like this. */
++    if (getenv("MELEE_TROPHY_TRACE") != NULL) {
++        fprintf(stderr,
++                "[toy] sis desc=%p  rows EE8(bank 0xB)=0x%08x  "
++                "counter EEC(bank 0xC)=0x%08x\n",
++                (void*) desc, (unsigned) _tyList_804D6EE8,
++                (unsigned) _tyList_804D6EEC);
++    }
++#endif
+ }
+ 
+ void tyList_803147C4(void)
