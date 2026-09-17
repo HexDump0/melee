@@ -1,5 +1,5 @@
 diff --git a/src/melee/mn/mnmain.c b/src/melee/mn/mnmain.c
-index dc6746eee..1e16ef876 100644
+index dc6746eee..1a4d8710f 100644
 --- a/src/melee/mn/mnmain.c
 +++ b/src/melee/mn/mnmain.c
 @@ -1204,7 +1204,16 @@ void fn_8022AFEC(HSD_GObj* gp)
@@ -19,3 +19,22 @@ index dc6746eee..1e16ef876 100644
      PAD_STACK(18);
  
      var_r26 = 0;
+@@ -1700,6 +1709,18 @@ GXColor* mn_8022BFBC(int arg0)
+         return &mn_804D4B5C;
+     case 4:
+         return &mn_804D4B60;
++#ifdef PORT_PC
++    /* Falling off the end of a function that returns a pointer is undefined,
++     * and `fn_8022C128` dereferences the result every frame: on GCC an index
++     * the switch does not cover returns NULL and the main menu segfaults.
++     * Retail never passes one, because `mn_803EB6B0[MENU_KIND_MAIN]
++     * .selection_count` is 5 -- but the count is data, the ten anchor joints
++     * in `mn_803EAE68` are real, and the port raises it (native/mod/
++     * mod_menu.c).  Making the function total is the fix; the shim cannot
++     * reach this call because mnmain.c both defines and calls it. */
++    default:
++        return &mn_804D4B60;
++#endif
+     }
+ }
+ 

@@ -110,8 +110,24 @@ void hud_begin(int width, int height)
     hud_height = (float) (height > 0 ? height : 1);
 }
 
+static void hud_flush(void);
+
+/*
+ * Changing colour ends the current batch.
+ *
+ * The colour is one uniform for the whole draw, so without this every
+ * hud_set_color after the first was silently discarded and everything came
+ * out in the *last* colour set -- which for a full-screen backdrop meant a
+ * flat rectangle over the entire frame.  The viewer's own overlay has been
+ * quietly single-coloured for the same reason.
+ */
 void hud_set_color(float r, float g, float b, float a)
 {
+    if (hud_color[0] != r || hud_color[1] != g || hud_color[2] != b ||
+        hud_color[3] != a)
+    {
+        hud_flush();
+    }
     hud_color[0] = r;
     hud_color[1] = g;
     hud_color[2] = b;
@@ -146,6 +162,11 @@ void font_rect(float x, float y, float w, float h)
     hud_quad(x, y, w, h);
 }
 
+void hud_rect(float x, float y, float w, float h)
+{
+    hud_quad(x, y, w, h);
+}
+
 void hud_text(float x, float y, float scale, const char* text)
 {
     font_draw(x, y, scale, text);
@@ -161,7 +182,7 @@ void hud_printf(float x, float y, float scale, const char* fmt, ...)
     hud_text(x, y, scale, line);
 }
 
-void hud_end(void)
+static void hud_flush(void)
 {
     GLsizeiptr bytes;
     if (hud_verts == NULL || hud_vert_count == 0) {
@@ -186,4 +207,7 @@ void hud_end(void)
     }
     glDrawArrays(GL_TRIANGLES, 0, (GLsizei) hud_vert_count);
     glBindVertexArray(0);
+    hud_vert_count = 0;
 }
+
+void hud_end(void) { hud_flush(); }

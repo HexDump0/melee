@@ -18,6 +18,10 @@ void hud_shutdown(void);
 void hud_begin(int width, int height);
 
 void hud_set_color(float r, float g, float b, float a);
+/* One filled quad.  Drawing a backdrop out of text costs a quad per glyph
+ * pixel and silently exhausts the vertex budget, taking whatever is drawn
+ * next with it. */
+void hud_rect(float x, float y, float w, float h);
 void hud_text(float x, float y, float scale, const char* text);
 void hud_printf(float x, float y, float scale, const char* fmt, ...);
 

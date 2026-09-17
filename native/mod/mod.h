@@ -105,6 +105,7 @@ typedef struct ModDisplayBackend {
     void (*draw_color)(float r, float g, float b, float a);
     void (*draw_text)(float x, float y, float scale, const char* text,
                       unsigned len);
+    void (*draw_rect)(float x, float y, float w, float h);
 } ModDisplayBackend;
 
 void mod_set_display_backend(const ModDisplayBackend* backend);
@@ -120,6 +121,7 @@ void mod_host_display_set_aspect(float aspect);
 void mod_host_draw_color(float r, float g, float b, float a);
 void mod_host_draw_text(float x, float y, float scale, const char* text,
                         unsigned len);
+void mod_host_draw_rect(float x, float y, float w, float h);
 /* Opened by whoever owns the drawable, around the frame hook. */
 void mod_set_drawing(int open);
 float mod_host_display_get_aspect(void);
@@ -150,8 +152,11 @@ void mod_set_scene_override(int kind);
 void mod_wasm_scan(void);
 void mod_wasm_shutdown(void);
 
-/* Archive hook for the menu-label work (P-838); see mod_menu.c. */
+/* The sixth main-menu entry (P-838); see mod_menu.c. */
 void mod_menu_on_asset(const void* bytes, size_t size);
+void mod_menu_init(void);
+/* Non-zero once when the Unbound entry has been chosen; clears on read. */
+int mod_menu_take_activation(void);
 
 /* Add the mods compiled into this binary.  Browser. */
 void mod_native_scan(void);

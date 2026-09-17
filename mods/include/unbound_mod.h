@@ -80,6 +80,8 @@ int unbound_config_int_raw(const char* key, unsigned len, int fallback);
  */
 UNBOUND_IMPORT("draw_color")
 void unbound_draw_color(float r, float g, float b, float a);
+UNBOUND_IMPORT("draw_rect")
+void unbound_draw_rect(float x, float y, float w, float h);
 UNBOUND_IMPORT("draw_text")
 void unbound_draw_text_raw(float x, float y, float scale, const char* text,
                            unsigned len);
@@ -94,6 +96,18 @@ void unbound_draw_text_raw(float x, float y, float scale, const char* text,
  */
 UNBOUND_IMPORT("buttons_held") unsigned unbound_buttons_held(int port);
 UNBOUND_IMPORT("buttons_pressed") unsigned unbound_buttons_pressed(int port);
+
+/*
+ * Non-zero once when this mod's main-menu entry has been chosen, and clears
+ * on read -- so poll it from UNBOUND_HOOK_FRAME and act on the frame it
+ * returns true.
+ *
+ * The entry itself is port machinery: adding one means writing to the game's
+ * menu table and substituting a label texture, neither of which the ABI can
+ * express yet.  This is the seam between the two, and what it should
+ * eventually look like is P-833's question.
+ */
+UNBOUND_IMPORT("menu_activated") int unbound_menu_activated(void);
 
 /* What kind of screen the game is showing right now; see unbound_abi.h. */
 UNBOUND_IMPORT("scene_kind") int unbound_scene_kind(void);

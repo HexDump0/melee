@@ -58,7 +58,7 @@ static void mod_register_asset(const void* bytes, size_t size)
 
 static const ModDisplayBackend mod_gx_gl_display = {
     gx_gl_get_window_size, gx_gl_set_display_aspect, gx_gl_get_display_aspect,
-    mod_draw_color,        mod_draw_text
+    mod_draw_color,        mod_draw_text,           hud_rect
 };
 
 static void usage(const char* argv0)
@@ -555,6 +555,14 @@ static int run_match(SDL_Window* window, SDL_GLContext context,
         mod_set_scene_override(UNBOUND_SCENE_GAMEPLAY);
     }
     mod_system_init();
+    /*
+     * After the registry, and only for a mod that asked for it: the entry is
+     * port machinery but it belongs to Unbound, so MELEE_NO_MODS=1 must take
+     * it away with everything else or the vanilla-parity gate is a fiction.
+     */
+    if (mod_is_enabled("unbound")) {
+        mod_menu_init();
+    }
     gx_gl_set_options(gl);
     boot_platform_set_present_hook(match_present);
     if (no_items) {

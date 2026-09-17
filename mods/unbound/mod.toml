@@ -7,7 +7,7 @@
 id = "unbound"
 name = "Melee Unbound"
 version = "0.1.0"
-abi_version = 4
+abi_version = 6
 
 # Ascending; ties break on load order. Unbound goes first so a third-party
 # mod can layer on top of it.

@@ -58,6 +58,17 @@
 #endif
 
 /*
+ * The main-menu label swap (P-838).  jobj.c defines these and mnmain.c calls
+ * them, so the rename reaches the calls -- which is exactly why the menu's
+ * own `mn_8022DB10` could not be done this way and is hooked through the
+ * writable function pointer in `mn_803EB6B0` instead.
+ */
+#ifndef MELEE_JOBJ_INTERNAL
+#define HSD_JObjReqAnim unbound_HSD_JObjReqAnim
+#define HSD_JObjAnim unbound_HSD_JObjAnim
+#endif
+
+/*
  * S5: the engine stores a 32-bit address / 16.16 ratio into adjacent u16
  * fields with a `*(u32*) &pair = value` aliasing idiom (synth.c).  That is
  * only correct on big-endian: the host would put the low half in the first

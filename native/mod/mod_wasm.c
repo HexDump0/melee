@@ -89,6 +89,12 @@ static float host_display_get_aspect(wasm_exec_env_t env)
     return mod_host_display_get_aspect();
 }
 
+static int32_t host_menu_activated(wasm_exec_env_t env)
+{
+    (void) env;
+    return mod_menu_take_activation();
+}
+
 static int32_t host_scene_kind(wasm_exec_env_t env)
 {
     (void) env;
@@ -107,6 +113,13 @@ static void host_draw_text(wasm_exec_env_t env, float x, float y, float scale,
 {
     (void) env;
     mod_host_draw_text(x, y, scale, text, len);
+}
+
+static void host_draw_rect(wasm_exec_env_t env, float x, float y, float w,
+                           float h)
+{
+    (void) env;
+    mod_host_draw_rect(x, y, w, h);
 }
 
 static uint32_t host_buttons_held(wasm_exec_env_t env, int32_t port)
@@ -146,8 +159,10 @@ static NativeSymbol mod_natives[] = {
     { "scene_kind", (void*) host_scene_kind, "()i", NULL },
     { "draw_color", (void*) host_draw_color, "(ffff)", NULL },
     { "draw_text", (void*) host_draw_text, "(fff*~)", NULL },
+    { "draw_rect", (void*) host_draw_rect, "(ffff)", NULL },
     { "buttons_held", (void*) host_buttons_held, "(i)i", NULL },
-    { "buttons_pressed", (void*) host_buttons_pressed, "(i)i", NULL }
+    { "buttons_pressed", (void*) host_buttons_pressed, "(i)i", NULL },
+    { "menu_activated", (void*) host_menu_activated, "()i", NULL }
 };
 #pragma GCC diagnostic pop
 

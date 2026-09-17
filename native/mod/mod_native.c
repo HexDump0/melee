@@ -43,6 +43,8 @@ float unbound_display_get_aspect(void) { return mod_host_display_get_aspect(); }
 
 int unbound_scene_kind(void) { return mod_host_scene_kind(); }
 
+int unbound_menu_activated(void) { return mod_menu_take_activation(); }
+
 void unbound_draw_color(float r, float g, float b, float a)
 {
     mod_host_draw_color(r, g, b, a);
@@ -52,6 +54,11 @@ void unbound_draw_text_raw(float x, float y, float scale, const char* text,
                            unsigned len)
 {
     mod_host_draw_text(x, y, scale, text, len);
+}
+
+void unbound_draw_rect(float x, float y, float w, float h)
+{
+    mod_host_draw_rect(x, y, w, h);
 }
 
 unsigned unbound_buttons_held(int port)

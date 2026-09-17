@@ -35,30 +35,22 @@ void unbound_mod_init(void)
 }
 
 /*
- * Until the menu entry exists (P-838) the credits are reached with Z from a
- * non-gameplay screen, and the footer says so.  When the entry lands, this
- * becomes `credits_open()` from the selection handler and the footer goes
- * away -- credits.c does not change.
+ * The credits are opened from the main menu's "Melee Unbound" entry.  The
+ * entry is port machinery -- see native/mod/mod_menu.c -- and reaches the mod
+ * as a one-shot flag; everything after that point is the mod's own.
  */
 static void unbound_on_frame(const UnboundFrame* frame)
 {
     int i;
 
+    (void) i;
+
+    if (unbound_menu_activated()) {
+        credits_open();
+    }
     if (credits_is_open()) {
         credits_on_frame(frame);
-        return;
     }
-    if (frame->scene == UNBOUND_SCENE_GAMEPLAY) {
-        return;
-    }
-    for (i = 0; i < 4; ++i) {
-        if (unbound_buttons_pressed(i) & UNBOUND_BUTTON_Z) {
-            credits_open();
-            return;
-        }
-    }
-    unbound_draw_color(0.55f, 0.45f, 0.75f, 1.0f);
-    unbound_draw_text(8.0f, 462.0f, 1.0f, "MELEE UNBOUND   Z  CREDITS");
 }
 
 void unbound_mod_on_hook(unsigned hook)

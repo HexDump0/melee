@@ -84,16 +84,11 @@ void credits_on_frame(const UnboundFrame* frame)
         }
     }
 
-    /* A backdrop dark enough to read against whatever is behind it, drawn as
-     * overlapping rules rather than a quad because the host's drawing surface
-     * is text-only for now.  If this is still here when the ABI grows a real
-     * filled-rect call, it should use it (P-839). */
-    unbound_draw_color(0.0f, 0.0f, 0.0f, 0.82f);
-    for (y = 0.0f; y < SCREEN_H; y += 7.0f) {
-        unbound_draw_text(0.0f, y, 1.0f,
-                          "................................................"
-                          "................................");
-    }
+    /* One quad.  Drawing this out of text cost a quad per glyph pixel and
+     * silently exhausted the host's vertex budget, which then dropped every
+     * line of the credits -- the backdrop appeared and nothing else did. */
+    unbound_draw_color(0.0f, 0.0f, 0.0f, 0.86f);
+    unbound_draw_rect(0.0f, 0.0f, SCREEN_W, SCREEN_H);
 
     y = 96.0f;
     for (i = 0; i < CREDITS_COUNT; ++i) {

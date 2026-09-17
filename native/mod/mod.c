@@ -275,6 +275,13 @@ void mod_host_draw_text(float x, float y, float scale, const char* text,
     }
 }
 
+void mod_host_draw_rect(float x, float y, float w, float h)
+{
+    if (drawing_open && display != NULL && display->draw_rect != NULL) {
+        display->draw_rect(x, y, w, h);
+    }
+}
+
 float mod_host_display_get_aspect(void)
 {
     if (display != NULL && display->get_aspect != NULL) {
