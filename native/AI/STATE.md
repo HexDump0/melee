@@ -94,7 +94,7 @@
 > `584.32/480` -- and whether the widened frame actually looks right, which no
 > amount of pixel arithmetic here settled.
 
-Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716, P-718, P-719, P-720, P-737, P-738, P-739, P-742 and P-743 fixed, P-699/P-702/P-711/P-715/P-717/P-740/P-741 open)
+Last updated: 2026-09-17 (mod system landed -- ADR-0026/0027, drop-in wasm mods under WAMR, Unbound is the first one and widescreen its first feature, P-831 in review, P-832..P-835 and P-837 open; earlier: S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716, P-718, P-719, P-720, P-737, P-738, P-739, P-742 and P-743 fixed, P-699/P-702/P-711/P-715/P-717/P-740/P-741 open)
 
 > **The browser port is playable: it boots from a local disc, reaches the
 > memory-card screen, title and character select, and plays a match

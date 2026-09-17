@@ -121,3 +121,73 @@ here were worthless:
   range adjustment, which is a function of horizontal EFB distance from
   centre. Neither metric separates "correctly widened" from "wrongly scaled",
   and no amount of further arithmetic was going to. **Ask the owner to look.**
+
+## Hold a camera change for the whole draw pass, not just the call
+
+Applying the mod's value, calling the real `HSD_CObjSetCurrent`, and restoring
+before returning is the tidy-looking version and it is wrong. Engine code
+re-derives geometry from the live camera *after* SetCurrent returns --
+`HSD_CObjEraseScreen` sizes its backdrop quad from the camera's aspect, and
+`gmTitle_801A18D4` calls it one line later. Restoring early meant every
+backdrop in the game was built for the old aspect and drawn through the new
+projection, covering exactly the old 4:3 rectangle. Apply in SetCurrent,
+restore in `HSD_CObjEndCurrent`, and restore defensively on the next
+SetCurrent too because pairing is not universal. Full write-up in G-215.
+
+## Only widen cameras that cover the whole EFB
+
+The off-screen-player magnifier renders its bubble through an ortho camera
+whose viewport is the bubble's own width and height (`ifmagnify.c:533`).
+Widening that squashed its contents: the rectangle it draws into never
+changed shape when the window did, because the EFB is fitted to the window
+uniformly. `UnboundCameraSetup` carries the viewport so a mod can tell.
+
+This is a fact about the camera, not a guess about what it draws -- which is
+the distinction that matters after P-830.
+
+**A related thing this ruled out.** The magnifier's *trigger* is world-space:
+`ifmagnify.c:340` tests the player's x against
+`Stage_GetCamBoundsLeftOffset/RightOffset`. Widescreen cannot make a bubble
+appear early or late. An earlier reading of this had it as a screen-space test
+and concluded widescreen would have to stop being presentation-only to fix it.
+It didn't. Check the mechanism before trading away a property.
+
+## Widescreen belongs to gameplay; a menu is a picture, not a window
+
+Menus, splashes, results and cutscenes are compositions authored for 4:3.
+There is no world behind them, so widening can only reveal the edge of the
+composition. Their backdrop plates carry about **18% of overscan margin** --
+measured off an owner screenshot where they end at x=104/1812 against
+x=110/1808 predicted for a 1.18x asset at 16:9 -- so they fall ~6% short a
+side. No camera transform fixes that; the plates are the wrong *size*.
+
+So the mod asks `unbound_scene_kind()` and leaves non-gameplay screens at
+their authored aspect. It asks the host rather than reading the engine's scene
+index itself, so no mod carries a table of scene numbers the pin could move.
+
+**How it is really fixed, from reading the community's `ssbmws.xdelta`:** that
+patch is a VCDIFF over a v1.02 ISO changing **~13 KB of literal bytes** across
+`main.dol` and roughly 200 archives -- trophies, stages, `SdVsCam`, `IfAll`,
+`GmTtAll`, the menu archives, `GmRst*`, `GmPause`. It **rewrites the data**:
+camera-descriptor `aspect` floats and plate sizes, edited in place. 13 KB is
+far too little for new artwork, which settles the question -- the plates are
+flat, so widening one costs nothing artistically. We have the same lever at
+load time through `melee_port_HSD_ArchiveParse`. P-837.
+
+**Parsing an xdelta without applying it is cheap and worth knowing.** The
+VCDIFF window headers give target offset and how many literal bytes each
+window carries, even when the sections themselves are secondary-compressed and
+undecodable. Map those offsets against the disc's FST and you learn exactly
+which files a patch touches and how much of each, from the patch alone.
+
+## The harness is not the game
+
+`--match` jumps straight into a match without running the scene machinery, so
+`gm_GetCurrentSceneIndex()` still reports the boot menu (scene 1, mode 24)
+forever. Anything that keys off engine scene state will silently do nothing
+under that harness while working perfectly in the product. The port states the
+truth with `mod_set_scene_override`; a mod should not have to know our harness
+exists.
+
+Verify a scene-dependent feature on the **frontend** path
+(`--frontend --input native/tests/frontend_vs.txt`), not on `--match`.

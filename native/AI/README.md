@@ -65,7 +65,8 @@ native/AI/
 │   ├── hsd_animation.md
 │   ├── gl_shaders.md
 │   ├── hsd_tev_materials.md
-│   └── hsd_lights_fog.md
+│   ├── hsd_lights_fog.md
+│   └── mod_system.md       (ADR-0026/0027: hooks, bindings, the wasm ABI)
 ├── gotchas/
 │   ├── README.md
 │   └── GOTCHAS.md         <- numbered, symptom -> cause -> fix
@@ -77,7 +78,8 @@ native/AI/
 ├── reference/
 │   ├── glossary.md
 │   ├── repo_file_map.md
-│   └── external_resources.md
+│   ├── external_resources.md
+│   └── branding.md        <- name, palette, logo files (art in /assets)
 ├── templates/
 │   ├── learning.md
 │   ├── gotcha.md
@@ -99,3 +101,10 @@ per-frame envelope/shared/rigid skinning, the `fobj.c` curve player, and
 replacing original sandbox code with decompiled engine code (`src/`) until the
 port is faithful, adding audio, menus, netplay and a WASM target, without ever
 requiring the user to redistribute game assets.
+
+**Melee Unbound is the port plus its improvements, and the two are kept
+apart.** The port stays faithful to the decompilation; everything Unbound adds
+is a *mod*, loaded through the same ABI a stranger's mod uses (ADR-0026). Mods
+live in `mods/` as drop-in `.wasm` modules run under WAMR (ADR-0027); the
+registry and the engine interposers are in `native/mod/`. `MELEE_NO_MODS=1`
+loads none of it and is the vanilla-parity configuration the suite runs in.

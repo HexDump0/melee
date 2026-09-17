@@ -74,7 +74,7 @@ What this changes:
 | S4 | First match | **done 2026-09-12** | compiled fighters/items/stages; the game's own match loop | 6–12 weeks |
 | S5 | Audio | **done 2026-09-12** | the compiled AX stack plays SFX/HPS through a host mixer | 4–12 weeks |
 | S6 | Frontend + saves | **done 2026-09-14** | menus, character select, results, memory card | 3–6 weeks |
-| S7 | Platforms + mods | stretch | Android, web, Windows/macOS parity, mod hooks, netplay | open ended |
+| S7 | Platforms + mods | **mods: loader landed** | Android, web, Windows/macOS parity, mod hooks, netplay | open ended |
 
 Sizes are rough agent-time estimates and are re-baselined by S0.
 
@@ -197,8 +197,15 @@ follow-up, not an open milestone item.
   shaders and thin platform layer are deliberate groundwork; blockers are
   asset size/delivery, threading and audio.
 - Windows/macOS parity.
-- A mod layer: source-level hooks and data-driven asset overrides on top of the
-  compiled game.
+- A mod layer. **The loading half landed 2026-09-17** (ADR-0026/0027): mods are
+  drop-in `.wasm` folders under `mods/`, run under WAMR, with a versioned ABI,
+  declared load order and an enable/disable switch; Unbound ships as the first
+  one and widescreen (P-831) is its first feature, gated to gameplay.
+  **What is not built** is the half that makes it a mod system rather than a
+  display-settings layer: a mod still cannot see any game state -- no fighter,
+  no match, no items, no inputs, no per-frame tick -- and there are no asset
+  overrides. P-832 (assets), P-833 (a mod that is not ours, to find what the
+  ABI is missing), P-837 (2D-screen data fixups).
 - Netplay (rollback) once the simulation is deterministic.
 
 ## Parallel / supporting work

@@ -46,7 +46,12 @@ Two things to keep separate in your head:
    - `font.h` HUD bitmap font.
 6. **`decomp/`** — build glue and shims for compiling `src/` files natively.
    Starts with `mtx.c`/`vec.c` behind an almost-empty shim (P-301).
-7. **`main.c`** — entry point and CLI; dispatches to the viewer or sandbox.
+7. **`mod/`** — the mod registry, the engine interposers and the WAMR-backed
+   loader (ADR-0026/0027). The contract mods compile against is
+   `mods/include/unbound_abi.h`; `mods/<id>/` is a drop-in folder with a
+   manifest and a `.wasm`. `mod_cobj.c` is the only file that knows which
+   engine symbol sits behind a hook, so a pin bump changes it and no mod.
+8. **`main.c`** — entry point and CLI; dispatches to the viewer or sandbox.
 
 ## Data flow
 
@@ -85,6 +90,16 @@ main()
   all reads are bounds checked.
 - **One source of truth.** When a `decomp/`-compiled function replaces a hand
   version, the hand version is deleted in the same commit.
+- **Mods are never `patches/`.** `patches/` stays strictly portability
+  (ADR-0011); gameplay and presentation changes go through the mod ABI, so the
+  submodule pin stays cheap to move and the "GameCube build still 100.00%
+  matched" gate stays cheap to run.
+- **The core is faithful with mods off.** `MELEE_NO_MODS=1` must reproduce the
+  port's behaviour exactly, which makes that a configuration the suite runs
+  rather than a claim anyone has to trust.
+- **Unbound has no privileges.** Its features use only what a third-party mod
+  can reach. An API with one privileged consumer is an API whose gaps are
+  invisible.
 
 ## Deliberate constraints
 
