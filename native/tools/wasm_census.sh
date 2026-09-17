@@ -109,11 +109,40 @@ nfail=$(wc -l < "$OUT/failures.txt")
 echo "compile failures: $nfail"
 [ "$nfail" -eq 0 ] || { cat "$OUT/failures.txt"; exit 1; }
 
+# How the synchronous disc read suspends.  MELEE_WASM_SUSPEND=asyncify keeps
+# the old mechanism for a browser without JSPI.
+#
+# JSPI is the default because Asyncify's cost here is enormous and had never
+# been measured -- the note above called it "the W2 measurement" and nobody
+# took it.  `emcc -sASYNCIFY_ADVISE` reports **36,334 instrumented functions**,
+# i.e. essentially the whole program, each rewritten into a state machine that
+# saves and restores its locals on every call.
+#
+# The reason it is that broad is worth knowing before anyone tries to trim it
+# with ASYNCIFY_ONLY: the advice output begins "invoke_iii is an import that
+# can change the state".  Those invoke_* trampolines come from
+# EMULATE_FUNCTION_POINTER_CASTS, which this build needs because the
+# decompilation launders callbacks through `Event`.  Every indirect call
+# therefore leaves wasm through a JS import, Asyncify must assume any import
+# may suspend, and the whole call graph is poisoned.  An ASYNCIFY_ONLY list
+# cannot fix that without first removing the trampolines.
+#
+# JSPI uses the engine's own stack switching and instruments nothing:
+# **14.5 MB of wasm becomes 4.5 MB.**  Verified by the owner in Chrome and
+# Firefox, booting, streaming the disc and playing.  It needs a recent engine;
+# where that is not available, MELEE_WASM_SUSPEND=asyncify still links.
+case "${MELEE_WASM_SUSPEND:-jspi}" in
+  jspi)     SUSPEND="-sJSPI" ;;
+  asyncify) SUSPEND="-sASYNCIFY=1 -sASYNCIFY_STACK_SIZE=65536" ;;
+  *) echo "MELEE_WASM_SUSPEND must be jspi or asyncify" >&2; exit 1 ;;
+esac
+echo "suspend mechanism: ${MELEE_WASM_SUSPEND:-jspi}"
+
 echo "linking"
 emcc "$OUT"/obj/*.o -o "$OUT/melee.html" --use-port=sdl3 \
   --shell-file "$W/native/tools/wasm_shell.html" \
   -sINITIAL_MEMORY=2415919104 -sALLOW_MEMORY_GROWTH=0 -sMAX_WEBGL_VERSION=2 -sMIN_WEBGL_VERSION=2 \
-  -sASYNCIFY=1 -sASYNCIFY_STACK_SIZE=65536 -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 \
+  $SUSPEND -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 \
   -sEMULATE_FUNCTION_POINTER_CASTS=1 \
   -sEXPORTED_RUNTIME_METHODS=callMain,HEAPU8
 echo "linked: $(du -h "$OUT/melee.wasm" | cut -f1) wasm -> $OUT/melee.html"
