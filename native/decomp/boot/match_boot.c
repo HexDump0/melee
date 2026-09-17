@@ -29,6 +29,8 @@
 #include <melee/gm/gmvsmode.h>
 #include <melee/ft/fighter.h>
 #include <melee/ft/ftlib.h>
+#include <melee/ft/ftparts.h>
+#include <sysdolphin/baselib/aobj.h>
 #include <melee/ft/ftcpuattack.h>
 #include <melee/if/forward.h>
 #include <melee/mn/mnmain.h>
@@ -598,6 +600,7 @@ static void install_match_selection(void)
  * harness's GM_DEBUG_VS. */
 static int stuck_trace;
 static unsigned stuck_frames; /* MELEE_STUCK_TRACE=<frames> overrides */
+static unsigned anim_stall_frames; /* MELEE_ANIM_STALL=<frames> */
 static unsigned pos_period = 60; /* MELEE_POS_TRACE=<frames> */
 
 #define MATCH_STUCK_SLOTS 4
@@ -664,6 +667,107 @@ static int motion_is_parked(int motion)
         return 1;
     default:
         return 0;
+    }
+}
+
+/* `MELEE_ANIM_STALL=<frames>`: a fighter state that never exits.
+ *
+ * Most of the "my character froze" reports (P-780) are a motion state whose
+ * exit condition is `ftAnim_IsFramesRemaining(gobj) == 0`, and that is true
+ * for as long as **any** part still has a live `HSD_AObj` -- `lb_8000B074`
+ * is just "aobj != NULL && !(aobj->flags & AOBJ_NO_ANIM)".  So the question
+ * is never "is the fighter stuck", it is **which part's animation never
+ * ends**, and nothing printed that.
+ *
+ * On the owner's Home-Run bat wedge (`ftCo_MS_BatSwingDash`, 127) the
+ * ordinary stuck rule stays quiet, because `cur_anim_frame` keeps advancing
+ * while the state refuses to leave -- exactly the case the motion+anim test
+ * cannot see.  This one keys on the motion id alone and prints the census
+ * once per wedge: every part still holding the state open, with its AObj
+ * flags, current frame and end frame.
+ *
+ * `AOBJ_LOOP` set on a part that should finish, or `curr_frame` stopped
+ * short of `end_frame`, are the two shapes to look for and they point at
+ * different files. */
+static void check_anim_stall(void)
+{
+    static int last_motion[MATCH_STUCK_SLOTS];
+    static unsigned held[MATCH_STUCK_SLOTS];
+    static int said[MATCH_STUCK_SLOTS];
+    int slot;
+
+    if (anim_stall_frames == 0) {
+        return;
+    }
+    for (slot = 0; slot < MATCH_STUCK_SLOTS; slot++) {
+        HSD_GObj* gobj = match_boot_fighter_gobj(slot);
+        Fighter* fp;
+        int motion;
+
+        if (gobj == NULL || gobj->user_data == NULL) {
+            held[slot] = 0;
+            said[slot] = 0;
+            continue;
+        }
+        fp = (Fighter*) gobj->user_data;
+        motion = (int) fp->motion_id;
+        if (motion != last_motion[slot]) {
+            last_motion[slot] = motion;
+            held[slot] = 0;
+            said[slot] = 0;
+            continue;
+        }
+        held[slot]++;
+        if (held[slot] != anim_stall_frames || said[slot]) {
+            continue;
+        }
+        said[slot] = 1;
+        fprintf(stderr,
+                "[anim-stall] slot %d kind %d motion_id=%d for %u frames, "
+                "anim_frame=%.2f blend=%.2f\n",
+                slot, (int) fp->kind, motion, held[slot],
+                (double) fp->cur_anim_frame,
+                (double) fp->x8A4_animBlendFrames);
+        {
+            int i;
+            int live = 0;
+            int parts = (int) ftPartsTable[fp->kind]->parts_num;
+            for (i = 0; i < parts && i < 0x8C; i++) {
+                HSD_JObj* j;
+                HSD_AObj* a;
+                if (!fp->parts[i].flags_b1 || fp->parts[i].flags_b0 ||
+                    fp->parts[i].flags_b5)
+                {
+                    continue;
+                }
+                j = fp->x8A4_animBlendFrames == 0.0f ? fp->parts[i].joint
+                                                     : fp->parts[i].x4_jobj2;
+                if (j == NULL) {
+                    continue;
+                }
+                a = j->aobj;
+                if (a == NULL || (a->flags & AOBJ_NO_ANIM)) {
+                    continue;
+                }
+                live++;
+                if (live > 6) {
+                    continue; /* the first few are enough; total below */
+                }
+                fprintf(stderr,
+                        "[anim-stall]   part %3d jobj=%p aobj=%p "
+                        "flags=0x%08x%s curr=%.2f end=%.2f rate=%.2f "
+                        "fobj=%p\n",
+                        i, (void*) j, (void*) a, (unsigned) a->flags,
+                        (a->flags & AOBJ_LOOP) ? " LOOP" : "",
+                        (double) a->curr_frame, (double) a->end_frame,
+                        (double) a->framerate, (void*) a->fobj);
+            }
+            fprintf(stderr,
+                    "[anim-stall]   %d part(s) holding the state open "
+                    "(a looping Wait/Walk is normal here; a *swing* that "
+                    "loops is not)\n",
+                    live);
+        }
     }
 }
 
@@ -1022,6 +1126,7 @@ static void match_boot_frame(void)
     log_shield_state();
     /* Also before the gate: MELEE_STUCK_TRACE is for the owner's own play,
      * which never enters the harness's match flow (P-780). */
+    check_anim_stall();
     if (stuck_trace) {
         check_fighter_stuck();
         /* A fighter that runs away rather than wedging never trips the stuck
@@ -1673,6 +1778,14 @@ void match_boot_init(unsigned frame_in)
          * frozen before it is reported; bare `=1` keeps the 2-second default,
          * which is short enough to catch the wedge and long enough that
          * standing still in Wait does not trip it. */
+        const char* ase = getenv("MELEE_ANIM_STALL");
+        if (ase != NULL) {
+            long n = strtol(ase, NULL, 0);
+            anim_stall_frames = n > 1 ? (unsigned) n : 90;
+            boot_platform_set_frame_hook(match_boot_frame);
+        }
+    }
+    {
         const char* e = getenv("MELEE_STUCK_TRACE");
         if (e != NULL) {
             long n = strtol(e, NULL, 0);
