@@ -1,5 +1,5 @@
 diff --git a/src/sysdolphin/baselib/hsd_3A76.c b/src/sysdolphin/baselib/hsd_3A76.c
-index 869fe2379..ae5403f91 100644
+index 869fe2379..f4c59c547 100644
 --- a/src/sysdolphin/baselib/hsd_3A76.c
 +++ b/src/sysdolphin/baselib/hsd_3A76.c
 @@ -1,3 +1,7 @@
@@ -77,7 +77,7 @@ index 869fe2379..ae5403f91 100644
                  if (glyph_code < 0x4000U) {
                      kern_width =
                          (s32) (default_kerning +
-@@ -441,6 +445,24 @@ static void sisFitLineToBox(HSD_Text* text, f32 measured_width)
+@@ -441,6 +445,37 @@ static void sisFitLineToBox(HSD_Text* text, f32 measured_width)
  
  void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
  {
@@ -88,13 +88,26 @@ index 869fe2379..ae5403f91 100644
 +     * If it never fires for font 0, the text is never submitted and the fault
 +     * is in the GX link / camera wiring, not in the text. */
 +    if (getenv("MELEE_TROPHY_TRACE") != NULL) {
++        /* Dedupe on the sis pointer rather than capping the line count.  A
++         * flat cap is wrong here: the menu before the trophy screen draws one
++         * text object every frame and ate all 40 lines before the screen under
++         * investigation was even reached. */
 +        HSD_Text* t_ = (HSD_Text*) HSD_GObjGetUserData(gobj);
++        void* sis_ = t_ != NULL ? (void*) t_->sis_buffer : NULL;
++        static void* seen_[96];
 +        static unsigned n_;
-+        if (n_ < 40) {
-+            n_++;
-+            fprintf(stderr, "[sisdraw] pass=%d font=%d sis=%p\n", pass,
-+                    t_ != NULL ? (int) t_->font_idx : -1,
-+                    t_ != NULL ? (void*) t_->sis_buffer : NULL);
++        unsigned i_;
++        int known_ = 0;
++        for (i_ = 0; i_ < n_; i_++) {
++            if (seen_[i_] == sis_) {
++                known_ = 1;
++                break;
++            }
++        }
++        if (!known_ && n_ < 96) {
++            seen_[n_++] = sis_;
++            fprintf(stderr, "[sisdraw] first draw: pass=%d font=%d sis=%p\n",
++                    pass, t_ != NULL ? (int) t_->font_idx : -1, sis_);
 +        }
 +    }
 +#endif
@@ -102,7 +115,7 @@ index 869fe2379..ae5403f91 100644
      // clang-format off
      HSD_Text *text;
      GXTexObj tex_obj;
-@@ -693,20 +715,20 @@ void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
+@@ -693,20 +728,20 @@ void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
                                  skip_count -= 1;
                              } else {
                                  text->x98 = (u32) (text->x98 + 1);
@@ -127,7 +140,7 @@ index 869fe2379..ae5403f91 100644
                              if (( text->fitting == 1) && (text->box_size_x < line_width_out)) {
                                  text->x88 = (text->box_size_x / line_width_out);
                              } else {
-@@ -723,7 +745,7 @@ void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
+@@ -723,7 +758,7 @@ void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
                                  text->current_width = x_origin;
                                  break;
                              }
@@ -136,7 +149,7 @@ index 869fe2379..ae5403f91 100644
                              sis_cursor += 4;
                              text->current_height = ((f32) y_offset * text->font_size.y);
                              break;
-@@ -731,13 +753,13 @@ void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
+@@ -731,13 +766,13 @@ void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
                              HSD_SisLib_803A7684(text, sis_cursor, 5U);
                              /* fallthrough */
                          case 8:
@@ -153,7 +166,7 @@ index 869fe2379..ae5403f91 100644
                              }
                              sis_cursor += 4;
                              break;
-@@ -758,8 +780,8 @@ void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
+@@ -758,8 +793,8 @@ void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
                              break;
                          case 14:
                              HSD_SisLib_803A7684(text, sis_cursor, 3U);
@@ -164,7 +177,7 @@ index 869fe2379..ae5403f91 100644
                              sis_cursor += 4;
                              break;
                          case 15:
-@@ -827,7 +849,7 @@ void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
+@@ -827,7 +862,7 @@ void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
                                      measured_width = line_width_out;
                                      sisFitLineToBox(text, measured_width);
                                  }
