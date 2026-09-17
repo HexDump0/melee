@@ -238,6 +238,18 @@ void mod_host_display_set_aspect(float aspect)
     }
 }
 
+static int scene_override = UNBOUND_SCENE_UNKNOWN;
+
+void mod_set_scene_override(int kind) { scene_override = kind; }
+
+int mod_host_scene_kind(void)
+{
+    if (scene_override != UNBOUND_SCENE_UNKNOWN) {
+        return scene_override;
+    }
+    return mod_engine_scene_kind();
+}
+
 float mod_host_display_get_aspect(void)
 {
     if (display != NULL && display->get_aspect != NULL) {

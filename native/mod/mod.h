@@ -111,6 +111,21 @@ int mod_host_display_width(void);
 int mod_host_display_height(void);
 void mod_host_display_set_aspect(float aspect);
 float mod_host_display_get_aspect(void);
+int mod_host_scene_kind(void);
+
+/* What the engine's own scene index says.  Implemented in mod_cobj.c. */
+int mod_engine_scene_kind(void);
+
+/*
+ * Force the scene kind reported to mods.
+ *
+ * The `--match` harness jumps straight into a match without going through the
+ * scene machinery, so the engine's scene index still reads whatever it was at
+ * boot (GS_MENU, mode 24).  That is a property of the harness, not of the
+ * game, and a mod should not have to know about it.  UNBOUND_SCENE_UNKNOWN
+ * clears the override.
+ */
+void mod_set_scene_override(int kind);
 
 /* --------------------------------------------------- binding entry points */
 

@@ -73,6 +73,9 @@ int unbound_config_int_raw(const char* key, unsigned len, int fallback);
 #define unbound_config_int(key, fallback)                                     \
     unbound_config_int_raw((key), (unsigned) (sizeof(key) - 1), (fallback))
 
+/* What kind of screen the game is showing right now; see unbound_abi.h. */
+UNBOUND_IMPORT("scene_kind") int unbound_scene_kind(void);
+
 /* Diagnostics.  Goes to stderr with the mod id as a prefix. */
 UNBOUND_IMPORT("log") void unbound_log(const char* msg, unsigned len);
 #define unbound_logs(msg) unbound_log((msg), (unsigned) (sizeof(msg) - 1))

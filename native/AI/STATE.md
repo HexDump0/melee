@@ -38,6 +38,39 @@
 > plenty -- there is no way to read game state at all yet), HUD anchoring
 > (P-834), WAMR AOT (P-835). ctest 33/33.
 >
+> **Widescreen is gated to gameplay (2026-09-17, P-831, owner decision).**
+> Menus, splashes, results and cutscenes keep their authored 4:3 aspect and
+> get honest pillarbox bars; a match gets the wider view. Verified across the
+> real frontend flow: scene 0 (title) and 1 (menu) stay at 1.3333, and the
+> aspect flips to 1.7778 the moment scene 2 (`GS_VS`) is entered.
+>
+> **This is not a workaround, it is the correct behaviour**, and an owner
+> screenshot is what established that. A menu is a composition authored for
+> 4:3 -- there is no world behind it, so widening can only reveal the edge of
+> the picture. Its backdrop plates end at x=104/1812 on a 1920-wide capture,
+> against x=110/1808 predicted for an asset carrying the usual ~18% overscan
+> margin, so at 16:9 they fall ~6% short a side.
+>
+> **The community's `ssbmws.xdelta` says how that is really fixed, and it is
+> not a cleverer transform.** Parsed rather than applied: ~13 KB of literal
+> bytes changed across `main.dol` and roughly 200 archives -- trophies,
+> stages, `SdVsCam`, `IfAll`, `GmTtAll`, the menu archives, `GmRst*`,
+> `GmPause`. It **rewrites the data**. 13 KB is far too little for new
+> artwork, which corrects something said earlier in this work: the plates are
+> flat, so widening one costs nothing artistically. We have the same lever at
+> load time through `melee_port_HSD_ArchiveParse`, with nothing shipped --
+> P-837.
+>
+> Three further defects fixed on the way, all found from owner screenshots
+> rather than from tests: the resize was told to mods before the frame was
+> submitted (so any large aspect jump stretched a frame), ortho cameras were
+> widened about zero rather than their own centre (sliding asymmetric ones
+> sideways), and the widened camera was restored before `HSD_CObjEraseScreen`
+> read it (G-215), which drew every backdrop at exactly the old 4:3
+> rectangle. Cameras that do not cover the whole EFB -- the off-screen-player
+> magnifier renders into its bubble's own viewport -- are now left alone.
+> ABI is at 3. ctest 33/33.
+
 > **Owner-reported (Hyprland): fullscreening from a small window stretched the
 > frame; from an already-fullscreen-sized one it did not.** `match_present` is
 > the *present* hook -- the game has already built the frame's draw list, and

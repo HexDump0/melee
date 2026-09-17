@@ -502,6 +502,11 @@ static int run_match(SDL_Window* window, SDL_GLContext context,
     /* Before the first frame, so a mod's display settings are in place for
      * it rather than applying one frame late. */
     mod_set_display_backend(&mod_gx_gl_display);
+    if (!frontend) {
+        /* The debug-match harness never runs the scene machinery, so the
+         * engine's scene index would report the boot menu forever. */
+        mod_set_scene_override(UNBOUND_SCENE_GAMEPLAY);
+    }
     mod_system_init();
     gx_gl_set_options(gl);
     boot_platform_set_present_hook(match_present);

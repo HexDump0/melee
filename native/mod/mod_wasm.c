@@ -89,6 +89,12 @@ static float host_display_get_aspect(wasm_exec_env_t env)
     return mod_host_display_get_aspect();
 }
 
+static int32_t host_scene_kind(wasm_exec_env_t env)
+{
+    (void) env;
+    return mod_host_scene_kind();
+}
+
 /*
  * WAMR signature strings: `i` i32, `f` f32, `*~` a guest buffer plus its
  * length, which the runtime bounds-checks and hands over as a host pointer.
@@ -110,7 +116,8 @@ static NativeSymbol mod_natives[] = {
     { "display_width", (void*) host_display_width, "()i", NULL },
     { "display_height", (void*) host_display_height, "()i", NULL },
     { "display_set_aspect", (void*) host_display_set_aspect, "(f)", NULL },
-    { "display_get_aspect", (void*) host_display_get_aspect, "()f", NULL }
+    { "display_get_aspect", (void*) host_display_get_aspect, "()f", NULL },
+    { "scene_kind", (void*) host_scene_kind, "()i", NULL }
 };
 #pragma GCC diagnostic pop
 

@@ -35,8 +35,12 @@
  */
 #include "mod/mod.h"
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
+#include <melee/gm/forward.h>
+#include <melee/gm/gm_1A3F.h>
 #include <sysdolphin/baselib/cobj.h>
 #include <sysdolphin/baselib/initialize.h>
 #include <sysdolphin/baselib/video.h>
@@ -97,6 +101,39 @@ static int pass_to_abi(HSD_RenderPass pass)
         return UNBOUND_PASS_OFFSCREEN;
     default:
         return UNBOUND_PASS_OTHER;
+    }
+}
+
+/*
+ * Which scene kinds count as gameplay: the ones with a 3D world behind the
+ * camera, where showing more of it is showing more game.  Everything else --
+ * title, menus, CSS, results, galleries, cutscenes, movies -- is a picture
+ * composed for 4:3.
+ */
+int mod_engine_scene_kind(void)
+{
+    /* MELEE_WIDESCREEN_TRACE=1 also names the scene, because "the gate said
+     * no" and "the gate never saw gameplay" look identical from outside. */
+    static int trace = -1;
+    static int last = -1;
+    int scene = gm_GetCurrentSceneIndex();
+    if (trace < 0) {
+        trace = getenv("MELEE_WIDESCREEN_TRACE") != NULL;
+    }
+    if (trace && scene != last) {
+        last = scene;
+        fprintf(stderr, "[ws] scene index %d (mode %u)\n", scene,
+                gm_GetCurrentGameMode());
+    }
+
+    switch ((GameSceneKind) scene) {
+    case GS_VS:
+    case GS_SUDDEN_DEATH:
+    case GS_TRAINING:
+    case GS_CAMERA_VS:
+        return UNBOUND_SCENE_GAMEPLAY;
+    default:
+        return UNBOUND_SCENE_OTHER;
     }
 }
 

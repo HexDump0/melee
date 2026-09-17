@@ -30,7 +30,7 @@
  *     bump UNBOUND_ABI_VERSION.
  */
 
-#define UNBOUND_ABI_VERSION 2u
+#define UNBOUND_ABI_VERSION 3u
 
 /* Chains run low priority first; ties break on registration order. */
 #define UNBOUND_PRIORITY_EARLY 100
@@ -143,6 +143,28 @@ typedef struct UnboundDisplayResized {
     int width;
     int height;
 } UnboundDisplayResized;
+
+/*
+ * What kind of screen the game is showing (ABI 3).
+ *
+ * GAMEPLAY means there is a 3D world behind the camera, so showing more of it
+ * is showing more *game*.  OTHER means a screen composed for 4:3 -- menus,
+ * splashes, results, cutscenes -- where the frame is a picture rather than a
+ * window, and widening it can only reveal the edge of the composition.  The
+ * backdrop plates on those screens are authored with about 18% of overscan
+ * margin, which covered 4:3 comfortably and falls short of 16:9 by roughly 6%
+ * a side.
+ *
+ * Fixing those properly means editing the plates themselves, which is what
+ * the community's ISO patch does -- ~13 KB of edits across ~200 archives.
+ * Until a mod can do that at load time, a display mod is expected to leave
+ * OTHER screens at their authored aspect.
+ */
+enum {
+    UNBOUND_SCENE_UNKNOWN = 0,
+    UNBOUND_SCENE_GAMEPLAY = 1,
+    UNBOUND_SCENE_OTHER = 2
+};
 
 /* The largest payload the host will copy into a guest's buffer. */
 #define UNBOUND_PAYLOAD_MAX 256

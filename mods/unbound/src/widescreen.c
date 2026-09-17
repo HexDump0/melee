@@ -26,8 +26,40 @@
 /* What the retail game's cameras are authored against. */
 #define NATIVE_DISPLAY_ASPECT (4.0f / 3.0f)
 
-static int enabled = 1;
+/* MELEE_MOD_UNBOUND_WIDESCREEN */
+#define WIDESCREEN_OFF 0
+#define WIDESCREEN_GAMEPLAY 1 /* default */
+#define WIDESCREEN_EVERYWHERE 2
+
+static int mode = WIDESCREEN_GAMEPLAY;
+static int scene = UNBOUND_SCENE_UNKNOWN;
 static float scale = 1.0f;
+
+/*
+ * Widescreen only where widening the frame shows more *game*.
+ *
+ * On a menu, splash or results screen there is no world behind the camera --
+ * the frame is a composition authored for 4:3, and its backdrop plates carry
+ * only about 18% of overscan margin, so at 16:9 they fall short by roughly 6%
+ * a side and the background shows through.  That is not a positioning bug
+ * this mod can correct: the plates themselves are the wrong size, and fixing
+ * them means editing the data (see P-837), which is exactly what the
+ * community's ISO patch does across ~200 archives.
+ *
+ * So those screens get their authored aspect and honest pillarbox bars, which
+ * is what the retail game looks like, and gameplay gets the wider view.  Set
+ * MELEE_MOD_UNBOUND_WIDESCREEN=2 to widen everything anyway and see the gaps.
+ */
+static int widescreen_wanted(void)
+{
+    if (mode == WIDESCREEN_OFF) {
+        return 0;
+    }
+    if (mode == WIDESCREEN_EVERYWHERE) {
+        return 1;
+    }
+    return scene == UNBOUND_SCENE_GAMEPLAY;
+}
 
 static void widescreen_recompute(void)
 {
@@ -35,7 +67,7 @@ static void widescreen_recompute(void)
     int h = unbound_display_height();
     float aspect;
 
-    if (!enabled || w <= 0 || h <= 0) {
+    if (!widescreen_wanted() || w <= 0 || h <= 0) {
         unbound_display_set_aspect(NATIVE_DISPLAY_ASPECT);
         scale = 1.0f;
         return;
@@ -58,7 +90,8 @@ static void widescreen_recompute(void)
 
 void widescreen_init(void)
 {
-    enabled = unbound_config_int("widescreen", 1);
+    mode = unbound_config_int("widescreen", WIDESCREEN_GAMEPLAY);
+    scene = unbound_scene_kind();
     widescreen_recompute();
 }
 
@@ -70,6 +103,18 @@ void widescreen_on_display_resized(const UnboundDisplayResized* size)
 
 void widescreen_on_camera_setup(UnboundCameraSetup* cam)
 {
+    /*
+     * Poll the scene here rather than waiting for a hook.  This runs during
+     * the game's own render, so a scene change takes effect on the frame it
+     * happens -- the display aspect and the camera factor are both updated
+     * before anything in this frame is submitted, and they cannot disagree.
+     */
+    int now = unbound_scene_kind();
+    if (now != scene) {
+        scene = now;
+        widescreen_recompute();
+    }
+
     if (scale == 1.0f) {
         return;
     }

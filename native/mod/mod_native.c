@@ -41,6 +41,8 @@ void unbound_display_set_aspect(float aspect)
 
 float unbound_display_get_aspect(void) { return mod_host_display_get_aspect(); }
 
+int unbound_scene_kind(void) { return mod_host_scene_kind(); }
+
 static void* native_payload(void* ctx)
 {
     (void) ctx;
