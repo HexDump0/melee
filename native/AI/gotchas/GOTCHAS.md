@@ -4391,3 +4391,46 @@ which point at genuine descriptors outside any `TObjDesc`.
   failed the build with *"bounds itself with 0x1 but sizeof(HSD_ImageDesc) is
   0x18"*. Keep the size-bearing `in_data` first and add guards after it.
   P-830.
+
+## G-214
+
+**`git commit` commits the whole index, not the paths you just staged.**
+
+Two sessions share this checkout, so the index is shared too. Staging by
+explicit path — `git add native/AI/TASKS.md` — feels safe and is not: if the
+other session has already `git add`ed its own work, a bare `git commit` takes
+*all* of it under your message.
+
+That is how `df629811b` ("Reopen the respawn stall") came to contain the mod
+session's `.gitmodules` and its `native/third_party/wasm-micro-runtime`
+submodule pin. The `git add` in that command touched one file; the commit
+carried three. It also happened the other way round minutes later, so this is
+not one careless session — it is the default behaviour of the tool under
+concurrent use.
+
+**Two consequences worth separating.**
+
+- **Attribution.** The commit message describes work the commit does not
+  contain, and vice versa. Both sessions had to reconstruct who wrote what.
+- **Reverts become traps.** Reverting a commit to undo the thing its message
+  describes silently removes unrelated work. `df629811b` now carries a note in
+  its task row for exactly this reason.
+
+**What actually works**, in order of preference:
+
+1. `git commit -- <paths>` — a pathspec-limited commit ignores the rest of the
+   index entirely. This is the real fix.
+2. Read `git diff --cached --stat` immediately before every commit and confirm
+   the file list is exactly yours. Cheap, and it catches everything.
+3. `git status --short` before staging, to see whether another session is
+   mid-edit at all.
+
+**Recovering from it** without destroying the other session's work: `git reset
+--soft HEAD~1` then `git restore --staged <their paths>` puts their changes
+back exactly as uncommitted. Do not `git checkout` their files — that discards
+work that was never committed anywhere.
+
+**And when two commits have already crossed**, build the union deliberately
+rather than reverting either: take the other session's rows verbatim, add your
+own, commit with a message that says whose is whose, and tell them to verify.
+P-818, P-836.
