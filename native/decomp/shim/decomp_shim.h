@@ -53,6 +53,7 @@
  */
 #ifndef MELEE_COBJ_INTERNAL
 #define HSD_CObjSetCurrent unbound_HSD_CObjSetCurrent
+#define HSD_CObjEndCurrent unbound_HSD_CObjEndCurrent
 #define HSD_CObjLoadDesc unbound_HSD_CObjLoadDesc
 #endif
 

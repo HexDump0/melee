@@ -11,12 +11,27 @@
  * UNBOUND_HOOK_CAMERA_SETUP.  When the decomp pin moves and these get
  * renamed or split, this file changes and no mod does.
  *
- * **The camera is restored before the engine sees it again.**  A handler's
- * values are applied, the real setup runs, and the original projection goes
- * straight back.  That is what lets the hook be classified PRESENT: the
- * camera object the game reads on the next line is byte-for-byte the one it
- * wrote, so nothing downstream -- the zoom fit in cm/camera.c, the on-screen
- * tests, the reflection cameras -- can observe that a mod ran.
+ * **The modified projection lives exactly as long as the camera is current.**
+ * It is applied in HSD_CObjSetCurrent and put back in HSD_CObjEndCurrent, so
+ * everything drawn under that camera sees the aspect it is actually being
+ * drawn at, and everything outside the draw pass sees what the game wrote.
+ *
+ * Restoring immediately inside SetCurrent -- which is what this did first --
+ * looks tidier and is wrong.  `HSD_CObjEraseScreen` (cobj.c:34) runs *after*
+ * SetCurrent returns and sizes its backdrop quad from
+ * `projection_param.perspective.aspect`, so with the camera already put back
+ * it built a quad for the old aspect and drew it through the new projection:
+ * a backdrop covering exactly the old 4:3 rectangle with bare strips down
+ * both sides, measured on the title screen at x=238 and x=1678 against a
+ * predicted 241 and 1677.  Any engine code that re-derives geometry from the
+ * live camera between the two calls has the same shape.
+ *
+ * Pairing is not universal (41 SetCurrent callers against 38 EndCurrent), so
+ * the restore is defensive: whichever of EndCurrent or the next SetCurrent
+ * comes first puts the camera back.  The window is therefore always a draw
+ * pass, never engine logic, which is what keeps the hook classified PRESENT:
+ * the zoom fit in cm/camera.c, the on-screen tests and the reflection cameras
+ * all run outside it and cannot observe that a mod ran.
  */
 #include "mod/mod.h"
 
@@ -85,6 +100,40 @@ static int pass_to_abi(HSD_RenderPass pass)
     }
 }
 
+/*
+ * The camera whose projection is currently modified, and what it held.  Only
+ * one camera is current at a time -- cobj.c keeps a single `current` -- so
+ * this does not need to be a stack.
+ */
+static HSD_CObj* pending_cobj;
+static union {
+    struct {
+        f32 fov;
+        f32 aspect;
+    } perspective;
+    struct {
+        f32 top;
+        f32 bottom;
+        f32 left;
+        f32 right;
+    } frustum;
+} pending_saved;
+
+static void restore_pending(void)
+{
+    if (pending_cobj != NULL) {
+        memcpy(&pending_cobj->projection_param, &pending_saved,
+               sizeof(pending_saved));
+        pending_cobj = NULL;
+    }
+}
+
+void unbound_HSD_CObjEndCurrent(void)
+{
+    restore_pending();
+    HSD_CObjEndCurrent();
+}
+
 HSD_CObj* unbound_HSD_CObjLoadDesc(HSD_CObjDesc* desc)
 {
     HSD_CObj* cobj = HSD_CObjLoadDesc(desc);
@@ -99,18 +148,10 @@ bool unbound_HSD_CObjSetCurrent(HSD_CObj* cobj)
     UnboundCameraSetup setup;
     HSD_RenderPass pass;
     bool result;
-    union {
-        struct {
-            f32 fov;
-            f32 aspect;
-        } perspective;
-        struct {
-            f32 top;
-            f32 bottom;
-            f32 left;
-            f32 right;
-        } frustum;
-    } saved;
+
+    /* A caller that never reached its EndCurrent must not leave a camera
+     * modified for the engine to read. */
+    restore_pending();
 
     if (cobj == NULL || !mod_hook_active(UNBOUND_HOOK_CAMERA_SETUP)) {
         return HSD_CObjSetCurrent(cobj);
@@ -150,7 +191,8 @@ bool unbound_HSD_CObjSetCurrent(HSD_CObj* cobj)
 
     mod_dispatch(UNBOUND_HOOK_CAMERA_SETUP, &setup, sizeof(setup));
 
-    memcpy(&saved, &cobj->projection_param, sizeof(saved));
+    memcpy(&pending_saved, &cobj->projection_param, sizeof(pending_saved));
+    pending_cobj = cobj;
     switch (cobj->projection_type) {
     case PROJ_PERSPECTIVE:
     case PROJ_FRUSTUM:
@@ -166,8 +208,10 @@ bool unbound_HSD_CObjSetCurrent(HSD_CObj* cobj)
 
     result = HSD_CObjSetCurrent(cobj);
 
-    /* Unconditionally, including on the failure path: a camera left widened
-     * would be read by the engine's own logic on the next line. */
-    memcpy(&cobj->projection_param, &saved, sizeof(saved));
+    /* On failure nothing will be drawn and no EndCurrent will follow, so put
+     * it back now rather than leaving it for the next camera. */
+    if (!result) {
+        restore_pending();
+    }
     return result;
 }

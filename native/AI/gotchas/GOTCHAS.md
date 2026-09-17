@@ -4459,3 +4459,43 @@ work that was never committed anywhere.
 rather than reverting either: take the other session's rows verbatim, add your
 own, commit with a message that says whose is whose, and tell them to verify.
 P-818, P-836.
+
+## G-215: a camera hook must hold its change until EndCurrent, not just SetCurrent
+
+**Symptom:** with widescreen on, the title screen (and many other scenes) drew
+its backdrop over exactly the **old 4:3 rectangle**, leaving bare strips down
+both sides. Measured on the owner's 1918x1077 screenshot: the two strongest
+vertical discontinuities were at **x=238 and x=1678**, against a predicted 4:3
+boundary of **241 and 1677**.
+
+**Cause:** `native/mod/mod_cobj.c` applied the mod's aspect, called the real
+`HSD_CObjSetCurrent`, and restored the camera *before returning*. That looks
+like the tidy, obviously-safe thing to do, and it is wrong, because engine
+code re-derives geometry from the live camera **after** SetCurrent returns.
+`HSD_CObjEraseScreen` (`cobj.c:34`) is the one that bites: it sizes its
+backdrop quad from `projection_param.perspective.aspect`, so with the camera
+already put back it built a quad for the old aspect and drew it through the
+new projection. `gmTitle_801A18D4` calls it one line after SetCurrent.
+
+**Fix:** apply in `HSD_CObjSetCurrent`, restore in `HSD_CObjEndCurrent`. The
+modified window is then exactly the draw pass, which is the only thing that
+should see it.
+
+**Restore defensively.** Pairing is not universal -- 41 `HSD_CObjSetCurrent`
+callers against 38 `HSD_CObjEndCurrent`, with `hsd_3982.c`, `textdraw.c`,
+`lbspdisplay.c` and `gm_1798.c` unbalanced -- so the next `SetCurrent` also
+restores, and so does the failure path where no `EndCurrent` will follow.
+Whichever comes first wins, and the camera is never left modified for engine
+logic to read.
+
+**Do not** conclude from this that the hook should modify the camera
+permanently. The classification in `unbound_abi.h` says
+`UNBOUND_HOOK_CAMERA_SETUP` is presentation-only, and that is true precisely
+because the window is bounded by the draw pass: `cm/camera.c`'s zoom fit, the
+on-screen tests and the reflection cameras all run outside it.
+
+**Verification worth copying:** a column-brightness profile of a screenshot,
+looking for the largest adjacent-column jump. It named the bug from the
+owner's screenshot alone (edge within 3 px of the predicted 4:3 boundary) and
+then confirmed the fix -- the jump at x=240 and x=1680 is now **0.00**, with
+the largest remaining discontinuities sitting on scene content.
