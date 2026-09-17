@@ -4187,3 +4187,41 @@ the entries that never crash are the ones that stay broken longest. A probe
 that prints each member's first words as floats separates them in one run: a
 converted member reads as garbage, an unconverted one reads as a sensible
 number. P-780, P-825.
+
+## G-204: the browser's bottleneck moves, and native measurements do not transfer
+
+Three rounds of browser work, each of which found a *different* bottleneck, and
+two of which invalidated a conclusion drawn on native.
+
+**Round 1 -- GL call count (G-198, P-801, P-824).** Real, and now mostly spent.
+`upload_draw_uniforms`' 52 calls per draw went first; then the draw loop
+binding all eight texture units on every draw. After both, a draw costs ~7 GL
+calls and ~1.2 ms a frame. **Stop looking here.**
+
+**Round 2 -- Asyncify (P-825).** The biggest single win of the session, and it
+was not code at all: a link flag nobody had revisited, instrumenting **36,334
+functions** to support one synchronous disc read. `-sASYNCIFY_ADVISE` prints
+that number in one relink. **When a target is mysteriously slow, audit its
+build flags before its code.**
+
+**Round 3 -- the vertex upload (P-826).** 17 MB a frame across the JS/wasm
+boundary, ~0.44 ms per MB.
+
+**The lesson that cost the most time.** P-817 measured shrinking the vertex on
+native at **0.17%** and concluded it was not worth doing. That conclusion was
+stated generally and it is **only true on native** -- the same change measured
+**~22% per vertex in a browser**. A bulk `memcpy` is bandwidth a desktop GPU
+has spare and a serialised copy the browser charges for.
+
+So: **a native profile tells you where native time goes and nothing more.**
+The browser's currency is boundary crossings -- GL calls, indirect calls
+through `invoke_*`, bytes copied into the engine -- and none of them are
+expensive enough on native to show up in a `perf` profile at all. Measure the
+browser in the browser, even when the code is identical.
+
+**Corollary for reading logs.** Browser runs came from different scenes
+(Training vs VS), different builds and a machine running other work, and two of
+them were compared against each other as if they were an A/B. They were not.
+The match line now carries `binds=issued/requested` so a log identifies its own
+build; quote draws and verts alongside any browser timing, or the number means
+nothing.
