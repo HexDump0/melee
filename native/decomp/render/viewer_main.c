@@ -441,11 +441,19 @@ static int run_match(SDL_Window* window, SDL_GLContext context,
     }
     if (frontend) {
         /* Title/CPU probes run off the frame hook; the frontend flow never
-         * enters the debug-match harness, so install only explicit probes. */
+         * enters the debug-match harness, so install only explicit probes.
+         *
+         * **This list is the second half of adding a probe.** `match_boot_init`
+         * arms the hook for whatever variable it sees, but on the frontend it
+         * is only *called* when one of these is set -- so a new probe that is
+         * not named here is silently dead in exactly the place the owner runs
+         * it, while working in every headless test. That cost a round-trip
+         * with `MELEE_ANIM_STALL`; add the name here in the same commit. */
         if (getenv("MELEE_TITLE_TEST") != NULL ||
             getenv("MELEE_CPU_TEST") != NULL ||
             getenv("MELEE_STADIUM_TRACE") != NULL ||
             getenv("MELEE_STUCK_TRACE") != NULL ||
+            getenv("MELEE_ANIM_STALL") != NULL ||
             getenv("MELEE_RNG_TRACE") != NULL)
         {
             match_boot_init(0);

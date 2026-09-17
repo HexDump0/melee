@@ -4074,3 +4074,38 @@ visible in the source the whole time.
 and not a drift. Prove that kind of thing rather than asserting it — revert
 only the suspect hunk, watch the old value come back exactly, then update the
 pin and say why. P-824.
+
+## G-207
+
+**Symptom.** A new env-gated probe prints nothing when the owner runs it on
+the real game, while working in every headless test — so the capture comes
+back empty and it reads as "the code path never ran".
+
+**Cause.** Arming a probe takes **two** edits, and only one is obvious.
+`match_boot_init` installs the frame hook for whatever variable it sees, but
+on the frontend path `viewer_main.c` only *calls* `match_boot_init` at all
+when one of a hardcoded list of variables is set:
+
+```c
+if (getenv("MELEE_TITLE_TEST") != NULL ||
+    getenv("MELEE_CPU_TEST")   != NULL || ... )
+{
+    match_boot_init(0);
+}
+```
+
+A probe missing from that list is silently dead in exactly the place the
+owner runs it. Every harness test still passes, because `melee_decomp_boot`
+takes the other branch.
+
+**How it was caught.** The owner's capture had no probe lines at all, not even
+the harmless ones the probe emits for ordinary walking — and "not even the
+boring ones" is the tell. Running the frontend headlessly with the variable
+alone reproduced it, and adding `MELEE_STUCK_TRACE=1` made it fire, which
+isolated the list as the difference in one step.
+
+**Rule.** When you add a probe variable, add it to that list **in the same
+commit**, and validate it the way the owner will run it —
+`SDL_VIDEODRIVER=offscreen ./build/native/melee --frontend ...` — not only
+through `melee_decomp_boot`. A diagnostic that works everywhere except where
+it is needed costs a round-trip with the person who has the only repro. P-780.
