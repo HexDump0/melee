@@ -1,5 +1,5 @@
 diff --git a/src/sysdolphin/baselib/gobj.c b/src/sysdolphin/baselib/gobj.c
-index 8a944852a..6733c88d3 100644
+index 8a944852a..874a497e7 100644
 --- a/src/sysdolphin/baselib/gobj.c
 +++ b/src/sysdolphin/baselib/gobj.c
 @@ -1,3 +1,7 @@
@@ -10,7 +10,7 @@ index 8a944852a..6733c88d3 100644
  #include "gobj.h"
  
  #include "class.h"
-@@ -163,6 +167,39 @@ void HSD_GObj_80390ED0(HSD_GObj* gobj, u32 mask)
+@@ -163,6 +167,46 @@ void HSD_GObj_80390ED0(HSD_GObj* gobj, u32 mask)
          if (mask & 1) {
              u64 prios = gobj->gxlink_prios;
              s32 j = 0;
@@ -39,8 +39,15 @@ index 8a944852a..6733c88d3 100644
 +                    seen_[n_].g = (void*) gobj;
 +                    seen_[n_].m = (unsigned long long) prios;
 +                    n_++;
-+                    fprintf(stderr, "[cammask] cam=%p prios=0x%016llX%s\n",
-+                            (void*) gobj, (unsigned long long) prios,
++                    fprintf(stderr,
++                            "[cammask] cam=%p kind=%d/%d prio=%d/%d "
++                            "hsd=%p prios=0x%016llX%s\n",
++                            (void*) gobj, (int) gobj->obj_kind,
++                            (int) gobj->user_data_kind,
++                            (int) gobj->p_priority,
++                            (int) gobj->render_priority,
++                            (void*) gobj->hsd_obj,
++                            (unsigned long long) prios,
 +                            (prios & ((unsigned long long) 1 << 62))
 +                                ? "  <-- has link 62"
 +                                : "");
