@@ -1,8 +1,51 @@
 diff --git a/src/melee/mn/mndiagram.c b/src/melee/mn/mndiagram.c
-index a1a4ff19a..72734b297 100644
+index a1a4ff19a..b307eb9bc 100644
 --- a/src/melee/mn/mndiagram.c
 +++ b/src/melee/mn/mndiagram.c
-@@ -73,8 +73,41 @@ typedef struct mnDiagram_PopupAnimTableHead {
+@@ -25,6 +25,34 @@
+ #include <sysdolphin/baselib/jobj.h>
+ #include <sysdolphin/baselib/memory.h>
+ 
++#ifdef PORT_PC
++/* These eight are the second half of the same console overlay the asset block
++ * below already covers, and leaving them as their own objects is what broke
++ * the VS Records grid.
++ *
++ * `mnDiagram_Init` fills the models through `mnDiagram_Assets`, whose eight
++ * pointer arrays run from 0x94 to 0x118 -- and on the console those bytes
++ * *are* these descriptors.  The loader says so itself: it writes
++ * `&assets->NmB[0]` from `"MenMainNmB_Top_joint"`, `[1]` from
++ * `"..._animjoint"`, `[2]` from `"..._matanim_joint"` and `[3]` from
++ * `"..._shapeanim_joint"`, and `StaticModelDesc` is exactly
++ * `{ joint, animjoint, matanim_joint, shapeanim_joint }` in that order.
++ *
++ * Given separate objects here, the archive fills the block and every
++ * `MenMain*_Top` stays zero, so `mnDiagram_DrawCellValue` calls
++ * `HSD_JObjLoadJoint(NULL)` and `jobj.h:513` asserts `jobj` the moment the
++ * grid draws a number (P-826).  Alias them into the block at the console's
++ * offsets instead. */
++extern StaticModelDesc MenMainCursorB1_Top;
++extern StaticModelDesc MenMainSubB1_Top;
++extern StaticModelDesc MenMainNmB_Top;
++extern StaticModelDesc MenMainFaceB_Top;
++extern StaticModelDesc MenMainConB1_Top;
++HSD_GObj* mnDiagram_ScreenGObj;
++extern StaticModelDesc MenMainCursorB3_Top;
++extern StaticModelDesc MenMainConB3_Top;
++extern StaticModelDesc MenMainConB2_Top;
++#else
+ StaticModelDesc MenMainCursorB1_Top;
+ StaticModelDesc MenMainSubB1_Top;
+ StaticModelDesc MenMainNmB_Top;
+@@ -34,6 +62,7 @@ HSD_GObj* mnDiagram_ScreenGObj;
+ StaticModelDesc MenMainCursorB3_Top;
+ StaticModelDesc MenMainConB3_Top;
+ StaticModelDesc MenMainConB2_Top;
++#endif
+ 
+ #define GET_DIAGRAM(gobj) ((Diagram*) HSD_GObjGetUserData(gobj))
+ 
+@@ -73,8 +102,70 @@ typedef struct mnDiagram_PopupAnimTableHead {
      /* 0x00 */ Point3d points[3];
  } mnDiagram_PopupAnimTableHead;
  
@@ -29,6 +72,35 @@ index a1a4ff19a..72734b297 100644
 +        ".set mnDiagram_FighterDisplayOrder, mnDiagram_asset_block + 0x00");
 +__asm__(".globl mnDiagram_NameDisplayOrder\n"
 +        ".set mnDiagram_NameDisplayOrder, mnDiagram_asset_block + 0x1C");
++/* The eight model descriptors, at the offsets `mnDiagram_Assets` gives their
++ * pointer arrays.  Each is four pointers, which is `sizeof(StaticModelDesc)`,
++ * and the static asserts below tie these numbers to the struct rather than to
++ * this comment. */
++__asm__(".globl MenMainSubB1_Top\n"
++        ".set MenMainSubB1_Top, mnDiagram_asset_block + 0x94");
++__asm__(".globl MenMainNmB_Top\n"
++        ".set MenMainNmB_Top, mnDiagram_asset_block + 0xA4");
++__asm__(".globl MenMainFaceB_Top\n"
++        ".set MenMainFaceB_Top, mnDiagram_asset_block + 0xB4");
++__asm__(".globl MenMainCursorB1_Top\n"
++        ".set MenMainCursorB1_Top, mnDiagram_asset_block + 0xC4");
++__asm__(".globl MenMainConB1_Top\n"
++        ".set MenMainConB1_Top, mnDiagram_asset_block + 0xD4");
++__asm__(".globl MenMainConB2_Top\n"
++        ".set MenMainConB2_Top, mnDiagram_asset_block + 0xE4");
++__asm__(".globl MenMainConB3_Top\n"
++        ".set MenMainConB3_Top, mnDiagram_asset_block + 0xF4");
++__asm__(".globl MenMainCursorB3_Top\n"
++        ".set MenMainCursorB3_Top, mnDiagram_asset_block + 0x104");
++STATIC_ASSERT(sizeof(StaticModelDesc) == 4 * sizeof(void*));
++STATIC_ASSERT(offsetof(mnDiagram_Assets, SubB1) == 0x94);
++STATIC_ASSERT(offsetof(mnDiagram_Assets, NmB) == 0xA4);
++STATIC_ASSERT(offsetof(mnDiagram_Assets, FaceB) == 0xB4);
++STATIC_ASSERT(offsetof(mnDiagram_Assets, CursorB1) == 0xC4);
++STATIC_ASSERT(offsetof(mnDiagram_Assets, ConB1) == 0xD4);
++STATIC_ASSERT(offsetof(mnDiagram_Assets, ConB2) == 0xE4);
++STATIC_ASSERT(offsetof(mnDiagram_Assets, ConB3) == 0xF4);
++STATIC_ASSERT(offsetof(mnDiagram_Assets, CursorB3) == 0x104);
 +/* Declared at the extent of the object they actually alias, not at their
 + * semantic length: several helpers take mnDiagram_FighterDisplayOrder as a
 + * `u8* sorted` and read sorted[idx + 0x1C], i.e. into the names array.  That
@@ -44,7 +116,7 @@ index a1a4ff19a..72734b297 100644
  
  static mnDiagram_PopupAnimTableHead mnDiagram_PopupTextOffsets = {
      {
-@@ -743,8 +776,12 @@ void mnDiagram_SortNamesByKOs(void)
+@@ -743,8 +834,12 @@ void mnDiagram_SortNamesByKOs(void)
      int max_idx;
      u8* dst_iter;
      int i;
@@ -57,7 +129,7 @@ index a1a4ff19a..72734b297 100644
      u8* dst = assets->sorted_names;
      u32* tp;
      u8* candidate;
-@@ -1683,7 +1720,14 @@ void mnDiagram_PopupAnimProc(HSD_GObj* arg0)
+@@ -1683,7 +1778,14 @@ void mnDiagram_PopupAnimProc(HSD_GObj* arg0)
          text->default_alignment = 1;
      }
  
@@ -72,7 +144,7 @@ index a1a4ff19a..72734b297 100644
      {
          HSD_Text* t;
          f32 y;
-@@ -1699,7 +1743,11 @@ void mnDiagram_PopupAnimProc(HSD_GObj* arg0)
+@@ -1699,7 +1801,11 @@ void mnDiagram_PopupAnimProc(HSD_GObj* arg0)
      }
      text->default_alignment = 1;
  
@@ -84,7 +156,7 @@ index a1a4ff19a..72734b297 100644
          HSD_GObjProc_RemoveProc(HSD_GObj_CurrentInvokedProc);
      }
  }
-@@ -1910,8 +1958,13 @@ void mnDiagram_CreatePopup(s32 arg0, s32 arg1, s32 use_nametag)
+@@ -1910,8 +2016,13 @@ void mnDiagram_CreatePopup(s32 arg0, s32 arg1, s32 use_nametag)
  
      user_data = HSD_MemAlloc(sizeof(mnDiagram_PopupData));
      if (user_data == NULL) {
@@ -98,7 +170,7 @@ index a1a4ff19a..72734b297 100644
      }
  
      GObj_InitUserData(gobj, 0, mnDiagram_PopupCleanup, user_data);
-@@ -2597,8 +2650,12 @@ void mnDiagram_DrawFighterHeaders(HSD_GObj* arg0, int arg1, int arg2)
+@@ -2597,8 +2708,12 @@ void mnDiagram_DrawFighterHeaders(HSD_GObj* arg0, int arg1, int arg2)
      HSD_JObj* row_jobj;
      int col_idx;
      int col_remaining;
@@ -111,7 +183,7 @@ index a1a4ff19a..72734b297 100644
      f32 x_spacing;
      f32 y_spacing;
      int i;
-@@ -2873,8 +2930,12 @@ void mnDiagram_CreateScreen(u8 arg0)
+@@ -2873,8 +2988,12 @@ void mnDiagram_CreateScreen(u8 arg0)
  /// @param arg1 Initial mode (passed to mnDiagram_CreateScreen)
  void mnDiagram_Init(u8 arg0, u8 arg1)
  {

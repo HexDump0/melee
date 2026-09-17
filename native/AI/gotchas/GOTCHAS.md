@@ -4264,3 +4264,36 @@ that says why beats an infinite one.
 crash path touches runs *after* the invariants have failed — including the
 unwinder and libc. `SIGSTKSZ` is not a compile-time constant on current
 glibc, so the stack has to be a fixed size. P-826.
+
+## G-211
+
+**Symptom.** `assertion "jobj" failed` at `jobj.h:513` the instant the VS
+Records grid draws a number — `mnDiagram_DrawCellValue` ->
+`mnDiagram_DrawGridValues` -> `mnDiagram_RefreshGrid` -> `mnDiagram_InputProc`.
+
+**Cause: half of a cross-symbol overlay was fixed and the other half was
+not.** `mnDiagram_Init` fills its models through a `mnDiagram_Assets` cast,
+whose eight pointer arrays run 0x94..0x118 — and on the console those bytes
+*are* the eight `MenMain*_Top` `StaticModelDesc` globals. A previous fix
+backed the run with `mnDiagram_asset_block` and aliased
+`mnDiagram_FighterDisplayOrder` and `mnDiagram_NameDisplayOrder` into it, but
+left the descriptors as their own objects. So the archive filled the block,
+every `MenMain*_Top` stayed zero, and `HSD_JObjLoadJoint(NULL)` returned NULL.
+
+**The mapping is stated by the loader, not inferred.**
+`lbArchive_LoadSections` writes `&assets->NmB[0]` from
+`"MenMainNmB_Top_joint"`, `[1]` from `"..._animjoint"`, `[2]` from
+`"..._matanim_joint"`, `[3]` from `"..._shapeanim_joint"` — and
+`StaticModelDesc` is exactly those four fields in that order. The symbol
+names in the archive spell out the aliasing.
+
+**Two lessons.**
+
+- **When you back a console overlay with one object, enumerate *everything*
+  that lands in the run.** Fixing the arrays you happened to be chasing and
+  leaving the neighbours is the same bug still present, just further along.
+  `STATIC_ASSERT`s on every offset keep the numbers tied to the struct.
+- **This was only findable because the crash reporter had been fixed first.**
+  The same screen previously produced thirty frames of `_Unwind_Backtrace`
+  and nothing else (G-210). One handler fix turned an undiagnosable report
+  into a four-frame answer. P-826.
