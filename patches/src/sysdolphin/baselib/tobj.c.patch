@@ -1,0 +1,40 @@
+diff --git a/src/sysdolphin/baselib/tobj.c b/src/sysdolphin/baselib/tobj.c
+index 8cccdf681..a6ab063b0 100644
+--- a/src/sysdolphin/baselib/tobj.c
++++ b/src/sysdolphin/baselib/tobj.c
+@@ -370,6 +370,35 @@ static void MakeTextureMtx(HSD_TObj* tobj)
+     Quaternion rot;
+ 
+     PAD_STACK(8);
++#ifdef PORT_PC
++    /* `repeat_s`/`repeat_t` are `u8`, so unlike most of this port's data bugs
++     * they need no byte-swapping and the converter deliberately leaves them
++     * alone.  `HSD_TObjLoadDesc` (this file, TObjLoad) is the **only** writer
++     * of either field anywhere in the tree, and no `HSD_TObjDesc` the
++     * converter walks -- across all 861 archives -- has a zero in them.  So a
++     * zero here does not mean bad data: it means this `HSD_TObj` was built
++     * from something that is not a `TObjDesc`, or it has been freed and
++     * reused while still on a display list.
++     *
++     * That is a lifetime or pointer bug rather than a conversion one, and the
++     * assert alone cannot tell which.  Print the object so the next
++     * occurrence says: an all-zero tobj is freed memory, a plausible-looking
++     * one with a wild `imagedesc` is a bad descriptor pointer (P-830). */
++    if (!tobj->repeat_s || !tobj->repeat_t) {
++        OSReport("[tobj] repeat_s=%u repeat_t=%u tobj=%p next=%p id=%d "
++                 "src=%d flags=0x%08x imagedesc=%p tlut=%p aobj=%p\n",
++                 (unsigned) tobj->repeat_s, (unsigned) tobj->repeat_t,
++                 (void*) tobj, (void*) tobj->next, (int) tobj->id,
++                 (int) tobj->src, (unsigned) tobj->flags,
++                 (void*) tobj->imagedesc, (void*) tobj->tlut,
++                 (void*) tobj->aobj);
++        OSReport("[tobj] scale=(%g,%g,%g) translate=(%g,%g,%g) wrap=%d/%d\n",
++                 (double) tobj->scale.x, (double) tobj->scale.y,
++                 (double) tobj->scale.z, (double) tobj->translate.x,
++                 (double) tobj->translate.y, (double) tobj->translate.z,
++                 (int) tobj->wrap_s, (int) tobj->wrap_t);
++    }
++#endif
+     HSD_ASSERT(589, tobj->repeat_s && tobj->repeat_t);
+ 
+     scale.x = fabsf(tobj->scale.x) < FLT_EPSILON
