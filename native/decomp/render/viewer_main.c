@@ -112,6 +112,9 @@ static void update_sfx_debug_state(void)
 static void match_present(void)
 {
     SDL_Event e;
+    /* A drawable change seen this frame, held back until the frame is
+     * submitted.  See the deferral note below. */
+    static int resize_w, resize_h;
 
     if (match_view.quit) {
         SDL_GL_DestroyContext(match_view.context);
@@ -171,19 +174,33 @@ static void match_present(void)
      * without a pixel-size event. */
     {
         static int last_w, last_h;
+        static int trace = -1;
         int w = 0;
         int h = 0;
         SDL_GetWindowSizeInPixels(match_view.window, &w, &h);
         if (w > 0 && h > 0) {
             gx_gl_set_size(w, h);
-            if ((w != last_w || h != last_h) &&
-                mod_hook_active(UNBOUND_HOOK_DISPLAY_RESIZED))
-            {
-                UnboundDisplayResized size;
-                size.width = w;
-                size.height = h;
-                mod_dispatch(UNBOUND_HOOK_DISPLAY_RESIZED, &size,
-                             sizeof(size));
+            if (w != last_w || h != last_h) {
+                if (trace < 0) {
+                    trace = getenv("MELEE_WIDESCREEN_TRACE") != NULL;
+                }
+                if (trace) {
+                    /* Logical vs pixel size separates a compositor that has
+                     * not told SDL about the new size from one that has and a
+                     * fractional scale we are mishandling. */
+                    int lw = 0;
+                    int lh = 0;
+                    SDL_GetWindowSize(match_view.window, &lw, &lh);
+                    fprintf(stderr,
+                            "[ws] frame %u  sdl logical %dx%d  pixels %dx%d  "
+                            "hook %s\n",
+                            match_view.frames, lw, lh, w, h,
+                            mod_hook_active(UNBOUND_HOOK_DISPLAY_RESIZED)
+                                ? "fires"
+                                : "NOT INSTALLED");
+                }
+                resize_w = w;
+                resize_h = h;
             }
             last_w = w;
             last_h = h;
@@ -216,6 +233,36 @@ static void match_present(void)
         }
         draws = gx_gl_render_frame();
         match_view.last_render_ns = SDL_GetTicksNS() - frame_start;
+        /*
+         * Tell mods about a resize only now, after the frame is on screen.
+         *
+         * match_present is the *present* hook: the game already built this
+         * frame's draw list, and its cameras were widened with whatever
+         * factor the display mod held at the time.  Handing the mod a new
+         * size before the submit updates that factor and the presentation
+         * aspect together -- but only the presentation aspect can still
+         * affect this frame, so geometry built for the old aspect gets
+         * fitted to the new one and the frame comes out stretched by the
+         * ratio between them.  Small on a drag, gross on a fullscreen toggle
+         * from a small window, which is exactly where it was reported.
+         *
+         * Deferring costs one frame fitted to the old aspect inside the new
+         * drawable -- bars, briefly, at correct proportions -- and the next
+         * frame's cameras and rect agree because they come from the same
+         * generation.  gx_gl_set_size still runs immediately above, because
+         * the GL target has to match the real surface right away.
+         */
+        if (resize_h > 0) {
+            if (mod_hook_active(UNBOUND_HOOK_DISPLAY_RESIZED)) {
+                UnboundDisplayResized size;
+                size.width = resize_w;
+                size.height = resize_h;
+                mod_dispatch(UNBOUND_HOOK_DISPLAY_RESIZED, &size,
+                             sizeof(size));
+            }
+            resize_w = 0;
+            resize_h = 0;
+        }
         /* P-698: the 1P clear banner ("STAGE CLEAR") is a POBJ_SHAPEANIM mesh
          * blended on the CPU from big-endian pools.  When that read is wrong
          * the mesh collapses and the band over its black backdrop is

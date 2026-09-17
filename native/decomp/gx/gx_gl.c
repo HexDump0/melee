@@ -86,6 +86,42 @@ static float clear_color[4] = { 0.05f, 0.06f, 0.09f, 1.0f };
 static float disp_aspect = 4.0f / 3.0f;
 static int disp_x, disp_y, disp_w = 640, disp_h = 480;
 
+/* MELEE_WIDESCREEN_TRACE=1: one line whenever the mapping actually changes.
+ * The EFB->window fit involves four numbers that can disagree (the drawable,
+ * the authored aspect, the fitted rect, and the camera widening derived from
+ * the same aspect), and which pair is out of step says which end is wrong. */
+static void disp_trace(void)
+{
+    static int enabled = -1;
+    static int last_w, last_h, last_rw, last_rh;
+    static float last_aspect;
+
+    if (enabled < 0) {
+        enabled = getenv("MELEE_WIDESCREEN_TRACE") != NULL;
+    }
+    if (!enabled) {
+        return;
+    }
+    if (gl_width == last_w && gl_height == last_h && disp_w == last_rw &&
+        disp_h == last_rh && disp_aspect == last_aspect)
+    {
+        return;
+    }
+    last_w = gl_width;
+    last_h = gl_height;
+    last_rw = disp_w;
+    last_rh = disp_h;
+    last_aspect = disp_aspect;
+    fprintf(stderr,
+            "[ws] drawable %dx%d (%.4f)  aspect %.4f  rect %d,%d %dx%d "
+            "(%.4f)  camera x%.4f\n",
+            gl_width, gl_height,
+            gl_height > 0 ? (float) gl_width / (float) gl_height : 0.0f,
+            disp_aspect, disp_x, disp_y, disp_w, disp_h,
+            disp_h > 0 ? (float) disp_w / (float) disp_h : 0.0f,
+            disp_aspect / (4.0f / 3.0f));
+}
+
 static void disp_update(void)
 {
     float want;
@@ -93,12 +129,14 @@ static void disp_update(void)
         disp_x = disp_y = 0;
         disp_w = gl_width;
         disp_h = gl_height;
+        disp_trace();
         return;
     }
     if (disp_aspect <= 0.0f) {
         disp_x = disp_y = 0;
         disp_w = gl_width;
         disp_h = gl_height;
+        disp_trace();
         return;
     }
     want = (float) gl_height * disp_aspect;
@@ -117,6 +155,7 @@ static void disp_update(void)
     }
     disp_x = (gl_width - disp_w) / 2;
     disp_y = (gl_height - disp_h) / 2;
+    disp_trace();
 }
 
 /* EFB pixels -> window pixels.  `disp_efb_y` returns a GL (bottom-up) row for

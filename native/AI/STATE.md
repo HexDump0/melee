@@ -38,6 +38,24 @@
 > plenty -- there is no way to read game state at all yet), HUD anchoring
 > (P-834), WAMR AOT (P-835). ctest 33/33.
 >
+> **Owner-reported (Hyprland): fullscreening from a small window stretched the
+> frame; from an already-fullscreen-sized one it did not.** `match_present` is
+> the *present* hook -- the game has already built the frame's draw list, and
+> its cameras were widened with the factor the display mod held at the time.
+> Telling the mod about a resize before the submit updated the widening factor
+> and the presentation aspect together, but only the aspect could still affect
+> that frame, so geometry built for the old aspect was fitted to the new one
+> and came out stretched by the ratio between them -- which is why the size of
+> the jump decided how bad it looked. The dispatch now happens after
+> `gx_gl_render_frame`, so cameras and rect always come from the same
+> generation; `gx_gl_set_size` still runs immediately, because the GL target
+> has to match the real surface. `MELEE_WIDESCREEN_TRACE=1` prints the
+> drawable, the authored aspect, the fitted rect and the camera factor on
+> every change, plus SDL's logical-vs-pixel size, which is what separates a
+> compositor that has not reported the new size from a fractional scale we are
+> mishandling. **Unconfirmed against the owner's report**, which described the
+> stretch as persisting rather than lasting one frame.
+
 > **Two things the owner has to look at.** Whether 4:3 or **73:60** is the right
 > `disp_aspect` default -- `1.2173333` in `camera.c:88` is literally
 > `584.32/480` -- and whether the widened frame actually looks right, which no
