@@ -1,0 +1,64 @@
+diff --git a/src/melee/mn/mnname.c b/src/melee/mn/mnname.c
+index d62c18523..95329c961 100644
+--- a/src/melee/mn/mnname.c
++++ b/src/melee/mn/mnname.c
+@@ -1690,6 +1690,16 @@ static inline void mnName_InitNameDisplayOrder(void)
+     HSD_GObj_80390CD4(mnName_8023A59C(1U));
+ }
+ 
++#ifdef PORT_PC
++/* Tentative declarations so the call above can name these; the definitions
++ * stay where they are, because moving them would reorder this unit's `.data`
++ * and the GameCube build must keep matching byte for byte. */
++static char mnName_AutoNameUsName[];
++static char mnName_RefuseNameUsName[];
++static char mnName_AutoNameName[];
++static char mnName_RefuseNameName[];
++#endif
++
+ s32 mnName_8023AC40(void)
+ {
+     HSD_Archive* archive = mn_804D6BB8;
+@@ -1730,6 +1740,34 @@ s32 mnName_8023AC40(void)
+         &mnNameNew_804A0720[0].shapeanim_joint,
+         "MenMainSbaseEtNw_Top_shapeanim_joint", 0);
+ 
++#ifdef PORT_PC
++    /* **Name the sections instead of computing their addresses.** The console
++     * reaches these four literals as `mnName_803ED538 + 0x4D0/0x4E4/0x4F8/
++     * 0x508` because they sit in this unit's pooled `.data` run after
++     * `mnName_8023AC40`'s archive names -- the G-176 cross-symbol class.  The
++     * port's linker has no reason to put them there, so those offsets point
++     * at whatever landed at that distance, `lbArchive_LoadSections` matched
++     * nothing, and `AutoNamesList` stayed **NULL** from its initializer.
++     * `InitNameEntryUIState` then walks it with `while (null_char != **names)`
++     * and faults on the first dereference -- `SIGSEGV at (nil)` the moment
++     * the name-entry screen opens (P-828).
++     *
++     * The four offsets chain exactly with the four literals' lengths --
++     * 0x4D0 + 17 -> 0x4E4 + 19 -> 0x4F8 + 15 -> 0x508 + 17, ending where the
++     * comment below says the run ends -- which is what identifies which
++     * string belongs to which offset. */
++    if (lbLang_IsSavedLanguageUS()) {
++        lbArchive_LoadSections(archive, (void**) &AutoNamesList,
++                               mnName_AutoNameUsName,
++                               (void**) &NotAllowedNamesList,
++                               mnName_RefuseNameUsName, 0);
++    } else {
++        lbArchive_LoadSections(archive, (void**) &AutoNamesList,
++                               mnName_AutoNameName,
++                               (void**) &NotAllowedNamesList,
++                               mnName_RefuseNameName, 0);
++    }
++#else
+     if (lbLang_IsSavedLanguageUS()) {
+         lbArchive_LoadSections(
+             archive, (void**) &AutoNamesList, (char*) mnName_803ED538 + 0x4D0,
+@@ -1739,6 +1777,7 @@ s32 mnName_8023AC40(void)
+             archive, (void**) &AutoNamesList, (char*) mnName_803ED538 + 0x4F8,
+             (void**) &NotAllowedNamesList, (char*) mnName_803ED538 + 0x508, 0);
+     }
++#endif
+ 
+     mn_804A04F0.prev_menu = mn_804A04F0.cur_menu;
+     mn_804A04F0.cur_menu = 0x12;
