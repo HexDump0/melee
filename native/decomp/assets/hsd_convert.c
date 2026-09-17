@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 131u
+#define HSD_CONVERTER_VERSION 132u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -3548,6 +3548,45 @@ static void conv_ft_common_data(Conv* c, uint32_t off)
                 conv_u32(c, e + 0x00);
                 conv_u32(c, e + 0x04);
                 conv_u32(c, e + 0x08);
+            }
+        }
+    }
+    /* pData[2] (`Fighter_804D654C`, fighter.c:190) is the **item-swing
+     * animation speed** table, `float[6][5]`: `ftCo_Attack_800CCF58` reads
+     * `Fighter_804D654C[swing_type][arg1]` (ftswing.c:78) and hands it to
+     * `Fighter_ChangeMotionState` as the animation speed.
+     *
+     * Left big-endian every entry is `4.6006e-41` -- the documented
+     * byte-reversed `1.0f` -- so `HSD_AObjSetRate` got a denormal, the swing
+     * animation's `curr_frame` never advanced off 0, `AOBJ_NO_ANIM` was never
+     * set, and `ftAnim_IsFramesRemaining` stayed true forever.  The exit test
+     * in `ftCo_800CD1BC` is exactly that call, so the fighter froze in the
+     * swing for good: the owner's Home-Run bat wedge, measured as
+     * `motion_id=127 curr=0.00 end=46.00 rate=0.00` on every one of 51 parts
+     * (P-780).  Same family as pData[1] below (P-779) and `ftData->x50`
+     * (P-824) -- a float table in `PlCo.dat` that no walker reached.
+     *
+     * Six swing types (`fn_800CCEC4` returns 0..5) by five columns, and the
+     * run is clamped by the usual two bounds as well so a layout change
+     * cannot walk past the table. */
+    {
+        uint32_t table = rd32(c, off + 2 * 4);
+        if (table != 0) {
+            uint32_t end = next_pointed_at_after(c, table);
+            uint32_t pub =
+                next_public_after(c, c->public_off, c->nb_public, table);
+            uint32_t e;
+            if (pub < end) {
+                end = pub;
+            }
+            if (end > table + 6 * 5 * 4) {
+                end = table + 6 * 5 * 4;
+            }
+            for (e = table; e + 4 <= end; e += 4) {
+                if (!in_data(c, e, 4) || c->reloc[e]) {
+                    break;
+                }
+                conv_u32(c, e);
             }
         }
     }

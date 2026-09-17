@@ -4109,3 +4109,44 @@ commit**, and validate it the way the owner will run it —
 `SDL_VIDEODRIVER=offscreen ./build/native/melee --frontend ...` — not only
 through `melee_decomp_boot`. A diagnostic that works everywhere except where
 it is needed costs a round-trip with the person who has the only repro. P-780.
+
+## G-208
+
+**Symptom.** A fighter freezes for good in a state it should leave after about
+a second. Owner-reported: pick up the Home-Run bat, dash-swing, and the
+character never recovers while the rest of the game runs on.
+
+**How it was found, and the step that mattered.** The ordinary stuck detector
+stayed silent, because it requires `motion_id` *and* `cur_anim_frame` frozen
+together and here the animation counter kept moving. A probe keyed on the
+motion id alone (`MELEE_ANIM_STALL`) printed the census that settled it in one
+run:
+
+```
+[anim-stall] slot 0 kind 0 motion_id=127 for 90 frames
+  part 2 ... flags=0x00000000 curr=0.00 end=46.00 rate=0.00
+```
+
+**`rate=0.00` is the whole diagnosis.** The animation was bound correctly
+(`end=46`) but its framerate was zero, so `curr_frame` never left 0,
+`AOBJ_NO_ANIM` was never set, and `ftAnim_IsFramesRemaining` — which is just
+"does any part still have a live AObj" — stayed true forever. The swing's
+only exit is that call.
+
+**Cause.** `Fighter_804D654C` is `pData[2]` of `PlCo.dat`'s
+`ftLoadCommonData`, the `float[6][5]` item-swing animation-speed table, and
+`conv_ft_common_data` walked `pData[0]`, `[1]`, `[4]`, `[5]`, `[8]`, `[16]`
+and `[20]` but **not `[2]`**. On disc the entries are `1.0` and `0.75`; left
+big-endian they read **`4.6006e-41`**, the documented byte-reversed `1.0f`.
+
+**Two things to carry forward.**
+
+- **`rate=%.2f` printed that denormal as `0.00`**, which made it look like a
+  hard zero rather than a byte-order artifact. `4.6006e-41` and `4.2e-08` are
+  now three-for-three the signature of an unconverted float table
+  (P-747, P-824, this one) — print enough digits, or the evidence hides.
+- **A "walk the interesting members" function is a list, and lists get
+  entries missed.** `conv_ft_common_data` had grown one member at a time,
+  each added when something broke: `[1]` was P-779, `[8]` was P-689, `[5]`
+  was P-754. Prefer auditing such a function against *every* index once over
+  waiting for the next symptom. P-780.
