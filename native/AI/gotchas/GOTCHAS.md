@@ -4416,14 +4416,39 @@ concurrent use.
   describes silently removes unrelated work. `df629811b` now carries a note in
   its task row for exactly this reason.
 
-**What actually works**, in order of preference:
+**Verifying before you commit does not close it.** The other session did
+exactly the careful thing — copied the file aside, filtered my row out with
+`grep -v`, staged the filtered copy, restored the full file to the worktree,
+and *checked*: staged diff showed only its rows, unstaged showed only mine.
+That check passed. The commit was the next command, and by then the index had
+moved. The window is small and does not care. So "read `git diff --cached`
+first" is necessary and **not sufficient** — it is a race, and it loses.
 
-1. `git commit -- <paths>` — a pathspec-limited commit ignores the rest of the
-   index entirely. This is the real fix.
-2. Read `git diff --cached --stat` immediately before every commit and confirm
-   the file list is exactly yours. Cheap, and it catches everything.
-3. `git status --short` before staging, to see whether another session is
-   mid-edit at all.
+**`git commit -- <paths>` closes the index race but has its own trap**, which
+is worth stating precisely because it makes naive advice wrong. Measured:
+
+```
+staged:    base, MINE          (deliberately filtered)
+worktree:  base, MINE, THEIRS
+git commit -- f.txt   ->   committed: base, MINE, THEIRS
+```
+
+A pathspec commit takes the **worktree** content of the named paths, not what
+you staged. It isolates you from *other* paths in the index, which is the
+whole point — but for a **shared file** it gives you no protection at all,
+because the other session's edits are sitting in that worktree copy.
+
+**So the rule has two halves, by what you are committing.**
+
+- **Files only you are touching:** `git commit -- <paths>`. Done. This is the
+  case almost all the time and it is a complete fix.
+- **A file both sessions edit** (here, `native/AI/TASKS.md`): a pathspec commit
+  is not enough. Put *your* content in the worktree, commit that path, then
+  restore the merged content — or simply agree that one session owns the file
+  for a while. Coordination is cheaper than mechanism here.
+
+`git status --short` before staging is still worth it, to notice the other
+session is mid-edit at all.
 
 **Recovering from it** without destroying the other session's work: `git reset
 --soft HEAD~1` then `git restore --staged <their paths>` puts their changes
