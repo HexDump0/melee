@@ -1,43 +1,8 @@
 diff --git a/src/sysdolphin/baselib/sislib.c b/src/sysdolphin/baselib/sislib.c
-index 4710af3d7..8fe0f2c9b 100644
+index 4710af3d7..ad4818965 100644
 --- a/src/sysdolphin/baselib/sislib.c
 +++ b/src/sysdolphin/baselib/sislib.c
-@@ -1,3 +1,7 @@
-+#ifdef PORT_PC
-+#include <stdio.h>  /* P-730 trace */
-+#include <stdlib.h> /* getenv */
-+#endif
- #include "sislib.h"
- 
- #include <printf.h> // IWYU pragma: keep
-@@ -267,6 +271,26 @@ HSD_Text* HSD_SisLib_803A5ACC(int font_idx, s32 context_id, f32 pos_x,
-         gobj = GObj_Create(cam_entry->x8, cam_entry->xC, cam_entry->xD);
-         GObj_SetupGXLink(gobj, HSD_SisLib_803A84BC, cam_entry->xE,
-                          cam_entry->xF);
-+#ifdef PORT_PC
-+        /* P-730.  Established: the trophy rows' text objects resolve real SIS
-+         * entries and are then **never drawn** -- no [sisdraw] line for any of
-+         * them.  So they are created and never submitted, and this is where
-+         * their submission is wired up.
-+         *
-+         * Print the camera entry they matched and the GX link they were given,
-+         * so the rows (font 0) can be compared against the counter (font 3)
-+         * that renders correctly on the same screen.  The registration itself
-+         * asks for gx_link 0x3E for rows and 0x3F for the counter. */
-+        if (getenv("MELEE_TROPHY_TRACE") != NULL) {
-+            fprintf(stderr,
-+                    "[siswire] font=%d cam=%p class=%d p_link=%d p_prio=%d "
-+                    "gx_link=0x%02X gx_prio=%d gobj=%p\n",
-+                    font_idx, (void*) cam_entry, (int) cam_entry->x8,
-+                    (int) cam_entry->xC, (int) cam_entry->xD,
-+                    (unsigned) cam_entry->xE, (int) cam_entry->xF,
-+                    (void*) gobj);
-+        }
-+#endif
-     }
-     while (list_cur != NULL) {
-         list_tail = list_cur;
-@@ -422,6 +446,25 @@ void HSD_SisLib_803A5E70(void)
+@@ -422,6 +422,25 @@ void HSD_SisLib_803A5E70(void)
      }
  
      HSD_SisLib_804D797C = NULL;
@@ -63,25 +28,3 @@ index 4710af3d7..8fe0f2c9b 100644
      free_head = HSD_SisLib_804D796C;
      used_head = NULL;
      free_head->next = NULL;
-@@ -574,6 +617,21 @@ void HSD_SisLib_803A6368(HSD_Text* text, s32 sis_idx)
-     if (sis_table != NULL) {
-         text->sis_buffer = sis_table[sis_idx];
-     }
-+#ifdef PORT_PC
-+    /* P-730.  This is the only place text->sis_buffer is ever assigned, so a
-+     * NULL here is a text object that is valid, positioned and coloured and
-+     * simply has no message -- a blank plate with nothing on stderr, which is
-+     * what the trophy list rows look like.
-+     *
-+     * font_idx is the discriminator: the trophy rows are font 0, and the
-+     * counter that renders correctly on the same screen is font 3. */
-+    if (getenv("MELEE_TROPHY_TRACE") != NULL) {
-+        fprintf(stderr,
-+                "[sis] font=%d idx=%d table=%p entry=%p\n",
-+                (int) text->font_idx, (int) sis_idx, (void*) sis_table,
-+                sis_table != NULL ? (void*) sis_table[sis_idx] : NULL);
-+    }
-+#endif
-     text->x60 = NULL;
-     text->current_height = 0.0F;
-     text->current_width = 0.0F;

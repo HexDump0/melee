@@ -1,16 +1,8 @@
 diff --git a/src/sysdolphin/baselib/hsd_3A76.c b/src/sysdolphin/baselib/hsd_3A76.c
-index 869fe2379..f4c59c547 100644
+index 869fe2379..d6796ee48 100644
 --- a/src/sysdolphin/baselib/hsd_3A76.c
 +++ b/src/sysdolphin/baselib/hsd_3A76.c
-@@ -1,3 +1,7 @@
-+#ifdef PORT_PC
-+#include <stdio.h>  /* P-730 trace */
-+#include <stdlib.h> /* getenv */
-+#endif
- #include <m2c_macros.h>
- #include <printf.h> // IWYU pragma: keep
- 
-@@ -199,9 +203,9 @@ s32 HSD_SisLib_803A7F0C(HSD_Text* text, s32 flags)
+@@ -199,9 +199,9 @@ s32 HSD_SisLib_803A7F0C(HSD_Text* text, s32 flags)
              pos -= 4;
              if (target_type == 1) {
                  text->x78.x =
@@ -22,7 +14,7 @@ index 869fe2379..f4c59c547 100644
                  if (flag_hi == entry_flags) {
                      remove_size = 5;
                  }
-@@ -224,9 +228,9 @@ s32 HSD_SisLib_803A7F0C(HSD_Text* text, s32 flags)
+@@ -224,9 +224,9 @@ s32 HSD_SisLib_803A7F0C(HSD_Text* text, s32 flags)
              pos -= 4;
              if (target_type == 3) {
                  text->x80.x =
@@ -34,7 +26,7 @@ index 869fe2379..f4c59c547 100644
                  if (flag_hi == entry_flags) {
                      remove_size = 5;
                  }
-@@ -246,7 +250,7 @@ s32 HSD_SisLib_803A7F0C(HSD_Text* text, s32 flags)
+@@ -246,7 +246,7 @@ s32 HSD_SisLib_803A7F0C(HSD_Text* text, s32 flags)
          case 5:
              pos -= 4;
              if (target_type == 5) {
@@ -43,7 +35,7 @@ index 869fe2379..f4c59c547 100644
                  if (flag_hi == entry_flags) {
                      remove_size = 5;
                  }
-@@ -321,12 +325,12 @@ loop_3:
+@@ -321,12 +321,12 @@ loop_3:
          HSD_SisLib_803A7684(text, (u8*) cursor, 0x85U);
          /* fallthrough */
      case 8:
@@ -59,7 +51,7 @@ index 869fe2379..f4c59c547 100644
          cursor = (u8*) cursor + 4;
          text->x80.y = (f32) scale_val / 256.0F;
          goto block_33;
-@@ -339,7 +343,7 @@ loop_3:
+@@ -339,7 +339,7 @@ loop_3:
      case 10:
          if ((text->alloc_data == NULL) || (kern_enabled == 0)) {
              HSD_SisLib_803A7684(text, (u8*) cursor, 0x81U);
@@ -68,7 +60,7 @@ index 869fe2379..f4c59c547 100644
          }
          cursor = (u8*) cursor + 4;
          goto block_33;
-@@ -370,7 +374,7 @@ loop_3:
+@@ -370,7 +370,7 @@ loop_3:
          if (opcode >= 0x20U) {
              *out_width += text->x80.x * (32.0F + text->x78.x);
              if (kern_enabled != 0) {
@@ -77,45 +69,7 @@ index 869fe2379..f4c59c547 100644
                  if (glyph_code < 0x4000U) {
                      kern_width =
                          (s32) (default_kerning +
-@@ -441,6 +445,37 @@ static void sisFitLineToBox(HSD_Text* text, f32 measured_width)
- 
- void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
- {
-+#ifdef PORT_PC
-+    /* P-730.  The trophy rows' text objects resolve a real SIS entry (the
-+     * trace shows table and entry non-NULL for every row) and still draw
-+     * nothing, so the question is whether this callback runs for them at all.
-+     * If it never fires for font 0, the text is never submitted and the fault
-+     * is in the GX link / camera wiring, not in the text. */
-+    if (getenv("MELEE_TROPHY_TRACE") != NULL) {
-+        /* Dedupe on the sis pointer rather than capping the line count.  A
-+         * flat cap is wrong here: the menu before the trophy screen draws one
-+         * text object every frame and ate all 40 lines before the screen under
-+         * investigation was even reached. */
-+        HSD_Text* t_ = (HSD_Text*) HSD_GObjGetUserData(gobj);
-+        void* sis_ = t_ != NULL ? (void*) t_->sis_buffer : NULL;
-+        static void* seen_[96];
-+        static unsigned n_;
-+        unsigned i_;
-+        int known_ = 0;
-+        for (i_ = 0; i_ < n_; i_++) {
-+            if (seen_[i_] == sis_) {
-+                known_ = 1;
-+                break;
-+            }
-+        }
-+        if (!known_ && n_ < 96) {
-+            seen_[n_++] = sis_;
-+            fprintf(stderr, "[sisdraw] first draw: pass=%d font=%d sis=%p\n",
-+                    pass, t_ != NULL ? (int) t_->font_idx : -1, sis_);
-+        }
-+    }
-+#endif
-+
-     // clang-format off
-     HSD_Text *text;
-     GXTexObj tex_obj;
-@@ -693,20 +728,20 @@ void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
+@@ -693,20 +693,20 @@ void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
                                  skip_count -= 1;
                              } else {
                                  text->x98 = (u32) (text->x98 + 1);
@@ -140,7 +94,7 @@ index 869fe2379..f4c59c547 100644
                              if (( text->fitting == 1) && (text->box_size_x < line_width_out)) {
                                  text->x88 = (text->box_size_x / line_width_out);
                              } else {
-@@ -723,7 +758,7 @@ void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
+@@ -723,7 +723,7 @@ void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
                                  text->current_width = x_origin;
                                  break;
                              }
@@ -149,7 +103,7 @@ index 869fe2379..f4c59c547 100644
                              sis_cursor += 4;
                              text->current_height = ((f32) y_offset * text->font_size.y);
                              break;
-@@ -731,13 +766,13 @@ void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
+@@ -731,13 +731,13 @@ void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
                              HSD_SisLib_803A7684(text, sis_cursor, 5U);
                              /* fallthrough */
                          case 8:
@@ -166,7 +120,7 @@ index 869fe2379..f4c59c547 100644
                              }
                              sis_cursor += 4;
                              break;
-@@ -758,8 +793,8 @@ void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
+@@ -758,8 +758,8 @@ void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
                              break;
                          case 14:
                              HSD_SisLib_803A7684(text, sis_cursor, 3U);
@@ -177,7 +131,7 @@ index 869fe2379..f4c59c547 100644
                              sis_cursor += 4;
                              break;
                          case 15:
-@@ -827,7 +862,7 @@ void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
+@@ -827,7 +827,7 @@ void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
                                      measured_width = line_width_out;
                                      sisFitLineToBox(text, measured_width);
                                  }
