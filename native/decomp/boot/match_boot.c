@@ -616,14 +616,25 @@ static void report_stuck(const char* why, int slot, const Fighter* fp,
     fprintf(stderr,
             "[stuck] %s: slot %d pad %u kind %d stocks %d %u frames: "
             "motion_id=%d anim_frame=%.2f pos=(%.2f,%.2f) "
-            "lstick=(%.3f,%.3f) held=0x%04x hitlag=%.1f invis=%d\n",
+            "lstick=(%.3f,%.3f) held=0x%04x hitlag=%.1f invis=%d "
+            /* The owner's wedge happens while holding and swinging the
+             * Home-Run bat, so the item the fighter is carrying is part of
+             * the state that matters.  `item_gobj` is the held article and
+             * `x1988` is the hold/throw state the item paths drive; a wedge
+             * with a live item and a frozen `anim_frame` is a different bug
+             * from a wedge with neither (P-780). */
+            "item=%p item_kind=%d x1988=%d subaction_timer=%.1f\n",
             why, slot, (unsigned) fp->x61A_controller_index, (int) fp->kind,
             (int) Player_GetStocks(slot), still, (int) fp->motion_id,
             (double) fp->cur_anim_frame, (double) fp->cur_pos.x,
             (double) fp->cur_pos.y, (double) fp->input.lstick[0].x,
             (double) fp->input.lstick[0].y,
             (unsigned) fp->input.held_buttons[0],
-            (double) fp->dmg.x195c_hitlag_frames, (int) fp->invisible);
+            (double) fp->dmg.x195c_hitlag_frames, (int) fp->invisible,
+            (void*) fp->item_gobj,
+            fp->item_gobj != NULL ? (int) itGetKind(fp->item_gobj) : -1,
+            (int) fp->x1988,
+            (double) fp->x3E4_fighterCmdScript.timer);
 }
 
 /* Motion states in which the engine is deliberately holding the fighter with
