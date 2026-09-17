@@ -54,10 +54,13 @@ the wrong instrument for judging `-O3`/LTO/PGO.
 
 ## Open
 
-- **P-821 — web-only wrong opponent costume.** Owner's live bug, still
-  unexplained. I attributed it to the converter; that attribution was wrong,
-  because the converter is shared and native renders costumes correctly. The
-  unrun discriminating test is in the row. **Do not close it against P-820.**
+- **P-821 — CLOSED, not a bug.** The opponent's costume is *supposed* to be
+  random: `mncharsel.c:2607` is `HSD_Randi(gm_GetNumCostumesForCKind(...))`,
+  and the owner confirmed it against Dolphin. It only became visible in this
+  port at P-751, which seeded the RNG from the host clock — before that every
+  playthrough drew the same "random" costume, so it read as fixed. I spent the
+  investigation reading conversion and CSS code without ever asking whether
+  the behaviour was correct in the first place.
 - **P-822 / P-820 — the vis_table NULL-hole ordering difference was real and
   is fixed** (melee-a4, `80effa94f`, converter v130). It measured 13 of 17
   tables stopping on a NULL hole with 2–14 live slots behind. Worth separating
