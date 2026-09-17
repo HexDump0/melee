@@ -4150,3 +4150,40 @@ big-endian they read **`4.6006e-41`**, the documented byte-reversed `1.0f`.
   each added when something broke: `[1]` was P-779, `[8]` was P-689, `[5]`
   was P-754. Prefer auditing such a function against *every* index once over
   waiting for the next symptom. P-780.
+
+## G-209
+
+**The shape.** `conv_ft_common_data` walks the members of `PlCo.dat`'s
+`ftLoadCommonData` — a 23-entry pointer table of shared fighter data. It had
+grown **one member per bug report**: `pData[1]` was added for P-779, `[8]` for
+P-689, `[5]` for P-754, `[2]` for P-780. Each time, the member that broke was
+fixed and the other twenty-two were left alone.
+
+A probe over all 23 indices at once found **six more still big-endian**:
+`[3]` move staling, `[12]` fighter scale modifiers, `[13]` Bunny Hood, `[14]`
+Metal Box, `[15]` gravity/weight multipliers, `[21]` crowd SFX config.
+
+**What that cost, silently.** These are multipliers. Left big-endian a `1.0`
+reads `4.6006e-41`, so anything scaled by one collapses to zero: move staling
+never reduced damage, Bunny Hood granted nothing, the Metal Box changed no
+weight, and the crowd never reacted. **None of it crashed** — it just quietly
+did not happen, which is why none of it was ever reported.
+
+**How to size a walk without guessing.** Take the size from the
+decompilation, then look for corroboration in the data. Here the structs are
+laid end to end in the archive and the sizes chain exactly:
+
+```
+0xa7d8 + 0x9C == 0xa874 + 0x3C == 0xa8b0 + 0x24 == 0xa8d4 + 0x08 == 0xa8dc
+   [12]           [13]            [14]            [15]            [1]
+```
+
+A wrong size would not chain, so the adjacency is an independent check on the
+header. The swing table's `0x78` lands exactly on `pData[3]` the same way.
+
+**The rule.** When a walker is a hand-maintained *list of interesting
+members*, audit every index once instead of waiting for the next symptom —
+the entries that never crash are the ones that stay broken longest. A probe
+that prints each member's first words as floats separates them in one run: a
+converted member reads as garbage, an unconverted one reads as a sensible
+number. P-780, P-825.

@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 132u
+#define HSD_CONVERTER_VERSION 133u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -3462,6 +3462,44 @@ static void conv_ft_cpu_data(Conv* c, uint32_t off)
  * bound (ftParts_80074E58). */
 #define FTCOMMONDATA_SIZE 0x818
 
+/* A flat run of 4-byte scalars hanging off `ftLoadCommonData`, bounded three
+ * ways at once: the size the decompilation gives the struct, the next offset
+ * anything points at, and the next public symbol.  The size is the real
+ * bound and the other two only ever shrink it -- they are there so a layout
+ * that is not what the header says cannot walk into the neighbour.
+ *
+ * Every one of these tables is floats and `s32`s with no pointer and no
+ * bit-field, which is why a plain `conv_u32` run is right for all of them.
+ * `c->reloc[w]` still stops the walk: a relocation inside would mean the
+ * struct is not what we think it is. */
+static void conv_ftcommon_scalars(Conv* c, uint32_t table, uint32_t size)
+{
+    uint32_t end;
+    uint32_t pub;
+    uint32_t w;
+
+    if (table == 0 || size == 0) {
+        return;
+    }
+    end = table + size;
+    {
+        uint32_t pointed = next_pointed_at_after(c, table);
+        if (pointed < end) {
+            end = pointed;
+        }
+    }
+    pub = next_public_after(c, c->public_off, c->nb_public, table);
+    if (pub < end) {
+        end = pub;
+    }
+    for (w = table; w + 4 <= end; w += 4) {
+        if (!in_data(c, w, 4) || c->reloc[w]) {
+            break;
+        }
+        conv_u32(c, w);
+    }
+}
+
 static void conv_ft_common_data(Conv* c, uint32_t off)
 {
     uint32_t common;
@@ -3590,6 +3628,36 @@ static void conv_ft_common_data(Conv* c, uint32_t off)
             }
         }
     }
+    /* The rest of `ftLoadCommonData`'s scalar tables.  **Audited as a set
+     * rather than one per bug report** -- this function had grown a member at
+     * a time (pData[1] was P-779, [8] was P-689, [5] was P-754, [2] was
+     * P-780), and a probe over all 23 indices found six more still
+     * big-endian.  Each size comes from the decompilation, and the addresses
+     * corroborate them independently: in `PlCo.dat` the structs are laid end
+     * to end, `0xa7d8 + 0x9C == 0xa874 + 0x3C == 0xa8b0 + 0x24 ==
+     * 0xa8d4 + 0x08 == 0xa8dc`, which is pData[12], [13], [14], [15] and then
+     * [1].  A wrong size would not chain.
+     *
+     *   [3]  `Fighter_804D6548`  9 f32   move staling steps, subtracted from
+     *        the damage multiplier in `ft_0881.c:354` (the loop bounds i < 9)
+     *   [12] `Fighter_804D6524`  39 f32  fighter scale modifiers -- walk and
+     *        dash speeds, jump impulses, landing lag, weight
+     *   [13] `Fighter_804D6520`  15 f32  Bunny Hood modifiers
+     *   [14] `Fighter_804D651C`  9 f32   Metal Box modifiers
+     *   [15] `Fighter_804D6518`  2 f32   gravity and weight multipliers
+     *   [21] `gCrowdConfig`      0x44    crowd SFX thresholds (`crowdsfx.h`)
+     *
+     * Left big-endian these are the `4.6006e-41` class: a multiplier that
+     * should be 1.0 arrives as a denormal, so anything scaled by one of them
+     * collapses to zero.  That is what froze the fighter in P-780, and these
+     * six sit on the same code path -- `ftchangeparam.c` applies [12], [13]
+     * and [14] to a fighter's attributes wholesale. */
+    conv_ftcommon_scalars(c, rd32(c, off + 3 * 4), 9 * 4);
+    conv_ftcommon_scalars(c, rd32(c, off + 12 * 4), 39 * 4);
+    conv_ftcommon_scalars(c, rd32(c, off + 13 * 4), 15 * 4);
+    conv_ftcommon_scalars(c, rd32(c, off + 14 * 4), 9 * 4);
+    conv_ftcommon_scalars(c, rd32(c, off + 15 * 4), 2 * 4);
+    conv_ftcommon_scalars(c, rd32(c, off + 21 * 4), 0x44);
     /* pData[16] is the trophy-platform accessory joint
      * (`Fighter_804D6514`, ftCommon_SetAccessory) and pData[20]
      * (`Fighter_804D6504`) is another shared model; both are HSD_Joint trees
