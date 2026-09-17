@@ -285,6 +285,14 @@ static void match_present(void)
             size_t live = 0;
             gx_gl_texture_stats(&hits, &misses, &evictions, &decodes,
                                 &invalidations, &live);
+            {
+                extern void gx_gl_bind_stats(unsigned long*, unsigned long*);
+                unsigned long bt = 0, bs = 0;
+                gx_gl_bind_stats(&bt, &bs);
+                fprintf(stderr,
+                        "[match] texbinds %lu of %lu issued (%.1f%% skipped)\n",
+                        bt - bs, bt, bt ? 100.0 * (double) bs / (double) bt : 0.0);
+            }
             fprintf(stderr,
                     "[match] texcache hits=%lu misses=%lu evictions=%lu "
                     "decodes=%lu invalidations=%lu live=%zu\n",

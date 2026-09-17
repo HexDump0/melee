@@ -137,6 +137,63 @@ static GLint u_coord_srtg;  /* int[8]: toon coord samples the lit raster */
 
 static GlTextureCache tex_cache[MAX_GL_TEXTURES];
 static size_t tex_cache_count;
+/*
+ * P-824: the texture-unit binding shadow.
+ *
+ * The draw loop bound all eight units on every draw -- glActiveTexture plus
+ * glBindTexture, seventeen calls counting the trailing reset -- when a typical
+ * draw uses one.  Native GL does not notice 17 redundant calls; a browser pays
+ * ~0.5 us per call across the JS/wasm boundary, so at 461 draws that alone was
+ * ~4 ms of a 9 ms browser frame (G-198's arithmetic, applied to the calls the
+ * P-801 uniform cache did not cover).
+ *
+ * Remember what each unit holds and skip the call when it already holds it.
+ * The shadow is invalidated wherever something else can bind: the frame setup,
+ * EFB copies, the Z-texture pass (different program), and texture_for(), which
+ * binds on the current unit when it uploads -- that one sets
+ * tex_binding_disturbed rather than being audited call by call, because a
+ * missed invalidation here shows up as the wrong texture on one material.
+ */
+static GLuint unit_tex[8];
+static int unit_tex_valid;
+static int unit_active = -1;
+static int tex_binding_disturbed;
+
+static void tex_units_invalidate(void)
+{
+    unit_tex_valid = 0;
+    unit_active = -1;
+}
+
+static int tex_units_enabled(void)
+{
+    /* MELEE_GX_TEX_BINDS=0 forces every bind, so a run can be compared against
+     * itself frame for frame.  Same licence as MELEE_GX_UNI_CACHE=0. */
+    static int enabled = -1;
+    if (enabled < 0) {
+        const char* e = getenv("MELEE_GX_TEX_BINDS");
+        enabled = (e == NULL || e[0] != '0');
+    }
+    return enabled;
+}
+
+static unsigned long bind_calls_total;
+static unsigned long bind_calls_skipped;
+
+static void bind_unit(int map, GLuint name)
+{
+    bind_calls_total++;
+    if (tex_units_enabled() && unit_tex_valid && unit_tex[map] == name) {
+        bind_calls_skipped++;
+        return;
+    }
+    if (unit_active != map) {
+        glActiveTexture((GLenum) (GL_TEXTURE0 + map));
+        unit_active = map;
+    }
+    glBindTexture(GL_TEXTURE_2D, name);
+    unit_tex[map] = name;
+}
 
 /* P-814.  A cache that is too small does not fail, it just stops being a
  * cache, and the only outward sign is the frame time -- so count the three
@@ -158,6 +215,13 @@ void gx_gl_texture_stats(unsigned long* hits, unsigned long* misses,
     *decodes = tex_cache_decodes;
     *invalidations = tex_cache_invalidations;
     *live = tex_cache_count;
+}
+
+/* P-824: texture-unit binds requested vs skipped by the shadow. */
+void gx_gl_bind_stats(unsigned long* total, unsigned long* skipped)
+{
+    *total = bind_calls_total;
+    *skipped = bind_calls_skipped;
 }
 static GlDynamicCopy dynamic_copies[MAX_DYNAMIC_COPIES];
 static size_t dynamic_copy_count;
@@ -1373,6 +1437,7 @@ static GLuint dynamic_texture_for(const GxHleTexture* t)
         {
             continue;
         }
+        tex_binding_disturbed = 1;
         glBindTexture(GL_TEXTURE_2D, e->name);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
                         min_filter_to_gl(t->min_filt, 0, t->format));
@@ -1603,6 +1668,7 @@ static GLuint texture_for(const GxHleTexture* t)
         } else {
             e = &tex_cache[tex_cache_count++];
         }
+        tex_binding_disturbed = 1;
         glGenTextures(1, &e->name);
         glBindTexture(GL_TEXTURE_2D, e->name);
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -1849,6 +1915,7 @@ static void apply_draw_state(const GxHleDrawState* s)
  * the depth-only Z-texture pass (which uses a different program). */
 static GxHleDrawState last_applied_state;
 static int have_applied_state;
+
 
 static int draw_state_matches(const GxHleDrawState* s)
 {
@@ -2797,6 +2864,7 @@ int gx_gl_render_frame(void)
     glBindVertexArray(vertex_vao);
     glBindBuffer(GL_ARRAY_BUFFER, vertex_vbo);
     have_applied_state = 0;
+    tex_units_invalidate();
     {
         size_t bytes = vertex_count * sizeof(GxHleVertex);
         glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) bytes, vertices,
@@ -2822,12 +2890,14 @@ int gx_gl_render_frame(void)
         if (d->kind == GX_HLE_DRAW_COPY_TEX) {
             efb_copy_tex(d);
             have_applied_state = 0;
+            tex_units_invalidate();
             continue;
         }
         if (d->vertex_count != 0 && s->ztex_op != 0 && ztex_program != 0) {
             draw_ztex(d, s, textures, texture_count);
             glUseProgram(program);
             have_applied_state = 0;
+            tex_units_invalidate();
             continue;
         }
         if (d->vertex_count == 0) {
@@ -2855,11 +2925,14 @@ int gx_gl_render_frame(void)
          * unit.  Resolve every name first, then establish the complete GX
          * map-to-unit binding without later lookups disturbing earlier
          * units. */
-        for (map = 0; map < 8; ++map) {
-            glActiveTexture((GLenum) (GL_TEXTURE0 + map));
-            glBindTexture(GL_TEXTURE_2D, tex[map]);
+        if (tex_binding_disturbed) {
+            tex_binding_disturbed = 0;
+            tex_units_invalidate();
         }
-        glActiveTexture(GL_TEXTURE0);
+        for (map = 0; map < 8; ++map) {
+            bind_unit(map, tex[map]);
+        }
+        unit_tex_valid = 1;
         {
             GLfloat bias[8] = { 0 };
             GLint dynamic_i4[8] = { 0 };
@@ -2876,9 +2949,19 @@ int gx_gl_render_frame(void)
                     sizes[map][1] = (GLfloat) bound[map]->height;
                 }
             }
-            glUniform1fv(u_tex_lod_bias, 8, bias);
-            glUniform1iv(u_tex_dynamic_i4, 8, dynamic_i4);
-            glUniform2fv(u_tex_size, 8, &sizes[0][0]);
+            /* P-824: these three ran unconditionally, outside the P-801
+             * cache, so every draw uploaded 128 bytes of arrays that change
+             * only when the bound set does. */
+            if (uni_dirty(u_tex_lod_bias, bias, sizeof(bias))) {
+                glUniform1fv(u_tex_lod_bias, 8, bias);
+            }
+            if (uni_dirty(u_tex_dynamic_i4, dynamic_i4,
+                          sizeof(dynamic_i4))) {
+                glUniform1iv(u_tex_dynamic_i4, 8, dynamic_i4);
+            }
+            if (uni_dirty(u_tex_size, &sizes[0][0], sizeof(sizes))) {
+                glUniform2fv(u_tex_size, 8, &sizes[0][0]);
+            }
         }
 
         if (!state_same) {
