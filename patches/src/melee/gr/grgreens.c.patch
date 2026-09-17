@@ -1,0 +1,28 @@
+diff --git a/src/melee/gr/grgreens.c b/src/melee/gr/grgreens.c
+index 76b160252..8588ed1d1 100644
+--- a/src/melee/gr/grgreens.c
++++ b/src/melee/gr/grgreens.c
+@@ -244,7 +244,23 @@ Ground_GObj* grGreens_80213524(int id)
+             HSD_GObj_SetupProc(gobj, cbs->gobj_proc, 4);
+         }
+     } else {
++#ifdef PORT_PC
++        /* The console reads this format string as `grGr_callbacks + 0xCC`,
++         * because it sits in this unit's pooled `.data` right after the
++         * callback table -- the G-176 class.  Off-console that offset is
++         * unrelated data, so `OSReport` was handed a **garbage format
++         * string**: undefined behaviour on an error path, which is the worst
++         * place for it, since it fires exactly when something else has
++         * already gone wrong.
++         *
++         * The literal is transcribed from the GameCube object rather than
++         * invented -- `objdump -s -j .data grgreens.o` shows `25 73 3a 25 64
++         * 3a 20 63 6f 75 6c 64 6e 20 74 ...` at 0xCC, and the byte between
++         * "couldn" and "t" really is a space (0x20), not an apostrophe. */
++        OSReport("%s:%d: couldn t get gobj(id=%d)\n", "grgreens.c", 281, id);
++#else
+         OSReport((char*) grGr_callbacks + 0xCC, "grgreens.c", 281, id);
++#endif
+     }
+     return gobj;
+ }
