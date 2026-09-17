@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 133u
+#define HSD_CONVERTER_VERSION 134u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -183,6 +183,10 @@ typedef struct Conv {
     size_t data_size;
     unsigned char* reloc; /* one byte per data offset: relocation target */
     unsigned char* seen;  /* one byte per data offset: walked */
+    /* Bytes covered by an already-converted `HSD_TObjDesc`, start
+     * excluded.  Only the heuristic orphan scans need this; see
+     * `conv_imagedesc` for why. */
+    unsigned char* tobj_span;
     unsigned char* num;   /* one byte per data offset: numeric field done */
     HsdConvertStats st;
     int depth;
@@ -357,7 +361,34 @@ static void conv_article(Conv* c, uint32_t off, int item_kind);
 /* DWARF: HSD_ImageDesc */
 static void conv_imagedesc(Conv* c, uint32_t off)
 {
-    if (!in_data(c, off, HSD_IMAGEDESC_SIZE) || !mark(c, off)) {
+    /* **Never convert an image descriptor that lies inside a `TObjDesc`.**
+     * No real `HSD_TexAnim` image table points into one -- a `TObjDesc` holds
+     * a *pointer* to its `HSD_ImageDesc`, it never contains one -- so an
+     * offset landing inside a converted `TObjDesc` is always a walk that has
+     * gone wrong, and converting there corrupts a texture that was already
+     * correct.
+     *
+     * It happens because `conv_orphan_matanim_trees` is a **heuristic**: it
+     * accepts any relocation target that "looks like" an unconverted
+     * `HSD_MatAnimJoint` and walks the tree under it.  In `GrTKb.dat` and
+     * `GrTMs.dat` (Target Test) that produced false positives whose image
+     * tables pointed into real `TObjDesc`s, and `conv_u32(off + 0x18)` here
+     * landed exactly on `repeat_s`/`repeat_t` at `+0x3C`.  Those are `u8`, so
+     * the swap moved `01 01 00 00` to `00 00 01 01` -- both repeats read
+     * **0**, and `MakeTextureMtx` asserts the moment the stage draws that
+     * material (P-830).
+     *
+     * Guarding here rather than in the scan is deliberate: the invariant is a
+     * property of image descriptors, so it holds for every caller, and it
+     * cannot regress P-753's orphan trees, which point at genuine
+     * descriptors outside any `TObjDesc`. */
+    if (!in_data(c, off, HSD_IMAGEDESC_SIZE)) {
+        return;
+    }
+    if (c->tobj_span != NULL && c->tobj_span[off]) {
+        return;
+    }
+    if (!mark(c, off)) {
         return;
     }
     conv_u16(c, off + 0x04);
@@ -415,6 +446,12 @@ static void conv_tobj(Conv* c, uint32_t off)
         return;
     }
     c->st.tobjs++;
+    if (c->tobj_span != NULL) {
+        uint32_t b;
+        for (b = 1; b < HSD_TOBJDESC_SIZE && off + b < c->data_size; b++) {
+            c->tobj_span[off + b] = 1;
+        }
+    }
     conv_u32(c, off + 0x08);
     conv_u32(c, off + 0x0C);
     for (i = 0; i < 9; i++) {
@@ -6289,6 +6326,7 @@ static int convert_archive(unsigned char* data, size_t size, Conv* c)
     c->reloc = calloc(data_size ? data_size : 1, 1);
     c->seen = calloc(data_size ? data_size : 1, 1);
     c->num = calloc(data_size ? data_size : 1, 1);
+    c->tobj_span = calloc(data_size ? data_size : 1, 1);
     if (c->reloc == NULL || c->seen == NULL || c->num == NULL) {
         free(c->reloc);
         free(c->seen);
@@ -6296,6 +6334,8 @@ static int convert_archive(unsigned char* data, size_t size, Conv* c)
         c->reloc = NULL;
         c->seen = NULL;
         c->num = NULL;
+        free(c->tobj_span);
+        c->tobj_span = NULL;
         return 0;
     }
 
@@ -6320,9 +6360,11 @@ static int convert_archive(unsigned char* data, size_t size, Conv* c)
     free(c->reloc);
     free(c->seen);
     free(c->num);
+    free(c->tobj_span);
     c->reloc = NULL;
     c->seen = NULL;
     c->num = NULL;
+    c->tobj_span = NULL;
     return 1;
 }
 

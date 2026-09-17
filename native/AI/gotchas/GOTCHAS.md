@@ -4351,3 +4351,43 @@ new symptom, and if one appears, the six lines above are the test.
 console's byte order is part of the data's meaning, and any declaration that
 loses that is wrong on the host. This is the *data-array* member of the
 family, and it is the one with no compiler support at all. P-827.
+
+## G-213
+
+**Symptom.** `assertion "tobj->repeat_s && tobj->repeat_t"` at `tobj.c` while
+a stage draws. The owner hit it in Target Test.
+
+**Why the first scan said the data was fine, and was wrong.** A probe inside
+`conv_tobj` reported that no `HSD_TObjDesc` on the disc has a zero repeat —
+true, and useless. It measured the bytes *at the moment that walker ran*.
+The damage was done afterwards by a **different** walker, and a check placed
+inside the walker you suspect can never see that. Re-reading the same
+offsets **after every walker has finished** found five damaged descriptors
+immediately.
+
+**Cause.** `conv_orphan_matanim_trees` (P-753) is explicitly a heuristic: it
+accepts any relocation target that "looks like" an unconverted
+`HSD_MatAnimJoint` and walks the tree beneath it. In `GrTKb.dat` and
+`GrTMs.dat` it accepted false positives whose `HSD_TexAnim` image tables
+pointed **into real `TObjDesc`s**. `conv_imagedesc`'s `conv_u32(off + 0x18)`
+then landed on `repeat_s`/`repeat_t` at `+0x3C` — `u8` fields that need no
+swapping — turning `01 01 00 00` into `00 00 01 01`. Both repeats read 0.
+
+**Fix, and where to put it.** Record the bytes covered by each converted
+`TObjDesc` and make `conv_imagedesc` refuse an offset inside one. The guard
+belongs in `conv_imagedesc`, not in the scan: *a `TObjDesc` holds a pointer
+to an `HSD_ImageDesc` and never contains one*, so an image descriptor inside
+a `TObjDesc` is always a walk that has gone wrong — the invariant holds for
+every caller, and it cannot regress the orphan trees P-753 exists for,
+which point at genuine descriptors outside any `TObjDesc`.
+
+**Two lessons worth keeping.**
+
+- **A heuristic walker can corrupt data that a correct walker already got
+  right.** "Looks like" scans need to be bounded by what is already claimed,
+  not only by what they can parse.
+- **`decomp_layout` earned its keep.** The first version of the guard put
+  `in_data(c, off, 1)` before the real bound, and the DWARF cross-check
+  failed the build with *"bounds itself with 0x1 but sizeof(HSD_ImageDesc) is
+  0x18"*. Keep the size-bearing `in_data` first and add guards after it.
+  P-830.
