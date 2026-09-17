@@ -4028,3 +4028,49 @@ by itself evidence of a bug.
 - **If someone does want `-O3`, LTO or PGO, the first task is explaining the
   difference, not measuring the speedup.** The speedup is already measured and
   it is small.
+
+## G-206
+
+**Symptom.** Owner, from live play: "some characters feel like they have a
+force field around them". Donkey Kong and Ness shove the Home-Run sandbag —
+and other fighters — away from across the stage, while with every other
+character you walk straight *through* the sandbag that Dolphin pushes.
+
+**Cause.** `ftData->x50` is the fighter's player-nudge box, `Vec2 { x_offset,
+radius }`. `ftCommon_8007DD7C` decides whether two fighters shove each other
+with `ABS(dx) < a->x2C4.y + b->x2C4.y`, and `x2C4` is copied straight from
+`x50`. The converter's walk took the array's length from `off + 0x54` —
+but **`x54` is not a count**. The decompilation types it `int`, and it is a
+relocation field in all 30 fighter archives; `conv_ft_data` already walks it
+correctly as P-685's per-costume part-table pointer. Read as a count it gave
+values like 28132, the `count <= 256` guard rejected them, and **the nudge box
+was never converted for a single fighter.**
+
+**Why it looks per-character, and why those two.** A big-endian float read
+little-endian is not uniformly wrong — it depends on the bytes:
+
+| character | on disc | bytes | as the port read it |
+|---|---|---|---|
+| Donkey Kong | 5.2 | `40a66666` | **2.72e+23** |
+| Ness | 3.1 | `40466666` | **2.72e+23** |
+| Mario | 3.3 | `40533333` | 4.2e-08 |
+| Bowser | 8.0 | `41000000` | 9.1e-44 |
+| Peach | 2.9 | `4039999a` | −6.3e-23 |
+
+The only two characters whose radius ends in `66 66` reverse to `0x6666…` —
+an effectively infinite radius — and **they are exactly the two the owner
+named.** Everyone else reverses to a denormal, i.e. no push at all. One bug
+produced two opposite-looking symptoms, which is why it read as several.
+
+**The lesson.** *A struct field typed `int` in the decompilation is not
+evidence that it holds a number.* The check that settles it is
+`c->reloc[off + N]` over the real archives, and here it said "pointer" in all
+30. Two walkers in the same function disagreed about the same word — one
+treated `x54` as a pointer and one as a count — and that disagreement was
+visible in the source the whole time.
+
+**Watch for.** Re-enabling a mechanic that has been dead since the port began
+*changes gameplay*: `decomp_match`'s pinned end position moved, which is a fix
+and not a drift. Prove that kind of thing rather than asserting it — revert
+only the suspect hunk, watch the old value come back exactly, then update the
+pin and say why. P-824.

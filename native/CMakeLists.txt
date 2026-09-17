@@ -505,8 +505,16 @@ set_tests_properties(decomp_audio PROPERTIES
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
     ENVIRONMENT "MELEE_NO_CARD=1"
     TIMEOUT 240)
+# The pinned position moved from (14.20,41.04) to (15.95,44.89) in P-824,
+# and that is a fix rather than a drift: `ftData->x50`, the fighter's
+# player-nudge box, was never byte-swapped, so the overlap radius every
+# fighter shoved others with was a byte-reversed float -- 2.7e23 for Donkey
+# Kong and Ness, a denormal near zero for everyone else.  With it converted,
+# the two fighters in this scripted match push apart the way they should, so
+# the trajectory legitimately differs.  Verified by reverting only the
+# converter hunk and watching the old value come back exactly.
 set_tests_properties(decomp_match PROPERTIES
-    PASS_REGULAR_EXPRESSION "slot 0 stocks=3 dmg=0 pos=\\(14\\.20,41\\.04,0\\.00\\)"
+    PASS_REGULAR_EXPRESSION "slot 0 stocks=3 dmg=0 pos=\\(15\\.95,44\\.89,0\\.00\\)"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
     ENVIRONMENT "MELEE_NO_CARD=1"
     TIMEOUT 240)

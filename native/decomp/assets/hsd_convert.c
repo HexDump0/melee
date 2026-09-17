@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 130u
+#define HSD_CONVERTER_VERSION 131u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -4630,16 +4630,49 @@ static void conv_ft_data(Conv* c, uint32_t off, const char* name,
             conv_u32(c, x44 + 0x0C + (uint32_t) i * 4);
         }
     }
-    /* x50: Vec2 array with count at +0x54. */
+    /* x50: the fighter's **player-nudge box**, `Vec2 { x_offset, radius }`.
+     * `ftChangeParam` copies it to `fp->x2C4` and `ftCommon_8007DD7C` uses it
+     * as the overlap test that decides whether two fighters shove each other
+     * apart: `ABS(dx) < a->x2C4.y + b->x2C4.y`.
+     *
+     * **This used to take its length from `off + 0x54`, which is not a
+     * count.** The decompilation types `ftData::x54` as `int`, but it is a
+     * relocation field in every fighter archive on the disc -- measured, all
+     * 30 of them -- and `conv_ft_data` above already (correctly) walks it as
+     * the P-685 per-costume part-table pointer. Reading it as a count gave
+     * values like 28132, the guard `count <= 256` rejected them, and **the
+     * array was therefore never converted for a single fighter**.
+     *
+     * Left big-endian, the radius is whatever its bytes happen to mean the
+     * wrong way round, and the two outcomes are visible in play. Donkey Kong
+     * (5.2 = `40a66666`) and Ness (3.1 = `40466666`) end in `66 66`, which
+     * reversed is `0x6666...` = **2.7e23**: an infinite-radius force field
+     * that shoves every other fighter, and the Home-Run sandbag, away from
+     * across the stage. Everyone else's reverses to a denormal near zero --
+     * Mario 3.3 -> 4.2e-8, Bowser 8.0 -> 9.1e-44 -- so they have no push at
+     * all and walk straight through. Peach's 2.9 even comes out negative.
+     * That is exactly the owner's report (P-824).
+     *
+     * Bound it the way the rest of this file bounds an untyped run: to the
+     * next offset anything points at, and to the next public symbol. The
+     * decompilation only ever reads element 0 (`*fp->ft_data->x50`), so the
+     * clamp only has to be safe, not exact. */
     if (x50 != 0) {
-        int count = (int) rd32(c, off + 0x54);
-        if (count > 0 && count <= 256) {
-            for (i = 0; i < count * 2; i++) {
-                if (!in_data(c, x50 + (uint32_t) i * 4, 4)) {
-                    break;
-                }
-                conv_u32(c, x50 + (uint32_t) i * 4);
+        uint32_t end = next_pointed_at_after(c, x50);
+        uint32_t pub =
+            next_public_after(c, c->public_off, c->nb_public, x50);
+        uint32_t w;
+        if (pub < end) {
+            end = pub;
+        }
+        if (end > x50 + 0x40) {
+            end = x50 + 0x40; /* a nudge box is two floats; never a table */
+        }
+        for (w = x50; w + 4 <= end; w += 4) {
+            if (!in_data(c, w, 4) || c->reloc[w]) {
+                break;
             }
+            conv_u32(c, w);
         }
     }
 }
