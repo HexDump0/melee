@@ -1,0 +1,58 @@
+diff --git a/src/melee/ty/tylist.c b/src/melee/ty/tylist.c
+index 549cf42f7..73c4fd70b 100644
+--- a/src/melee/ty/tylist.c
++++ b/src/melee/ty/tylist.c
+@@ -1,3 +1,8 @@
++#ifdef PORT_PC
++#include <stdio.h>  /* P-730 trace */
++#include <stdlib.h> /* getenv */
++#include <melee/lb/lblanguage.h>
++#endif
+ #include "tylist.h"
+ 
+ #include <Runtime/platform.h>
+@@ -125,6 +130,13 @@ void _tyList_80312904(void* arg0, s8 arg1)
+     }
+ 
+     if (skip == 0) {
++#ifdef PORT_PC
++        if (getenv("MELEE_TROPHY_TRACE") != NULL) {
++            fprintf(stderr, "[toy] row idx=%d x24=%d SKIPPED (total=%d)\n",
++                    (int) row->idx, (int) row->x24,
++                    (int) Toy_GetTrophyTotal());
++        }
++#endif
+         return;
+     }
+ 
+@@ -144,6 +156,30 @@ void _tyList_80312904(void* arg0, s8 arg1)
+         }
+     }
+ 
++#ifdef PORT_PC
++    /* P-730.  The owner's capture shows the row plates, the selection
++     * highlight and the per-entry "NEW" badges all drawing correctly, and only
++     * the row *names* missing -- so the entries are built and carry real
++     * trophy ids, and the fault is in the name.
++     *
++     * The name is not a string: it is a SIS message id, Toy_803082F8(idx) ->
++     * Toy_803063D4(target, 2, 0x128), which is target + 3 in the normal path
++     * but is **remapped through _Toy_sbss_804D6EB8** whenever the language
++     * setting and the saved language disagree.  A wrong id makes SIS draw
++     * nothing and reports nothing, which is what this looks like.  So print
++     * the id alongside the four language predicates that choose the path. */
++    if (getenv("MELEE_TROPHY_TRACE") != NULL) {
++        fprintf(stderr,
++                "[toy] row idx=%d x24=%d sorted=%d msg=%d  "
++                "lang set(JP=%d US=%d) saved(JP=%d US=%d)\n",
++                (int) row->idx, (int) row->x24,
++                (int) Toy_sbss_804D6EDC[row->idx],
++                (int) Toy_803082F8(row->idx),
++                (int) lbLang_IsSettingJP(), (int) lbLang_IsSettingUS(),
++                (int) lbLang_IsSavedLanguageJP(),
++                (int) lbLang_IsSavedLanguageUS());
++    }
++#endif
+     text = row->text0;
+     text->pos_x = f30;
+     text->pos_y = f29;
