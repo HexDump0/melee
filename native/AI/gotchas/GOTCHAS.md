@@ -4332,6 +4332,21 @@ than swapping bytes at runtime. **Recover the values from the compiled
 binary** — dump the region, reverse each 4-byte group, read the ASCII — so the
 literals are transcribed rather than guessed.
 
+**The sweep is done, and the answer is one.** Every `.c` and `.h` under
+`src/` was checked by decoding each float literal's big-endian bit pattern and
+each `0xXXXXXXXX` constant, and reporting files where several land entirely in
+printable ASCII:
+
+```python
+be = struct.pack('>f', value)          # or bytes.fromhex(hex_constant)
+if all(32 <= c < 127 or c == 0 for c in be): ...
+```
+
+`mninfo.c` is the **only** hit in the whole tree (43 of its 48 literals
+decode, recovering `MenM`, `%s.%`, `s.%s`). No integer-typed instance exists
+at all. So this class is real but singular — do not go looking again without a
+new symptom, and if one appears, the six lines above are the test.
+
 **Related.** Same root as `CMD_BE` (G-193) and `PORT_BF_BE` (G-180): the
 console's byte order is part of the data's meaning, and any declaration that
 loses that is wrong on the host. This is the *data-array* member of the
