@@ -1,8 +1,16 @@
 diff --git a/src/melee/ty/toy.c b/src/melee/ty/toy.c
-index 1e5fd2f52..5b27177e5 100644
+index 1e5fd2f52..8fb9a54cc 100644
 --- a/src/melee/ty/toy.c
 +++ b/src/melee/ty/toy.c
-@@ -241,11 +241,52 @@ bool un_80304780(void)
+@@ -1,3 +1,7 @@
++#ifdef PORT_PC
++#include <stdio.h>  /* P-730 trace */
++#include <stdlib.h> /* getenv */
++#endif
+ #include "toy.h"
+ 
+ #include <Runtime/platform.h>
+@@ -241,11 +245,52 @@ bool un_80304780(void)
      { 7, 65 }, { 6, 66 }, { 5, 67 }, { 4, 68 }, { 3, 69 },
      { 2, 70 }, { 0, 73 }, { 1, 88 }, { 8, 83 },
  };
@@ -55,7 +63,7 @@ index 1e5fd2f52..5b27177e5 100644
  /* 4D5A40 */ static GXColor _Toy_color_E2E2E2FF = { 0xE2, 0xE2, 0xE2, 0xFF };
  /* 4D5A44 */ static GXColor _Toy_color_FF8020FF = { 0xFF, 0x80, 0x20, 0xFF };
  
-@@ -2044,19 +2085,46 @@ void Toy_80306D70(s32 arg0)
+@@ -2044,19 +2089,46 @@ void Toy_80306D70(s32 arg0)
          s32 idx;
          u8 kind;
  
@@ -102,7 +110,7 @@ index 1e5fd2f52..5b27177e5 100644
              data->archive =
                  lbArchive_80016DBC(_Toy_str_TyLight_dat, &sp14, sym, 0);
          }
-@@ -2075,8 +2143,16 @@ void Toy_80306D70(s32 arg0)
+@@ -2075,8 +2147,16 @@ void Toy_80306D70(s32 arg0)
                  HSD_GObj_80390CD4(data->gobj);
              }
          } else {
@@ -119,7 +127,7 @@ index 1e5fd2f52..5b27177e5 100644
              OSReport("*** Can not Load Light Label(%s)\n", sym);
              HSD_ASSERT(2253, 0);
          }
-@@ -2335,8 +2411,20 @@ void Toy_80307470(s32 arg0)
+@@ -2335,8 +2415,20 @@ void Toy_80307470(s32 arg0)
          tg->x0 = NULL;
      }
  
@@ -140,7 +148,7 @@ index 1e5fd2f52..5b27177e5 100644
  
      if (joint[0] != NULL) {
          tg->x0 = GObj_Create(9, 9, 0);
-@@ -2399,8 +2487,19 @@ void _Toy_803075E8(s32 arg0)
+@@ -2399,8 +2491,19 @@ void _Toy_803075E8(s32 arg0)
          Toy_sbss_804D6ED8->x8->x28->x4->x4->x40 = 9;
      }
  
@@ -160,7 +168,53 @@ index 1e5fd2f52..5b27177e5 100644
          joint = HSD_ArchiveGetPublicAddress(td->archive, *ptr);
          if (joint != NULL) {
              td->gobj = GObj_Create(4, 7, 0);
-@@ -5778,9 +5877,22 @@ void Toy_80310324(void)
+@@ -5513,6 +5616,17 @@ inline void _Toy_8030FE48_setup_entry(ToyListEntry* entry, s16 trophy_idx)
+     entry->archive_name = result + 4;
+     entry->symbol_name = result + 0x24;
+     entry->trophy_id = trophy_idx;
++#ifdef PORT_PC
++    /* P-730: what each row was actually given.  Toy_8030813C's id scan
++     * matched entry 0 for every id before P-645, so an all-identical or
++     * all-empty listing here is the same class of fault recurring. */
++    if (getenv("MELEE_TROPHY_TRACE") != NULL) {
++        fprintf(stderr, "[toy]   entry id=%d archive='%s' symbol='%s'\n",
++                (int) trophy_idx,
++                entry->archive_name != NULL ? entry->archive_name : "(null)",
++                entry->symbol_name != NULL ? entry->symbol_name : "(null)");
++    }
++#endif
+ }
+ 
+ inline void _Toy_8030FE48_link_entries(ToyDisplayList* data, s32 entry_count)
+@@ -5569,6 +5683,27 @@ void _Toy_8030FE48(ToyDisplayList* data, s32 arg1)
+ 
+     count = _Toy_GetTrophyTotal(toy);
+     entry_count = count;
++#ifdef PORT_PC
++    /* P-730 probe.  The owner sees ~5 empty row plates that are then torn
++     * down, while the counter and the rest of the screen's text render fine.
++     * The two numbers below come from *different* sources -- the list walks
++     * toy->trophy_count or gmMainLib_GetTrophyCount(), the counter reads the
++     * save -- which is exactly how one can be right while the other is empty.
++     * MELEE_TROPHY_TRACE=1 prints what the list is actually built from. */
++    if (getenv("MELEE_TROPHY_TRACE") != NULL) {
++        int i_;
++        fprintf(stderr,
++                "[toy] build total=%d visible=%d entries=%d selIdx=%d "
++                "toy.trophy_count=%d gm.trophy_count=%d arg1=%d\n",
++                (int) count, (int) data->visible_count, (int) entry_count,
++                (int) data->selectedIdx, (int) toy->trophy_count,
++                (int) *gmMainLib_GetTrophyCount(), (int) arg1);
++        for (i_ = 0; i_ < 13; i_++) {
++            fprintf(stderr, "[toy]   sorted[%d] = %d\n", i_,
++                    (int) Toy_sbss_804D6EDC[i_]);
++        }
++    }
++#endif
+     if (count > 3) {
+         data->visible_count = 3;
+         entry_count = 0xD;
+@@ -5778,9 +5913,22 @@ void Toy_80310324(void)
      Toy_803067BC(toy->x195, toy->x196);
  
      if (tg->x50 == NULL) {
