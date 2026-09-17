@@ -1,8 +1,18 @@
 diff --git a/src/melee/it/itanimlist.c b/src/melee/it/itanimlist.c
-index 0504eb683..506cc9ca8 100644
+index 0504eb683..5c045bd09 100644
 --- a/src/melee/it/itanimlist.c
 +++ b/src/melee/it/itanimlist.c
-@@ -39,6 +39,33 @@ typedef struct itAnimlistCmdUnk {
+@@ -1,5 +1,9 @@
+ #include "itanimlist.h"
+ 
++#ifdef PORT_PC
++#include <stdlib.h>
++#endif
++
+ #include "forward.h"
+ #include "inlines.h"
+ #include "it_2725.h"
+@@ -39,6 +43,33 @@ typedef struct itAnimlistCmdUnk {
      u16 x2;
  } itAnimlistCmdUnk;
  
@@ -36,7 +46,7 @@ index 0504eb683..506cc9ca8 100644
  void it_80278F2C(Item_GObj* item_gobj, CommandInfo* cmd)
  {
      Vec3 sp20;
-@@ -48,20 +75,20 @@ void it_80278F2C(Item_GObj* item_gobj, CommandInfo* cmd)
+@@ -48,20 +79,20 @@ void it_80278F2C(Item_GObj* item_gobj, CommandInfo* cmd)
      s32 arg6;
      PAD_STACK(4);
  
@@ -66,7 +76,7 @@ index 0504eb683..506cc9ca8 100644
      ++cmd->u;
      it_80278800(item_gobj, ef_id, arg2, &sp20, &sp14, 0, arg6);
  }
-@@ -78,8 +105,16 @@ void it_802790C0(Item_GObj* item_gobj, CommandInfo* cmd)
+@@ -78,8 +109,16 @@ void it_802790C0(Item_GObj* item_gobj, CommandInfo* cmd)
      struct ItemHitbox* hb;
      HitCapsule* hit;
      union CmdUnion* u = cmd->u;
@@ -83,7 +93,7 @@ index 0504eb683..506cc9ca8 100644
      u32 bone_idx;
      hb = &item->x5D4_hitboxes[hitbox_idx];
      hit = &hb->hit;
-@@ -92,7 +127,7 @@ void it_802790C0(Item_GObj* item_gobj, CommandInfo* cmd)
+@@ -92,7 +131,7 @@ void it_802790C0(Item_GObj* item_gobj, CommandInfo* cmd)
          it_8026FCF8(item, hit);
      }
  
@@ -92,7 +102,7 @@ index 0504eb683..506cc9ca8 100644
      if (bone_idx != 0) {
          if (item->xBBC_dynamicBoneTable == NULL) {
              HSD_ASSERTREPORT(0x8B, 0, "item can\'t set attack!\n");
-@@ -103,34 +138,34 @@ void it_802790C0(Item_GObj* item_gobj, CommandInfo* cmd)
+@@ -103,34 +142,34 @@ void it_802790C0(Item_GObj* item_gobj, CommandInfo* cmd)
      }
      it_80272460(hit,
                  item->xC3C *
@@ -143,7 +153,7 @@ index 0504eb683..506cc9ca8 100644
      ++cmd->u;
  
      hit->x40_b4 = ((u8*) cmd->u)[0];
-@@ -170,8 +205,9 @@ void it_802790C0(Item_GObj* item_gobj, CommandInfo* cmd)
+@@ -170,8 +209,9 @@ void it_802790C0(Item_GObj* item_gobj, CommandInfo* cmd)
  void it_80279544(Item_GObj* item_gobj, CommandInfo* cmd)
  {
      Item* item = item_gobj->user_data;
@@ -155,7 +165,7 @@ index 0504eb683..506cc9ca8 100644
      PAD_STACK(8);
      it_80272460(hit, (u32) (item->xC3C * ((f32) val * item->xC40)), item_gobj);
      ++cmd->u;
-@@ -179,11 +215,11 @@ void it_80279544(Item_GObj* item_gobj, CommandInfo* cmd)
+@@ -179,11 +219,11 @@ void it_80279544(Item_GObj* item_gobj, CommandInfo* cmd)
  
  void it_802795EC(Item_GObj* item_gobj, CommandInfo* cmd)
  {
@@ -169,7 +179,7 @@ index 0504eb683..506cc9ca8 100644
      item->x3C = hit->scale;
      it_80275594(item_gobj, idx, 1.0f / item->scl);
      ++cmd->u;
-@@ -200,7 +236,7 @@ void it_802795EC(Item_GObj* item_gobj, CommandInfo* cmd)
+@@ -200,7 +240,7 @@ void it_802795EC(Item_GObj* item_gobj, CommandInfo* cmd)
  
  void it_80279680(Item_GObj* item_gobj, CommandInfo* cmd)
  {
@@ -178,7 +188,7 @@ index 0504eb683..506cc9ca8 100644
      ++cmd->u;
  }
  
-@@ -217,21 +253,21 @@ void it_802796C4(Item_GObj* item_gobj, CommandInfo* cmd)
+@@ -217,21 +257,21 @@ void it_802796C4(Item_GObj* item_gobj, CommandInfo* cmd)
  void it_802796FC(Item_GObj* item_gobj, CommandInfo* cmd)
  {
      Item* it = GET_ITEM(item_gobj);
@@ -203,7 +213,56 @@ index 0504eb683..506cc9ca8 100644
      ++cmd->u;
  }
  
-@@ -314,7 +350,7 @@ done:
+@@ -250,7 +290,48 @@ void it_8027978C(Item_GObj* item_gobj, CommandInfo* cmd)
+ {
+     Item* item = item_gobj->user_data;
+     itAnimlistCmdUnk* ptr = (itAnimlistCmdUnk*) cmd->u;
++#ifdef PORT_PC
++    /* `itAnimlistCmdUnk` carries no endian marker, so this read was wrong
++     * twice over: the `u16` loads byte-reversed on a little-endian host, and
++     * GCC allocates the bit-fields from the LSB where MWCC allocates them
++     * from the MSB.  On the console the group is
++     * `x0_b0:6 | opcode:8 | x0_b14:2` packed MSB-first into a big-endian
++     * `u16`, so the opcode is bits 9..2 -- `(V >> 2) & 0xFF`.
++     *
++     * Read the wrong way the opcode is almost always outside the handled
++     * 0..11 range, and `it_8027978C` then falls straight through to `done`
++     * having consumed the command and done **nothing**.  That is why the
++     * symptom is a fighter frozen mid-pickup rather than a crash: the
++     * animlist keeps running, the action it was supposed to perform never
++     * happens, and nothing ever advances the state (P-810/P-780).
++     *
++     * `MELEE_ANIMLIST_LE=1` restores the old decode, so the before/after is
++     * one run each on the owner's machine rather than two builds. */
++    s32 opcode = (s32) ((CMD_U16(cmd->u, 0) >> 2) & 0xFF);
++    {
++        static int le_mode = -1;
++        static int trace = -1;
++        if (le_mode < 0) {
++            le_mode = getenv("MELEE_ANIMLIST_LE") != NULL;
++        }
++        if (trace < 0) {
++            trace = getenv("MELEE_ANIMLIST_TRACE") != NULL;
++        }
++        if (trace) {
++            OSReport("[animlist] word=%04x opcode_be=%d opcode_le=%d%s\n",
++                     (unsigned) CMD_U16(cmd->u, 0), (int) opcode,
++                     (int) ptr->opcode,
++                     ((s32) ptr->opcode > 11 || (s32) ptr->opcode < 0)
++                         ? "  <== old decode out of range, command ignored"
++                         : "");
++        }
++        if (le_mode) {
++            opcode = ptr->opcode;
++        }
++    }
++#else
+     s32 opcode = ptr->opcode;
++#endif
+     u32 arg1;
+     u8 arg2;
+     u8 arg3;
+@@ -314,7 +395,7 @@ done:
  void it_80279888(Item_GObj* item_gobj, CommandInfo* cmd)
  {
      PAD_STACK(4);
@@ -212,7 +271,7 @@ index 0504eb683..506cc9ca8 100644
      NEXT_CMD(cmd);
  }
  
-@@ -328,7 +364,7 @@ void it_802798D4(Item_GObj* item_gobj, CommandInfo* cmd)
+@@ -328,7 +409,7 @@ void it_802798D4(Item_GObj* item_gobj, CommandInfo* cmd)
  void it_8027990C(Item_GObj* item_gobj, CommandInfo* cmd)
  {
      PAD_STACK(4);
@@ -221,7 +280,7 @@ index 0504eb683..506cc9ca8 100644
      NEXT_CMD(cmd);
  }
  
-@@ -339,7 +375,7 @@ void it_8027990C(Item_GObj* item_gobj, CommandInfo* cmd)
+@@ -339,7 +420,7 @@ void it_8027990C(Item_GObj* item_gobj, CommandInfo* cmd)
  void it_80279958(Item_GObj* item_gobj, CommandInfo* cmd)
  {
      Item* it = GET_ITEM(item_gobj);
@@ -230,7 +289,7 @@ index 0504eb683..506cc9ca8 100644
      NEXT_CMD(cmd);
  }
  
-@@ -379,7 +415,7 @@ loop:
+@@ -379,7 +460,7 @@ loop:
          return;
      }
  
