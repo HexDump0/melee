@@ -223,6 +223,12 @@ void gx_gl_bind_stats(unsigned long* total, unsigned long* skipped)
     *total = bind_calls_total;
     *skipped = bind_calls_skipped;
 }
+
+void gx_gl_bind_stats_reset(void)
+{
+    bind_calls_total = 0;
+    bind_calls_skipped = 0;
+}
 static GlDynamicCopy dynamic_copies[MAX_DYNAMIC_COPIES];
 static size_t dynamic_copy_count;
 static unsigned int tex_clock;
@@ -2930,6 +2936,16 @@ int gx_gl_render_frame(void)
             tex_units_invalidate();
         }
         for (map = 0; map < 8; ++map) {
+            /* Only units this draw samples.  A map with texmap < 0 is not
+             * referenced by any TEV stage, so whatever is left bound to it is
+             * never read -- binding 0 there was as arbitrary as leaving the
+             * previous draw's texture, and it cost a call every draw.  A map
+             * that *is* referenced but resolved to 0 (a CI texture with no
+             * TLUT, say) still gets bound: that draw samples it and expects
+             * the untextured result. */
+            if (s->texmap[map] < 0) {
+                continue;
+            }
             bind_unit(map, tex[map]);
         }
         unit_tex_valid = 1;

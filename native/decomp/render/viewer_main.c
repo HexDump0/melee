@@ -310,10 +310,16 @@ static void match_present(void)
                     total ? 100.0 * (double) skipped / (double) total : 0.0);
         }
         if ((match_view.frames % 30) == 0) {
+            extern void gx_gl_bind_stats(unsigned long*, unsigned long*);
+            extern void gx_gl_bind_stats_reset(void);
+            unsigned long frame_binds_total = 0, frame_binds_skipped = 0;
+            unsigned long frame_binds_issued;
+            gx_gl_bind_stats(&frame_binds_total, &frame_binds_skipped);
+            frame_binds_issued = frame_binds_total - frame_binds_skipped;
             fprintf(stderr,
                     "[match] frame %u draws=%d verts=%zu lists=%zu prims=%zu "
                     "game=%.2fms cpu=%.2fms sleep=%.2fms render=%.2fms "
-                    "swap=%.2fms frame=%.2fms max=%.2fms\n",
+                    "swap=%.2fms frame=%.2fms max=%.2fms binds=%lu/%lu\n",
                     match_view.frames, draws, match_view.last_verts,
                     gx_hle_display_list_count(), gx_hle_primitive_count(),
                     (double) match_view.game_ns / 1e6,
@@ -322,9 +328,11 @@ static void match_present(void)
                     (double) match_view.last_render_ns / 1e6,
                     (double) match_view.swap_ns / 1e6,
                     (double) interval / 1e6,
-                    (double) match_view.max_interval_ns / 1e6);
+                    (double) match_view.max_interval_ns / 1e6,
+                    frame_binds_issued, frame_binds_total);
             match_view.max_interval_ns = 0;
             match_view.cpu_ns = 0;
+            gx_gl_bind_stats_reset();
         }
     }
     if (match_view.dump_frame != 0 &&
