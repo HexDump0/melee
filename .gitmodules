@@ -2,3 +2,6 @@
 	path = decomp
 	url = https://github.com/doldecomp/melee.git
 	ignore = dirty
+[submodule "native/third_party/wasm-micro-runtime"]
+	path = native/third_party/wasm-micro-runtime
+	url = https://github.com/bytecodealliance/wasm-micro-runtime.git
