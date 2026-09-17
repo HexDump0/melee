@@ -157,6 +157,8 @@ void mod_menu_on_asset(const void* bytes, size_t size);
 void mod_menu_init(void);
 /* Non-zero once when the Unbound entry has been chosen; clears on read. */
 int mod_menu_take_activation(void);
+/* Non-zero while the Unbound entry is the hovered main-menu selection. */
+int mod_menu_entry_hovered(void);
 
 /* Add the mods compiled into this binary.  Browser. */
 void mod_native_scan(void);

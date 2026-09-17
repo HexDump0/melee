@@ -246,9 +246,16 @@ void unbound_HSD_JObjAnim(HSD_JObj* jobj)
  */
 static void unbound_main_think(HSD_GObj* gp)
 {
-    if (entry_enabled && mn_804A04F0.cur_menu == MENU_KIND_MAIN &&
-        mn_804A04F0.hovered_selection == UNBOUND_SELECTION &&
-        (gm_GetButtonsTriggered(4) & PAD_CONFIRM) != 0)
+    int hovered = entry_enabled &&
+                  mn_804A04F0.cur_menu == MENU_KIND_MAIN &&
+                  mn_804A04F0.hovered_selection == UNBOUND_SELECTION;
+
+
+    /* Accept Start as well as Confirm.  On the keyboard Z is A and Enter is
+     * Start, and pressing Enter on an entry and having nothing happen reads
+     * as broken rather than as a mapping. */
+    if (hovered &&
+        (gm_GetButtonsTriggered(4) & (PAD_CONFIRM | PAD_BUTTON_START)) != 0)
     {
         /*
          * Handle our option here and do not let the retail think run: its
@@ -261,6 +268,12 @@ static void unbound_main_think(HSD_GObj* gp)
     if (real_main_think != NULL) {
         real_main_think(gp);
     }
+}
+
+int mod_menu_entry_hovered(void)
+{
+    return entry_enabled && mn_804A04F0.cur_menu == MENU_KIND_MAIN &&
+           mn_804A04F0.hovered_selection == UNBOUND_SELECTION;
 }
 
 int mod_menu_take_activation(void)

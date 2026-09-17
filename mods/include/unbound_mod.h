@@ -109,6 +109,13 @@ UNBOUND_IMPORT("buttons_pressed") unsigned unbound_buttons_pressed(int port);
  */
 UNBOUND_IMPORT("menu_activated") int unbound_menu_activated(void);
 
+/*
+ * Non-zero while this mod's main-menu entry is the hovered selection.  The
+ * game leaves its description box empty for that entry, so a mod that adds
+ * one is expected to draw its own description there.
+ */
+UNBOUND_IMPORT("menu_hovered") int unbound_menu_hovered(void);
+
 /* What kind of screen the game is showing right now; see unbound_abi.h. */
 UNBOUND_IMPORT("scene_kind") int unbound_scene_kind(void);
 

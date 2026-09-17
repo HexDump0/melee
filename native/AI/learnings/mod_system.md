@@ -191,3 +191,36 @@ exists.
 
 Verify a scene-dependent feature on the **frontend** path
 (`--frontend --input native/tests/frontend_vs.txt`), not on `--match`.
+
+## Native menu text: there are two kinds of SIS text object
+
+The engine will render arbitrary strings in its own font --
+`HSD_SisLib_803A6B98(text, x, y, fmt, ...)` is printf-shaped and the game uses
+it for scores and trophy counts. That matters a lot: it means native menu
+text does not need new SIS strings baked into an archive, which was the
+assumption that made a native credits page look expensive.
+
+**But it only works on a text object created for it.** There are two
+creators:
+
+- `HSD_SisLib_803A5ACC(font, ctx, ...)` -- index-only. This is what the main
+  menu's description box uses (`mn_80229A7C`). It has **no `alloc_data`**.
+- `HSD_SisLib_803A6754(font_idx, context_id)` -- allocates the block
+  (`alloc->data`, `alloc->next`, `alloc->size = 0x80`), calls
+  `HSD_SisLib_803A6368(text, 0)` itself, then points `sis_buffer` at it.
+  This is the one `803A6B98` expects.
+
+`803A6B98` dereferences `text->alloc_data` in its first statement, so calling
+it on the index-only kind faults immediately -- **SIGSEGV at 0x8**, which is
+what an attempt to give the Unbound menu entry a description did. Substituting
+at the `803A6368` call site cannot fix it either: that function is what the
+index-only object *is*, and it never allocates the block.
+
+So a native description, or a native credits page, creates its own text with
+`HSD_SisLib_803A6754` and prints into it. It does not retrofit the menu's.
+
+**A narrower lesson from the same bug.** The first attempt intercepted
+`803A6368` gated only on "main menu, our entry hovered", which is true for
+*every* SIS string set during that time -- 82 sites create text objects.
+Gating an interposer on global state rather than on the object it is meant to
+act upon is how one hook reaches everything.

@@ -95,6 +95,12 @@ static int32_t host_menu_activated(wasm_exec_env_t env)
     return mod_menu_take_activation();
 }
 
+static int32_t host_menu_hovered(wasm_exec_env_t env)
+{
+    (void) env;
+    return mod_menu_entry_hovered();
+}
+
 static int32_t host_scene_kind(wasm_exec_env_t env)
 {
     (void) env;
@@ -162,7 +168,8 @@ static NativeSymbol mod_natives[] = {
     { "draw_rect", (void*) host_draw_rect, "(ffff)", NULL },
     { "buttons_held", (void*) host_buttons_held, "(i)i", NULL },
     { "buttons_pressed", (void*) host_buttons_pressed, "(i)i", NULL },
-    { "menu_activated", (void*) host_menu_activated, "()i", NULL }
+    { "menu_activated", (void*) host_menu_activated, "()i", NULL },
+    { "menu_hovered", (void*) host_menu_hovered, "()i", NULL }
 };
 #pragma GCC diagnostic pop
 

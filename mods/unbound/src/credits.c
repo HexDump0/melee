@@ -54,6 +54,26 @@ static float text_width(const struct Line* l)
     return (float) l->len * 6.0f * l->scale;
 }
 
+/*
+ * The main menu's description box, in the authored 640x480 space.  The game
+ * leaves it empty for our entry (native/mod/mod_menu.c clears the menu's
+ * description indices while it is hovered) rather than showing another
+ * entry's text under the wrong heading.
+ */
+#define DESC_CENTRE_X 320.0f
+#define DESC_Y 411.0f
+#define DESC_SCALE 1.3f
+
+static const char DESC_TEXT[] = "THE PORT, AND WHAT IT IS BUILT ON.";
+
+void credits_draw_description(void)
+{
+    float w = (float) (sizeof(DESC_TEXT) - 1) * 6.0f * DESC_SCALE;
+    unbound_draw_color(0.93f, 0.93f, 0.95f, 1.0f);
+    unbound_draw_text_raw(DESC_CENTRE_X - 0.5f * w, DESC_Y, DESC_SCALE,
+                          DESC_TEXT, (unsigned) (sizeof(DESC_TEXT) - 1));
+}
+
 void credits_open(void)
 {
     open_now = 1;

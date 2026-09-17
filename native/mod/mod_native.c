@@ -45,6 +45,8 @@ int unbound_scene_kind(void) { return mod_host_scene_kind(); }
 
 int unbound_menu_activated(void) { return mod_menu_take_activation(); }
 
+int unbound_menu_hovered(void) { return mod_menu_entry_hovered(); }
+
 void unbound_draw_color(float r, float g, float b, float a)
 {
     mod_host_draw_color(r, g, b, a);
