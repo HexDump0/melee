@@ -4225,3 +4225,42 @@ them were compared against each other as if they were an A/B. They were not.
 The match line now carries `binds=issued/requested` so a log identifies its own
 build; quote draws and verts alongside any browser timing, or the number means
 nothing.
+
+## G-210
+
+**Symptom.** A crash report is thirty repetitions of the same four frames —
+`__backtrace` / `_Unwind_Backtrace` / `__kernel_rt_sigreturn` / the handler —
+and no sign of the actual fault. The owner's Data / VS-Records crash arrived
+this way and was undiagnosable.
+
+**Two causes, both in the handler.**
+
+1. **`SA_NODEFER` left the signal unblocked inside its own handler.**
+   `backtrace()` is not async-signal-safe and unwinds the stack that has just
+   gone wrong, so it can fault — and when it did, SIGSEGV re-entered the same
+   handler, which called `backtrace()` again. The flag was there so the
+   closing `raise()` would still kill the process; blocking the signal does
+   that anyway, because the pending signal is delivered with `SIG_DFL` as soon
+   as the handler returns.
+2. **No alternate signal stack.** The interesting crashes are the ones that
+   exhaust the stack, and without `sigaltstack` + `SA_ONSTACK` those cannot be
+   reported at all: the handler is entered on the stack that just ran out and
+   faults on its first push.
+
+**Measured, not assumed.** A 30-line test program that recurses until it
+overflows, with the same handler shape:
+
+```
+without alt stack:  (nothing at all -- silent core dump)
+with alt stack:     [boot] controlled stop: signal 11 at 0xfe82d4fc, 64 frames
+```
+
+**Fix.** Drop `SA_NODEFER`, add a 64 KB `sigaltstack` with `SA_ONSTACK`, and
+keep a `volatile sig_atomic_t` re-entry guard that writes one plain `write(2,
+...)` line and lets the default action end the process. A truncated report
+that says why beats an infinite one.
+
+**The general point, which is G-204 again one level down.** Everything the
+crash path touches runs *after* the invariants have failed — including the
+unwinder and libc. `SIGSTKSZ` is not a compile-time constant on current
+glibc, so the stack has to be a fixed size. P-826.

@@ -9,6 +9,7 @@
 #include <dlfcn.h>
 #include <execinfo.h>
 #include <signal.h>
+#include <unistd.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
@@ -227,9 +228,30 @@ void boot_triage_capture_crash(int signo)
  * report is printed on the spot and the signal is then re-raised with the
  * default action, so the process still dies the way it would have, a debugger
  * still sees the original signal, and the terminal has the stack either way. */
+/* Set while the report is being produced, so a fault *inside* the report does
+ * not start it again.  `backtrace()` is not async-signal-safe and unwinds the
+ * very stack that has just gone wrong, so it is entirely capable of faulting;
+ * without this the handler re-entered itself until the stack ran out and the
+ * owner got thirty frames of `_Unwind_Backtrace` instead of his crash. */
+static volatile sig_atomic_t in_crash_reporter;
+
 static void crash_reporter(int signo, siginfo_t* info, void* ctx)
 {
     (void) ctx;
+    if (in_crash_reporter) {
+        /* Second fault, inside the report.  Say so with a plain `write` --
+         * `fprintf` is neither async-signal-safe nor trustworthy here -- and
+         * let the default action end the process.  A truncated report with a
+         * reason beats an infinite one. */
+        static const char msg[] =
+            "[boot] the crash reporter faulted; no backtrace for this one\n";
+        ssize_t ignored = write(2, msg, sizeof(msg) - 1);
+        (void) ignored;
+        signal(signo, SIG_DFL);
+        raise(signo);
+        _exit(128 + signo);
+    }
+    in_crash_reporter = 1;
     boot_triage_capture_crash_at(signo, info != NULL ? info->si_addr : NULL,
                                  info != NULL);
     /* print_crash prints the `controlled stop:` line itself. */
@@ -246,17 +268,42 @@ void boot_triage_install_crash_reporter(void)
      * panic path already prints its own backtrace before aborting, and
      * SIGALRM because the viewer has no watchdog and SDL may use timers. */
     static const int signals[] = { SIGSEGV, SIGBUS, SIGFPE, SIGILL };
+    static int alt_stack_ready;
     struct sigaction sa;
     size_t i;
 
     if (getenv("MELEE_NO_CRASH_HANDLER") != NULL) {
         return; /* let a sanitizer runtime report the failure itself */
     }
+    /* **An alternate signal stack, because the interesting crashes are the
+     * ones that exhaust the stack.** Without it a stack overflow cannot be
+     * reported at all: the handler is entered on the stack that has just run
+     * out, faults on its first push, and the process dies with nothing said.
+     * That is what the owner's Data/VS-Records crash looked like -- a fault
+     * inside `backtrace()` repeating until the frames scrolled away. */
+    if (!alt_stack_ready) {
+        /* A fixed 64 KB rather than `SIGSTKSZ`: on current glibc that macro
+         * expands to a `sysconf()` call and is not a constant expression. */
+        static char alt[65536];
+        stack_t ss;
+        memset(&ss, 0, sizeof(ss));
+        ss.ss_sp = alt;
+        ss.ss_size = sizeof(alt);
+        ss.ss_flags = 0;
+        if (sigaltstack(&ss, NULL) == 0) {
+            alt_stack_ready = 1;
+        }
+    }
     memset(&sa, 0, sizeof(sa));
     sa.sa_sigaction = crash_reporter;
     sigemptyset(&sa.sa_mask);
-    /* SA_SIGINFO for si_addr: see crash_addr. */
-    sa.sa_flags = SA_NODEFER | SA_SIGINFO;
+    /* **`SA_NODEFER` is deliberately absent.** It used to be set, which left
+     * the signal unblocked inside its own handler, so a fault while producing
+     * the report re-entered the handler instead of ending the process.  With
+     * it blocked, the `raise()` below is delivered when the handler returns
+     * and the default action still kills the process, which is all it was
+     * there for. */
+    sa.sa_flags = SA_SIGINFO | (alt_stack_ready ? SA_ONSTACK : 0);
     for (i = 0; i < sizeof(signals) / sizeof(signals[0]); i++) {
         sigaction(signals[i], &sa, NULL);
     }

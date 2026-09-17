@@ -1590,7 +1590,7 @@ static void dump_items(FILE* out)
     if (HSD_GObjGXLinkHead == NULL) {
         return;
     }
-    for (gobj = HSD_GObjGXLinkHead[6]; gobj != NULL && n < 12;
+    for (gobj = HSD_GObjGXLinkHead[6]; mem1_ok(gobj, sizeof(*gobj)) && n < 12;
          gobj = gobj->next_gx)
     {
         Item* ip;
@@ -1600,6 +1600,17 @@ static void dump_items(FILE* out)
             continue;
         }
         ip = (Item*) gobj->user_data;
+        /* Same reasoning as `dump_fighter` (G-204): on the frontend the
+         * owner hit a crash whose item list printed `kind=-2132339776` with
+         * an unaligned `entity`, which is not an `Item` at all.  Following it
+         * is how a crash report becomes a second crash. */
+        if (!mem1_ok(ip, sizeof(*ip))) {
+            fprintf(out, "[crash]   item #%d gobj=%p user_data=%p NOT IN MEM1"
+                         " -- not an Item; skipped\n",
+                    n, (void*) gobj, (void*) ip);
+            n++;
+            continue;
+        }
         n++;
         fprintf(out,
                 "[crash]   item #%d gobj=%p kind=%d entity=%p article=%p "
