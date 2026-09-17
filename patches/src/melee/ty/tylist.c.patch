@@ -1,5 +1,5 @@
 diff --git a/src/melee/ty/tylist.c b/src/melee/ty/tylist.c
-index 549cf42f7..24b9a2579 100644
+index 549cf42f7..b2565d069 100644
 --- a/src/melee/ty/tylist.c
 +++ b/src/melee/ty/tylist.c
 @@ -1,3 +1,8 @@
@@ -69,7 +69,34 @@ index 549cf42f7..24b9a2579 100644
          entry->texts[0] = HSD_SisLib_803A5ACC(0, _tyList_804D6EE8, 0.0f, 0.0f,
                                                17.2f, 640.0f, 64.0f);
          entry->texts[1] = HSD_SisLib_803A5ACC(0, _tyList_804D6EE8, 0.0f, 0.0f,
-@@ -964,6 +1006,25 @@ void _tyList_8031457C(void)
+@@ -937,6 +979,26 @@ void _tyList_8031457C(void)
+         HSD_GObjObject_80390A70(entry->x4, kind, cobj);
+         GObj_SetupGXLinkMax(entry->x4, _tyList_80314504, 0);
+         entry->x4->gxlink_prios = 0x0210000000000000ULL;
++#ifdef PORT_PC
++        /* P-730 EXPERIMENT, not a fix.  MELEE_TROPHY_FIX=1 adds bit 62 to
++         * this camera's link mask.
++         *
++         * Confirmed by reading gobj.c:164: bit j of gxlink_prios selects GX
++         * link j.  The row text is submitted on link 0x3E (62) -- traced --
++         * and this mask carries bits 57 and 52, so nothing here renders it.
++         * The counter's camera carries bit 63 and its text is on 0x3F, which
++         * is why that one draws.
++         *
++         * Why this is an experiment and not the fix: the literal is the
++         * game's own and works on console, so either another camera renders
++         * link 62 and the port has lost it, or gobj.c:164 is not the path
++         * that matters here.  If setting the bit makes the names appear, the
++         * mechanism is confirmed and the real fix is upstream -- whatever
++         * should already be rendering link 62.  Do not ship this. */
++        if (getenv("MELEE_TROPHY_FIX") != NULL) {
++            entry->x4->gxlink_prios |= (u64) 1 << 62;
++        }
++#endif
+         interest.x = 1.1f;
+         interest.y = -0.24f;
+         interest.z = 0.0f;
+@@ -964,6 +1026,25 @@ void _tyList_8031457C(void)
          _tyList_804D6EE8 =
              HSD_SisLib_803A611C(0, entry->x4, 0xB, 0xB, 0, 0x3E, 0, 0);
      }
