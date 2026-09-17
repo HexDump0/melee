@@ -1,0 +1,22 @@
+# Melee Unbound -- the default mod.
+#
+# Shipped in the box and loaded like any other mod: it appears in the list,
+# it loads in declared order, it holds no API a third-party mod cannot reach,
+# and removing this folder (or MELEE_NO_MODS=1) returns the port to vanilla.
+
+id = "unbound"
+name = "Melee Unbound"
+version = "0.1.0"
+abi_version = 1
+
+# Ascending; ties break on load order. Unbound goes first so a third-party
+# mod can layer on top of it.
+priority = 100
+
+# The module the loader instantiates, relative to this folder. Absent on the
+# browser build, where Unbound is compiled in and there is no loader.
+module = "unbound.wasm"
+
+[settings]
+# Overridable at run time as MELEE_MOD_UNBOUND_WIDESCREEN.
+widescreen = 1

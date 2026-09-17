@@ -24,6 +24,13 @@
  *       H HUD, F12 screenshot, R reset, ESC quit.
  */
 #include "decomp/render/viewer_internal.h"
+#include "mod/mod.h"
+
+/* The registry does not link the GL backend itself (melee_decomp_boot has no
+ * renderer at all), so the target that owns a drawable hands it over. */
+static const ModDisplayBackend mod_gx_gl_display = { gx_gl_get_window_size,
+                                                     gx_gl_set_display_aspect,
+                                                     gx_gl_get_display_aspect };
 
 static void usage(const char* argv0)
 {
@@ -163,11 +170,23 @@ static void match_present(void)
      * before the first present, and fractional-scale changes can arrive
      * without a pixel-size event. */
     {
+        static int last_w, last_h;
         int w = 0;
         int h = 0;
         SDL_GetWindowSizeInPixels(match_view.window, &w, &h);
         if (w > 0 && h > 0) {
             gx_gl_set_size(w, h);
+            if ((w != last_w || h != last_h) &&
+                mod_hook_active(UNBOUND_HOOK_DISPLAY_RESIZED))
+            {
+                UnboundDisplayResized size;
+                size.width = w;
+                size.height = h;
+                mod_dispatch(UNBOUND_HOOK_DISPLAY_RESIZED, &size,
+                             sizeof(size));
+            }
+            last_w = w;
+            last_h = h;
         }
     }
 
@@ -433,6 +452,10 @@ static int run_match(SDL_Window* window, SDL_GLContext context,
         0, 0);
     boot_triage_set_frame_budget(limit != 0 ? limit + 240 : 0);
     hsd_asset_set_register_hook(gx_hle_register_asset);
+    /* Before the first frame, so a mod's display settings are in place for
+     * it rather than applying one frame late. */
+    mod_set_display_backend(&mod_gx_gl_display);
+    mod_system_init();
     gx_gl_set_options(gl);
     boot_platform_set_present_hook(match_present);
     if (no_items) {

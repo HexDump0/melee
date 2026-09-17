@@ -17,6 +17,7 @@
 #include "match_boot.h"
 
 #include "audio/ax_hle.h"
+#include "mod/mod.h"
 #include "audio/wav.h"
 
 #include <signal.h>
@@ -125,6 +126,10 @@ int main(int argc, char** argv)
         ax_hle_set_sink(wav_sink_write, wav);
     }
     boot_triage_init(out, trace, stub_limit);
+    /* The headless boot loads mods too: the soak is the instrument that finds
+     * this class of bug, and a mod that only ever ran under the windowed
+     * build would never meet it. */
+    mod_system_init();
     boot_triage_set_frame_budget(frames);
     boot_triage_install_stop_target(&stop);
     match_boot_init(match_frame);

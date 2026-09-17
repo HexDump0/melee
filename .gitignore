@@ -22,3 +22,7 @@ __pycache__/
 # rule 6: never commit generated files).  Findings go in TASKS.md and
 # native/AI/logs/, not here.
 /soak/
+
+# Built by cmake from mods/*/src (ADR-0026); the manifest is committed, the
+# module is not.
+mods/**/*.wasm

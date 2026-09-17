@@ -1566,3 +1566,137 @@ adapters and hosting constraints, while avoiding a second gameplay engine, a
 server-streaming product, and redistribution of game content.
 
 **Status:** proposed (2026-09-16), pending independent architecture review.
+
+---
+
+## ADR-0026: Mods are a first-class layer, and Unbound's own features are the first mod
+
+**Context.** Melee Unbound is a port *and* a set of improvements on top of it.
+Those two things have very different obligations: the port has to stay faithful
+to the decompilation, and the improvements have to be free to change the game.
+Mixing them produces a codebase where nobody can tell which behaviour is
+Melee's and which is ours, and where "is the port still correct?" stops being
+answerable.
+
+Melee already has a modding community whose tooling is Gecko codes and DOL
+patches -- techniques that exist because the console offered nothing better. We
+compile the game from source, so we can offer something better, but only if the
+seam is designed rather than accreted.
+
+**Decision.** Three layers, with one rule holding them apart.
+
+1. **Core** -- `decomp/src/` plus the platform layers under `native/`. Faithful.
+   With no mods loaded it must behave exactly as it did before the mod system
+   existed, and `MELEE_NO_MODS=1` makes that a configuration the regression
+   suite can actually run rather than a claim.
+2. **The mod ABI** -- `mods/include/unbound_abi.h` and `unbound_mod.h`, plus the
+   registry in `native/mod/`. The only door.
+3. **Mods** -- `mods/<id>/`, each a folder with a `mod.toml` and a module.
+   `mods/unbound/` is the default one, shipped in the box.
+
+**Unbound's features go through the same door as anybody else's.** Unbound is
+registered, ordered, and disabled like any other mod, and it holds no API a
+third party cannot reach. This is not tidiness: an API with one privileged
+consumer is an API whose gaps are invisible, and widescreen was written against
+this ABI precisely so the gaps would show up on the first feature rather than
+the tenth.
+
+Four properties are load-bearing:
+
+- **A mod is never a `patches/` entry.** `patches/` stays strictly
+  portability per ADR-0011. The moment gameplay changes live there, every
+  submodule pin bump becomes a merge conflict and the "GameCube build still
+  100.00% matched" gate -- which has caught real regressions that no other
+  instrument caught -- stops being cheap to run.
+- **Hooks are named for what happens, not for the symbol behind them.**
+  `UNBOUND_HOOK_CAMERA_SETUP`, never `..._HSD_COBJSETCURRENT`. One interposer
+  per hook, in `native/mod/`, knows the engine symbol. When the pin moves and a
+  function is renamed, split or inlined away, that file changes and no mod does.
+- **Every hook declares whether it can change the match.** `UNBOUND_EFFECT_SIM`
+  or `UNBOUND_EFFECT_PRESENT`, decided where the hook is defined. Netplay is
+  not being built and nothing implements it; this is one field, and it is the
+  difference between adding rollback later and rewriting the mod system to add
+  rollback later. Slippi's own widescreen is online-safe for exactly this
+  reason. `mod_sim_affecting()` reports the answer for the loaded set.
+- **Ordering is declared, never discovered.** Ascending priority, ties broken
+  by load order -- never by the order `readdir` happened to return.
+
+**The interposition mechanism already existed.** `decomp_shim.h` is force-
+included into every compiled decomp TU and has renamed `HSD_ArchiveParse` since
+S3. That is a complete, general, link-time interposition facility: free when
+unused, no dynamic loader, and it works identically in the browser. The mod
+system did not need to invent a hook mechanism, only to name and curate the one
+in the tree.
+
+**Consequences.** A hook is a maintenance obligation, so there will be few
+coarse ones rather than many fine ones -- both because each is an ABI promise
+and because each is a boundary crossing at 60 Hz. The classification field is
+dead weight until netplay exists, deliberately. Asset and data overrides (a mod
+folder whose files shadow disc files by name) are *not* built yet: the disc
+layer's per-file dispatch and the single `melee_port_HSD_ArchiveParse` funnel
+are the two choke points, and P-832 covers it.
+
+**Status:** accepted (2026-09-17), owner decision.
+
+---
+
+## ADR-0027: Mods are WebAssembly, run under WAMR; the browser compiles Unbound in instead
+
+**Context.** ADR-0026 settles what a mod *is*; this settles what a mod *is made
+of*. The owner's requirement is a drop-in: put a file in `mods/` and it works,
+with no rebuild and no toolchain.
+
+The obvious answer is a shared object plus `dlopen`, and it is the wrong one. It
+needs a separate build per platform per architecture, a faulting mod takes the
+game down with it, the ABI breaks whenever the decomp pin moves the structs it
+was compiled against, and -- decisively -- two machines' compilers do not have
+to agree on floating-point results, so no `.so` mod could ever be part of a
+deterministic simulation.
+
+**Decision.** A mod is a `.wasm` module, executed by
+[WAMR](https://github.com/bytecodealliance/wasm-micro-runtime), pinned as a
+submodule at `native/third_party/wasm-micro-runtime` (tag WAMR-2.4.5). One
+artifact runs on every desktop platform, a trapping mod is contained and
+disabled rather than fatal, and wasm is deterministic by specification, which is
+the property a future netplay build needs.
+
+**Building a mod needs nothing new.** `clang --target=wasm32 -nostdlib` plus
+`wasm-ld`, both already present, produce a freestanding module -- no wasi-sdk,
+no emsdk. (The emsdk at `~/projects/emsdk` is for the browser build of the
+*game*, and is unrelated.) `mods/unbound/unbound.wasm` is 1.3 KB.
+
+**The browser has no loader.** Mods are not supported there, Unbound is the only
+mod, and it is compiled straight into the binary through the native binding
+(`native/mod/mod_native.c`). Nesting a wasm interpreter inside a wasm build to
+run a 1.3 KB module would be absurd, and the binary was only just brought from
+21 MB to 9 MB.
+
+**Both bindings compile the same mod sources.** That is why the ABI lives in a
+header rather than inside the loader: the browser's compiled-in Unbound and the
+desktop's `unbound.wasm` are the same C, so a feature cannot exist on one target
+and silently not the other.
+
+**What crosses the boundary.** Only scalars. The host is x86-32 and a guest is
+wasm32 -- both 32-bit little-endian with the same alignment for `int`,
+`unsigned` and `float` -- so a payload struct has one layout and is memcpy'd
+into the guest's own exported buffer. **No pointer ever crosses**: engine
+objects are opaque handles, and strings are (offset, length) into the guest's
+memory, validated by the runtime before the host reads them.
+
+**What the sandbox is for.** It protects the *player's machine* -- no
+filesystem, no network, no host memory, and every WAMR library surface
+(`LIBC_BUILTIN`, `LIBC_WASI`, pthreads, multi-module) is compiled out. It does
+not try to protect the game's own state from a mod that asks for it; a mod that
+can only touch what the host thought to expose is a mod nobody can write.
+
+**Consequences.** A third-party dependency the port did not have, in exchange
+for a mod format the port could not otherwise offer. Interpreter only for now
+(`WAMR_BUILD_FAST_INTERP`): AOT needs `wamrc`, which is an LLVM build of its
+own, and a mod running a handful of hooks per frame does not need it -- P-835
+revisits that when one does. Hardware bound checks are off (`WAMR_DISABLE_HW_
+BOUND_CHECK`) because they want a large reserved address space and signal
+handling, both scarce on a 32-bit host already hosting the game's arena.
+WAMR is built in its own CMake directory so its directory-scoped
+`include_directories()` cannot shadow a decomp header.
+
+**Status:** accepted (2026-09-17), owner decision.

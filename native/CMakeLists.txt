@@ -443,6 +443,71 @@ set_source_files_properties(
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/archive.c
     ${CMAKE_CURRENT_SOURCE_DIR}/decomp/assets/hsd_convert.c
     PROPERTIES COMPILE_DEFINITIONS "MELEE_ARCHIVE_INTERNAL=1")
+set_source_files_properties(
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/cobj.c
+    PROPERTIES COMPILE_DEFINITIONS "MELEE_COBJ_INTERNAL=1")
+
+# ---------------------------------------------------------------- mods
+#
+# The mod system (ADR-0026).  Melee Unbound's own features are not privileged
+# port code: they are a mod, loaded through the same ABI and the same registry
+# a third-party mod uses, and MELEE_NO_MODS=1 turns them off -- which is the
+# vanilla-parity configuration the regression suite runs in.
+#
+# Two bindings, one registry: a `.wasm` dropped into mods/ on the desktop
+# (ADR-0027, WAMR), and the same sources compiled straight in for the browser,
+# which has no loader and where Unbound is the only mod.
+add_subdirectory(mod/wamr)
+
+add_library(melee_mod STATIC
+    mod/mod.c
+    mod/mod_cobj.c
+    mod/mod_wasm.c)
+target_include_directories(melee_mod BEFORE PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../mods/include)
+target_include_directories(melee_mod SYSTEM PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/include)
+target_compile_options(melee_mod PRIVATE
+    -m32 -malign-double ${MELEE_32BIT_FP_OPTIONS} ${MELEE_DECOMP_UB_OPTIONS}
+    ${MELEE_DECOMP_LAYOUT_OPTIONS}
+    -Wall -Wextra -Wpedantic -fgnu89-inline -ffunction-sections -fdata-sections
+    -D_GNU_SOURCE -DMELEE_MOD_BINDING_WASM=1
+    -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
+# The interposer defines the functions the shim renames, so it -- like cobj.c
+# itself -- must see the real symbols.
+set_source_files_properties(mod/mod_cobj.c
+    PROPERTIES COMPILE_DEFINITIONS "MELEE_COBJ_INTERNAL=1")
+target_link_libraries(melee_mod PUBLIC wamr_vm)
+
+# mods/unbound/unbound.wasm: the default mod, built from the same sources the
+# browser compiles in.  Freestanding wasm32 -- no wasi-sdk and no emsdk, just
+# the clang and wasm-ld already on the machine.
+set(MELEE_UNBOUND_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/../mods/unbound/src/unbound.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../mods/unbound/src/widescreen.c)
+find_program(MELEE_WASM_CLANG NAMES clang)
+if(MELEE_WASM_CLANG)
+  add_custom_command(
+      OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/../mods/unbound/unbound.wasm
+      COMMAND ${MELEE_WASM_CLANG} --target=wasm32 -nostdlib -O2 -std=c11
+              -Wall -Wextra -Wpedantic -Werror
+              -I${CMAKE_CURRENT_SOURCE_DIR}/../mods/include
+              -Wl,--no-entry -Wl,--export-memory -Wl,--stack-first
+              -o ${CMAKE_CURRENT_SOURCE_DIR}/../mods/unbound/unbound.wasm
+              ${MELEE_UNBOUND_SOURCES}
+      DEPENDS ${MELEE_UNBOUND_SOURCES}
+              ${CMAKE_CURRENT_SOURCE_DIR}/../mods/include/unbound_mod.h
+              ${CMAKE_CURRENT_SOURCE_DIR}/../mods/include/unbound_abi.h
+      COMMENT "Building mods/unbound/unbound.wasm"
+      VERBATIM)
+  add_custom_target(unbound_mod ALL
+      DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/../mods/unbound/unbound.wasm)
+else()
+  message(WARNING "clang not found: mods/unbound/unbound.wasm will not be built")
+endif()
 
 add_executable(melee_decomp_boot
     decomp/boot/boot_main.c
@@ -471,7 +536,8 @@ add_executable(melee_decomp_boot
     $<TARGET_OBJECTS:melee_decomp_game>)
 target_include_directories(melee_decomp_boot PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim)
+    ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
+    ${CMAKE_CURRENT_SOURCE_DIR}/../mods/include)
 target_include_directories(melee_decomp_boot SYSTEM PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/include)
@@ -480,7 +546,7 @@ target_compile_options(melee_decomp_boot PRIVATE
     -Wall -Wextra -Wpedantic -fgnu89-inline
     -ffunction-sections -fdata-sections -rdynamic -D_GNU_SOURCE
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
-target_link_libraries(melee_decomp_boot PRIVATE m ${CMAKE_DL_LIBS})
+target_link_libraries(melee_decomp_boot PRIVATE melee_mod m ${CMAKE_DL_LIBS})
 target_link_options(melee_decomp_boot PRIVATE
     -m32 -malign-double -rdynamic "LINKER:--gc-sections")
 add_test(NAME decomp_boot
@@ -675,7 +741,8 @@ add_executable(test_decomp_render
     $<TARGET_OBJECTS:melee_decomp_game>)
 target_include_directories(test_decomp_render BEFORE PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
-    ${CMAKE_CURRENT_SOURCE_DIR})
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../mods/include)
 target_include_directories(test_decomp_render SYSTEM PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/include)
@@ -684,7 +751,7 @@ target_compile_options(test_decomp_render PRIVATE
     -Wall -Wextra -Wpedantic -Wno-overlength-strings -fgnu89-inline
     -ffunction-sections -fdata-sections -rdynamic -D_GNU_SOURCE
     -include ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim/decomp_shim.h)
-target_link_libraries(test_decomp_render PRIVATE m EGL GLESv2
+target_link_libraries(test_decomp_render PRIVATE melee_mod m EGL GLESv2
     ${CMAKE_DL_LIBS})
 target_link_options(test_decomp_render PRIVATE
     -m32 -malign-double -rdynamic "LINKER:--gc-sections")
@@ -781,7 +848,8 @@ if(MELEE_SDL3_LIB32)
       $<TARGET_OBJECTS:melee_decomp_game>)
   target_include_directories(melee BEFORE PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
-      ${CMAKE_CURRENT_SOURCE_DIR})
+      ${CMAKE_CURRENT_SOURCE_DIR}
+      ${CMAKE_CURRENT_SOURCE_DIR}/../mods/include)
   target_include_directories(melee SYSTEM PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src
       ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extern/dolphin/include)
@@ -800,7 +868,8 @@ if(MELEE_SDL3_LIB32)
       decomp/render/sdl_audio.c
       PROPERTIES COMPILE_DEFINITIONS "MELEE_SHIM_REAL_STDBOOL")
   target_link_libraries(melee PRIVATE
-      ${MELEE_SDL3_LIB32} m EGL GLESv2 ${CMAKE_DL_LIBS})
+      melee_mod ${MELEE_SDL3_LIB32} m EGL GLESv2 ${CMAKE_DL_LIBS})
+  add_dependencies(melee unbound_mod)
   target_link_options(melee PRIVATE
       -m32 -malign-double -rdynamic "LINKER:--gc-sections")
   # S6: the retail frontend flow, headless and deterministic: boot -> title ->

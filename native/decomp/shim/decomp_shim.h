@@ -42,6 +42,21 @@
 #endif
 
 /*
+ * The mod system's camera hook (ADR-0026).  Every compiled decomp call to
+ * HSD_CObjSetCurrent and HSD_CObjLoadDesc lands in native/mod/mod_cobj.c
+ * first, which is where UNBOUND_HOOK_CAMERA_SETUP is raised.  Same mechanism
+ * as the archive rename above: link-time, free when no mod is loaded, and it
+ * needs no dynamic loader, so it works in the browser too.
+ *
+ * cobj.c itself and the interposer TU define MELEE_COBJ_INTERNAL so they see
+ * the real symbols.
+ */
+#ifndef MELEE_COBJ_INTERNAL
+#define HSD_CObjSetCurrent unbound_HSD_CObjSetCurrent
+#define HSD_CObjLoadDesc unbound_HSD_CObjLoadDesc
+#endif
+
+/*
  * S5: the engine stores a 32-bit address / 16.16 ratio into adjacent u16
  * fields with a `*(u32*) &pair = value` aliasing idiom (synth.c).  That is
  * only correct on big-endian: the host would put the low half in the first

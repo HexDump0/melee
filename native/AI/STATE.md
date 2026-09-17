@@ -1,5 +1,48 @@
 # State of the port
 
+> **Mods are a real layer now, and widescreen is the first thing built on it
+> (2026-09-17, ADR-0026/0027, P-831).** `mods/unbound/unbound.wasm` is a
+> 1.3 KB WebAssembly module that the desktop build loads out of `mods/` under
+> WAMR, and it holds no API a stranger's mod could not reach. `MELEE_NO_MODS=1`
+> loads nothing and returns the port to vanilla, which makes "the core is still
+> faithful" a configuration the suite can run rather than a claim.
+>
+> **Two things landed, and the first matters on its own.** `apply_viewport`
+> scaled the EFB onto the window by `gl_width/640` and `gl_height/480`
+> *independently*, so **every window that was not 4:3 stretched the picture** --
+> the port has been anamorphic on a 16:9 monitor for its whole life and nobody
+> had a name for it. `gx_gl.c` now fits a rect of `disp_aspect` (4:3 by
+> default) inside the window, centres it, and routes every EFB->window mapping
+> through it: viewport, scissor, EFB-copy source, raster sizes, fog width, the
+> P-698 probe rect and the display filter's scanline step. Measured on a
+> 1920x1080 capture: **240 px of black bar each side, exactly
+> `(1920 - 1080*4/3)/2`**, and zero with widescreen on.
+>
+> **Widescreen is presentation-only, and the mechanism is what makes that
+> true.** `native/mod/mod_cobj.c` applies the mod's aspect, runs the real
+> `HSD_CObjSetCurrent`, and restores the camera unconditionally, so the object
+> the engine reads on the next line is byte-for-byte the one it wrote.
+> `cm/camera.c` fits the shot from its **static descriptor**, not the live
+> camera, so the camera moves exactly where it would have on a 4:3 screen and
+> the extra width is extra view. At a 4:3 window the mod is a no-op: mod-on vs
+> mod-off differ by 13,103 bytes against a **10,710-byte run-to-run noise
+> floor** for two identical vanilla runs.
+>
+> **The hook mechanism was already in the tree.** `decomp_shim.h` has renamed
+> `HSD_ArchiveParse` since S3; that is a complete link-time interposition
+> facility -- free when unused, no dynamic loader, works in the browser. The
+> mod system named and curated it rather than inventing one.
+>
+> **Not built, and deliberately:** asset/data overrides (P-832), a second
+> non-Unbound mod to find what the ABI is missing (P-833, and it will find
+> plenty -- there is no way to read game state at all yet), HUD anchoring
+> (P-834), WAMR AOT (P-835). ctest 33/33.
+>
+> **Two things the owner has to look at.** Whether 4:3 or **73:60** is the right
+> `disp_aspect` default -- `1.2173333` in `camera.c:88` is literally
+> `584.32/480` -- and whether the widened frame actually looks right, which no
+> amount of pixel arithmetic here settled.
+
 Last updated: 2026-09-15 (S6 complete and owner-checked; S8/Aurora dropped by owner; parity program landed; P-695..P-707, P-709, P-710, P-712, P-713, P-714, P-716, P-718, P-719, P-720, P-737, P-738, P-739, P-742 and P-743 fixed, P-699/P-702/P-711/P-715/P-717/P-740/P-741 open)
 
 > **The browser port is playable: it boots from a local disc, reaches the
