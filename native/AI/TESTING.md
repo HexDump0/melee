@@ -161,6 +161,30 @@ Classic character-select screen.  Keep the branch **before** the debug-VS
 stock/logging code in `match_boot_frame`: `log_match_state` walks
 `Player_GetEntity`, which is stale once the VS scene is gone and segfaults.
 
+## Input (keyboard and gamepads)
+
+Live input runs in `--frontend` without `--input`, in
+`native/decomp/render/viewer_input.c:frontend_poll_live`.  The keyboard is
+always live; gamepads are merged on top, one per port in SDL's order, and only
+where they are actually deflected -- an idle pad never zeroes the keyboard.
+
+| GameCube | Player 1 key | Player 2 key | Gamepad |
+|---|---|---|---|
+| Control stick | arrow keys | `I` `J` `K` `L` | left stick |
+| C-stick | — | — | right stick |
+| A | `Z` | `F` | south (A) |
+| B | `X` | `G` | east (B) |
+| X | `C` | — | west (X) |
+| Y | `V` | — | north (Y) |
+| L | `A` | — | left trigger (analog; click = shoulder or past 0.9) |
+| R | `S` | — | right trigger (analog; click past 0.9) |
+| Z | `Q` | — | right shoulder |
+| Start | `Enter` | `T` | Start |
+| D-pad | — | — | d-pad |
+
+Ports 3 and 4 are gamepad-only.  Each pad prints `viewer: port N = <name>` when
+it opens, and hot-plug is handled through `SDL_EVENT_GAMEPAD_ADDED/REMOVED`.
+
 ## Boss-intro camera (P-847)
 
 ```sh

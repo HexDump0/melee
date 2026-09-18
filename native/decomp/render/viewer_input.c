@@ -283,17 +283,41 @@ static void pad_poll_gamepad(SDL_Gamepad* gp, PadInputFrame* out)
     int dx = 0;
     int dy = 0;
 
-    out->stick_x =
-        pad_axis_to_stick(SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_LEFTX));
-    /* SDL's y axis points down, the GameCube's points up. */
-    out->stick_y =
-        pad_axis_to_stick(-(int) SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_LEFTY));
-    out->cstick_x =
-        pad_axis_to_stick(SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_RIGHTX));
-    out->cstick_y = pad_axis_to_stick(
-        -(int) SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_RIGHTY));
-    out->trigger_l = pad_axis_to_trigger(lt);
-    out->trigger_r = pad_axis_to_trigger(rt);
+    /*
+     * Only a *deflected* axis overwrites what the keyboard put here.  A pad
+     * sitting at rest must not zero the arrow keys: someone with a controller
+     * plugged in who reaches for the keyboard should still be able to play,
+     * and on the menus that is often exactly what happens (P-854).  The same
+     * goes for the triggers, which rest at zero.
+     */
+    {
+        signed char v;
+        /* SDL's y axis points down, the GameCube's points up. */
+        v = pad_axis_to_stick(SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_LEFTX));
+        if (v != 0) {
+            out->stick_x = v;
+        }
+        v = pad_axis_to_stick(
+            -(int) SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_LEFTY));
+        if (v != 0) {
+            out->stick_y = v;
+        }
+        v = pad_axis_to_stick(SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_RIGHTX));
+        if (v != 0) {
+            out->cstick_x = v;
+        }
+        v = pad_axis_to_stick(
+            -(int) SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_RIGHTY));
+        if (v != 0) {
+            out->cstick_y = v;
+        }
+    }
+    if (lt > 0) {
+        out->trigger_l = pad_axis_to_trigger(lt);
+    }
+    if (rt > 0) {
+        out->trigger_r = pad_axis_to_trigger(rt);
+    }
 
     if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_SOUTH)) {
         out->buttons |= PAD_BUTTON_A;
@@ -409,8 +433,9 @@ void frontend_poll_live(void)
     if (keys[SDL_SCANCODE_T]) {
         p1->buttons |= PAD_BUTTON_START;
     }
-    /* Gamepads last so a connected pad's sticks and triggers win over the
-     * keyboard's, while keyboard buttons still OR in. */
+    /* Gamepads last, and only where they are actually being moved: a
+     * deflected stick or a pulled trigger wins over the keyboard, everything
+     * else leaves the keyboard's value alone and buttons simply OR in. */
     if (!pad_gamepad_scanned) {
         pad_gamepad_scanned = 1;
         pad_scan_gamepads();
