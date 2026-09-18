@@ -185,6 +185,24 @@ where they are actually deflected -- an idle pad never zeroes the keyboard.
 Ports 3 and 4 are gamepad-only.  Each pad prints `viewer: port N = <name>` when
 it opens, and hot-plug is handled through `SDL_EVENT_GAMEPAD_ADDED/REMOVED`.
 
+## Is the picture the right shape? (P-863)
+
+```sh
+MELEE_WIDESCREEN_TRACE=1 ... ./build/native/melee --match 600 --width 1280 --height 720 \
+    2>&1 | grep 'camera aspect' | sort -u
+```
+
+Prints each camera's aspect before and after the mod, the display aspect, the
+resulting stretch, and the role/pass/viewport the gate saw.  **`sort -u`, not
+`tail -1`:** there are five or six cameras a frame and the last one is rarely
+the interesting one.
+
+`stretch` is display / camera.  A `role=0 pass=0 640x480` camera reading
+**1.0953** is correct -- that is Melee's own, the same at 4:3 and 16:9, because
+`cm_803BCB64` is authored at 1.2173333.  `role=1` (overlay) and `role=2`
+(offscreen) are skipped on purpose and will read unscaled.
+`MELEE_MOD_UNBOUND_ASPECT_CORRECT=1` takes the world cameras to 1.0000.
+
 ## A CPU vs CPU match, for recording (P-862)
 
 ```sh

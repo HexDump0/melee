@@ -270,7 +270,35 @@ bool unbound_HSD_CObjSetCurrent(HSD_CObj* cobj)
         return HSD_CObjSetCurrent(cobj);
     }
 
-    mod_dispatch(UNBOUND_HOOK_CAMERA_SETUP, &setup, sizeof(setup));
+    {
+        /* MELEE_WIDESCREEN_TRACE also reports what the projection actually
+         * becomes, once per distinct pair: "the mod ran" and "the picture is
+         * the right shape" are different claims (P-863). */
+        static int trace = -1;
+        static float last_in, last_out;
+        float before = setup.aspect;
+        if (trace < 0) {
+            trace = getenv("MELEE_WIDESCREEN_TRACE") != NULL;
+        }
+        mod_dispatch(UNBOUND_HOOK_CAMERA_SETUP, &setup, sizeof(setup));
+        if (trace && cobj->projection_type == PROJ_PERSPECTIVE &&
+            (before != last_in || setup.aspect != last_out))
+        {
+            last_in = before;
+            last_out = setup.aspect;
+            fprintf(stderr,
+                    "[ws] camera aspect %.4f -> %.4f (display %.4f, "
+                    "stretch %.4f) role=%d pass=%d viewport=%.0fx%.0f\n",
+                    (double) before, (double) setup.aspect,
+                    (double) mod_host_display_get_aspect(),
+                    setup.aspect != 0.0f
+                        ? (double) (mod_host_display_get_aspect() /
+                                    setup.aspect)
+                        : 0.0,
+                    setup.role, setup.render_pass, (double) setup.viewport_w,
+                    (double) setup.viewport_h);
+        }
+    }
 
     memcpy(&pending_saved, &cobj->projection_param, sizeof(pending_saved));
     pending_cobj = cobj;

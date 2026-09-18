@@ -36,6 +36,28 @@ static int scene = UNBOUND_SCENE_UNKNOWN;
 static float scale = 1.0f;
 
 /*
+ * MELEE_MOD_UNBOUND_ASPECT_CORRECT: draw the world at the shape it is
+ * presented at, instead of the shape Melee authored.
+ *
+ * **Melee's cameras are not 4:3.**  The game camera's descriptor
+ * (`cm_803BCB64`, camera.c:76) carries an aspect of **1.2173333**, and the
+ * background camera 1.18, while the picture is presented in a 4:3 rect -- so
+ * retail is about 9.5% wider than a geometrically neutral projection, on a
+ * GameCube and here alike.  That is the look, and it is the default.
+ *
+ * Widescreen does not add to it: this mod multiplies each camera's aspect by
+ * the same factor the presentation rect grew, so the ratio between them --
+ * the distortion -- is identical at 4:3 and 16:9.  Measured at 1280x720:
+ * every `role=NORMAL` camera goes 1.2173 -> 1.2985 against a 1.4222 display,
+ * a stretch of 1.0953, which is what 4:3 gives too.
+ *
+ * With this on, the world camera is set to the display's own aspect instead,
+ * which makes characters ~9.5% narrower than retail.  It is a deliberate
+ * departure, which is why it is off unless asked for.
+ */
+static int correct;
+
+/*
  * Widescreen only where widening the frame shows more *game*.
  *
  * On a menu, splash or results screen there is no world behind the camera --
@@ -91,6 +113,7 @@ static void widescreen_recompute(void)
 void widescreen_init(void)
 {
     mode = unbound_config_int("widescreen", WIDESCREEN_GAMEPLAY);
+    correct = unbound_config_int("aspect_correct", 0);
     scene = unbound_scene_kind();
     widescreen_recompute();
 }
@@ -115,7 +138,9 @@ void widescreen_on_camera_setup(UnboundCameraSetup* cam)
         widescreen_recompute();
     }
 
-    if (scale == 1.0f) {
+    /* The correction has work to do even at 4:3, where `scale` is 1: the
+     * authored aspect is not the display's there either. */
+    if (scale == 1.0f && !(correct && widescreen_wanted())) {
         return;
     }
     /*
@@ -146,7 +171,11 @@ void widescreen_on_camera_setup(UnboundCameraSetup* cam)
     switch (cam->projection) {
     case UNBOUND_PROJECTION_PERSPECTIVE:
     case UNBOUND_PROJECTION_FRUSTUM:
-        cam->aspect *= scale;
+        if (correct && widescreen_wanted()) {
+            cam->aspect = unbound_display_get_aspect();
+        } else {
+            cam->aspect *= scale;
+        }
         break;
     case UNBOUND_PROJECTION_ORTHO: {
         /*
