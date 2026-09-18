@@ -21,7 +21,7 @@ output `dist`.
 
 ```
 site/
-├── index.html            the shell Vite fills; loads Inter + Archivo
+├── index.html            the shell Vite fills; loads Inter
 ├── vite.config.ts        react + tailwind plugins
 ├── prerender.mjs         build step 3: render the App into dist/index.html
 ├── public/media/         brand art, served at /media/*
@@ -69,7 +69,7 @@ fails the build rather than silently shipping an empty page.
 ## The type scale is load-bearing
 
 The comp's proportions live in the `@theme` block of `styles.css` —
-`--text-display`, `--text-h2`, `--text-h3`, `--text-h4`, each carrying its
+`--text-h2`, `--text-h3`, `--text-h4`, each carrying its
 own line-height, tracking and weight, plus the two faces. That is why the
 markup says `text-h2` and not a pile of `text-[...] leading-[...]
 tracking-[...]`: retuning the design is one edit here, not twelve in the
@@ -78,13 +78,13 @@ components.
 Those sizes were set by measuring **cap heights** against the design comp. If
 you retune them, measure — eyeballing sent them the wrong way twice.
 
-## Two faces, on purpose
+## One face
 
-Inter 900 uppercase with tight tracking is the page's typeface for headings,
-body and UI (ADR-0028). The hero name is the exception: the comp sets it in a
-heavy slanted grotesque, so `--font-display` is Archivo 900 italic, condensed
-to `wdth 87.5` — the closest face on Google Fonts that stays serious
-(ADR-0033). It is used on the hero `h1` and nowhere else. Adding a third face
+Inter 900 uppercase with tight tracking for headings, Inter 400 for body
+(ADR-0028); the hero statement is Inter 900 at `text-3xl lg:text-4xl`. There
+was a short-lived second face — Archivo 900 italic for a giant slanted hero
+name (ADR-0033) — but the owner cut the hero back to a sentence, so the face,
+the token and the extra Google Fonts request are gone. Adding a second face
 needs a decision entry first.
 
 ## The vertical rhythm
@@ -95,8 +95,8 @@ lg:py-16`), and `WRAP` is the shared column (`max-w-[100rem]`, gutters
 and `scroll-mt-4`. Inside a band, the spacing is plain Tailwind steps —
 `mt-8 lg:mt-10` under a heading, `gap-5` between cards, `p-6 lg:p-8` inside
 one — so if a band looks wrong, check it against its neighbours before adding
-a number. `--radius-card` is `0`: the comp's posture is square corners, and
-window chrome is the one place (`rounded-2xl`) the comp rounds.
+a number. `--radius-card` is `0`, and the window chrome is square too:
+corners are square everywhere on the page.
 
 One smaller rule holds the two-up grid together: the cards in "Browser or
 desktop?" push their button down with a `grow` spacer, so both buttons land on
@@ -106,11 +106,10 @@ the same line however much copy sits above them.
 
 `App` puts the header and the hero in one `min-h-svh` block; everything else
 scrolls in under it. Inside the hero, at `xl` the window and the copy are
-stacked in a single grid cell — the window hangs from the top right, the name
-stands on the floor — because the comp overlaps the name with the window's
-lower-left corner. Below `xl` they stack in reading order instead. The violet
-edge in `App` is the comp's slim left rail: fixed, full height, decoration
-only.
+stacked in a single grid cell — the window hangs from the top right, the copy
+stands on the floor — so the window can be tall without the copy being pushed
+down. Below `xl` they stack in reading order instead. The violet edge in `App`
+is the comp's slim left rail: fixed, full height, decoration only.
 
 ## Animation
 
@@ -126,8 +125,8 @@ What exists:
   through the `animate-enter` / `animate-enter-media` tokens in `styles.css`,
   staggered with an inline `animationDelay` written next to each element in
   `Hero.tsx`.
-- **The window.** The stage loop plays (see below) with the play ring pulsing
-  (`animate-ring`) and the status caret blinking (`animate-caret`).
+- **The window.** The stage poster holds until the capture loads, then the
+  gameplay plays.
 - **Hover feedback**, CSS transitions on the buttons, docs rows and FAQ rows.
 - **The FAQ answer**, the `animate-faq-answer` token, and the chevron turning
   over on open. The accordion itself is a native `<details name="faq">`, so it
@@ -147,21 +146,25 @@ navigation state rather than decoration.
 ## Where the page differs from the comp, on purpose
 
 1. **The two doors.** The comp's hero offers "Play in browser" (violet) and
-   "Download desktop". Neither exists: there is no browser build — the
-   WebAssembly in the project runs *mods*, not the game — and there are no
-   binary releases. The buttons here are "Build for desktop" and "Read the
-   docs", and the browser-or-desktop section marks the browser card
-   **Planned**. Do not let the page promise a build that has not shipped.
+   "Download desktop". There is no browser build — the WebAssembly in the
+   project runs *mods*, not the game — so the browser-or-desktop section
+   still marks that card **Planned**. The hero's doors are **Download**
+   (violet), pointing at `LINKS.releases` — the repository's releases page,
+   which is where a binary will appear — and **Discord** (outline). Until
+   the owner cuts a release and fills `LINKS.discord`, neither promises a
+   file: the unset Discord link says so in a toast, and the releases page is
+   simply empty. Never point Download at a file that does not exist.
 2. **The footer lockup.** The comp's page was drawn for a light footer; ours
    closes on black to mirror the header, so it uses the dark lockup. The
    light variant (`public/media/wordmark-light.svg`) stays for light surfaces
    elsewhere.
 3. **The hero window.** The comp fills it with concept art; here it is a real
-   video element. It plays `/media/gameplay.mp4` when the owner drops a
-   capture in, and otherwise falls back to `/media/stage-loop.mp4`, a slow
-   camera move generated from `stage.svg` — so the window is always moving
-   and the page never ships Nintendo footage. The two-ways windows keep the
-   drawn frame, so only one video ever decodes.
+   video element. It plays `/media/gameplay.mp4` when a capture is present
+   and falls back to `/media/stage-loop.mp4`, a slow camera move generated
+   from `stage.svg`, so the window is always moving. The capture itself is
+   **not committed** — the repo ships no game footage (see Before it goes
+   live). The two-ways windows keep the drawn frame, so only one video ever
+   decodes.
 4. **The lockups are pre-cropped.** `public/media/wordmark*.svg` are the
    brand files with the clear space trimmed (`viewBox="200 103 880 193"`), so
    they size with a plain `w-*` class instead of the old negative-margin crop.
@@ -201,20 +204,25 @@ Keep the height even (946, not 945) — x264 rejects odd heights with yuv420p.
 
 ## Before it goes live
 
-1. **Discord.** `LINKS.discord` is empty, so nothing on the page points at
-   one. If the community gets a server, add the button and fill the entry in;
-   an unset link tells the visitor rather than doing nothing.
-2. **Open Graph image.** The cards have no `og:image` yet. The 1280×400
+1. **Discord.** `LINKS.discord` is empty, so the hero's Discord button
+   toasts "link is not set yet" rather than going anywhere. Fill the entry in
+   when the invite exists; the unset behaviour is deliberate.
+2. **Releases.** The Download button opens `LINKS.releases`; cut a GitHub
+   release and it fills in with no code change.
+3. **Open Graph image.** The cards have no `og:image` yet. The 1280×400
    banner in `/assets` is the intended one; it needs a hosted URL first.
-3. **Gameplay capture.** Drop `gameplay.mp4` (H.264/AAC or silent, 16:9) in
-   `public/media/` and the hero switches to it with no code change. Until
-   then the stage poster stands in.
+4. **Gameplay capture.** The hero prefers `public/media/gameplay.mp4` and
+   falls back to `stage-loop.mp4`. A capture lives outside git — record your
+   own build and drop the file in (H.264, silently played); do not commit it.
+   If the capture is the 1080p master, the web copy is
+   `ffmpeg -i in.mp4 -vf scale=1280:-2,fps=30 -an -c:v libx264 -crf 28 ...`.
 
 ## Copy
 
 Every claim on the page is checkable against the repo. There are no binary
-releases, so the page never offers a download; the real path is building from
-source. `content.tsx` says this at the top, where the copy actually lives.
+releases on the releases page yet, so Download leads there and the real path
+today is building from source. `content.tsx` says this at the top, where the
+copy actually lives.
 
 ## Palette and type
 
@@ -225,5 +233,5 @@ only ever used with black text on it; white on violet fails at 2.77:1. On the
 light bands violet text and icons use the darkened `#6a54d8`, the only violet
 that clears contrast there.
 
-Inter, loaded from Google Fonts (400–900), plus Archivo 900 italic condensed
-for the hero name — recorded in `branding.md` and ADR-0028/0033.
+Inter, loaded from Google Fonts (400–900) — recorded in `branding.md` and
+ADR-0028. The Archivo hero-name experiment (ADR-0033) was reverted.

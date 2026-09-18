@@ -6,6 +6,7 @@
 
 export const LINKS = {
   repo: 'https://github.com/HexDump0/melee',
+  releases: 'https://github.com/HexDump0/melee/releases',
   docs: 'https://github.com/HexDump0/melee/blob/master/native/AI/ARCHITECTURE.md',
   setup: 'https://github.com/HexDump0/melee#setup',
   mods: 'https://github.com/HexDump0/melee/tree/master/mods',
@@ -18,6 +19,7 @@ export type LinkKey = keyof typeof LINKS;
 /** What the toast calls a destination when it has no URL yet. */
 export const LINK_LABELS: Record<LinkKey, string> = {
   repo: 'Repository',
+  releases: 'Releases',
   docs: 'Architecture docs',
   setup: 'Setup guide',
   mods: 'Mods',

@@ -19,7 +19,7 @@ export function TwoWays() {
 
         <div className="mt-8 grid gap-x-10 gap-y-14 lg:mt-10 lg:grid-cols-2">
           {WAYS.map((way) => (
-            <Way key={way.title.join(' ')} way={way} />
+            <Way key={way.title} way={way} />
           ))}
         </div>
       </div>
@@ -35,11 +35,7 @@ function Way({ way }: { way: WayCard }) {
       <StageWindow variant={way.frame} url={way.frame === 'browser'} />
 
       <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3">
-        <h3 className="text-h3 uppercase">
-          {way.title[0]}
-          <br />
-          {way.title[1]}
-        </h3>
+        <h3 className="text-h3 uppercase">{way.title}</h3>
         {way.badge && (
           <span className="bg-mu-violet-deep px-3 py-1 text-[0.68rem] font-extrabold tracking-[0.16em] uppercase text-mu-white">
             {way.badge}

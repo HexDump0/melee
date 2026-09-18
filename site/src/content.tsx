@@ -6,13 +6,21 @@
 
    One rule this file exists to protect: every claim on the page has to be
    checkable against the repo. There is no browser build — the WebAssembly in
-   the project runs *mods*, not the game — and there are no binary releases,
-   so nothing here offers a download. Do not let the page promise a build
-   that has not shipped. */
+   the project runs *mods*, not the game. The hero's Download button points
+   at `LINKS.releases`, the repository's releases page, which is where a
+   binary will appear; never point it at a file that does not exist yet. */
 
 import type { ComponentType, ReactNode, SVGProps } from 'react';
 import type { LinkKey } from './lib/links.ts';
-import { BookIcon, CubeIcon, DocIcon, DownloadIcon, GlobeIcon, HelpIcon } from './components/icons.tsx';
+import {
+  BookIcon,
+  CubeIcon,
+  DiscordIcon,
+  DocIcon,
+  DownloadIcon,
+  GlobeIcon,
+  HelpIcon,
+} from './components/icons.tsx';
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>;
 
@@ -36,17 +44,19 @@ export const NAV: NavItem[] = [
 
 /** The project's tagline, one entry per line. The hero sets it under the
     buttons; the footer joins it back into one line. */
-export const TAGLINE = ['Same game.', 'A wider stage.'] as const;
+export const TAGLINE = ['game data is not distributed with this port.'] as const;
 
 export const HERO = {
-  /** The display headline, one entry per line. */
-  headline: ['Melee,', 'Unbound.'],
-  /** The tracked line under the headline. */
-  tagline: 'Play anywhere.',
+  /** The page's h1 — the headline, not display type; the window is the art. */
+  statement: 'A true port of Super Smash Bros. Melee.',
+  /** Sits under the headline, before the buttons. */
+  lede: 'Built from the game’s own decompiled source and run natively, not emulated. Free, open, and yours to build.',
+  /** Closes the hero's floor rule, where the section links used to sit. */
+  status: 'Beta',
   /** The first door is the one that works today, so it is the filled one. */
   doors: [
-    { to: 'repo', icon: DownloadIcon, label: 'Build for desktop', tone: 'violet' },
-    { to: 'docs', icon: BookIcon, label: 'Read the docs', tone: 'outline' },
+    { to: 'releases', icon: DownloadIcon, label: 'Download', tone: 'violet' },
+    { to: 'discord', icon: DiscordIcon, label: 'Discord', tone: 'outline' },
   ],
 } as const;
 
@@ -91,28 +101,30 @@ export type WayCard = {
   tone: 'violet' | 'light';
   /** Which window the cards draw above their copy. */
   frame: 'app' | 'browser';
-  title: [string, string];
+  title: string;
   /** Rendered next to the title. Used to mark what has not shipped. */
   badge?: string;
   body: ReactNode;
   cta: { to: LinkKey; icon: Icon; label: string; tone: 'violet' | 'white' | 'outline' };
 };
 
+/** The browser leads, with the violet button, because it is the one the
+    project is working toward; desktop follows with the quieter outline. */
 export const WAYS: WayCard[] = [
-  {
-    tone: 'violet',
-    frame: 'app',
-    title: ['Build for', 'desktop'],
-    body: <>Runs natively, compiled from the game&apos;s own source. You bring the disc.</>,
-    cta: { to: 'repo', icon: DownloadIcon, label: 'Build for desktop', tone: 'violet' },
-  },
   {
     tone: 'light',
     frame: 'browser',
-    title: ['Play in', 'browser'],
-    badge: 'Planned',
+    title: 'browser',
     body: <>A goal, not a release. Today the WebAssembly runs mods, not the game.</>,
-    cta: { to: 'repo', icon: GlobeIcon, label: 'Follow the work', tone: 'outline' },
+    cta: { to: 'repo', icon: GlobeIcon, label: 'Follow the work', tone: 'violet' },
+  },
+  {
+    tone: 'violet',
+    frame: 'app',
+    title: 'desktop',
+    badge: 'has more features',
+    body: <>Runs natively, compiled from the game&apos;s own source. You bring the disc.</>,
+    cta: { to: 'repo', icon: DownloadIcon, label: 'Download', tone: 'outline' },
   },
 ];
 
@@ -188,8 +200,8 @@ export const HEADINGS = {
     title: ['Three steps', 'to play'],
   },
   download: {
-    eyebrow: 'Two ways to play',
-    title: ['Browser or desktop?'],
+    eyebrow: 'Download',
+    title: ['How to play'],
   },
   docs: {
     eyebrow: 'Setup & documentation',

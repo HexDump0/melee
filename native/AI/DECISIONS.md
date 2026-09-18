@@ -1931,6 +1931,13 @@ download, and the browser card stays **Planned**.
 
 **Status:** accepted (2026-09-18), website implementation.
 
+**Amended (2026-09-18).** The owner cut the giant hero name back to a
+sentence-case statement ("A faithful native port of Super Smash Bros. Melee.")
+in Inter, with the tracked "PLAY ANYWHERE." line above it. Archivo, the
+`--font-display` token and the extra Google Fonts request are gone. Everything
+else in this decision — the full-viewport hero, the windows, the violet edge,
+Tailwind-only styling — stands.
+
 ---
 
 ## ADR-0033: The hero is a full-viewport poster, and its name has its own face
