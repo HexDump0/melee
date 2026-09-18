@@ -159,6 +159,8 @@ void mod_menu_init(void);
 int mod_menu_take_activation(void);
 /* Non-zero while the Unbound entry is the hovered main-menu selection. */
 int mod_menu_entry_hovered(void);
+/* Non-zero while the Unbound menu page is the current menu. */
+int mod_menu_page_open(void);
 
 /* Add the mods compiled into this binary.  Browser. */
 void mod_native_scan(void);

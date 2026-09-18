@@ -30,7 +30,7 @@
  *     bump UNBOUND_ABI_VERSION.
  */
 
-#define UNBOUND_ABI_VERSION 7u
+#define UNBOUND_ABI_VERSION 8u
 
 /* Chains run low priority first; ties break on registration order. */
 #define UNBOUND_PRIORITY_EARLY 100

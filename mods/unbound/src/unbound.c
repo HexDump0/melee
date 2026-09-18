@@ -46,10 +46,11 @@ static void unbound_on_frame(const UnboundFrame* frame)
 
     (void) i;
 
-    if (unbound_menu_activated()) {
-        credits_open();
-    }
-    if (credits_is_open()) {
+    /*
+     * The page is a real menu kind: the game transitions to it and its Back
+     * button leaves it, so the mod only draws.  No open/close state here.
+     */
+    if (unbound_menu_page_open()) {
         credits_on_frame(frame);
         return;
     }

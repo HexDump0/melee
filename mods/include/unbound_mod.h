@@ -116,6 +116,15 @@ UNBOUND_IMPORT("menu_activated") int unbound_menu_activated(void);
  */
 UNBOUND_IMPORT("menu_hovered") int unbound_menu_hovered(void);
 
+/*
+ * Non-zero while this mod's menu *page* is the menu the game is showing.
+ *
+ * The page is a real menu kind, entered and left through the game's own
+ * transition, so its lifetime belongs to the menu rather than to the mod --
+ * the mod draws onto it and the Back button is the game's.
+ */
+UNBOUND_IMPORT("menu_page_open") int unbound_menu_page_open(void);
+
 /* What kind of screen the game is showing right now; see unbound_abi.h. */
 UNBOUND_IMPORT("scene_kind") int unbound_scene_kind(void);
 

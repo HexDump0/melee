@@ -30,10 +30,13 @@
 #include <dolphin/pad.h>
 #include <melee/gm/gm_1A36.h>
 #include <melee/mn/forward.h>
+#include <melee/mn/inlines.h>
 #include <melee/mn/mnmain.h>
 #include <melee/mn/types.h>
 #include <sysdolphin/baselib/dobj.h>
 #include <sysdolphin/baselib/gobj.h>
+#include <sysdolphin/baselib/gobjplink.h>
+#include <sysdolphin/baselib/gobjproc.h>
 #include <sysdolphin/baselib/jobj.h>
 #include <sysdolphin/baselib/mobj.h>
 #include <sysdolphin/baselib/sislib.h>
@@ -143,6 +146,11 @@ static int replace_label(unsigned char* data, size_t size, unsigned slot,
  */
 #define UNBOUND_SELECTION 5
 
+/* A row of `mn_803EB6B0` the game leaves empty, used as our page's menu
+ * kind.  Any kind renders, because `mn_8022B3A0` hardcodes the panel
+ * model rather than choosing one per kind. */
+#define UNBOUND_MENU_KIND 33
+
 /* Frame the label TexAnim is asked for.  Option i requests
  * `start_frame + 2*i`, and the main menu's start_frame is 0, so our option
  * asks for 10 -- a frame no retail option ever requests. */
@@ -217,8 +225,9 @@ HSD_JObj* unbound_hsd_label_target(void) { return pending_label; }
 
 void unbound_HSD_JObjReqAnim(HSD_JObj* jobj, f32 frame)
 {
-    if (entry_enabled && jobj != NULL &&
-        mn_804A04F0.cur_menu == MENU_KIND_MAIN && frame == UNBOUND_LABEL_FRAME)
+    if (entry_enabled && jobj != NULL && frame == UNBOUND_LABEL_FRAME &&
+        (mn_804A04F0.cur_menu == MENU_KIND_MAIN ||
+         mn_804A04F0.cur_menu == UNBOUND_MENU_KIND))
     {
         pending_label = jobj;
     }
@@ -275,6 +284,72 @@ static int unbound_menu_start_pressed(void)
     return edge != 0;
 }
 
+/*
+ * A real menu page, not an overlay.
+ *
+ * Entering a submenu is five calls, all of them reachable: set prev/cur menu
+ * and selection, rebuild the panel with `mn_8022B3A0` (that is the
+ * transition), free the think that is running, and start the new menu's
+ * think.  This is exactly what selecting "Options" does.
+ *
+ * It works for a menu kind the game never used because `mn_8022B3A0`
+ * hardcodes `model = &MenMainConTop_Top` -- every menu kind renders through
+ * the same panel, and what differs is the animation range, the option count
+ * and the labels.  So there is no missing-panel problem for a new page.
+ */
+static int page_open;
+
+static void start_menu_think(void (*think)(HSD_GObj*))
+{
+    HSD_GObjProc* proc;
+    HSD_GObj* gobj;
+
+    if (think == NULL) {
+        return;
+    }
+    gobj = GObj_Create(0, 1, 0x80);
+    proc = HSD_GObj_SetupProc(gobj, think, 0);
+    proc->flags_3 = HSD_GObj_804D783C;
+}
+
+static void unbound_page_think(HSD_GObj* gp)
+{
+    u32 buttons = mn_80229624(4);
+    (void) gp;
+
+    mn_804A04F0.buttons = buttons;
+    if ((buttons & MenuInput_Back) == 0) {
+        return;
+    }
+    /* Back out the way every other submenu does, landing on our own entry. */
+    sfxBack();
+    page_open = 0;
+    mn_804A04F0.entering_menu = 0;
+    mn_804D6BC8.cooldown = 5;
+    mn_804A04F0.prev_menu = mn_804A04F0.cur_menu;
+    mn_804A04F0.cur_menu = MENU_KIND_MAIN;
+    mn_804A04F0.hovered_selection = UNBOUND_SELECTION;
+    HSD_GObj_80390CD4(mn_8022B3A0(3));
+    HSD_GObjFree(HSD_GObj_CurrentInvokedProcGObj);
+    start_menu_think(mn_803EB6B0[MENU_KIND_MAIN].think);
+}
+
+static void enter_unbound_page(void)
+{
+    sfxForward();
+    page_open = 1;
+    mn_804D6BC8.cooldown = 5;
+    mn_804A04F0.entering_menu = 1;
+    mn_804A04F0.prev_menu = mn_804A04F0.cur_menu;
+    mn_804A04F0.cur_menu = UNBOUND_MENU_KIND;
+    mn_804A04F0.hovered_selection = 0;
+    HSD_GObj_80390CD4(mn_8022B3A0(1));
+    HSD_GObjFree(HSD_GObj_CurrentInvokedProcGObj);
+    start_menu_think(unbound_page_think);
+}
+
+int mod_menu_page_open(void) { return page_open; }
+
 static void unbound_main_think(HSD_GObj* gp)
 {
     int hovered = entry_enabled &&
@@ -300,6 +375,7 @@ static void unbound_main_think(HSD_GObj* gp)
          * would dispatch an uninitialised menu kind.
          */
         activated = 1;
+        enter_unbound_page();
         return;
     }
     if (real_main_think != NULL) {
@@ -335,8 +411,9 @@ HSD_Text* unbound_HSD_SisLib_803A5ACC(int a, s32 b, f32 c, f32 d, f32 e,
 void unbound_HSD_SisLib_803A6368(HSD_Text* text, s32 index)
 {
     if (entry_enabled && text != NULL && text == description_text &&
-        mn_804A04F0.cur_menu == MENU_KIND_MAIN &&
-        mn_804A04F0.hovered_selection == UNBOUND_SELECTION)
+        ((mn_804A04F0.cur_menu == MENU_KIND_MAIN &&
+          mn_804A04F0.hovered_selection == UNBOUND_SELECTION) ||
+         mn_804A04F0.cur_menu == UNBOUND_MENU_KIND))
     {
         /*
          * Blank, not printed: `HSD_SisLib_803A6B98` would render our own
@@ -381,6 +458,37 @@ void mod_menu_init(void)
      * its own job, and an index the table does not have would render
      * whatever happens to sit at 0. */
     unbound_descriptions[5] = unbound_descriptions[4];
+
+    /*
+     * Our page borrows the main menu's animation range -- `mn_8022B3A0` does
+     * pointer arithmetic on `anim_loop` before it looks at anything else, so
+     * a NULL there is a crash rather than an empty page.  No options and no
+     * description indices: the page is text, which the mod draws.
+     */
+    mn_803EB6B0[UNBOUND_MENU_KIND].anim_loop =
+        mn_803EB6B0[MENU_KIND_MAIN].anim_loop;
+    /*
+     * One option, not none.  `fn_8022AFEC` fills `sp20` with one entry per
+     * selection and then indexes it by the hovered selection regardless, so
+     * a page with `selection_count = 0` reads uninitialised stack and
+     * segfaults -- SIGSEGV at 0x4d.  One option gives it something real, and
+     * the page uses it as its Back pill.
+     *
+     * `start_frame` is 10 so the pill asks the label TexAnim for the same
+     * frame our main-menu entry does, which is the frame the texture
+     * override recognises.
+     */
+    mn_803EB6B0[UNBOUND_MENU_KIND].start_frame = UNBOUND_LABEL_FRAME;
+    /*
+     * Real indices, not NULL.  `mn_80229A7C` only builds the description's
+     * text object when the menu has indices, but `fn_8022AFEC` then writes
+     * `final_data->description->hidden` without checking -- so a page with no
+     * indices faults on a NULL text object at offset 0x4d, which is exactly
+     * where `hidden` sits.  The interposer below blanks the string instead.
+     */
+    mn_803EB6B0[UNBOUND_MENU_KIND].description_indices = unbound_descriptions;
+    mn_803EB6B0[UNBOUND_MENU_KIND].selection_count = 1;
+    mn_803EB6B0[UNBOUND_MENU_KIND].think = unbound_page_think;
 
     real_main_think = mn_803EB6B0[MENU_KIND_MAIN].think;
     mn_803EB6B0[MENU_KIND_MAIN].think = unbound_main_think;
