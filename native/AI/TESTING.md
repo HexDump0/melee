@@ -645,8 +645,10 @@ Checklist format: exact keys, expected result, and what a regression looks like.
 
 ## The cinematic preset (P-864)
 
-On by default in the game.  **F8** toggles it live, `MELEE_CINEMATIC=0` or
-`--no-cinematic` start without it.
+**Off by default in the game.**  It shipped on and the owner hit a fighter-load
+crash in Training with it on (`ftdata.c:1745`, see P-865); until that is
+understood the preset does not get to be the thing you turn off to play.
+**F8** turns it on live, `MELEE_CINEMATIC=1` or `--cinematic` start with it.
 
 ```sh
 # the same frame graded and ungraded, to compare

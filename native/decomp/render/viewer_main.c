@@ -108,8 +108,21 @@ static void ifAll_HideHUD_or_show(int hide)
  */
 static int match_view_render_key(SDL_Keycode code)
 {
-    static GxGlOptions opt = { 1, 1, -1, -1, 0, 0, 0, 1 };
+    /*
+     * Seeded from the backend, not from a literal.  These keys toggle one
+     * field and write the whole struct back, so a copy that starts from a
+     * literal silently reverts every setting the command line or environment
+     * established -- starting with MELEE_CINEMATIC=1 and pressing F1 turned
+     * the preset back off.
+     */
+    static GxGlOptions opt;
+    static int opt_seeded;
     const char* what;
+
+    if (!opt_seeded) {
+        gx_gl_get_options(&opt);
+        opt_seeded = 1;
+    }
 
     switch (code) {
     case SDLK_F1:
@@ -155,8 +168,11 @@ static int match_view_render_key(SDL_Keycode code)
     case SDLK_F6: {
         /* One key back to a clean picture, because a recording that has to be
          * restarted to undo a toggle is a recording nobody makes. */
-        GxGlOptions clean = { 1, 1, -1, -1, 0, 0, 0, 1 };
+        int keep = opt.cinematic;
+        GxGlOptions clean = { 1, 1, -1, -1, 0, 0, 0, 0 };
         opt = clean;
+        /* F6 is "undo my debug toggles", not "undo my launch options". */
+        opt.cinematic = keep;
         what = "all render toggles reset";
         break;
     }
@@ -777,13 +793,14 @@ int main(int argc, char** argv)
     v->gl.only_draw = -1;
     v->gl.hide_draw = -1;
     /*
-     * Cinematic on unless asked otherwise.  MELEE_CINEMATIC=0 turns it off
-     * for anyone comparing a frame against a console capture, and --no-
-     * cinematic does the same from the command line; F8 toggles it live.
+     * Cinematic is **off** by default.  It shipped on, and the owner hit a
+     * fighter-load crash with it on; until that is understood the preset does
+     * not get to be the thing you have to turn off to play.  F8 turns it on
+     * live, MELEE_CINEMATIC=1 or --cinematic start with it.
      */
     {
         const char* cine = getenv("MELEE_CINEMATIC");
-        v->gl.cinematic = (cine == NULL || cine[0] != '0');
+        v->gl.cinematic = (cine != NULL && cine[0] == '1');
     }
     v->hud = 1;
 
@@ -856,6 +873,8 @@ int main(int argc, char** argv)
             v->gl.no_cull = 1;
         } else if (strcmp(argv[i], "--no-alpha-test") == 0) {
             v->gl.no_alpha_test = 1;
+        } else if (strcmp(argv[i], "--cinematic") == 0) {
+            v->gl.cinematic = 1;
         } else if (strcmp(argv[i], "--no-cinematic") == 0) {
             v->gl.cinematic = 0;
         } else if (strcmp(argv[i], "--no-hud") == 0) {

@@ -1577,6 +1577,13 @@ void gx_gl_set_options(const GxGlOptions* options)
     }
 }
 
+void gx_gl_get_options(GxGlOptions* options)
+{
+    if (options != NULL) {
+        *options = gl_options;
+    }
+}
+
 void gx_gl_clear_textures(void)
 {
     size_t i;

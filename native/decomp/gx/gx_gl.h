@@ -57,6 +57,9 @@ typedef struct GxGlOptions {
 } GxGlOptions;
 
 void gx_gl_set_options(const GxGlOptions* options);
+/* What the backend is currently using, so a UI that toggles one field
+ * starts from the live state instead of from a literal that has drifted. */
+void gx_gl_get_options(GxGlOptions* options);
 
 /* Deletes cached GL textures (call when switching models so recycled asset
  * addresses cannot hit stale cache entries). */
