@@ -31,6 +31,7 @@
 #include <unistd.h>
 
 #include "platform/complete.h"
+#include "platform/port_fs.h"
 
 /* ------------------------------------------------------------------ files */
 
@@ -141,12 +142,12 @@ static int card_mkdir_p(const char* path)
             continue;
         }
         *p = '\0';
-        if (mkdir(tmp, 0755) != 0 && errno != EEXIST) {
+        if (melee_mkdir(tmp, 0755) != 0 && errno != EEXIST) {
             return 0;
         }
         *p = '/';
     }
-    return mkdir(tmp, 0755) == 0 || errno == EEXIST;
+    return melee_mkdir(tmp, 0755) == 0 || errno == EEXIST;
 }
 
 static int card_present(s32 chan)

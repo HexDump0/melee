@@ -21,6 +21,7 @@
  * big-endian offset.  The stats make that visible to tests.
  */
 #include "decomp/assets/hsd_convert.h"
+#include "platform/port_fs.h"
 
 #include <errno.h>
 #include <stdint.h>
@@ -6798,13 +6799,13 @@ static int ensure_directory(const char* path)
     for (p = buffer + 1; *p != '\0'; p++) {
         if (*p == '/') {
             *p = '\0';
-            if (mkdir(buffer, 0700) != 0 && errno != EEXIST) {
+            if (melee_mkdir(buffer, 0700) != 0 && errno != EEXIST) {
                 return 0;
             }
             *p = '/';
         }
     }
-    return mkdir(buffer, 0700) == 0 || errno == EEXIST;
+    return melee_mkdir(buffer, 0700) == 0 || errno == EEXIST;
 }
 
 static int cache_file_path(char* out, size_t out_size, uint64_t hash,

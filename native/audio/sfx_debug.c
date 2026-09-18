@@ -9,7 +9,10 @@
 #include "audio/sfx_debug.h"
 
 #include <dolphin/ax.h>
+#ifndef _WIN32
 #include <execinfo.h>
+#endif
+#include "decomp/boot/boot_triage.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -286,6 +289,16 @@ static void dump_stack(void)
     int count;
     int i;
 
+#ifdef _WIN32
+    /* No `backtrace_symbols` here.  This is a debug aid, and boot_triage
+     * already owns the platform's stack walk and symbol lookup -- duplicating
+     * a second DbgHelp path for it would be two things to keep working. */
+    (void) frames;
+    (void) symbols;
+    (void) count;
+    (void) i;
+    fprintf(sfx_out, "  call stack\n    unavailable on this platform\n");
+#else
     count = backtrace(frames, (int) (sizeof(frames) / sizeof(frames[0])));
     symbols = backtrace_symbols(frames, count);
     fprintf(sfx_out, "  call stack\n");
@@ -297,6 +310,7 @@ static void dump_stack(void)
         fprintf(sfx_out, "    %s\n", symbols[i]);
     }
     free(symbols);
+#endif
 }
 
 static void alert(const char* reason, int sound_id, unsigned count,

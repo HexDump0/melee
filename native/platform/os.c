@@ -26,7 +26,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <sys/mman.h>
+#endif
 #include <unistd.h>
 #include <time.h>
 
@@ -91,6 +95,31 @@ static void map_gc_ram(void)
                          linear, (size_t) GC_CACHED_BASE + GC_RAM_SIZE,
                          GC_CACHED_BASE + GC_RAM_SIZE);
         boot_triage_stop("OSInit: linear memory too small for MEM1");
+        return;
+    }
+#elif defined(_WIN32)
+    /*
+     * Windows reserves and commits in one call, and the address is the whole
+     * point (see GC_CACHED_BASE above -- the engine branches on it).
+     *
+     * **This needs `-Wl,--large-address-aware` and a 64-bit host.**  A 32-bit
+     * process is given 0x00000000-0x7FFFFFFF unless it is marked large-address
+     * aware, and 0x80000000 is then kernel space: the allocation cannot
+     * succeed, and no amount of retrying helps.  Measured under Wine, the flag
+     * moves `lpMaximumApplicationAddress` from 0x7FFEFFFF to 0xFFFEFFFF and
+     * the mapping lands exactly where it is asked for.  Wine does not enforce
+     * the 2 GB ceiling itself, so it cannot prove the flag is *required* --
+     * real Windows does enforce it, which is why the link carries it.
+     */
+    void* page = VirtualAlloc((void*) GC_CACHED_BASE, GC_RAM_SIZE,
+                              MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    if (page != (void*) GC_CACHED_BASE) {
+        boot_triage_note("[boot] OSInit: cannot map GC main RAM at 0x%08x "
+                         "(VirtualAlloc gave %p, GetLastError=%lu); the link "
+                         "needs --large-address-aware on a 64-bit host\n",
+                         GC_CACHED_BASE, page,
+                         (unsigned long) GetLastError());
+        boot_triage_stop("OSInit: GC main RAM mapping failed");
         return;
     }
 #else

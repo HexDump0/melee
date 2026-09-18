@@ -6,13 +6,114 @@
  */
 #include "boot_triage.h"
 
+#ifdef _WIN32
+/*
+ * Windows has no `backtrace`, no `dladdr` and no `sigaction`.  DbgHelp walks
+ * the stack and resolves symbols, and a vectored exception handler is the
+ * equivalent hook -- it runs before the process dies, which is all the crash
+ * reporter needs.  `dbghelp.h` requires `windows.h` first.
+ */
+#include <windows.h>
+#include <dbghelp.h>
+#else
 #include <dlfcn.h>
 #include <execinfo.h>
-#include <signal.h>
 #include <unistd.h>
+#endif
+#include <signal.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef _WIN32
+/* One place that knows how this platform walks a stack. */
+static int boot_capture(void** frames, int max)
+{
+    return (int) CaptureStackBackTrace(0, (ULONG) max, frames, NULL);
+}
+
+static void boot_sym_init(void)
+{
+    static int done;
+    if (!done) {
+        done = 1;
+        SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_UNDNAME);
+        SymInitialize(GetCurrentProcess(), NULL, TRUE);
+    }
+}
+
+/* Writes "name+0xoff" when a symbol is known, else nothing.  Returns whether
+ * it wrote.  The module and offset are printed by the caller either way, for
+ * the same reason the POSIX path does it: a `static` function resolves to the
+ * nearest exported one, so the raw offset is what stays usable. */
+static int boot_sym_name(void* pc, char* out, size_t n)
+{
+    char buf[sizeof(SYMBOL_INFO) + MAX_SYM_NAME];
+    SYMBOL_INFO* sym = (SYMBOL_INFO*) buf;
+    DWORD64 disp = 0;
+
+    boot_sym_init();
+    memset(buf, 0, sizeof(buf));
+    sym->SizeOfStruct = sizeof(SYMBOL_INFO);
+    sym->MaxNameLen = MAX_SYM_NAME;
+    if (!SymFromAddr(GetCurrentProcess(), (DWORD64) (uintptr_t) pc, &disp,
+                     sym))
+    {
+        return 0;
+    }
+    snprintf(out, n, "%s+0x%lx", sym->Name, (unsigned long) disp);
+    return 1;
+}
+#else
+static int boot_capture(void** frames, int max)
+{
+    return backtrace(frames, max);
+}
+
+static int boot_sym_name(void* pc, char* out, size_t n)
+{
+    Dl_info info;
+    if (dladdr(pc, &info) == 0 || info.dli_sname == NULL) {
+        return 0;
+    }
+    snprintf(out, n, "%s+0x%lx", info.dli_sname,
+             (unsigned long) ((char*) pc - (char*) info.dli_saddr));
+    return 1;
+}
+#endif
+
+/* The module a pc belongs to and the offset within it: what
+ * `addr2line -e <module> <offset>` wants, and what survives ASLR. */
+static int boot_module(void* pc, const char** name, unsigned long* off)
+{
+#ifdef _WIN32
+    static char path[MAX_PATH];
+    HMODULE mod = NULL;
+    if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            (LPCSTR) pc, &mod) ||
+        mod == NULL)
+    {
+        return 0;
+    }
+    if (GetModuleFileNameA(mod, path, sizeof(path)) == 0) {
+        return 0;
+    }
+    *name = path;
+    *off = (unsigned long) ((char*) pc - (char*) mod);
+    return 1;
+#else
+    Dl_info info;
+    if (dladdr(pc, &info) == 0 || info.dli_fname == NULL ||
+        info.dli_fbase == NULL)
+    {
+        return 0;
+    }
+    *name = info.dli_fname;
+    *off = (unsigned long) ((char*) pc - (char*) info.dli_fbase);
+    return 1;
+#endif
+}
 
 #define BOOT_MAX_SYMBOLS 512
 #define BOOT_MAX_FRAMES 32
@@ -34,7 +135,7 @@ static unsigned long real_symbols;
 static unsigned long category_calls[BOOT_CAT_COUNT];
 static BootSymbol symbols[BOOT_MAX_SYMBOLS];
 static BootSymbol real[BOOT_MAX_SYMBOLS];
-static sigjmp_buf* stop_target;
+static BootJmpBuf* stop_target;
 static void (*state_dumper)(FILE* out);
 
 volatile sig_atomic_t boot_triage_stopped;
@@ -169,7 +270,7 @@ void boot_triage_frame(void)
     }
 }
 
-void boot_triage_install_stop_target(sigjmp_buf* env)
+void boot_triage_install_stop_target(BootJmpBuf* env)
 {
     stop_target = env;
 }
@@ -184,7 +285,7 @@ void boot_triage_stop(const char* reason)
     boot_triage_stopped = 1;
     stop_reason = reason;
     if (stop_target != NULL) {
-        siglongjmp(*stop_target, 1);
+        BOOT_LONGJMP(*stop_target, 1);
     }
     if (out_stream != NULL) {
         fprintf(out_stream, "[boot] STOP: %s\n", reason);
@@ -208,10 +309,10 @@ void boot_triage_capture_crash_at(int signo, void* addr, int have_addr)
 void boot_triage_capture_crash(int signo)
 {
     crash_signo = signo;
-    crash_depth = backtrace(crash_frames, BOOT_MAX_FRAMES);
+    crash_depth = boot_capture(crash_frames, BOOT_MAX_FRAMES);
     boot_triage_stopped = 1;
     if (stop_target != NULL) {
-        siglongjmp(*stop_target, 1);
+        BOOT_LONGJMP(*stop_target, 1);
     }
 }
 
@@ -235,6 +336,91 @@ void boot_triage_capture_crash(int signo)
  * owner got thirty frames of `_Unwind_Backtrace` instead of his crash. */
 static volatile sig_atomic_t in_crash_reporter;
 
+#ifdef _WIN32
+/*
+ * Windows has no signals worth the name for this: a vectored exception handler
+ * is the hook, and it runs before the process unwinds, which is all the
+ * reporter needs.
+ *
+ * There is no alternate-stack equivalent, and that costs something real -- a
+ * stack overflow is reported on the stack that just overflowed.  Windows gives
+ * one guard page of grace, which `CaptureStackBackTrace` fits inside where
+ * glibc's `backtrace()` did not, so the common case still prints.  It is a
+ * weaker guarantee than `sigaltstack` and worth knowing before trusting a
+ * stack-overflow report from this build.
+ */
+static int exception_signo(DWORD code)
+{
+    switch (code) {
+    case EXCEPTION_ACCESS_VIOLATION:
+    case EXCEPTION_IN_PAGE_ERROR:
+    case EXCEPTION_STACK_OVERFLOW:
+        return SIGSEGV;
+    case EXCEPTION_INT_DIVIDE_BY_ZERO:
+    case EXCEPTION_INT_OVERFLOW:
+    case EXCEPTION_FLT_DIVIDE_BY_ZERO:
+    case EXCEPTION_FLT_OVERFLOW:
+    case EXCEPTION_FLT_INVALID_OPERATION:
+        return SIGFPE;
+    case EXCEPTION_ILLEGAL_INSTRUCTION:
+    case EXCEPTION_PRIV_INSTRUCTION:
+        return SIGILL;
+    default:
+        return 0;
+    }
+}
+
+static LONG CALLBACK crash_reporter_seh(EXCEPTION_POINTERS* ep)
+{
+    const EXCEPTION_RECORD* rec = ep->ExceptionRecord;
+    int signo = exception_signo(rec->ExceptionCode);
+    void* addr = NULL;
+    int have_addr = 0;
+
+    if (signo == 0) {
+        return EXCEPTION_CONTINUE_SEARCH; /* not ours: a C++ throw, a probe */
+    }
+    if (in_crash_reporter) {
+        static const char msg[] =
+            "[boot] the crash reporter faulted; no backtrace for this one\n";
+        DWORD written = 0;
+        WriteFile(GetStdHandle(STD_ERROR_HANDLE), msg,
+                  (DWORD) (sizeof(msg) - 1), &written, NULL);
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    in_crash_reporter = 1;
+
+    /* An access violation records the faulting address as its second
+     * parameter; nothing else does. */
+    if (rec->ExceptionCode == EXCEPTION_ACCESS_VIOLATION &&
+        rec->NumberParameters >= 2)
+    {
+        addr = (void*) rec->ExceptionInformation[1];
+        have_addr = 1;
+    }
+    boot_triage_capture_crash_at(signo, addr, have_addr);
+    boot_triage_print_crash(stderr);
+    boot_triage_dump_state(stderr);
+    fflush(stderr);
+    return EXCEPTION_CONTINUE_SEARCH; /* let the process die as it would */
+}
+
+void boot_triage_install_crash_reporter(void)
+{
+    static int installed;
+
+    if (getenv("MELEE_NO_CRASH_HANDLER") != NULL) {
+        return;
+    }
+    if (installed) {
+        return;
+    }
+    installed = 1;
+    /* First in the chain, so a debugger or a runtime that installs later
+     * cannot swallow the fault before it is reported. */
+    AddVectoredExceptionHandler(1, crash_reporter_seh);
+}
+#else
 static void crash_reporter(int signo, siginfo_t* info, void* ctx)
 {
     (void) ctx;
@@ -308,22 +494,29 @@ void boot_triage_install_crash_reporter(void)
         sigaction(signals[i], &sa, NULL);
     }
 }
+#endif /* _WIN32 */
 
 const char* boot_triage_crash_signal_name(void)
 {
     switch (crash_signo) {
     case SIGSEGV:
         return "SIGSEGV";
+#ifdef SIGBUS
+    /* Windows has no SIGBUS: an unaligned or bad-page access arrives as an
+     * access violation, which maps to SIGSEGV above. */
     case SIGBUS:
         return "SIGBUS";
+#endif
     case SIGFPE:
         return "SIGFPE";
     case SIGILL:
         return "SIGILL";
     case SIGABRT:
         return "SIGABRT";
+#ifdef SIGALRM
     case SIGALRM:
         return "SIGALRM";
+#endif
     default:
         return "";
     }
@@ -338,21 +531,17 @@ const char* boot_triage_crash_signal_name(void)
  * ASLR. */
 static void print_frame(FILE* out, int i, void* pc)
 {
-    Dl_info info;
+    char sym[512];
+    const char* mod = NULL;
+    unsigned long off = 0;
 
-    if (dladdr(pc, &info) == 0) {
-        fprintf(out, "[boot]   #%d %p\n", i, pc);
-        return;
-    }
-    if (info.dli_sname != NULL) {
-        fprintf(out, "[boot]   #%d %s+0x%lx", i, info.dli_sname,
-                (unsigned long) ((char*) pc - (char*) info.dli_saddr));
+    if (boot_sym_name(pc, sym, sizeof(sym))) {
+        fprintf(out, "[boot]   #%d %s", i, sym);
     } else {
         fprintf(out, "[boot]   #%d %p", i, pc);
     }
-    if (info.dli_fname != NULL && info.dli_fbase != NULL) {
-        fprintf(out, "  [%s+0x%lx]", info.dli_fname,
-                (unsigned long) ((char*) pc - (char*) info.dli_fbase));
+    if (boot_module(pc, &mod, &off)) {
+        fprintf(out, "  [%s+0x%lx]", mod, off);
     }
     fputc('\n', out);
 }
@@ -363,8 +552,6 @@ static void print_frame(FILE* out, int i, void* pc)
  * one, so the module offset is always printed too. */
 void boot_triage_symbol(const void* pc, char* buf, size_t n)
 {
-    Dl_info info;
-
     if (buf == NULL || n == 0) {
         return;
     }
@@ -372,9 +559,7 @@ void boot_triage_symbol(const void* pc, char* buf, size_t n)
         snprintf(buf, n, "(null)");
         return;
     }
-    if (dladdr((void*) (uintptr_t) pc, &info) != 0 && info.dli_sname != NULL) {
-        snprintf(buf, n, "%s+0x%lx", info.dli_sname,
-                 (unsigned long) ((char*) pc - (char*) info.dli_saddr));
+    if (boot_sym_name((void*) (uintptr_t) pc, buf, n)) {
         return;
     }
     snprintf(buf, n, "%p", pc);
@@ -389,7 +574,7 @@ void boot_triage_print_backtrace(FILE* out, const char* label)
     if (out == NULL) {
         return;
     }
-    depth = backtrace(frames_here, BOOT_MAX_FRAMES);
+    depth = boot_capture(frames_here, BOOT_MAX_FRAMES);
     fprintf(out, "[boot] backtrace (%s):\n", label);
     for (i = 0; i < depth; i++) {
         print_frame(out, i, frames_here[i]);

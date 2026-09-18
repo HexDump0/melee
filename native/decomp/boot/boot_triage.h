@@ -54,10 +54,28 @@ void boot_triage_frame(void);
 void boot_triage_set_frame_budget(unsigned frames);
 unsigned boot_triage_frames(void);
 
+/*
+ * The harness's jump target.
+ *
+ * POSIX takes `sigsetjmp(env, 1)` so the signal mask is restored when a crash
+ * handler jumps out; Windows has no signal mask to save and no `sigjmp_buf`,
+ * and MinGW's `setjmp`/`longjmp` already unwind SEH.  Same shape either way,
+ * so callers write BOOT_SETJMP and never see the difference.
+ */
+#ifdef _WIN32
+typedef jmp_buf BootJmpBuf;
+#define BOOT_SETJMP(env) setjmp(env)
+#define BOOT_LONGJMP(env, v) longjmp(env, v)
+#else
+typedef sigjmp_buf BootJmpBuf;
+#define BOOT_SETJMP(env) sigsetjmp(env, 1)
+#define BOOT_LONGJMP(env, v) siglongjmp(env, v)
+#endif
+
 /* Stop the boot in a controlled way: print the reason and longjmp to the
  * harness.  Safe to call from a signal handler. */
 void boot_triage_stop(const char* reason);
-void boot_triage_install_stop_target(sigjmp_buf* env);
+void boot_triage_install_stop_target(BootJmpBuf* env);
 /* Whether a harness is waiting on that longjmp.  Without one boot_triage_stop
  * exits 0, which is the right answer for a finished boot run and the wrong one
  * for a panic -- OSPanic uses this to abort() instead. */
