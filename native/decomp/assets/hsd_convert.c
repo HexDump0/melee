@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 135u
+#define HSD_CONVERTER_VERSION 136u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -117,6 +117,7 @@ enum {
     STAGE_PARAM_GARDEN,
     STAGE_PARAM_OLDYOSHI,
     STAGE_PARAM_ICEMT,
+    STAGE_PARAM_PUSHON,
 };
 
 typedef struct StageParamMarker {
@@ -174,6 +175,10 @@ static const StageParamMarker stage_param_markers[] = {
     { "GrdGardenKoya", STAGE_PARAM_GARDEN },
     { "GrdOldyoshi", STAGE_PARAM_OLDYOSHI },
     { "GrdIcemt", STAGE_PARAM_ICEMT },
+    /* P-845: Race to the Finish.  `GrdPushon` names 37 of GrNPo.dat's 45
+     * publics and appears in no other archive on the disc; GrNPo matched
+     * none of the markers above, so its parameters were left raw. */
+    { "GrdPushon", STAGE_PARAM_PUSHON },
 };
 
 typedef struct Conv {
@@ -2569,6 +2574,47 @@ static void conv_figureget_param(Conv* c, uint32_t off)
     conv_u32_range(c, off, 6);
 }
 
+/* GrNPo.dat (Race to the Finish) `yakumono_param`
+ * (`struct grPushon_YakumonoParam`, grpushon.c:44).  Six relocated
+ * `DynamicsDesc*` -- the archive relocates `x0` too, whatever the
+ * decompilation's `s32` says -- then a count at +0x18, thirty
+ * `{ s32, s16, s16 }` entries at +0x1C, and a
+ * `{ s32 key, s32 value }` table of 0x21 slots at +0x10C, terminated by
+ * `key == -1`.  0x214 bytes, and the archive agrees: the six descriptors sit
+ * immediately below the symbol at a stride of 0x24, the nine-word view
+ * `conv_dynamics_desc` writes.
+ *
+ * The lookup table is what crashed it (P-845).  `grPushOn_80219230` scans it
+ * for the player's `ckind` and returns the stage's time limit -- the raw
+ * table reads `0, 39`, `1, 43`, ... `25, 54`, per-character seconds -- and
+ * `fn_8017C7EC` calls it from `on_match_start`, so **every** entry into the
+ * stage ran it. Big-endian, `key` read `0x01000000` for 1, nothing ever
+ * matched, the scan fell off the `-1` terminator and
+ * `HSD_ASSERT(861, 0)` panicked at `grpushon.c:681` -- on the Classic round
+ * immediately after the team battle. */
+static void conv_pushon_param(Conv* c, uint32_t off)
+{
+    int i;
+
+    if (!in_data(c, off, 0x214) || !mark(c, off)) {
+        return;
+    }
+    for (i = 0; i < 6; i++) {
+        uint32_t desc = follow_ptr(c, off + (uint32_t) i * 4);
+        if (desc != 0) {
+            conv_dynamics_desc(c, desc);
+        }
+    }
+    conv_u32(c, off + 0x18);
+    for (i = 0; i < 0x1E; i++) {
+        uint32_t e = off + 0x1C + (uint32_t) i * 8;
+        conv_u32(c, e);
+        conv_u16(c, e + 4);
+        conv_u16(c, e + 6);
+    }
+    conv_u32_range(c, off + 0x10C, 0x21 * 2);
+}
+
 static void conv_stage_yakumono(Conv* c, uint32_t off)
 {
     c->st.yakumono_params++;
@@ -2638,6 +2684,9 @@ static void conv_stage_yakumono(Conv* c, uint32_t off)
         break;
     case STAGE_PARAM_BIGBLUE:
         conv_bigblue_param(c, off);
+        break;
+    case STAGE_PARAM_PUSHON:
+        conv_pushon_param(c, off);
         break;
     default:
         conv_yakumono_param(c, off);

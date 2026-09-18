@@ -1,5 +1,18 @@
 # State of the port
 
+> **Race to the Finish panicked on entry, and it was the last stage on the raw
+> fallback that anyone had hit (2026-09-18, P-845).** `GrNPo.dat` matched no
+> `stage_param_markers` entry, so its `yakumono_param` stayed big-endian --
+> and `grPushOn_80219230` scans that block's `{ key, value }` table for the
+> player's character to get the stage's time limit, from
+> `rules.on_match_start`, on **every** entry to the stage. Nothing matched a
+> byte-reversed key, the scan ran past the `-1` terminator, and
+> `HSD_ASSERT(861, 0)` fired at `grpushon.c:681`. It is Classic round `0x08`,
+> the bonus stage immediately after the team battle, which is where the owner
+> hit it. Converter **v136** adds the layout, keyed on `GrdPushon`; the raw
+> table reads `0,39  1,43 ... 25,54`, per-character seconds, exactly as the
+> decompilation says. Same family as P-707, P-770 and P-791. ctest 33/33.
+
 > **The game boots into its own opening movie now (2026-09-18, P-844).**
 > `OSGetResetCode` returned the console's "reset to menu" code `0x80000000` on
 > every launch, which is what `gmMainLib_8015FCC0` turns into `skip_intro`, so

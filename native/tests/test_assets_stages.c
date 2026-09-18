@@ -227,6 +227,27 @@ static const ParamRange bigblue_ranges[] = {
     { 0x00, 0x144 / 4, 4 },
 };
 
+/* P-845: Race to the Finish (GrNPo) `grPushon_YakumonoParam` (grpushon.c:44).
+ * Six relocated descriptor pointers, then a count, then thirty
+ * `{ s32, s16, s16 }` entries -- the halves are checked separately because a
+ * 4-byte swap of that word would pass a word-only test and still be wrong --
+ * and the 0x21-slot `{ key, value }` lookup `grPushOn_80219230` scans for the
+ * player's character.  That last table is the one that panicked the stage on
+ * entry when it stayed big-endian. */
+#define PUSHON_ENTRY(n) { 0x1C + (n) * 8, 1, 4 }, { 0x20 + (n) * 8, 2, 2 }
+static const ParamRange pushon_ranges[] = {
+    { 0x18, 1, 4 },
+    PUSHON_ENTRY(0),  PUSHON_ENTRY(1),  PUSHON_ENTRY(2),  PUSHON_ENTRY(3),
+    PUSHON_ENTRY(4),  PUSHON_ENTRY(5),  PUSHON_ENTRY(6),  PUSHON_ENTRY(7),
+    PUSHON_ENTRY(8),  PUSHON_ENTRY(9),  PUSHON_ENTRY(10), PUSHON_ENTRY(11),
+    PUSHON_ENTRY(12), PUSHON_ENTRY(13), PUSHON_ENTRY(14), PUSHON_ENTRY(15),
+    PUSHON_ENTRY(16), PUSHON_ENTRY(17), PUSHON_ENTRY(18), PUSHON_ENTRY(19),
+    PUSHON_ENTRY(20), PUSHON_ENTRY(21), PUSHON_ENTRY(22), PUSHON_ENTRY(23),
+    PUSHON_ENTRY(24), PUSHON_ENTRY(25), PUSHON_ENTRY(26), PUSHON_ENTRY(27),
+    PUSHON_ENTRY(28), PUSHON_ENTRY(29),
+    { 0x10C, 0x21 * 2, 4 },
+};
+
 static const StageParamCase stage_param_cases[] = {
     { "GrCn.dat", corneria_ranges,
       (unsigned) (sizeof(corneria_ranges) / sizeof(corneria_ranges[0])) },
@@ -254,6 +275,8 @@ static const StageParamCase stage_param_cases[] = {
       (unsigned) (sizeof(mutecity_ranges) / sizeof(mutecity_ranges[0])) },
     { "GrBb.dat", bigblue_ranges,
       (unsigned) (sizeof(bigblue_ranges) / sizeof(bigblue_ranges[0])) },
+    { "GrNPo.dat", pushon_ranges,
+      (unsigned) (sizeof(pushon_ranges) / sizeof(pushon_ranges[0])) },
 };
 
 int check_stage_params(const char* image)
