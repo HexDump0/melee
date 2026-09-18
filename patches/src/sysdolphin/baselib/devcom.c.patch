@@ -1,5 +1,5 @@
 diff --git a/src/sysdolphin/baselib/devcom.c b/src/sysdolphin/baselib/devcom.c
-index 9193913b0..9d7015db9 100644
+index 9193913b0..edb7752ea 100644
 --- a/src/sysdolphin/baselib/devcom.c
 +++ b/src/sysdolphin/baselib/devcom.c
 @@ -1,5 +1,9 @@
@@ -12,7 +12,7 @@ index 9193913b0..9d7015db9 100644
  #include "debug.h"
  #include "devcom.static.h"
  #include "synth.h"
-@@ -406,6 +410,23 @@ int HSD_DevComRequest(int file, uintptr_t src, uintptr_t dest, size_t size,
+@@ -406,6 +410,30 @@ int HSD_DevComRequest(int file, uintptr_t src, uintptr_t dest, size_t size,
          !(HSD_DevComGetDestType(type) == DEVCOMDEST_SBUF
              && size > DEVCOM_BUF_SIZE));
  
@@ -24,13 +24,20 @@ index 9193913b0..9d7015db9 100644
 +     * `dest` and `size` as two callbacks and a context and has no alignment
 +     * to speak of. */
 +    if (src % 32 != 0 || dest % 32 != 0 || size % 32 != 0 || size == 0) {
++        /* The ARAM high-water mark says which kind of address `dest` is: below
++         * it, an offset `ARAlloc` handed out; above it, a host pointer from
++         * the audio heap or a caller that is not doing a DMA at all. */
++        extern unsigned long melee_ar_debug_sp(void);
 +        fprintf(stderr,
 +                "devcom: file=%d src=%#lx dest=%#lx size=%#lx type=%#x "
-+                "(src%%32=%lu dest%%32=%lu size%%32=%lu)\n",
++                "(src%%32=%lu dest%%32=%lu size%%32=%lu) aram_sp=%#lx %s\n",
 +                file, (unsigned long) src, (unsigned long) dest,
 +                (unsigned long) size, (unsigned) type,
 +                (unsigned long) (src % 32), (unsigned long) (dest % 32),
-+                (unsigned long) (size % 32));
++                (unsigned long) (size % 32),
++                (unsigned long) melee_ar_debug_sp(),
++                (unsigned long) dest < melee_ar_debug_sp() ? "dest=aram"
++                                                           : "dest=host");
 +    }
 +#endif
      HSD_ASSERT(0x1EF, src % 32 == 0);

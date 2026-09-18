@@ -95,6 +95,17 @@ void ARReset(void)
     ar_init_flag = 0;
 }
 
+/*
+ * The ARAM allocator's high-water mark, for the `devcom.c` alignment
+ * diagnostic: a destination below it is an ARAM offset this file handed out,
+ * and one above it is a host pointer from somewhere else entirely.  Telling
+ * those apart is the whole question when that assert fires (P-857).
+ */
+unsigned long melee_ar_debug_sp(void)
+{
+    return stack_pointer;
+}
+
 u32 ARAlloc(u32 length)
 {
     u32 pointer;
