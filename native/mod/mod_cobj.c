@@ -41,6 +41,7 @@
 
 #include <melee/gm/forward.h>
 #include <melee/gm/gm_1A3F.h>
+#include <melee/gm/types.h>
 #include <sysdolphin/baselib/cobj.h>
 #include <sysdolphin/baselib/controller.h>
 #include <sysdolphin/baselib/initialize.h>
@@ -127,25 +128,41 @@ unsigned mod_engine_buttons_pressed(int port)
 }
 
 /*
- * Which scene kinds count as gameplay: the ones with a 3D world behind the
- * camera, where showing more of it is showing more game.  Everything else --
- * title, menus, CSS, results, galleries, cutscenes, movies -- is a picture
- * composed for 4:3.
+ * The scene the game is running, as a `GameSceneKind`.
+ *
+ * **Not `gm_GetCurrentSceneIndex()`.** That returns
+ * `GameRouting::curr_state_id`, the *mode-local* index the scene graph is
+ * walked with -- `gm_1A3F.h` says so in as many words ("Not to be confused
+ * with the scene class_id, which is defined as a GameSceneKind") -- and this
+ * function used to switch it against `GS_*` anyway.  The two agree only by
+ * accident, which is why widescreen came and went (P-850):
+ *
+ *   - a VS match sits at state id 2, and `GS_VS` is 2, so it worked;
+ *   - Classic's states are the round number times eight plus one, so round 1's
+ *     match is id 1 = `GS_MENU` (no widescreen), round 2's is id 9 =
+ *     `GS_SSS` (none), round 3's is id 17 = `GS_CUTSCENE_LUIGI` (none) --
+ *     while an id that happens to land on 3 or 4 switches it back on.
+ *
+ * The scene's real kind is in the `GameSceneInfo` the state machine publishes
+ * for the scene it is running (`gm_801A4B88`, gmscene.c:187), which is where
+ * `gm_GetCurrentSceneEnterData` reads its own answer from.
  */
+extern struct GameSceneInfo* gm_804D6720;
+
 int mod_engine_scene_kind(void)
 {
     /* MELEE_WIDESCREEN_TRACE=1 also names the scene, because "the gate said
      * no" and "the gate never saw gameplay" look identical from outside. */
     static int trace = -1;
     static int last = -1;
-    int scene = gm_GetCurrentSceneIndex();
+    int scene = gm_804D6720 != NULL ? (int) gm_804D6720->scene_kind : -1;
     if (trace < 0) {
         trace = getenv("MELEE_WIDESCREEN_TRACE") != NULL;
     }
     if (trace && scene != last) {
         last = scene;
-        fprintf(stderr, "[ws] scene index %d (mode %u)\n", scene,
-                gm_GetCurrentGameMode());
+        fprintf(stderr, "[ws] scene kind %d (state id %u, mode %u)\n", scene,
+                gm_GetCurrentSceneIndex(), gm_GetCurrentGameMode());
     }
 
     switch ((GameSceneKind) scene) {

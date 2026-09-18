@@ -45,15 +45,9 @@ static const struct Line credits[] = {
     LINE("MELEE UNBOUND", 3.0f, 0.0f),
     LINE("A NATIVE PORT OF SUPER SMASH BROS. MELEE", 1.1f, 34.0f),
     LINE("", 1.0f, 8.0f),
-    LINE("PORT", 1.4f, 14.0f),
+    LINE("PORT BY", 1.4f, 14.0f),
     LINE("HEXDUMP0", 1.2f, 20.0f),
     LINE("", 1.0f, 8.0f),
-    LINE("BUILT ON", 1.4f, 14.0f),
-    LINE("DOLDECOMP/MELEE", 1.2f, 20.0f),
-    LINE("WASM-MICRO-RUNTIME  .  SDL3  .  OPENGL ES", 1.0f, 18.0f),
-    LINE("", 1.0f, 8.0f),
-    LINE("NO GAME DATA IS DISTRIBUTED WITH THIS PORT.", 1.0f, 16.0f),
-    LINE("BRING YOUR OWN DISC.", 1.0f, 14.0f)
 };
 
 #define CREDITS_COUNT ((int) (sizeof(credits) / sizeof(credits[0])))
@@ -75,7 +69,7 @@ static float text_width(const struct Line* l)
 #define DESC_Y 411.0f
 #define DESC_SCALE 1.05f
 
-static const char DESC_TEXT[] = "THE PORT AND WHAT IT IS BUILT ON.";
+static const char DESC_TEXT[] = "";
 
 static float text_width_of(unsigned len, float scale)
 {

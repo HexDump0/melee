@@ -4842,3 +4842,32 @@ calls `hsd_asset_convert` on one archive, gave the walker's whole stack.
 Battlefield perfectly intact before the fix -- the joint tree and vertex
 arrays were never touched. Only the *display list* was, and only one word of
 it. P-849.
+
+## G-223: `gm_GetCurrentSceneIndex()` is not a `GameSceneKind`
+
+It returns `GameRouting::curr_state_id` -- the **mode-local** index the scene
+graph is walked with -- and `gm_1A3F.h` says so on the function above it:
+*"Not to be confused with the scene class_id, which is defined as a
+GameSceneKind."* Two different modes reuse the same ids for entirely different
+scenes, and one mode reuses id 0 for several: driving the frontend with
+`MELEE_WIDESCREEN_TRACE=1` shows the memory-card prompt, the title, the main
+menu and the CSS **all reporting state id 0**.
+
+The widescreen gate switched that index against `GS_*` anyway. It worked in a
+plain VS match, because that match happens to sit at state id 2 and `GS_VS` is
+2, and it failed everywhere the numbers did not collide: **of the 92 gameplay
+scenes across every `gm_Mode_*_States` table on the disc, the gate allowed
+20**. Classic, Adventure, All-Star, Event, Target Test, Home-Run and the six
+multi-man modes never got widescreen at all. To the owner that reads as
+"sometimes it works" (P-850).
+
+**The scene's real kind is `GameSceneInfo::scene_kind`**, published by
+`gm_801A4B88` (gmscene.c:187) into `gm_804D6720` for the scene the state
+machine is running -- the same global `gm_GetCurrentSceneEnterData` answers
+from. Read that.
+
+**The general shape:** two integers, one named for what you want, and nothing
+in the type system between them. `u8` against an `enum` compiles silently.
+When a gate is *intermittent* rather than broken, suspect that it is keyed on
+something that only sometimes means what the code thinks -- and prove it by
+printing both numbers side by side, which is what the trace does now.

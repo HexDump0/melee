@@ -1,5 +1,16 @@
 # State of the port
 
+> **Widescreen only ever worked in a plain VS match, and by accident
+> (2026-09-18, P-850, G-223).** The gate switched `gm_GetCurrentSceneIndex()`
+> -- the mode-local state id, which `gm_1A3F.h` explicitly warns is not a
+> scene kind -- against `GS_*`. VS sits at state id 2 and `GS_VS` is 2, so it
+> passed; Classic, Adventure, All-Star, Event, Target Test, Home-Run and the
+> multi-man modes never passed at all. Across every mode table on the disc the
+> old gate allowed **20 of 92** gameplay scenes. It now reads the real
+> `GameSceneInfo::scene_kind` from `gm_804D6720`, and
+> `MELEE_WIDESCREEN_TRACE=1` prints both numbers so the next mismatch is
+> visible.
+
 > **Battlefield was drawing as shards because one `u16` inside a display list
 > was byte-swapped (2026-09-18, P-848/P-849, G-222).** The geometry was never
 > damaged -- `--wire` drew the stage perfectly -- but
