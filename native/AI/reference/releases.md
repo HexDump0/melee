@@ -88,10 +88,36 @@ The repository it queries is `HexDump0/melee`, the `REPO` constant in
 
 ## Publishing a release
 
-The binary the port builds is `build/native/melee` (32-bit x86, see ADR-0011).
-A release job renames it per the scheme above and uploads it; nothing else in
-the tree needs to know the scheme.
+`.github/workflows/release.yml` does it. Four jobs: the Windows port
+(cross-compiled from Linux, the path that was actually proven), the Linux port
+(32-bit, building SDL3 from source because no distribution ships one), the
+launcher (a matrix, built on its own OS because Tauri cross-compilation is not
+worth the trouble), and publish.
 
-**Not yet automated.** There is no release workflow in this repository, so
-until one exists the launcher's Download button reports "no release found",
-which is the honest result rather than an error.
+```sh
+# 1. the gates, all three
+cmake --build build/native -j2 && (cd build/native && ctest -j2)
+(cd decomp && ninja) && sha1sum decomp/build/GALE01/main.dol   # must match build.sha1
+git status --short                                              # must be empty
+
+# 2. the version, in all three places it is written
+#    launcher/src-tauri/tauri.conf.json, launcher/src-tauri/Cargo.toml,
+#    mods/unbound/mod.toml
+
+# 3. a dry run before the tag, so a failure does not strand one
+gh workflow run release.yml --ref master
+
+# 4. tag and push
+git tag -a v1.0.0 -m "Melee Unbound 1.0.0" && git push origin v1.0.0
+```
+
+**Do the dry run.** A tag that fails to build leaves a tag pointing at a commit
+with no assets, and the fix is either a force-push or a v1.0.1 that exists only
+because of a typo. `workflow_dispatch` is enabled for exactly this.
+
+The assets land as `melee-linux-x86`, `melee-windows-x86.exe`, the launcher's
+`.deb`/`.AppImage`/`.msi`, and generated notes.
+
+**After the first release**, check the launcher end to end: Check for update →
+Install → Launch. That is the first time the naming scheme is exercised by the
+thing it exists for, and a mismatch there is silent until someone tries it.

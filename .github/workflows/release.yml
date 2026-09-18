@@ -114,7 +114,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, windows-latest]
+        include:
+          # AppImage is asked for here rather than in tauri.conf.json: its
+          # bundler downloads linuxdeploy from GitHub on first use, which is
+          # reliable on a runner and is not on every developer machine -- it
+          # times out on the maintainer's.  Keeping it out of the config means
+          # a local `npx tauri build` always works and CI still ships both.
+          - os: ubuntu-22.04
+            bundles: deb,appimage
+          - os: windows-latest
+            bundles: msi
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -135,7 +144,7 @@ jobs:
       - run: npm run typecheck
         working-directory: launcher
 
-      - run: npx tauri build
+      - run: npx tauri build --bundles ${{ matrix.bundles }}
         working-directory: launcher
 
       - uses: actions/upload-artifact@v4
@@ -143,6 +152,7 @@ jobs:
           name: launcher-${{ matrix.os }}
           path: |
             launcher/src-tauri/target/release/bundle/deb/*.deb
+            launcher/src-tauri/target/release/bundle/appimage/*.AppImage
             launcher/src-tauri/target/release/bundle/msi/*.msi
             launcher/src-tauri/target/release/bundle/nsis/*.exe
 

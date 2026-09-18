@@ -10,10 +10,15 @@ npm run app        # dev, with hot reload
 npm run app:build  # .deb in src-tauri/target/release/bundle
 ```
 
-`.deb` is the default bundle because it needs nothing from the network.
-AppImage works too — add `"appimage"` to `bundle.targets` — but its first run
-downloads `AppRun` and `linuxdeploy` from GitHub, so it fails on a machine
-without network access rather than telling you why.
+`npx tauri build` makes a `.deb` locally. **The release also ships an
+`.AppImage`, but CI asks for it rather than `tauri.conf.json`** — the AppImage
+bundler downloads `linuxdeploy` from GitHub on first use, and that download
+times out on some machines (it does on the maintainer's, even with network).
+Keeping it out of the config means a local build always succeeds; the workflow
+passes `--bundles deb,appimage`.
+
+If you want one locally and the download works for you:
+`npx tauri build --bundles appimage`.
 
 ## What it is, and what it deliberately is not
 
