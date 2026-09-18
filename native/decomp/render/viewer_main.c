@@ -26,6 +26,8 @@
 #include "decomp/render/viewer_internal.h"
 #include "mod/mod.h"
 
+#include <melee/if/ifall.h>
+
 /* The registry does not link the GL backend itself (melee_decomp_boot has no
  * renderer at all), so the target that owns a drawable hands it over. */
 static void mod_draw_color(float r, float g, float b, float a)
@@ -82,6 +84,16 @@ static void usage(const char* argv0)
 
 MatchView match_view;
 
+/* One call for both directions, so the two keys cannot drift apart. */
+static void ifAll_HideHUD_or_show(int hide)
+{
+    if (hide) {
+        ifAll_HideHUD();
+    } else {
+        ifAll_ShowHUD();
+    }
+}
+
 /*
  * Render toggles for the running game (P-858).
  *
@@ -102,7 +114,19 @@ static int match_view_render_key(SDL_Keycode code)
     switch (code) {
     case SDLK_F1:
         opt.wireframe = !opt.wireframe;
-        what = opt.wireframe ? "wireframe on" : "wireframe off";
+        /* The HUD follows the wireframe: percentages, stock icons and the
+         * magnifier wireframe into a mesh across the middle of the shot.
+         *
+         * Through the game's own switch, not a renderer filter.  `ifAll` has
+         * had `HideHUD`/`ShowHUD` since retail -- the debug effect menu uses
+         * them (dbeffect.c:16) -- and `fn_802F36B8` checks the flag before it
+         * sets the HUD's camera, so nothing is submitted at all.  My first
+         * attempt guessed instead, dropping orthographic draws, and hid the
+         * wrong things: Melee draws its HUD through a perspective camera like
+         * everything else (P-859). */
+        ifAll_HideHUD_or_show(opt.wireframe);
+        what = opt.wireframe ? "wireframe on (HUD hidden)"
+                             : "wireframe off (HUD back)";
         break;
     case SDLK_F2:
         opt.textures = !opt.textures;
@@ -119,6 +143,10 @@ static int match_view_render_key(SDL_Keycode code)
     case SDLK_F5:
         opt.no_alpha_test = !opt.no_alpha_test;
         what = opt.no_alpha_test ? "alpha test off" : "alpha test on";
+        break;
+    case SDLK_F7:
+        ifAll_HideHUD_or_show(!ifAll_IsHUDHidden());
+        what = ifAll_IsHUDHidden() ? "HUD hidden" : "HUD shown";
         break;
     case SDLK_F6: {
         /* One key back to a clean picture, because a recording that has to be

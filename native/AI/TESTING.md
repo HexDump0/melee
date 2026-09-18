@@ -198,9 +198,13 @@ renderer is doing without leaving the match:
 | F4 | backface culling |
 | F5 | alpha test |
 | F6 | reset all of the above |
+| F7 | the game's HUD (`ifAll_HideHUD`) |
 
-They set `GxGlOptions` only; nothing reaches the engine, so a capture made
-with wireframe on is the same match as one made without it.  Each press prints
+F1 also hides the HUD, since wireframing the percentages and stock icons
+puts a mesh across the middle of the shot; F7 moves it back independently.
+The render toggles set `GxGlOptions` only and the HUD one uses the game's own
+`ifAll` flag, so nothing changes the simulation: a capture made with wireframe
+on is the same match as one made without it.  Each press prints
 a `[render]` line.  The letters are gameplay input (`Z` is A, `X` is B), which
 is why these are on function keys.
 

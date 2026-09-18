@@ -105,13 +105,13 @@ static const ModBinding builtin_binding = { builtin_payload, builtin_init,
                                             builtin_on_hook, NULL };
 
 /*
- * Same entry points the WAMR binding exposes, so `mod.c` does not know which
- * one it linked against.  There is nothing to scan: the one mod that can be
- * here is the one that was compiled in.
+ * `mod.h` already declared this -- "Add the mods compiled into this binary.
+ * Browser." -- and `mod.c` already called it behind
+ * `MELEE_MOD_BINDING_NATIVE`.  The registry was waiting for an implementation
+ * and a build that defines the flag; this is both.  There is nothing to scan:
+ * the one mod that can be here is the one that was compiled in.
  */
-void mod_wasm_scan(void)
+void mod_native_scan(void)
 {
     mod_add("unbound", "Melee Unbound", "0.1.0", 100, &builtin_binding, NULL);
 }
-
-void mod_wasm_shutdown(void) {}

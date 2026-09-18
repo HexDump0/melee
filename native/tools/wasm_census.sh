@@ -62,7 +62,8 @@ INCS="-I$W/native/decomp/shim -I$W/native -I$W/decomp/src -I$W/decomp/extern/dol
 # Revisit if the casts ever go away or Binaryen fixes the interaction.
 BASE="-O2 -w -Wno-error=incompatible-function-pointer-types -fgnu89-inline
       -ffunction-sections -fdata-sections -fno-strict-aliasing
-      -DLINT -DPORT_PC=1 -DPORT_WASM=1"
+      -DLINT -DPORT_PC=1 -DPORT_WASM=1
+      -DMELEE_MOD_BINDING_NATIVE=1"
 SHIM="-include $W/native/decomp/shim/decomp_shim.h"
 
 # The product's sources: the decompiled game (minus the three the native build
