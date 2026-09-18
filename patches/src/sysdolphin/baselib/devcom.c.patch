@@ -1,5 +1,5 @@
 diff --git a/src/sysdolphin/baselib/devcom.c b/src/sysdolphin/baselib/devcom.c
-index 9193913b0..edb7752ea 100644
+index 9193913b0..41fbd059d 100644
 --- a/src/sysdolphin/baselib/devcom.c
 +++ b/src/sysdolphin/baselib/devcom.c
 @@ -1,5 +1,9 @@
@@ -12,7 +12,7 @@ index 9193913b0..edb7752ea 100644
  #include "debug.h"
  #include "devcom.static.h"
  #include "synth.h"
-@@ -406,6 +410,30 @@ int HSD_DevComRequest(int file, uintptr_t src, uintptr_t dest, size_t size,
+@@ -406,6 +410,44 @@ int HSD_DevComRequest(int file, uintptr_t src, uintptr_t dest, size_t size,
          !(HSD_DevComGetDestType(type) == DEVCOMDEST_SBUF
              && size > DEVCOM_BUF_SIZE));
  
@@ -38,6 +38,20 @@ index 9193913b0..edb7752ea 100644
 +                (unsigned long) melee_ar_debug_sp(),
 +                (unsigned long) dest < melee_ar_debug_sp() ? "dest=aram"
 +                                                           : "dest=host");
++        /* Neither the address nor the type identifies the caller -- eleven
++         * call sites across synth.c, lbmthp.c, lbmemory.c and lbfile.c pass
++         * destinations from four different allocators, and the ones that
++         * matter are reached only on a boot path the desktop does not take.
++         * Ask the engine. */
++        {
++            extern void melee_port_backtrace(char* out, unsigned size);
++            char where[1024];
++            where[0] = '\0';
++            melee_port_backtrace(where, sizeof(where));
++            if (where[0] != '\0') {
++                fprintf(stderr, "devcom: called from\n%s\n", where);
++            }
++        }
 +    }
 +#endif
      HSD_ASSERT(0x1EF, src % 32 == 0);

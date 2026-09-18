@@ -11,3 +11,27 @@
  */
 int MSL_TrigF_80400770[] = { 0x7FFFFFFF };
 int MSL_TrigF_80400774[] = { 0x7F800000 };
+
+/*
+ * A C backtrace for a diagnostic that has to name its caller, on whichever
+ * host is running.  The browser is the case that matters: a wasm panic prints
+ * no frames at all, and the bugs that only appear there are exactly the ones
+ * with no second run to put a breakpoint in (P-857).
+ */
+#include <stddef.h>
+
+#ifdef __EMSCRIPTEN__
+#include <emscripten/emscripten.h>
+#endif
+
+void melee_port_backtrace(char* out, unsigned size)
+{
+    if (out == NULL || size == 0) {
+        return;
+    }
+    out[0] = '\0';
+#ifdef __EMSCRIPTEN__
+    emscripten_get_callstack(EM_LOG_C_STACK | EM_LOG_FUNC_PARAMS, out,
+                             (int) size);
+#endif
+}
