@@ -216,6 +216,9 @@ bool unbound_HSD_CObjSetCurrent(HSD_CObj* cobj)
         return HSD_CObjSetCurrent(cobj);
     }
 
+    /* Late enough that the menu's own animation has already run. */
+    mod_menu_hide_late();
+
     pass = HSD_GetCurrentRenderPass();
 
     memset(&setup, 0, sizeof(setup));

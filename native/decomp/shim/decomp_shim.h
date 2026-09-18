@@ -66,6 +66,7 @@
 #ifndef MELEE_JOBJ_INTERNAL
 #define HSD_JObjReqAnim unbound_HSD_JObjReqAnim
 #define HSD_JObjAnim unbound_HSD_JObjAnim
+#define HSD_JObjAnimAll unbound_HSD_JObjAnimAll
 #endif
 
 /*

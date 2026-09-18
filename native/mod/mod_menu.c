@@ -48,6 +48,12 @@
 
 #include "mod/menu_label_data.h"
 
+/* Page state, declared early: the jobj interposers re-apply the page's
+ * hiding after the animation has run, and they appear above the page code. */
+static int page_open;
+static HSD_GObj* page_panel;
+static void page_hide_furniture(HSD_GObj* panel);
+
 /*
  * Where the US menu archive keeps its label table.  Offsets are from the
  * probe recorded in learnings/menu_labels.md and are verified below before
@@ -234,6 +240,24 @@ void unbound_HSD_JObjReqAnim(HSD_JObj* jobj, f32 frame)
     HSD_JObjReqAnim(jobj, frame);
 }
 
+/*
+ * Hiding has to happen *after* the animation, not before.
+ *
+ * `HSD_JObjAnim` drives JOBJ_HIDDEN from the animation track (jobj.c:422),
+ * so anything with a visibility track gets its flag restored every frame --
+ * which is why hiding from the page's think worked on the option pills, which
+ * have no track, and never worked on the breadcrumb, which does.
+ */
+void unbound_HSD_JObjAnimAll(HSD_JObj* jobj)
+{
+    HSD_JObjAnimAll(jobj);
+    if (page_open && page_panel != NULL &&
+        jobj == (HSD_JObj*) page_panel->hsd_obj)
+    {
+        page_hide_furniture(page_panel);
+    }
+}
+
 void unbound_HSD_JObjAnim(HSD_JObj* jobj)
 {
     HSD_JObjAnim(jobj);
@@ -308,7 +332,6 @@ static int unbound_menu_start_pressed(void)
 static s32 menu_text_ctx;
 static int menu_text_ctx_valid;
 
-static int page_open;
 
 /*
  * The credits, drawn by the engine's own text renderer.
@@ -393,12 +416,49 @@ static float text_off_x_centred(const char* line)
  * same flattened joint array the menu indexes by `mn_803EAE68`, so the
  * header and the option anchors can simply be marked hidden.
  */
-static HSD_GObj* page_panel;
+/*
+ * Dump the panel's joint tree (MELEE_MENU_TREE_TRACE=1).
+ *
+ * `MainMenuData::tree` holds 42 joints, but hiding every one of them leaves
+ * the breadcrumb and the title pill on screen -- so the model has more joints
+ * than the menu indexes, and the ones we want are not reachable by index.
+ * This prints the tree with the indexed ones marked so they can be told
+ * apart.
+ */
+static void tree_dump(HSD_JObj* jobj, MainMenuData* data, int depth, int* n)
+{
+    for (; jobj != NULL; jobj = jobj->next) {
+        int indexed = -1;
+        unsigned i;
+        int has_mesh = 0;
+        for (i = 0; i < 42u; ++i) {
+            if (data->tree[i] == jobj) {
+                indexed = (int) i;
+                break;
+            }
+        }
+        if ((jobj->flags & JOBJ_SPLINE) == 0 && jobj->u.dobj != NULL) {
+            has_mesh = 1;
+        }
+        fprintf(stderr, "[tree] %3d depth=%d %*s%p%s%s\n", *n, depth,
+                depth * 2, "", (void*) jobj,
+                indexed >= 0 ? " indexed" : "", has_mesh ? " MESH" : "");
+        if (indexed >= 0) {
+            fprintf(stderr, "[tree]        -> tree[%d]\n", indexed);
+        }
+        ++*n;
+        if ((jobj->flags & JOBJ_SPLINE) == 0) {
+            tree_dump(jobj->child, data, depth + 1, n);
+        }
+    }
+}
+
 
 static void page_hide_furniture(HSD_GObj* panel)
 {
     MainMenuData* data;
     unsigned i;
+    unsigned hide_min;
     unsigned hide_max;
 
     if (panel == NULL) {
@@ -407,6 +467,14 @@ static void page_hide_furniture(HSD_GObj* panel)
     data = (MainMenuData*) HSD_GObjGetUserData(panel);
     if (data == NULL) {
         return;
+    }
+    if (getenv("MELEE_MENU_TREE_TRACE") != NULL) {
+        static int dumped;
+        if (!dumped) {
+            int n = 0;
+            dumped = 1;
+            tree_dump((HSD_JObj*) panel->hsd_obj, data, 0, &n);
+        }
     }
     if (getenv("MELEE_MENU_FURNITURE_TRACE") != NULL) {
         static int said;
@@ -418,13 +486,22 @@ static void page_hide_furniture(HSD_GObj* panel)
                     (void*) data->tree[4], (void*) data->tree[14]);
         }
     }
-    /* 0..3 is the header and breadcrumb, 4..13 the ten option anchors;
-     * MELEE_MENU_HIDE_MAX raises the bound while the rest are identified. */
+    /*
+     * Which joints to hide, as a range.  0..13 covers the option anchors and
+     * the next-screen preview and leaves the frame, which is the combination
+     * that looks right.
+     *
+     * The breadcrumb and the title pill are *not* in this tree: hiding every
+     * range of it leaves them untouched, so they belong to a GObj that
+     * `mn_8022B3A0` does not hand back.  Finding that one is P-839.
+     */
     {
-        const char* env = getenv("MELEE_MENU_HIDE_MAX");
-        hide_max = env != NULL ? (unsigned) atoi(env) : 13u;
+        const char* lo = getenv("MELEE_MENU_HIDE_MIN");
+        const char* hi = getenv("MELEE_MENU_HIDE_MAX");
+        hide_min = lo != NULL ? (unsigned) atoi(lo) : 0u;
+        hide_max = hi != NULL ? (unsigned) atoi(hi) : 13u;
     }
-    for (i = 0; i <= hide_max && i < 42u; ++i) {
+    for (i = hide_min; i <= hide_max && i < 42u; ++i) {
         if (data->tree[i] != NULL) {
             /* Subtree, not the single joint: the meshes hang below these
              * anchors, and `displayfunc.c` tests the flag on the node it is
@@ -578,6 +655,22 @@ static void enter_unbound_page(void)
     start_menu_think(unbound_page_think);
 }
 
+/*
+ * Re-apply the page's hiding late in the frame.
+ *
+ * `HSD_JObjAnim` drives JOBJ_HIDDEN from the animation track (jobj.c:422),
+ * so any joint with a visibility track has its flag restored every frame --
+ * hiding from the page's think worked on the option pills, which have no
+ * track, and never on the panel's own parts, which do.  Called from the
+ * camera-setup interposer, which runs after every GObj proc has.
+ */
+void mod_menu_hide_late(void)
+{
+    if (page_open) {
+        page_hide_furniture(page_panel);
+    }
+}
+
 int mod_menu_page_open(void) { return page_open; }
 
 static void unbound_main_think(HSD_GObj* gp)
@@ -710,7 +803,21 @@ void mod_menu_init(void)
      * frame our main-menu entry does, which is the frame the texture
      * override recognises.
      */
-    mn_803EB6B0[UNBOUND_MENU_KIND].start_frame = UNBOUND_LABEL_FRAME;
+    {
+        /*
+         * The panel's whole appearance -- breadcrumb, title pill, framing --
+         * is selected by this frame, because every menu kind renders through
+         * the same model and differs only in where its animation sits.  The
+         * authored menus use 0, 20, 40, 60, 80, 100, 120, 160, 200 and 240;
+         * anything between them lands on another menu's furniture.
+         *
+         * The option pills are hidden on this page, so the frame is free to
+         * be chosen for the panel rather than for the labels.
+         */
+        const char* env = getenv("MELEE_MENU_PAGE_FRAME");
+        mn_803EB6B0[UNBOUND_MENU_KIND].start_frame =
+            env != NULL ? (float) atoi(env) : 240.0f;
+    }
     /*
      * Real indices, not NULL.  `mn_80229A7C` only builds the description's
      * text object when the menu has indices, but `fn_8022AFEC` then writes

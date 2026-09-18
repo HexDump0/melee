@@ -161,6 +161,8 @@ int mod_menu_take_activation(void);
 int mod_menu_entry_hovered(void);
 /* Non-zero while the Unbound menu page is the current menu. */
 int mod_menu_page_open(void);
+/* Re-applies the menu page's joint hiding after the frame's procs have run. */
+void mod_menu_hide_late(void);
 
 /* Add the mods compiled into this binary.  Browser. */
 void mod_native_scan(void);
