@@ -1700,3 +1700,154 @@ WAMR is built in its own CMake directory so its directory-scoped
 `include_directories()` cannot shadow a decomp header.
 
 **Status:** accepted (2026-09-17), owner decision.
+
+---
+
+## ADR-0028: Inter is the UI typeface; the website is the first surface
+
+**Context.** `reference/branding.md` left typography undecided until the first
+real UI screen picked one. The owner's website design comp calls for a heavy
+grotesque — 900-weight uppercase headings with tight tracking — which a system
+font stack cannot promise across platforms.
+
+**Decision.** Inter, loaded from Google Fonts (400, 500, 600, 700, 800, 900).
+Headings are 900, uppercase, `-0.03em`; body is 400. Applied first to `site/`;
+the in-game UI and launcher use it too until something better is chosen.
+
+**Consequences.** The site takes one network dependency (`fonts.googleapis.com`,
+`fonts.gstatic.com`) in exchange for a consistent face everywhere. If the site
+must work fully offline, self-host the font files under `site/media/` — the CSS
+only names `font-family: Inter`, so nothing else changes. A different face
+later is a change here, in `branding.md`, and one CSS font stack.
+
+**Status:** accepted (2026-09-17), website implementation.
+
+---
+
+## ADR-0029: Tailwind builds the site's CSS; GSAP animates it
+
+**Context.** The owner's design comp for the site is a dense, poster-like
+layout: a violet rail, alternating black and near-white bands, heavy 900-weight
+display type, and large two-up cards. The first implementation was hand-written
+CSS (`site/styles.css`, ~13 KB of bespoke selectors) and it drifted from the
+comp — the bands ran roughly 40% taller than the comp and the display type was
+undersized, because there was no shared scale to hold either in place. The
+owner asked for the page to be rebuilt with Tailwind, and for the reveals to be
+done with GSAP.
+
+**Decision.** Two dependencies, with different delivery mechanisms:
+
+- **Tailwind CSS v4** is a *build-time* dependency. `site/src/input.css` holds
+  an `@theme` block — the palette from `reference/branding.md`, the type scale,
+  the rail and gutter metrics — and the Tailwind CLI compiles it plus the
+  classes used in the markup to `site/styles.css`. `site/package.json` carries
+  `build`, `dev` and `serve` scripts. **The compiled `styles.css` is
+  committed.** That is a deliberate exception to "never commit generated
+  files" (`AGENTS.md` §6): it keeps the served folder a static directory that
+  any host can point at, with no Node on the deploy path. Rebuild it and commit
+  it in the same change whenever the markup or the theme moves.
+- **GSAP 3.13 + ScrollTrigger** is a *runtime* dependency, from
+  cdnjs.cloudflare.com, `defer`-loaded. It drives the section reveals, the
+  clipped heading rise, the hero mark's parallax drift, and the rail's
+  scroll-spy.
+
+Animation is strictly progressive enhancement. The pre-reveal `opacity: 0`
+lives behind a `reveal-ready` class that **only `main.js` adds**, so with JS
+off, GSAP unreachable, or `prefers-reduced-motion: reduce`, the page renders
+finished and static. The scroll-spy keeps an IntersectionObserver fallback for
+the no-GSAP case.
+
+**Consequences.**
+
+- Editing the page now means editing markup plus `src/input.css`, then
+  `npm run build`. A change to `index.html` alone will not take effect if it
+  uses a class Tailwind has not yet compiled.
+- Two network dependencies instead of one (Google Fonts per ADR-0028, plus the
+  GSAP CDN). Fonts are required for the design; GSAP is not, by construction.
+  To go fully offline, self-host both — `main.js` already guards on
+  `typeof window.gsap`.
+- The type scale is the load-bearing part. Section headings, the hero and the
+  card titles are `--text-display` / `--text-h2` / `--text-h3`, each carrying
+  its own line-height, tracking and weight, so the comp's proportions are one
+  edit rather than twelve. Those values were set by measuring **cap heights**
+  against the comp, not by eye; eyeballing sent them the wrong way twice.
+- `site/node_modules/` is excluded via `.git/info/exclude`, per the
+  never-touch-a-tracked-`.gitignore` rule.
+
+**One GSAP trap, written down because it cost a debugging round.** `gsap.from`
+takes the element's *current* computed value as the animation's destination.
+With a CSS rule already holding the element at `opacity: 0`, a `from({opacity:
+0})` animates 0 → 0 and nothing ever appears — silently, with GSAP loaded and
+ScrollTrigger firing correctly. The reveals use explicit `fromTo` pairs for
+that reason. They also pass `clearProps: 'opacity,transform'`: an inline
+`transform` left behind by GSAP outranks Tailwind's `hover:-translate-y-1` and
+would kill the cards' hover lift for the rest of the session.
+
+**Status:** accepted (2026-09-18), website implementation.
+
+---
+
+## ADR-0030: The site is a React + TypeScript app, prerendered to static HTML
+
+**Context.** ADR-0029 rebuilt the site as one 300-line `index.html`, one
+`main.js` and a Tailwind stylesheet. It matched the comp, but it was not a
+thing anyone wanted to work in: the copy, the layout, the destinations and the
+animation wiring were interleaved in a single file, and every heading repeated
+the same seven utility classes. The owner asked for React, split into
+components, "actual human readable and good to work on".
+
+**Decision.** React 19 + TypeScript, bundled by Vite, styled with the same
+Tailwind v4 `@theme` from ADR-0029, animated with GSAP as an npm dependency
+rather than a CDN script. `npm run build` typechecks, bundles, then
+**prerenders**: `src/entry-server.tsx` is built for node, rendered to a string
+by `prerender.mjs`, and injected into `dist/index.html`, so the shipped page is
+real markup and React hydrates it.
+
+The split is by *reason to change*, not by line count:
+
+| File | Holds |
+|---|---|
+| `src/content.tsx` | every word on the page, typed |
+| `src/lib/links.ts` | every off-site destination |
+| `src/styles.css` | the design system: palette, type scale, metrics |
+| `src/sections/*` | arrangement only — no copy, no URLs |
+| `src/hooks/*` | reveals, scroll-spy, destination resolution |
+
+**Consequences.**
+
+- **`site/` is no longer a static directory.** ADR-0029 committed the compiled
+  `styles.css` to keep Node off the deploy path; that trade does not survive a
+  bundler, so it is reversed here. `dist/` is the artifact, it is **not**
+  committed, and it is excluded via `.git/info/exclude` along with
+  `node_modules/` and the transient `.ssr/`. Every host named in the site
+  README runs a build step, so this costs nothing in practice — but a plain
+  `python3 -m http.server -d site` no longer serves the page. Use
+  `npm run dev`, or `npm run preview` for the built output.
+- **Prerendering is the reason React is acceptable here at all.** A marketing
+  page that needs JavaScript to show its own text would be a regression
+  against what ADR-0029 shipped. The build proves it: `dist/index.html` is
+  22.9 KB of markup, the `<details>` FAQ works with scripts disabled, and the
+  page was verified rendering complete with JS off.
+- **GSAP moved from a CDN script to a dependency**, so the "GSAP unreachable"
+  branch in the old `main.js` is gone — it cannot be unreachable now. The
+  fallback that remains is the one that matters: no JavaScript at all.
+- Typecheck gates the build (`tsc --noEmit` runs first), so a renamed content
+  field fails at build rather than rendering an empty section.
+- The React rewrite was verified against the previous build pixel by pixel at
+  1440×4200: **347 differing pixels out of 6,048,000**, all of them glyph and
+  SVG antialiasing, and an identical document height of 2952px.
+
+**One trap the prerender introduces, and its failsafe.** Because the page now
+paints its finished self before the bundle runs, arming the reveals from
+JavaScript would flash the whole page and then hide it. The class is therefore
+set by an inline script in `<head>`, before first paint. That inverts the
+failure mode — if the bundle never arrives, the content stays hidden forever —
+so the same script drops the class after three seconds unless `useReveals` has
+set `data-reveals-live`. Both branches are tested: with `*/assets/*.js`
+blocked the page is hidden at 1.2s and fully visible at 4.2s.
+
+**Supersedes** the build-and-deploy half of ADR-0029. The palette, the type
+scale, the cap-height measuring method and the `gsap.from` trap recorded there
+all still hold and carried over unchanged.
+
+**Status:** accepted (2026-09-18), website implementation.

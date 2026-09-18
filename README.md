@@ -12,6 +12,8 @@ memory card). Game logic comes from the decompilation, not from a rewrite.
 ├── native/          the port: platform layer, GX HLE, renderer, viewer, tests
 │   └── AI/          port agent docs: STATE.md, ROADMAP*.md, TASKS.md, learnings/
 ├── AI/              decompilation agent hub (claims, workflow, learnings)
+├── assets/          Melee Unbound logo artwork + boot animation (see native/AI/reference/branding.md)
+├── site/            the project website (static; see site/README.md)
 ├── patches/         #ifdef PORT_PC portability patches for the decompilation
 ├── scripts/         setup helpers (patch application)
 └── decomp/          git submodule: doldecomp/melee (pinned)

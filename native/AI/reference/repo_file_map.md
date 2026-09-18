@@ -36,6 +36,21 @@ native/
 └── AI/                     this knowledge base
 ```
 
+## Brand assets
+
+```
+assets/                     logo artwork, banner + icon, SVG and PNG,
+                            each on black, transparent, and light-surface
+assets/melee-unbound-boot.mp4   boot animation, generated from the banner SVG
+scripts/make_boot_animation.py  regenerates it; re-run if the mark changes
+site/                       the project website; React + Vite, `npm run build`
+                            (ADR-0030). Copy lives in src/content.tsx, the
+                            design system in src/styles.css.
+```
+
+Rules for using them — palette, contrast, clear space, what not to do — are in
+[`branding.md`](branding.md). Do not recolour or redraw the mark ad hoc.
+
 ## Engine reference (read-only)
 
 | Path | Why it matters |

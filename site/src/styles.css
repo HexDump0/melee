@@ -1,0 +1,201 @@
+/* Melee Unbound — the design system, in one file.
+
+   Palette is native/AI/reference/branding.md: black, white, one violet, and
+   nothing else. The one contrast trap: white on violet is 2.77:1 and fails,
+   so every violet fill on this page carries BLACK text. On the light bands
+   violet text and icons use `violet-deep`, the only violet that clears
+   contrast there.
+
+   Two scales are load-bearing and both live here rather than in the markup.
+
+   TYPE. Section headings, the hero and the card titles are `text-display` /
+   `text-h2` / `text-h3`, each carrying its own line-height, tracking and
+   weight, so the comp's proportions are one edit here rather than twelve in
+   the components. Those sizes were set by measuring cap heights against the
+   design comp — if you retune them, measure.
+
+   SPACE. Four tokens set the whole vertical rhythm: `--spacing-band` is the
+   padding every band gets, `--spacing-block` is heading-to-content inside
+   one, `--spacing-grid` is the gap between sibling cards, `--spacing-card`
+   is their inner padding. Nothing in the components picks its own number —
+   if a band looks wrong, it is one of these four, not a one-off. */
+
+@import "tailwindcss";
+
+@theme {
+  /* --- palette ---------------------------------------------------------- */
+  --color-mu-black: #000000;
+  --color-mu-white: #ffffff;
+  --color-mu-violet: #a08aff;
+  --color-mu-violet-hi: #b6a5ff;
+  --color-mu-violet-deep: #6a54d8;
+  --color-mu-pale: #eaebec; /* the light bands */
+  --color-mu-card: #161617; /* FAQ rows on black */
+  --color-mu-dim: #9a9aa4; /* muted text on black */
+  --color-mu-ink: #0a0a0b; /* text on light */
+  --color-mu-ink-dim: #4a4a52; /* muted text on light */
+
+  /* --- type ------------------------------------------------------------- */
+  --font-sans: "Inter", ui-sans-serif, system-ui, "Helvetica Neue", Arial,
+    sans-serif;
+
+  /* Heavy grotesque display, per ADR-0028: Inter 900, uppercase, tight. */
+  --text-display: clamp(2.75rem, 7vw, 6.35rem);
+  --text-display--line-height: 0.86;
+  --text-display--letter-spacing: -0.035em;
+  --text-display--font-weight: 900;
+
+  --text-h2: clamp(1.9rem, 4.6vw, 4.1rem);
+  --text-h2--line-height: 0.9;
+  --text-h2--letter-spacing: -0.03em;
+  --text-h2--font-weight: 900;
+
+  --text-h3: clamp(1.25rem, 2.4vw, 1.9rem);
+  --text-h3--line-height: 0.96;
+  --text-h3--letter-spacing: -0.025em;
+  --text-h3--font-weight: 900;
+
+  --text-h4: clamp(1.0625rem, 1.5vw, 1.3rem);
+  --text-h4--line-height: 1.08;
+  --text-h4--letter-spacing: -0.02em;
+  --text-h4--font-weight: 900;
+
+  --text-numeral: clamp(3.25rem, 6.6vw, 6rem);
+  --text-numeral--line-height: 0.8;
+  --text-numeral--letter-spacing: -0.04em;
+  --text-numeral--font-weight: 900;
+
+  /* Tracked-out uppercase labels: eyebrows, rail nav, taglines. */
+  --text-eyebrow: 0.8125rem;
+  --text-eyebrow--line-height: 1.5;
+  --text-eyebrow--letter-spacing: 0.2em;
+  --text-eyebrow--font-weight: 800;
+
+  --text-micro: 0.78rem;
+  --text-micro--line-height: 1.5;
+  --text-micro--letter-spacing: 0.1em;
+  --text-micro--font-weight: 700;
+
+  --text-rail: 0.8125rem;
+  --text-rail--line-height: 1.4;
+  --text-rail--letter-spacing: 0.14em;
+  --text-rail--font-weight: 700;
+
+  --text-lede: clamp(1rem, 1.2vw, 1.125rem);
+  --text-lede--line-height: 1.6;
+
+  /* --- metrics ---------------------------------------------------------- */
+  --spacing-rail: 8.5rem; /* the violet left rail */
+  --spacing-gutter: 4rem; /* content inset inside the rail */
+
+  /* The whole vertical rhythm. See the note at the top of this file. */
+  --spacing-band: clamp(3.5rem, 5.4vw, 5.5rem); /* padding-block per band */
+  --spacing-block: clamp(2.25rem, 3.4vw, 3.25rem); /* heading -> content */
+  --spacing-grid: 1.25rem; /* between sibling cards */
+  --spacing-card: clamp(1.5rem, 2.3vw, 2.25rem); /* card inner padding */
+
+  /* Square corners are the comp's whole posture. One token so a future
+     change of mind is one edit, not thirty. */
+  --radius-card: 0px;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--color-mu-black);
+    color: var(--color-mu-white);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-mu-violet);
+    outline-offset: 3px;
+  }
+
+  /* Violet and light surfaces take black focus rings — see the contrast
+     note at the top. `on-violet` / `on-pale` mark those surfaces. */
+  .on-violet :focus-visible,
+  .on-pale :focus-visible {
+    outline-color: var(--color-mu-black);
+  }
+
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.88em;
+    background: color-mix(in srgb, currentColor 12%, transparent);
+    padding: 0.1em 0.35em;
+  }
+
+  /* The browser's own accordion marker; the page draws a + instead. */
+  summary::-webkit-details-marker {
+    display: none;
+  }
+  summary {
+    list-style: none;
+  }
+}
+
+@layer components {
+  /* The content column: everything to the right of the rail.
+     64px of gutter at the 1440 design width, 20px on a phone. */
+  .wrap {
+    width: min(100%, 86rem);
+    margin-inline: auto;
+    padding-inline: clamp(1.25rem, 4.4vw, var(--spacing-gutter));
+  }
+
+  /* Every band on the page. The only vertical padding any section sets. */
+  .band {
+    padding-block: var(--spacing-band);
+  }
+
+  /* The lockup SVGs carry their own clear space inside the file: 15.625% of
+     the box width each side, 25.75% of the height top and bottom (measured
+     off the ink box, 200,103..1080,296 of 1280x400). `.wordmark` crops that
+     away so the mark can sit flush to a gutter, and the clear space
+     branding.md asks for comes from real layout margins instead. Set the box
+     width with `--wordmark-w`; the offsets follow it. */
+  .wordmark {
+    --wordmark-w: 26rem;
+    width: var(--wordmark-w);
+    max-width: none;
+    margin-left: calc(var(--wordmark-w) * -0.15625);
+    margin-block: calc(var(--wordmark-w) * -0.0804688);
+  }
+
+  /* The short rule that opens every section eyebrow. */
+  .eyebrow-rule {
+    display: block;
+    width: 2.25rem;
+    height: 2px;
+    flex: none;
+    background: currentColor;
+  }
+
+  /* The FAQ answer, once its <details> is open. The accordion itself is
+     native and needs no JavaScript; this is the only motion on it. */
+  .faq-answer {
+    animation: faq-answer-in 0.24s ease-out;
+  }
+}
+
+@keyframes faq-answer-in {
+  from {
+    opacity: 0;
+    transform: translateY(-0.375rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .faq-answer {
+    animation: none;
+  }
+}
