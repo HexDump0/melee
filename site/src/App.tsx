@@ -10,10 +10,9 @@ import { Footer } from './components/Footer.tsx';
 import { Header } from './components/Header.tsx';
 import { ToastProvider } from './components/Toast.tsx';
 import { useScrollSpy } from './hooks/useScrollSpy.ts';
-import { Docs } from './sections/Docs.tsx';
 import { Faq } from './sections/Faq.tsx';
 import { Hero } from './sections/Hero.tsx';
-import { Steps } from './sections/Steps.tsx';
+import { Features } from './sections/Features.tsx';
 import { TwoWays } from './sections/TwoWays.tsx';
 
 export function App() {
@@ -28,8 +27,9 @@ export function App() {
         Skip to content
       </a>
 
-      {/* The comp's slim violet edge, full height, behind nothing. */}
-      <div aria-hidden className="fixed inset-y-0 left-0 z-40 w-2 max-w-16 bg-mu-violet md:w-[3.3vw]" />
+      {/* The comp's slim violet edge; desktop only, where there is gutter
+          for it — on a phone it would eat the content's margin. */}
+      <div aria-hidden className="fixed inset-y-0 left-0 z-40 hidden max-w-16 bg-mu-violet md:block md:w-[3.3vw]" />
 
       <div id="top" className="flex min-h-svh flex-col">
         <Header active={active} />
@@ -37,9 +37,8 @@ export function App() {
       </div>
 
       <main id="main">
-        <Steps />
+        <Features />
         <TwoWays />
-        <Docs />
         <Faq />
       </main>
       <Footer />

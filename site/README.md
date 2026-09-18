@@ -33,7 +33,7 @@ site/
     ├── styles.css        ← the design tokens: @theme only, no component classes
     ├── lib/layout.ts     the two class strings (WRAP, BAND) every band shares
     ├── lib/links.ts      ← every off-site destination
-    ├── sections/         Hero, Steps, TwoWays, Docs, Faq — one band each
+    ├── sections/         Hero, Features, TwoWays, Faq — one band each
     ├── components/       Header, Footer, Button, StageWindow, SectionHeading,
     │                     Wordmark, Toast, icons
     └── hooks/            useScrollSpy, useDestination
@@ -149,11 +149,9 @@ navigation state rather than decoration.
    "Download desktop". There is no browser build — the WebAssembly in the
    project runs *mods*, not the game — so the browser-or-desktop section
    still marks that card **Planned**. The hero's doors are **Download**
-   (violet), pointing at `LINKS.releases` — the repository's releases page,
-   which is where a binary will appear — and **Discord** (outline). Until
-   the owner cuts a release and fills `LINKS.discord`, neither promises a
-   file: the unset Discord link says so in a toast, and the releases page is
-   simply empty. Never point Download at a file that does not exist.
+   (violet), which scrolls to the "How to play" section — it never offers a
+   file — and **Discord** (outline), which toasts until `LINKS.discord` is
+   filled in. Never point Download at a binary that does not exist.
 2. **The footer lockup.** The comp's page was drawn for a light footer; ours
    closes on black to mirror the header, so it uses the dark lockup. The
    light variant (`public/media/wordmark-light.svg`) stays for light surfaces
@@ -162,8 +160,8 @@ navigation state rather than decoration.
    video element. It plays `/media/gameplay.mp4` — the owner's own recording
    of the port, committed — and falls back to `/media/stage-loop.mp4`, a slow
    camera move generated from `stage.svg`, if the capture is ever removed.
-   Never add third-party gameplay here. The two-ways windows keep the drawn
-   frame, so only one video ever decodes.
+   Never add third-party gameplay here. The two-ways windows are stills —
+   the lockup on black — so only one video ever decodes.
 4. **The lockups are pre-cropped.** `public/media/wordmark*.svg` are the
    brand files with the clear space trimmed (`viewBox="200 103 880 193"`), so
    they size with a plain `w-*` class instead of the old negative-margin crop.
@@ -206,11 +204,9 @@ Keep the height even (946, not 945) — x264 rejects odd heights with yuv420p.
 1. **Discord.** `LINKS.discord` is empty, so the hero's Discord button
    toasts "link is not set yet" rather than going anywhere. Fill the entry in
    when the invite exists; the unset behaviour is deliberate.
-2. **Releases.** The Download button opens `LINKS.releases`; cut a GitHub
-   release and it fills in with no code change.
-3. **Open Graph image.** The cards have no `og:image` yet. The 1280×400
+2. **Open Graph image.** The cards have no `og:image` yet. The 1280×400
    banner in `/assets` is the intended one; it needs a hosted URL first.
-4. **Gameplay capture.** The 1080p master is `assets/gameplay.mp4`; the web
+3. **Gameplay capture.** The 1080p master is `assets/gameplay.mp4`; the web
    copy is `public/media/gameplay.mp4` (1280×720, 30fps, silent, ~5MB). The
    hero prefers the copy and falls back to `stage-loop.mp4` without it.
    Re-copy after a new recording:
@@ -226,9 +222,9 @@ Keep the height even (946, not 945) — x264 rejects odd heights with yuv420p.
 ## Copy
 
 Every claim on the page is checkable against the repo. There are no binary
-releases on the releases page yet, so Download leads there and the real path
-today is building from source. `content.tsx` says this at the top, where the
-copy actually lives.
+binary releases, so Download scrolls to the build steps and the real path is
+building from source. `content.tsx` says this at the top, where the copy
+actually lives.
 
 ## Palette and type
 

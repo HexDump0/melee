@@ -22,7 +22,7 @@ export function Hero() {
             className="animate-enter-media order-2 self-start motion-reduce:animate-none xl:col-start-2 xl:row-start-1"
             style={{ animationDelay: '200ms' }}
           >
-            <StageWindow variant="browser" video />
+            <StageWindow variant="browser" media="video" />
           </div>
 
           <div className="animate-enter order-1 flex flex-col justify-center self-stretch motion-reduce:animate-none xl:col-start-1 xl:row-start-1">
@@ -34,7 +34,7 @@ export function Hero() {
 
             <div className="mt-8 flex max-w-sm flex-col gap-4">
               {HERO.doors.map((door) => (
-                <Button key={door.to} {...door} className="w-full" />
+                <Button key={door.label} {...door} className="w-full" />
               ))}
             </div>
           </div>

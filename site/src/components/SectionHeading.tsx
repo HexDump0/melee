@@ -11,19 +11,21 @@ type Props = {
   eyebrow: string;
   /** One entry per line of the title. */
   title: readonly string[];
+  /** The surface the heading sits on, which picks the eyebrow's colour. */
   tone: 'dark' | 'pale';
   /** Rendered under the title. */
   children?: ReactNode;
 };
 
+const EYEBROW = {
+  dark: 'text-mu-dim',
+  pale: 'text-mu-ink-dim',
+} as const;
+
 export function SectionHeading({ eyebrow, title, tone, children }: Props) {
   return (
     <div className="min-w-0">
-      <p
-        className={`flex items-center gap-4 text-eyebrow uppercase ${
-          tone === 'pale' ? 'text-mu-ink-dim' : 'text-mu-dim'
-        }`}
-      >
+      <p className={`flex items-center gap-4 text-eyebrow uppercase ${EYEBROW[tone]}`}>
         <span aria-hidden className="block h-0.5 w-9 flex-none bg-current" />
         {eyebrow}
       </p>

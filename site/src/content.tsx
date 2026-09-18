@@ -13,13 +13,12 @@
 import type { ComponentType, ReactNode, SVGProps } from 'react';
 import type { LinkKey } from './lib/links.ts';
 import {
-  BookIcon,
+  CheckCircleIcon,
   CubeIcon,
   DiscordIcon,
-  DocIcon,
   DownloadIcon,
   GlobeIcon,
-  HelpIcon,
+  MonitorIcon,
 } from './components/icons.tsx';
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>;
@@ -28,7 +27,7 @@ type Icon = ComponentType<SVGProps<SVGSVGElement>>;
 
 /** Section ids, in page order. The header, the footer and the scroll-spy all
     read this, so adding a section to the page means adding it here once. */
-export const SECTION_IDS = ['play', 'setup', 'download', 'docs', 'faq'] as const;
+export const SECTION_IDS = ['play', 'features', 'download', 'faq'] as const;
 export type SectionId = (typeof SECTION_IDS)[number];
 
 export type NavItem = { id: SectionId; label: string };
@@ -36,8 +35,8 @@ export type NavItem = { id: SectionId; label: string };
 /** The header's in-page links. "Source" is off-site and added by the header
     itself, because it is not a section. */
 export const NAV: NavItem[] = [
-  { id: 'setup', label: 'Setup' },
-  { id: 'docs', label: 'Docs' },
+  { id: 'features', label: 'Features' },
+  { id: 'download', label: 'Download' },
 ];
 
 /* --- hero --------------------------------------------------------------- */
@@ -53,44 +52,38 @@ export const HERO = {
   lede: 'Built from the game’s own decompiled source and run natively, not emulated. Free, open, and yours to build.',
   /** Closes the hero's floor rule, where the section links used to sit. */
   status: 'Beta',
-  /** The first door is the one that works today, so it is the filled one. */
+  /** The first door is the one that works today, so it is the filled one.
+      Download scrolls to the "How to play" section; Discord is off-site. */
   doors: [
-    { to: 'releases', icon: DownloadIcon, label: 'Download', tone: 'violet' },
+    { href: '#download', icon: DownloadIcon, label: 'Play', tone: 'violet' },
     { to: 'discord', icon: DiscordIcon, label: 'Discord', tone: 'outline' },
   ],
 } as const;
 
 /* --- three steps -------------------------------------------------------- */
 
-export type Step = { title: [string, string?]; body: ReactNode };
+export type Feature = { icon: Icon; title: string; body: ReactNode };
 
-export const STEPS: Step[] = [
+export const FEATURES: Feature[] = [
   {
-    title: ['Bring your', 'disc'],
-    body: (
-      <>
-        You supply your own copy of Melee v1.02 (<code>GALE01</code>). Nothing
-        here ships Nintendo's assets, and nothing here will.
-      </>
-    ),
+    icon: CheckCircleIcon,
+    title: '100% byte matched',
+    body: <>The decompilation builds matched to retail, function for function.</>,
   },
   {
-    title: ['Build it'],
-    body: (
-      <>
-        Clone with submodules, configure with CMake, build. The configure step
-        applies the portability patches for you.
-      </>
-    ),
+    icon: MonitorIcon,
+    title: 'OpenGL renderer',
+    body: <>Native GL/ES rendering — the game is ported, not emulated.</>,
   },
   {
-    title: ['Run it'],
-    body: (
-      <>
-        Point the binary at your image and play. Mods live in <code>mods/</code>;{' '}
-        <code>MELEE_NO_MODS=1</code> returns it to vanilla.
-      </>
-    ),
+    icon: GlobeIcon,
+    title: 'Web support',
+    body: <>The WebAssembly mod host runs in the browser today; the game build is next.</>,
+  },
+  {
+    icon: CubeIcon,
+    title: 'Mods',
+    body: <>WebAssembly mods, loaded straight from your disc image.</>,
   },
 ];
 
@@ -115,28 +108,17 @@ export const WAYS: WayCard[] = [
     tone: 'light',
     frame: 'browser',
     title: 'browser',
-    body: <>A goal, not a release. Today the WebAssembly runs mods, not the game.</>,
-    cta: { to: 'repo', icon: GlobeIcon, label: 'Follow the work', tone: 'violet' },
+    body: <>Melee Unbound build for WASM, except a bit of graphical issues and slightly less performance</>,
+    cta: { to: 'repo', icon: GlobeIcon, label: 'Play', tone: 'violet' },
   },
   {
     tone: 'violet',
     frame: 'app',
     title: 'desktop',
     badge: 'has more features',
-    body: <>Runs natively, compiled from the game&apos;s own source. You bring the disc.</>,
+    body: <>Runs natively, has more settings and is the recommended way to play.</>,
     cta: { to: 'repo', icon: DownloadIcon, label: 'Download', tone: 'outline' },
   },
-];
-
-/* --- documentation ------------------------------------------------------ */
-
-export type DocCard = { to: LinkKey; icon: Icon; title: string };
-
-export const DOC_CARDS: DocCard[] = [
-  { to: 'setup', icon: BookIcon, title: 'Setup guide' },
-  { to: 'docs', icon: DocIcon, title: 'Documentation' },
-  { to: 'mods', icon: CubeIcon, title: 'Mods' },
-  { to: 'issues', icon: HelpIcon, title: 'Issues' },
 ];
 
 /* --- faq ---------------------------------------------------------------- */
@@ -195,17 +177,9 @@ export const FAQS: Faq[] = [
 /* --- section headings --------------------------------------------------- */
 
 export const HEADINGS = {
-  setup: {
-    eyebrow: 'Get started',
-    title: ['Three steps', 'to play'],
-  },
   download: {
     eyebrow: 'Download',
     title: ['How to play'],
-  },
-  docs: {
-    eyebrow: 'Setup & documentation',
-    title: ['Everything you need'],
   },
   faq: {
     eyebrow: 'Quick answers',

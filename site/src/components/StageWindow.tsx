@@ -5,10 +5,10 @@
    points at a hosted build, because none exists. `app` is the desktop port's
    launcher: a title bar and a sidebar, the way the reference draws it.
 
-   The media itself is `stage.svg` — the line-art stage — used as the
-   video's poster, so the window is finished art before the capture loads.
-   A gameplay capture at `/media/gameplay.mp4` plays over it in the hero;
-   the two-ways cards stay stills, so only one video ever decodes. */
+   The hero's window plays the capture (`media="video"`), with `stage.svg`
+   as its poster. The two-ways windows are stills showing the lockup on
+   black — a title card rather than a screenshot — so only one video ever
+   decodes. */
 
 import { LockIcon, ReloadIcon } from './icons.tsx';
 
@@ -16,11 +16,11 @@ type Props = {
   variant: 'browser' | 'app';
   /** Browser chrome only: show a URL bar reading `localhost`. */
   url?: boolean;
-  /** Play the video rather than showing the still. */
-  video?: boolean;
+  /** `video` plays the capture; `banner` is the still title card. */
+  media?: 'banner' | 'video';
 };
 
-export function StageWindow({ variant, url = false, video = false }: Props) {
+export function StageWindow({ variant, url = false, media = 'banner' }: Props) {
   return (
     <div className="border border-mu-white/20 bg-mu-black shadow-[0_0_80px_-35px_rgba(255,255,255,0.35)]">
       {variant === 'browser' ? <BrowserBar url={url} /> : <AppBar />}
@@ -37,7 +37,7 @@ export function StageWindow({ variant, url = false, video = false }: Props) {
         }
       >
         {variant === 'app' && <AppSidebar />}
-        <Media video={video} />
+        <Media media={media} />
       </div>
     </div>
   );
@@ -96,10 +96,10 @@ function AppSidebar() {
   );
 }
 
-function Media({ video }: { video: boolean }) {
-  return (
-    <div className="grid min-h-0 grid-rows-[minmax(0,1fr)] overflow-hidden">
-      {video ? (
+function Media({ media }: { media: 'banner' | 'video' }) {
+  if (media === 'video') {
+    return (
+      <div className="grid min-h-0 grid-rows-[minmax(0,1fr)] overflow-hidden">
         <video
           autoPlay
           muted
@@ -113,16 +113,19 @@ function Media({ video }: { video: boolean }) {
               itself flies, generated from stage.svg. */}
           <source src="/media/stage-loop.mp4" type="video/mp4" />
         </video>
-      ) : (
-        <img
-          src="/media/stage.svg"
-          alt=""
-          aria-hidden
-          width={1600}
-          height={900}
-          className="col-start-1 row-start-1 h-full w-full select-none bg-mu-card object-cover"
-        />
-      )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid min-h-0 place-items-center overflow-hidden bg-mu-card p-8">
+      <img
+        src="/media/wordmark.svg"
+        alt="Melee Unbound"
+        width={880}
+        height={193}
+        className="w-3/5 max-w-lg select-none"
+      />
     </div>
   );
 }
