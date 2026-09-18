@@ -1036,6 +1036,230 @@ static int check_hat_rendermodes(const char* path, unsigned char* joint,
     return failed;
 }
 
+/*
+ * Every fighter's `ftData->x48_items` articles, checked the way P-842 checks
+ * Kirby's hats: follow each article's model to its joint tree and assert every
+ * `MObjDesc.rendermode` lands on one of `DObjLoad`'s cases.
+ *
+ * This is the check the Samus (P-815), Kirby, Yoshi, Sheik and Game & Watch
+ * (P-765) bugs all needed and none of them had.  Each was found by a player
+ * using a move, reported as a panic, and diagnosed one archive at a time,
+ * because the `x48_items` walk stops at the first slot that fails its
+ * heuristics and **a run that stops early looks exactly like a run that
+ * finished** -- no statistic counts the articles it never reached (G-218).
+ *
+ * Relocation targets are already in host order for the whole archive, so the
+ * pointer chain below is followable even through slots the converter's walk
+ * never reached.  `rendermode` is not a pointer, so it is still big-endian in
+ * exactly those slots, which is what makes it the detector.
+ */
+static int check_ft_articles_one(const char* path, unsigned char* ft_data,
+                                 const unsigned char* buffer, size_t size,
+                                 unsigned* articles, unsigned* mobjs)
+{
+    unsigned char* items = read_host_ptr(ft_data + 0x48);
+    int failed = 0;
+    int k;
+
+    if (items == NULL || !ptr_in_buffer(items, buffer, size)) {
+        return 0;
+    }
+    for (k = 0; k < 32; k++) {
+        unsigned char* slot = items + (size_t) k * 4;
+        unsigned char* article;
+        unsigned char* model;
+        unsigned char* joint;
+
+        if (!ptr_in_buffer(slot, buffer, size)) {
+            break;
+        }
+        article = read_host_ptr(slot);
+        if (article == NULL) {
+            continue; /* a legal hole: the table is indexed by item kind */
+        }
+        if (!ptr_in_buffer(article, buffer, size)) {
+            break;
+        }
+        model = read_host_ptr(article + 0x10);
+        if (model == NULL || !ptr_in_buffer(model, buffer, size)) {
+            continue;
+        }
+        joint = read_host_ptr(model + 0x00);
+        if (joint == NULL || !ptr_in_buffer(joint, buffer, size)) {
+            continue;
+        }
+        (*articles)++;
+        failed |= check_hat_rendermodes(path, joint, buffer, size, mobjs, 0);
+    }
+    return failed;
+}
+
+int check_fighter_articles(const char* image)
+{
+    DiscFileList list;
+    char error[256];
+    unsigned files = 0;
+    unsigned articles = 0;
+    unsigned mobjs = 0;
+    size_t i;
+    int failed = 0;
+
+    if (disc_list(image, "Pl", ".dat", &list, error, sizeof(error)) != 0) {
+        fprintf(stderr, "decomp_assets: Pl*.dat: %s\n", error);
+        return 1;
+    }
+    for (i = 0; i < list.count; i++) {
+        const char* path = list.names[i];
+        size_t size = 0;
+        unsigned char* buffer;
+        HsdConvertStats stats;
+        HSD_Archive archive;
+        unsigned char* ft_data = NULL;
+        int j;
+
+        /* Kirby's copies carry `ftDataKirbyCopy` and are P-842's business. */
+        if (strncmp(path, "PlKbCp", 6) == 0) {
+            continue;
+        }
+        buffer = load_archive(image, path, NULL, &size, error, sizeof(error));
+        if (buffer == NULL) {
+            continue;
+        }
+        if (!hsd_asset_convert(buffer, size, &stats) ||
+            HSD_ArchiveParse(&archive, buffer, size) != 0)
+        {
+            free(buffer);
+            continue;
+        }
+        for (j = 0; (uint32_t) j < archive.header.nb_public && ft_data == NULL;
+             j++)
+        {
+            const char* name = archive.symbols + archive.public_info[j].symbol;
+            if (strncmp(name, "ftData", 6) == 0) {
+                ft_data = HSD_ArchiveGetPublicAddress(&archive, name);
+            }
+        }
+        if (ft_data != NULL) {
+            files++;
+            failed |= check_ft_articles_one(path, ft_data, buffer, size,
+                                            &articles, &mobjs);
+        }
+        free(buffer);
+    }
+    disc_list_free(&list);
+    if (files < 25) {
+        fprintf(stderr, "decomp_assets: %u fighter data archives (want >=25)\n",
+                files);
+        failed = 1;
+    }
+    if (!failed) {
+        printf("decomp_assets: fighter articles files=%u articles=%u "
+               "mobjs=%u rendermodes ok\n",
+               files, articles, mobjs);
+    }
+    return failed;
+}
+
+/*
+ * The same check over `ItCo`'s three `Article*` tables -- 43 common, 118
+ * character, 47 pokemon -- which is where the articles that are not a
+ * fighter's own live.  The Ice Climbers' ice block is one of these
+ * (`itclimbersice.c`, `It_Kind_IceClimber_Ice`), reached from Popo's neutral
+ * special and from Kirby's copy of it.
+ */
+static int check_item_table(const char* path, unsigned char* table, int count,
+                            const unsigned char* buffer, size_t size,
+                            unsigned* articles, unsigned* mobjs)
+{
+    int failed = 0;
+    int i;
+
+    if (table == NULL || !ptr_in_buffer(table, buffer, size)) {
+        return 0;
+    }
+    for (i = 0; i < count; i++) {
+        unsigned char* slot = table + (size_t) i * 4;
+        unsigned char* article;
+        unsigned char* model;
+        unsigned char* joint;
+
+        if (!ptr_in_buffer(slot, buffer, size)) {
+            break;
+        }
+        article = read_host_ptr(slot);
+        if (article == NULL || !ptr_in_buffer(article, buffer, size)) {
+            continue;
+        }
+        model = read_host_ptr(article + 0x10);
+        if (model == NULL || !ptr_in_buffer(model, buffer, size)) {
+            continue;
+        }
+        joint = read_host_ptr(model + 0x00);
+        if (joint == NULL || !ptr_in_buffer(joint, buffer, size)) {
+            continue;
+        }
+        (*articles)++;
+        failed |= check_hat_rendermodes(path, joint, buffer, size, mobjs, 0);
+    }
+    return failed;
+}
+
+int check_item_articles(const char* image)
+{
+    static const char* const names[] = { "ItCo.dat", "ItCo.usd" };
+    char error[256];
+    unsigned articles = 0;
+    unsigned mobjs = 0;
+    size_t n;
+    int found = 0;
+    int failed = 0;
+
+    for (n = 0; n < sizeof(names) / sizeof(names[0]); n++) {
+        size_t size = 0;
+        unsigned char* buffer =
+            load_archive(image, names[n], NULL, &size, error, sizeof(error));
+        HsdConvertStats stats;
+        HSD_Archive archive;
+        unsigned char* pub;
+
+        if (buffer == NULL) {
+            continue; /* one of the two spellings is the one on this disc */
+        }
+        if (!hsd_asset_convert(buffer, size, &stats) ||
+            HSD_ArchiveParse(&archive, buffer, size) != 0)
+        {
+            fprintf(stderr, "decomp_assets: %s conversion failed\n", names[n]);
+            free(buffer);
+            failed = 1;
+            continue;
+        }
+        pub = HSD_ArchiveGetPublicAddress(&archive, "itPublicData");
+        if (pub == NULL || !ptr_in_buffer(pub, buffer, size)) {
+            free(buffer);
+            continue;
+        }
+        found = 1;
+        /* Counts are the item-kind enum spans (it/forward.h), the same three
+         * the converter walks. */
+        failed |= check_item_table(names[n], read_host_ptr(pub + 0x04), 43,
+                                   buffer, size, &articles, &mobjs);
+        failed |= check_item_table(names[n], read_host_ptr(pub + 0x08), 118,
+                                   buffer, size, &articles, &mobjs);
+        failed |= check_item_table(names[n], read_host_ptr(pub + 0x0C), 47,
+                                   buffer, size, &articles, &mobjs);
+        free(buffer);
+    }
+    if (!found) {
+        fprintf(stderr, "decomp_assets: no ItCo archive with itPublicData\n");
+        return 1;
+    }
+    if (!failed) {
+        printf("decomp_assets: item articles=%u mobjs=%u rendermodes ok\n",
+               articles, mobjs);
+    }
+    return failed;
+}
+
 int check_kirby_hats(const char* image)
 {
     DiscFileList list;
@@ -1043,6 +1267,7 @@ int check_kirby_hats(const char* image)
     unsigned hats = 0;
     unsigned models = 0;
     unsigned mobjs = 0;
+    unsigned hat_articles = 0;
     size_t i;
     int failed = 0;
 
@@ -1107,6 +1332,52 @@ int check_kirby_hats(const char* image)
             failed |= check_hat_rendermodes(path, joint, buffer, size, &mobjs,
                                             0);
         }
+        /*
+         * The `hat_dynamics[0..6]` slots at +0x0C, which P-842 taught the
+         * converter to walk and then checked nothing about.  The hat's own
+         * joint tree was the only thing validated, so an article slot that
+         * the walk reached but mis-walked looked exactly like one it got
+         * right -- and every item Kirby's copied specials spawn hangs off
+         * these.  The owner's `0x3c001060` panic came out of one.
+         *
+         * Read as articles: `Article.x10_modelDesc->x0_joint`, the chain
+         * `item.c:578` uses.  A slot holding something else (a joint, anim
+         * joint, dynamics) will not produce an in-buffer joint through two
+         * more indirections, so it is skipped rather than misread.
+         */
+        for (j = 0; j < 7; j++) {
+            unsigned char* slot = hat + 0x0C + (size_t) j * 4;
+            unsigned char* article;
+            unsigned char* model;
+            unsigned char* ajoint;
+
+            if (!ptr_in_buffer(slot, buffer, size)) {
+                break;
+            }
+            article = read_host_ptr(slot);
+            if (article == NULL || !ptr_in_buffer(article, buffer, size)) {
+                continue;
+            }
+            model = read_host_ptr(article + 0x10);
+            if (model == NULL || !ptr_in_buffer(model, buffer, size)) {
+                continue;
+            }
+            ajoint = read_host_ptr(model + 0x00);
+            if (ajoint == NULL || !ptr_in_buffer(ajoint, buffer, size)) {
+                continue;
+            }
+            hat_articles++;
+            if (getenv("MELEE_KBHAT_TRACE") != NULL) {
+                fprintf(stderr,
+                        "[kbhat] %s slot=%d article=+0x%lx model=+0x%lx "
+                        "joint=+0x%lx\n",
+                        path, j, (unsigned long) (article - buffer),
+                        (unsigned long) (model - buffer),
+                        (unsigned long) (ajoint - buffer));
+            }
+            failed |= check_hat_rendermodes(path, ajoint, buffer, size, &mobjs,
+                                            0);
+        }
         free(buffer);
     }
     disc_list_free(&list);
@@ -1116,9 +1387,9 @@ int check_kirby_hats(const char* image)
         failed = 1;
     }
     if (!failed) {
-        printf("decomp_assets: Kirby hats=%u models=%u mobjs=%u "
+        printf("decomp_assets: Kirby hats=%u models=%u articles=%u mobjs=%u "
                "rendermodes ok\n",
-               hats, models, mobjs);
+               hats, models, hat_articles, mobjs);
     }
     return failed;
 }

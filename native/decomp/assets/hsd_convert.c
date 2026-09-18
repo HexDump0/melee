@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 137u
+#define HSD_CONVERTER_VERSION 138u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -283,6 +283,20 @@ static int mark(Conv* c, uint32_t off)
 {
     if ((size_t) off >= c->data_size || c->seen[off]) {
         return 0;
+    }
+    {
+        /* MELEE_MARK_WATCH=<hex>: name the walker that claims a descriptor
+         * first.  `mark` is the one chokepoint every walker goes through, and
+         * "who got here before me" is otherwise unanswerable -- the second
+         * walker only sees a bit that is already set, which is exactly what
+         * hid P-866.  Run under `setarch -R` and `addr2line -f -e <binary>
+         * <addr>` names it. */
+        const char* watch = getenv("MELEE_MARK_WATCH");
+        if (watch != NULL && (uint32_t) strtoul(watch, NULL, 16) == off) {
+            fprintf(stderr, "[mark] +0x%x size=%lu claimed from %p\n", off,
+                    (unsigned long) c->data_size,
+                    __builtin_return_address(0));
+        }
     }
     c->seen[off] = 1;
     return 1;
@@ -3870,7 +3884,35 @@ static void conv_ft_vis_lookup(Conv* c, uint32_t off, int model_num)
 {
     int m;
 
-    if (!in_data(c, off, 8) || !mark(c, off)) {
+    if (!in_data(c, off, 8)) {
+        return;
+    }
+    /*
+     * Prove it is a lookup before claiming it (P-866).
+     *
+     * `conv_ft_vis_table` sweeps a fixed 8x4 grid because nothing in the
+     * archive states how many costumes a fighter has, and it treats a NULL
+     * entry as a hole rather than an end.  Past the real end of a short table
+     * the words it reads still carry relocations, so it handed this walker
+     * whatever they pointed at -- and marking is irreversible: the descriptor
+     * is claimed, `conv_joint` finds the bit already set and returns, and a
+     * whole joint tree stays big-endian.  That is a `HSD_Panic` in `DObjLoad`
+     * the first time the model is loaded, not a rendering glitch: the owner's
+     * `0x3c001060` is `0x6010003c` read from the wrong end.
+     *
+     * The shape settles it.  A real `FtPartsVisLookup` is
+     * `{ int count; TempS* }` -- a numeric count and a pointer -- so the
+     * second word is a relocation and the first is not.  An `HSD_JObjDesc`
+     * root, which is what the overrun actually found in `PlKbCpPe`,
+     * `PlKbCpPp` and `PlKbCpSk`, has a NULL `class_name` and a numeric
+     * `flags`, so neither word is.  A lookup with a NULL `TempS*` is refused
+     * too and loses nothing: its only numeric field is a zero count, which
+     * reads the same from either end.
+     */
+    if (c->reloc[off] || !c->reloc[off + 4]) {
+        return;
+    }
+    if (!mark(c, off)) {
         return;
     }
     for (m = 0; m < model_num; m++) {

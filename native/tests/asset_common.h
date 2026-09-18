@@ -84,6 +84,10 @@ int check_converted_joint(const char* tag, const unsigned char* rdata, const uns
 int check_respawn_platform(const char* image);
 int check_cpu_attack_tables(const char* image);
 int check_kirby_hats(const char* image);
+/* Every fighter's x48_items articles, rendermodes checked (P-866). */
+int check_fighter_articles(const char* image);
+/* ItCo's common/character/pokemon Article tables (P-866). */
+int check_item_articles(const char* image);
 int check_archive(const char* image, const char* path, ModelResult* result, int require_public);
 int cache_check(const char* image, const char* path);
 
