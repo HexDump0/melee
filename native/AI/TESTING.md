@@ -664,11 +664,24 @@ offscreen pixel probe gets, and grading `decomp_efb` or `decomp_parity` is not
 a feature, it is a broken test.  The player-facing default lives in
 `viewer_main.c`, next to the window.
 
-Two numbers worth re-measuring if the tuning changes.  **Mean luminance of lit
-pixels** (>8) should hold within a couple of percent between the two captures
--- if it drifts, the exposure is fighting the ACES curve and the grade reads as
-a brightness change rather than a grade.  **Clipped fraction** (>=250) should
-fall to ~0: that is what the curve is for, and on GrIz it goes 8.42% -> 0.00%.
+**Measure local contrast, not brightness.**  The first tuning shipped a white
+haze over the whole picture and held mean luminance to within **0.4%** while
+doing it (182.90 -> 182.22 on GrIz).  Brightness and clipping were the only
+things being measured, and neither can see haze.  The metric that can is mean
+**|Laplacian|** of the luma -- local detail -- which read **-8.5%** on the same
+pair.  It should come out *positive*; the shipped defaults give +15% on GrIz,
++22% on GrOp, +34% on GrPs and +47% on GrNBa.
+
+Global standard deviation is a **trap** on a stage that was clipping.  GrIz
+loses 15% of its spread under the grade, which looks like washout and is the
+opposite: 7.47% of that frame was pinned at pure white, and pixels pinned at a
+rail inflate the spread.  The clipped fraction going 7.47% -> 0.00% and detail
+going up is the same event.  Trust detail, and read `sd` only alongside the
+clipped fraction.
+
+**Clipped fraction** (>=250) should fall to ~0 -- that is what the curve is
+for.  Note the rim light on its own *raises* it (7.47% -> 14.45% on GrIz),
+which is why the two halves belong together.
 
 To isolate the rim light, build with `CINE_RIM` at `0.0f` and diff against the
 normal build; it should change ~5% of pixels with a large maximum, which is a
@@ -685,3 +698,8 @@ MELEE_CINEMATIC_TUNE="rim=0.9,bloom=0.8,wide=0.6,sharpen=0.5" ./build/native/mel
 Keys: `rim bloom wide sharpen exposure sat vignette threshold knee`.  Each one
 accepted prints its value and an unknown key is reported, because a silent typo
 looks exactly like a setting that does nothing.
+
+`post=0` keeps the rim light and skips every framebuffer pass; `rim=0` does the
+opposite; `aniso=0` drops the only part that changes CPU-side behaviour.  Those
+three split the preset into its independent halves, which is how P-865 gets
+narrowed without a rebuild per guess.

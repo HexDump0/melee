@@ -1153,27 +1153,36 @@ static const char* FRAGMENT_SRC =
 
 
 /*
- * Thresholds are in linear light, not in the 0-1 of the colour buffer: 0.50
- * linear is about 0.74 on screen, which sits just above Melee's lit diffuse
- * range, so skin and cloth do not glow and specular highlights, energy
- * effects and emissive stage work do.
+ * Thresholds are in linear light, not in the 0-1 of the colour buffer.
  *
- * The exposure exists to pay for the curve.  ACES lifts midtones -- without
+ * **0.90 linear is about 0.96 on screen, and it is high on purpose.**  The
+ * first version used 0.50 -- roughly 0.74 on screen -- reasoning that it sat
+ * above Melee's lit diffuse range.  It does not.  Melee's stages are bright
+ * pastel work: Dream Land's grass and canopy are most of the frame and most of
+ * the frame was over the line, so the whole picture bloomed into a white haze.
+ * Only things that are genuinely near-white -- specular hits, energy, flashes
+ * -- should be over it.
+ *
+ * The exposure exists to pay for the curve.  ACES lifts midtones, so without
  * it the grade reads as "someone turned the brightness up" rather than as a
- * grade -- so it is set to hold the frame's mean luminance while the curve
- * does its work at the top end.
+ * grade.
+ *
+ * Re-tuning these means re-measuring **local contrast**, not brightness.  The
+ * haze above held mean luminance to within 0.4% (182.90 -> 182.22 on GrIz)
+ * while destroying detail, which is exactly why it shipped: the metrics in
+ * use at the time could not see it.  See TESTING.md.
  */
-#define CINE_THRESHOLD 0.50f
+#define CINE_THRESHOLD 0.90f
 #define CINE_KNEE 0.18f
-#define CINE_BLOOM 0.60f
-#define CINE_EXPOSURE 0.80f
+#define CINE_BLOOM 0.20f
+#define CINE_EXPOSURE 0.85f
 #define CINE_SATURATION 1.10f
 #define CINE_VIGNETTE 0.26f
 /* Bloom is built at two scales: a tight glow that hugs the source and a
  * wide halo at a quarter resolution.  One Gaussian can be tight or wide,
  * not both, and a single wide one is what makes bloom look like fog. */
-#define CINE_BLOOM_WIDE 0.45f
-#define CINE_RIM 0.55f
+#define CINE_BLOOM_WIDE 0.10f
+#define CINE_RIM 0.35f
 #define CINE_SHARPEN 0.35f
 
 /*
@@ -1201,6 +1210,10 @@ static float cine_knee_v = CINE_KNEE;
  * texture cache key, so raising it turns cache hits into full decodes.
  * `aniso=0` isolates that from the purely GPU-side passes. */
 static float cine_aniso_v = 3.0f; /* 1<<3 = 8x */
+/* `post=0` keeps the rim light and skips every framebuffer pass; `rim=0`
+ * does the opposite.  The preset has exactly two halves that touch
+ * anything outside a shader, and P-865 needs them split. */
+static float cine_post_v = 1.0f;
 
 static void cine_load_tuning(void)
 {
@@ -1213,6 +1226,7 @@ static void cine_load_tuning(void)
         { "exposure", &cine_exposure_v }, { "sat", &cine_sat_v },
         { "vignette", &cine_vignette_v }, { "threshold", &cine_threshold_v },
         { "knee", &cine_knee_v },         { "aniso", &cine_aniso_v },
+        { "post", &cine_post_v },
     };
     const char* env = getenv("MELEE_CINEMATIC_TUNE");
     const char* p;
@@ -3402,7 +3416,7 @@ static void cine_blit(void)
  */
 static void apply_cinematic(void)
 {
-    if (!gl_options.cinematic || cine_failed) {
+    if (!gl_options.cinematic || cine_failed || cine_post_v == 0.0f) {
         return;
     }
     if (!cine_build() || !cine_resize()) {
@@ -3488,10 +3502,16 @@ static void apply_cinematic(void)
     glUniform1f(u_cine_comp_vignette, cine_vignette_v);
     cine_blit();
 
+    glActiveTexture(GL_TEXTURE2);
+    /* Unbind every unit this pass touched, not just the last one.  The
+     * backend's own unit bookkeeping is reset per frame, but leaving a
+     * cinematic texture bound to unit 2 means anything that samples without
+     * binding reads it. */
     glBindTexture(GL_TEXTURE_2D, 0);
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, 0);
     glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 int gx_gl_render_frame(void)
