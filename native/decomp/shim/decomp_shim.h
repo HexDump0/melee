@@ -133,4 +133,26 @@
     ((hi) = (u16) ((u32) (value) >> 16), (lo) = (u16) (u32) (value))
 #endif
 
+
+/*
+ * A global symbol aliased to an offset inside another object (ADR-0011).
+ *
+ * The decompilation has a handful of console symbols that are really windows
+ * into one larger block -- `lbl_8046E38C` is `Results_block_8046E1B0 + 0x1DC`.
+ * The port expresses them as assembler aliases, which needs one thing the C
+ * source cannot see: **i386-PE prefixes every C symbol with an underscore and
+ * ELF does not**, so an alias written for Linux resolves to nothing on MinGW
+ * and the link fails with an undefined reference to a symbol that is plainly
+ * defined two lines above. `__USER_LABEL_PREFIX__` is the compiler's own
+ * answer to that question -- `_` there, empty here.
+ *
+ * PORT_PC only; the GameCube build never sees these.
+ */
+#define MELEE_ASM_STR2(x) #x
+#define MELEE_ASM_STR(x) MELEE_ASM_STR2(x)
+#define MELEE_ASM_LP MELEE_ASM_STR(__USER_LABEL_PREFIX__)
+#define MELEE_ASM_ALIAS(alias, base, offset)                                  \
+    __asm__(".globl " MELEE_ASM_LP #alias "\n"                                \
+            ".set " MELEE_ASM_LP #alias ", " MELEE_ASM_LP #base " + " #offset)
+
 #endif /* MELEE_NATIVE_DECOMP_SHIM_H */

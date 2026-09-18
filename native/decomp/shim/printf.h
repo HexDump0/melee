@@ -10,12 +10,14 @@
  */
 #ifndef MELEE_SHIM_PRINTF_H
 #define MELEE_SHIM_PRINTF_H
-/* Searched before the system directory, so hand native builds back to glibc's
- * real <printf.h> rather than quietly replacing it. */
-#ifndef PORT_WASM
-#include_next <printf.h>
-#else
+/* Searched before the system directory, so hand glibc builds back to its real
+ * <printf.h> rather than quietly replacing it.  Everywhere without one --
+ * musl by way of Emscripten, and MinGW -- gets the standard declarations,
+ * which is all the callers use. */
+#if defined(PORT_WASM) || defined(_WIN32)
 #include <stdarg.h>
 #include <stdio.h>
+#else
+#include_next <printf.h>
 #endif
 #endif

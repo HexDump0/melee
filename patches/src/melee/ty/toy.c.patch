@@ -1,8 +1,8 @@
 diff --git a/src/melee/ty/toy.c b/src/melee/ty/toy.c
-index 1e5fd2f52..5b27177e5 100644
+index 1e5fd2f52..874c23755 100644
 --- a/src/melee/ty/toy.c
 +++ b/src/melee/ty/toy.c
-@@ -241,11 +241,52 @@ bool un_80304780(void)
+@@ -241,11 +241,50 @@ bool un_80304780(void)
      { 7, 65 }, { 6, 66 }, { 5, 67 }, { 4, 68 }, { 3, 69 },
      { 2, 70 }, { 0, 73 }, { 1, 88 }, { 8, 83 },
  };
@@ -41,10 +41,8 @@ index 1e5fd2f52..5b27177e5 100644
 +#define _Toy_804A26B8 (Toy_block_804A26B8.s26B8)
 +#define _Toy_devtext_buf_804A26C4 (Toy_block_804A26B8.dt26C4)
 +#define _Toy_devtext_buf_804A2750 (Toy_block_804A26B8.dt2750)
-+__asm__(".globl Toy_804A284C\n"
-+        ".set Toy_804A284C, Toy_block_804A26B8 + 0x194");
-+__asm__(".globl Toy_804A2AA8\n"
-+        ".set Toy_804A2AA8, Toy_block_804A26B8 + 0x3F0");
++MELEE_ASM_ALIAS(Toy_804A284C, Toy_block_804A26B8, 0x194);
++MELEE_ASM_ALIAS(Toy_804A2AA8, Toy_block_804A26B8, 0x3F0);
 +#else
  /* 4A26B8 */ static struct _Toy_804A26B8_t _Toy_804A26B8;
  /* 4A26C4 */ static char _Toy_devtext_buf_804A26C4[0x8C];
@@ -55,7 +53,7 @@ index 1e5fd2f52..5b27177e5 100644
  /* 4D5A40 */ static GXColor _Toy_color_E2E2E2FF = { 0xE2, 0xE2, 0xE2, 0xFF };
  /* 4D5A44 */ static GXColor _Toy_color_FF8020FF = { 0xFF, 0x80, 0x20, 0xFF };
  
-@@ -2044,19 +2085,46 @@ void Toy_80306D70(s32 arg0)
+@@ -2044,19 +2083,46 @@ void Toy_80306D70(s32 arg0)
          s32 idx;
          u8 kind;
  
@@ -102,7 +100,7 @@ index 1e5fd2f52..5b27177e5 100644
              data->archive =
                  lbArchive_80016DBC(_Toy_str_TyLight_dat, &sp14, sym, 0);
          }
-@@ -2075,8 +2143,16 @@ void Toy_80306D70(s32 arg0)
+@@ -2075,8 +2141,16 @@ void Toy_80306D70(s32 arg0)
                  HSD_GObj_80390CD4(data->gobj);
              }
          } else {
@@ -119,7 +117,7 @@ index 1e5fd2f52..5b27177e5 100644
              OSReport("*** Can not Load Light Label(%s)\n", sym);
              HSD_ASSERT(2253, 0);
          }
-@@ -2335,8 +2411,20 @@ void Toy_80307470(s32 arg0)
+@@ -2335,8 +2409,20 @@ void Toy_80307470(s32 arg0)
          tg->x0 = NULL;
      }
  
@@ -140,7 +138,7 @@ index 1e5fd2f52..5b27177e5 100644
  
      if (joint[0] != NULL) {
          tg->x0 = GObj_Create(9, 9, 0);
-@@ -2399,8 +2487,19 @@ void _Toy_803075E8(s32 arg0)
+@@ -2399,8 +2485,19 @@ void _Toy_803075E8(s32 arg0)
          Toy_sbss_804D6ED8->x8->x28->x4->x4->x40 = 9;
      }
  
@@ -160,7 +158,7 @@ index 1e5fd2f52..5b27177e5 100644
          joint = HSD_ArchiveGetPublicAddress(td->archive, *ptr);
          if (joint != NULL) {
              td->gobj = GObj_Create(4, 7, 0);
-@@ -5778,9 +5877,22 @@ void Toy_80310324(void)
+@@ -5778,9 +5875,22 @@ void Toy_80310324(void)
      Toy_803067BC(toy->x195, toy->x196);
  
      if (tg->x50 == NULL) {

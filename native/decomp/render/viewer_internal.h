@@ -12,7 +12,7 @@
 #define MELEE_VIEWER_INTERNAL_H
 
 #include <SDL3/SDL.h>
-#include <GLES3/gl3.h>
+#include "gx/gl_api.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>

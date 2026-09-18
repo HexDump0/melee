@@ -12,8 +12,14 @@
  */
 #include "decomp/gx/gx_gl.h"
 
+#ifndef _WIN32
+/* EGL is only used by `gx_gl_init`, the headless pbuffer probe the tests run.
+ * The game takes its context from SDL (`gx_gl_attach`), so a Windows build
+ * needs no EGL at all -- and there is none to link against. */
 #include <EGL/egl.h>
-#include <GLES3/gl3.h>
+#define MELEE_HAVE_EGL 1
+#endif
+#include "gx/gl_api.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -57,9 +63,11 @@ typedef struct {
     GLuint framebuffer;
 } GlDynamicCopy;
 
+#ifdef MELEE_HAVE_EGL
 static EGLDisplay egl_display = EGL_NO_DISPLAY;
 static EGLContext egl_context = EGL_NO_CONTEXT;
 static EGLSurface egl_surface = EGL_NO_SURFACE;
+#endif
 static int gl_width = 640;
 static int gl_height = 480;
 static float clear_color[4] = { 0.05f, 0.06f, 0.09f, 1.0f };
@@ -1661,6 +1669,7 @@ void gx_gl_clear_textures(void)
     dynamic_copy_count = 0;
 }
 
+#ifdef MELEE_HAVE_EGL
 int gx_gl_init(int width, int height, char* error, size_t error_size)
 {
     gx_hle_set_texture_invalidate_hook(gx_gl_invalidate_texture);
@@ -1726,6 +1735,20 @@ int gx_gl_init(int width, int height, char* error, size_t error_size)
     printf("gx_gl: GL_RENDERER=%s\n", (const char*) glGetString(GL_RENDERER));
     return gl_setup(error, error_size);
 }
+#else
+/* Windows has no EGL. The headless probe is a test-only entry point, so it
+ * reports rather than pretends: a caller that reaches it on this platform
+ * wants a window and has not made one. */
+int gx_gl_init(int width, int height, char* error, size_t error_size)
+{
+    (void) width;
+    (void) height;
+    snprintf(error, error_size,
+             "headless EGL rendering is not built on this platform; "
+             "create a window and use gx_gl_attach");
+    return 0;
+}
+#endif
 
 void gx_gl_set_clear(float r, float g, float b, float a)
 {
@@ -4008,6 +4031,10 @@ int gx_gl_write_ppm(FILE* f)
 
 void gx_gl_shutdown(void)
 {
+#ifndef MELEE_HAVE_EGL
+    /* Nothing to tear down: the context belongs to SDL on this platform. */
+}
+#else
     if (egl_display != EGL_NO_DISPLAY) {
         eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE,
                        EGL_NO_CONTEXT);
@@ -4023,3 +4050,4 @@ void gx_gl_shutdown(void)
     egl_context = EGL_NO_CONTEXT;
     egl_surface = EGL_NO_SURFACE;
 }
+#endif

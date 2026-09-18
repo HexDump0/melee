@@ -28,3 +28,19 @@ rather than in substance.
 **If you replace or re-export this asset**, keep both the attribution and the
 statement of modification. Dropping the wordmark removal in particular would
 put a trademark back into the UI.
+
+## OpenGL ES headers — The Khronos Group
+
+- **Used for:** the Windows build. Linux links `libGLESv2` and gets its
+  prototypes from the system headers; Windows has neither, so the API is
+  declared from Khronos' own headers and the entry points are fetched at run
+  time (`native/gx/gl_api.h`).
+- **Files:** `native/third_party/khronos/{GLES3/gl3.h, GLES3/gl3platform.h,
+  GLES2/gl2platform.h, KHR/khrplatform.h}`
+- **Source:** <https://registry.khronos.org/OpenGL/>
+- **Licence:** MIT (`gl3.h`) and Apache-2.0 (the platform headers), as each
+  file's own `SPDX-License-Identifier` states.
+
+**Unmodified**, deliberately: `gl_api.h` sets `GL_GLES_PROTOTYPES 0` to get the
+typedefs without the prototypes rather than editing the headers, so they can be
+replaced with a newer registry copy without re-applying anything.

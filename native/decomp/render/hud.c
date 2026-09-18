@@ -1,6 +1,6 @@
 #include "decomp/render/hud.h"
 
-#include <GLES3/gl3.h>
+#include "gx/gl_api.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>

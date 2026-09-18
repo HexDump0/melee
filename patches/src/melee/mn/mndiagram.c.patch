@@ -1,5 +1,5 @@
 diff --git a/src/melee/mn/mndiagram.c b/src/melee/mn/mndiagram.c
-index a1a4ff19a..b307eb9bc 100644
+index a1a4ff19a..72035b100 100644
 --- a/src/melee/mn/mndiagram.c
 +++ b/src/melee/mn/mndiagram.c
 @@ -25,6 +25,34 @@
@@ -45,7 +45,7 @@ index a1a4ff19a..b307eb9bc 100644
  
  #define GET_DIAGRAM(gobj) ((Diagram*) HSD_GObjGetUserData(gobj))
  
-@@ -73,8 +102,70 @@ typedef struct mnDiagram_PopupAnimTableHead {
+@@ -73,8 +102,60 @@ typedef struct mnDiagram_PopupAnimTableHead {
      /* 0x00 */ Point3d points[3];
  } mnDiagram_PopupAnimTableHead;
  
@@ -68,30 +68,20 @@ index a1a4ff19a..b307eb9bc 100644
 +STATIC_ASSERT(sizeof(struct mnDiagram_AssetBlock) == sizeof(mnDiagram_Assets));
 +STATIC_ASSERT(offsetof(struct mnDiagram_AssetBlock, names) ==
 +              offsetof(mnDiagram_Assets, sorted_names));
-+__asm__(".globl mnDiagram_FighterDisplayOrder\n"
-+        ".set mnDiagram_FighterDisplayOrder, mnDiagram_asset_block + 0x00");
-+__asm__(".globl mnDiagram_NameDisplayOrder\n"
-+        ".set mnDiagram_NameDisplayOrder, mnDiagram_asset_block + 0x1C");
++MELEE_ASM_ALIAS(mnDiagram_FighterDisplayOrder, mnDiagram_asset_block, 0x00);
++MELEE_ASM_ALIAS(mnDiagram_NameDisplayOrder, mnDiagram_asset_block, 0x1C);
 +/* The eight model descriptors, at the offsets `mnDiagram_Assets` gives their
 + * pointer arrays.  Each is four pointers, which is `sizeof(StaticModelDesc)`,
 + * and the static asserts below tie these numbers to the struct rather than to
 + * this comment. */
-+__asm__(".globl MenMainSubB1_Top\n"
-+        ".set MenMainSubB1_Top, mnDiagram_asset_block + 0x94");
-+__asm__(".globl MenMainNmB_Top\n"
-+        ".set MenMainNmB_Top, mnDiagram_asset_block + 0xA4");
-+__asm__(".globl MenMainFaceB_Top\n"
-+        ".set MenMainFaceB_Top, mnDiagram_asset_block + 0xB4");
-+__asm__(".globl MenMainCursorB1_Top\n"
-+        ".set MenMainCursorB1_Top, mnDiagram_asset_block + 0xC4");
-+__asm__(".globl MenMainConB1_Top\n"
-+        ".set MenMainConB1_Top, mnDiagram_asset_block + 0xD4");
-+__asm__(".globl MenMainConB2_Top\n"
-+        ".set MenMainConB2_Top, mnDiagram_asset_block + 0xE4");
-+__asm__(".globl MenMainConB3_Top\n"
-+        ".set MenMainConB3_Top, mnDiagram_asset_block + 0xF4");
-+__asm__(".globl MenMainCursorB3_Top\n"
-+        ".set MenMainCursorB3_Top, mnDiagram_asset_block + 0x104");
++MELEE_ASM_ALIAS(MenMainSubB1_Top, mnDiagram_asset_block, 0x94);
++MELEE_ASM_ALIAS(MenMainNmB_Top, mnDiagram_asset_block, 0xA4);
++MELEE_ASM_ALIAS(MenMainFaceB_Top, mnDiagram_asset_block, 0xB4);
++MELEE_ASM_ALIAS(MenMainCursorB1_Top, mnDiagram_asset_block, 0xC4);
++MELEE_ASM_ALIAS(MenMainConB1_Top, mnDiagram_asset_block, 0xD4);
++MELEE_ASM_ALIAS(MenMainConB2_Top, mnDiagram_asset_block, 0xE4);
++MELEE_ASM_ALIAS(MenMainConB3_Top, mnDiagram_asset_block, 0xF4);
++MELEE_ASM_ALIAS(MenMainCursorB3_Top, mnDiagram_asset_block, 0x104);
 +STATIC_ASSERT(sizeof(StaticModelDesc) == 4 * sizeof(void*));
 +STATIC_ASSERT(offsetof(mnDiagram_Assets, SubB1) == 0x94);
 +STATIC_ASSERT(offsetof(mnDiagram_Assets, NmB) == 0xA4);
@@ -116,7 +106,7 @@ index a1a4ff19a..b307eb9bc 100644
  
  static mnDiagram_PopupAnimTableHead mnDiagram_PopupTextOffsets = {
      {
-@@ -743,8 +834,12 @@ void mnDiagram_SortNamesByKOs(void)
+@@ -743,8 +824,12 @@ void mnDiagram_SortNamesByKOs(void)
      int max_idx;
      u8* dst_iter;
      int i;
@@ -129,7 +119,7 @@ index a1a4ff19a..b307eb9bc 100644
      u8* dst = assets->sorted_names;
      u32* tp;
      u8* candidate;
-@@ -1683,7 +1778,14 @@ void mnDiagram_PopupAnimProc(HSD_GObj* arg0)
+@@ -1683,7 +1768,14 @@ void mnDiagram_PopupAnimProc(HSD_GObj* arg0)
          text->default_alignment = 1;
      }
  
@@ -144,7 +134,7 @@ index a1a4ff19a..b307eb9bc 100644
      {
          HSD_Text* t;
          f32 y;
-@@ -1699,7 +1801,11 @@ void mnDiagram_PopupAnimProc(HSD_GObj* arg0)
+@@ -1699,7 +1791,11 @@ void mnDiagram_PopupAnimProc(HSD_GObj* arg0)
      }
      text->default_alignment = 1;
  
@@ -156,7 +146,7 @@ index a1a4ff19a..b307eb9bc 100644
          HSD_GObjProc_RemoveProc(HSD_GObj_CurrentInvokedProc);
      }
  }
-@@ -1910,8 +2016,13 @@ void mnDiagram_CreatePopup(s32 arg0, s32 arg1, s32 use_nametag)
+@@ -1910,8 +2006,13 @@ void mnDiagram_CreatePopup(s32 arg0, s32 arg1, s32 use_nametag)
  
      user_data = HSD_MemAlloc(sizeof(mnDiagram_PopupData));
      if (user_data == NULL) {
@@ -170,7 +160,7 @@ index a1a4ff19a..b307eb9bc 100644
      }
  
      GObj_InitUserData(gobj, 0, mnDiagram_PopupCleanup, user_data);
-@@ -2597,8 +2708,12 @@ void mnDiagram_DrawFighterHeaders(HSD_GObj* arg0, int arg1, int arg2)
+@@ -2597,8 +2698,12 @@ void mnDiagram_DrawFighterHeaders(HSD_GObj* arg0, int arg1, int arg2)
      HSD_JObj* row_jobj;
      int col_idx;
      int col_remaining;
@@ -183,7 +173,7 @@ index a1a4ff19a..b307eb9bc 100644
      f32 x_spacing;
      f32 y_spacing;
      int i;
-@@ -2873,8 +2988,12 @@ void mnDiagram_CreateScreen(u8 arg0)
+@@ -2873,8 +2978,12 @@ void mnDiagram_CreateScreen(u8 arg0)
  /// @param arg1 Initial mode (passed to mnDiagram_CreateScreen)
  void mnDiagram_Init(u8 arg0, u8 arg1)
  {

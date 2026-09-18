@@ -1,8 +1,8 @@
 diff --git a/src/melee/gm/gm_1798.c b/src/melee/gm/gm_1798.c
-index 071155858..e4362c723 100644
+index 071155858..6a8042072 100644
 --- a/src/melee/gm/gm_1798.c
 +++ b/src/melee/gm/gm_1798.c
-@@ -40,17 +40,61 @@
+@@ -40,17 +40,57 @@
  
  extern ResultsData lbl_8046DBE8;
  
@@ -33,14 +33,10 @@ index 071155858..e4362c723 100644
 +STATIC_ASSERT(offsetof(struct ResultsBlock_8046E1B0, s3AC) == 0x1FC);
 +STATIC_ASSERT(sizeof(struct ResultsBlock_8046E1B0) ==
 +              sizeof(ResultsDisplayLayout));
-+__asm__(".globl lbl_8046E1B0\n"
-+        ".set lbl_8046E1B0, Results_block_8046E1B0 + 0x000");
-+__asm__(".globl lbl_8046E38C\n"
-+        ".set lbl_8046E38C, Results_block_8046E1B0 + 0x1DC");
-+__asm__(".globl lbl_8046E39C\n"
-+        ".set lbl_8046E39C, Results_block_8046E1B0 + 0x1EC");
-+__asm__(".globl lbl_8046E3AC\n"
-+        ".set lbl_8046E3AC, Results_block_8046E1B0 + 0x1FC");
++MELEE_ASM_ALIAS(lbl_8046E1B0, Results_block_8046E1B0, 0x000);
++MELEE_ASM_ALIAS(lbl_8046E38C, Results_block_8046E1B0, 0x1DC);
++MELEE_ASM_ALIAS(lbl_8046E39C, Results_block_8046E1B0, 0x1EC);
++MELEE_ASM_ALIAS(lbl_8046E3AC, Results_block_8046E1B0, 0x1FC);
 +#else
  ResultsDisplayData lbl_8046E1B0;
  HSD_GObj* lbl_8046E38C[4];
@@ -70,7 +66,7 @@ index 071155858..e4362c723 100644
  
  /// @todo .sdata2 order hack
  #ifdef MUST_MATCH
-@@ -67,7 +111,14 @@ static void sdata2_order(void)
+@@ -67,7 +107,14 @@ static void sdata2_order(void)
  
  void fn_80179854(void)
  {
@@ -85,7 +81,7 @@ index 071155858..e4362c723 100644
      GXColor color1 = { 0, 0, 0, 0 };
      GXColor color2 = { 0, 0, 0, 0x3C };
      MatchEnd* match_end = &disp->state.match_end;
-@@ -134,7 +185,14 @@ static inline void fn_80179990_copy_efb_at(HSD_ImageDesc* imgs, int slot,
+@@ -134,7 +181,14 @@ static inline void fn_80179990_copy_efb_at(HSD_ImageDesc* imgs, int slot,
  
  void fn_80179990(HSD_GObj* arg0, int arg1, int arg2)
  {
@@ -100,7 +96,7 @@ index 071155858..e4362c723 100644
      MatchEnd* match_end = &disp->state.match_end;
      HSD_ImageDesc* image_desc1;
      HSD_CObj* cobj;
-@@ -316,7 +374,14 @@ void fn_8017A004(void)
+@@ -316,7 +370,14 @@ void fn_8017A004(void)
  
  void fn_8017A078(s32 arg0)
  {
@@ -115,7 +111,7 @@ index 071155858..e4362c723 100644
      ResultsPlayerConfig const* config = &lbl_803B7B68;
      Vec3 eye;
      Vec3 interest;
-@@ -364,12 +429,37 @@ void fn_8017A078(s32 arg0)
+@@ -364,12 +425,37 @@ void fn_8017A078(s32 arg0)
      GObj_SetupGXLinkMax(gobj, callbacks.funcs[arg0], 5);
  }
  
@@ -153,7 +149,7 @@ index 071155858..e4362c723 100644
      MatchEnd* match_end = &disp->state.match_end;
      s32 _pad[2];
      Scissor scissor;
-@@ -401,7 +491,7 @@ HSD_GObj* fn_8017A318(s32 arg0)
+@@ -401,7 +487,7 @@ HSD_GObj* fn_8017A318(s32 arg0)
      }
  
      gobj = GObj_Create(0x13, 0x14, 0);
@@ -162,7 +158,7 @@ index 071155858..e4362c723 100644
      HSD_GObjObject_80390A70(gobj, HSD_GObj_CameraKind, cobj);
  
      {
-@@ -416,28 +506,28 @@ HSD_GObj* fn_8017A318(s32 arg0)
+@@ -416,28 +502,28 @@ HSD_GObj* fn_8017A318(s32 arg0)
  
      kind_data = disp->state.char_kind[arg0];
      (void) kind_data;
@@ -197,7 +193,7 @@ index 071155858..e4362c723 100644
              interest.y += y_off;
          }
      }
-@@ -447,12 +537,12 @@ HSD_GObj* fn_8017A318(s32 arg0)
+@@ -447,12 +533,12 @@ HSD_GObj* fn_8017A318(s32 arg0)
      }
  
      vi = ((s32) variant <= 2) ? variant : 3;
@@ -213,7 +209,7 @@ index 071155858..e4362c723 100644
      }
  
      HSD_CObjSetEyePosition(cobj, &eye);
-@@ -463,12 +553,27 @@ HSD_GObj* fn_8017A318(s32 arg0)
+@@ -463,12 +549,27 @@ HSD_GObj* fn_8017A318(s32 arg0)
      if (slot == 0) {
          fn_8017A078(arg0);
      }
@@ -241,7 +237,7 @@ index 071155858..e4362c723 100644
      MatchEnd* match_end = &disp->state.match_end;
      HSD_GObj* gobj = NULL;
      int slot_type;
-@@ -576,7 +681,14 @@ static inline void inline1(HSD_ImageDesc* imgs, int slot, const u16* w,
+@@ -576,7 +677,14 @@ static inline void inline1(HSD_ImageDesc* imgs, int slot, const u16* w,
  
  void fn_8017A9B4(int slot)
  {

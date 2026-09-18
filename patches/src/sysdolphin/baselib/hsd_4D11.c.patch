@@ -1,8 +1,8 @@
 diff --git a/src/sysdolphin/baselib/hsd_4D11.c b/src/sysdolphin/baselib/hsd_4D11.c
-index 076608769..b5057961c 100644
+index 076608769..be6c3db62 100644
 --- a/src/sysdolphin/baselib/hsd_4D11.c
 +++ b/src/sysdolphin/baselib/hsd_4D11.c
-@@ -7,9 +7,24 @@
+@@ -7,9 +7,22 @@
  
  #include <Runtime/platform.h>
  
@@ -15,10 +15,8 @@ index 076608769..b5057961c 100644
 + * aliases into the base; allocating them separately splits the queue between
 + * its writers and the pump, which deadlocks the first file command (P-646). */
 +u8 hsd_804D1138[0x1510];
-+__asm__(".globl hsd_804D1148\n"
-+        ".set hsd_804D1148, hsd_804D1138 + 0x10");
-+__asm__(".globl hsd_804D2348\n"
-+        ".set hsd_804D2348, hsd_804D1138 + 0x1210");
++MELEE_ASM_ALIAS(hsd_804D1148, hsd_804D1138, 0x10);
++MELEE_ASM_ALIAS(hsd_804D2348, hsd_804D1138, 0x1210);
 +#else
  /* 4D2348 */ u8 hsd_804D2348[0x300];
  /* 4D1148 */ u32 hsd_804D1148[0x80][0x9];

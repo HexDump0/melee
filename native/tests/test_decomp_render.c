@@ -8,7 +8,7 @@
  *
  * Exit code 0 = rendered (SKIP without a disc image); non-zero = failure.
  */
-#include <GLES3/gl3.h>
+#include "gx/gl_api.h"
 #include <math.h>
 #include <placeholder.h>
 #include <sysdolphin/baselib/quatlib.h>
