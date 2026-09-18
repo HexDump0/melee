@@ -95,6 +95,26 @@ stdout and stderr, so the launcher's own stderr is a separate stream and never
 enters the captured log. Launching from the desktop entry the `.deb` installs
 sends it to the journal, where you will not see it. From a terminal, `2>/dev/null`.
 
+## Third-party assets
+
+The controller diagram on the Controls page is **GameCube Button Icons and
+Controls** by **Zacksly**, licensed **CC BY 3.0**
+(<https://creativecommons.org/licenses/by/3.0/>), from
+<https://zacksly.itch.io>.
+
+**It has been modified.** The licence requires saying so:
+
+- every `#000` stroke and fill became `currentColor`, so the page's palette
+  drives the art instead of a fixed black that would be invisible on it;
+- the "NINTENDO GAMECUBE" wordmark group was removed, because it is somebody
+  else's trademark and this is a launcher for a fan port.
+
+The modified file is `src/assets/gamecube-controller.svg`; the credit is also
+shown under the diagram in the app, which is where a reader of the UI can
+actually see it. The hotspots drawn over it are ours.
+
+The repository-level record is `THIRD-PARTY.md`.
+
 ## Design
 
 The palette, type and motion come from `site/src/styles.css`, which the

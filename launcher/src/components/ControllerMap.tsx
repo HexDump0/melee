@@ -1,23 +1,61 @@
 /* A controller you can click.
  *
- * Drawn rather than pulled from a component library: the palette is three
- * colours and square corners, and a third-party widget set would have to be
- * fought back to that on every control. This is one SVG with the same tokens
- * as everything else.
+ * The artwork is Zacksly's GameCube outline (CC BY 3.0), recoloured to
+ * `currentColor` so the page's own palette drives it and with the Nintendo
+ * wordmark removed -- see launcher/README.md for the attribution the licence
+ * requires, and `src/assets/gamecube-controller.svg` for the modified file.
  *
- * It is not decoration. The list below it answers "what is A bound to"; this
- * answers "what is this button on my controller called", which is the question
- * someone holding the pad is actually asking. Clicking a part starts the
- * rebind for it, and the part being bound pulses. */
+ * The hotspots are ours, positioned in the artwork's own 4096x2160 coordinate
+ * space so they sit on the drawn buttons rather than near them. It is not
+ * decoration: the list below answers "what is A bound to", this answers "which
+ * one of these is A", which is the question someone holding the pad is asking.
+ */
+import artRaw from "../assets/gamecube-controller.svg?raw";
 
-export type Part = {
-  action: string;
-  label: string;
-  /** Where the label sits, when the shape is too small to hold one. */
-  tag?: { x: number; y: number };
-};
+/* The file is a whole document; only its contents go inside our <svg>. */
+const ART = artRaw
+  .replace(/^[\s\S]*?<svg[^>]*>/, "")
+  .replace(/<\/svg>\s*$/, "");
 
 const VIOLET = "var(--color-mu-violet)";
+
+/* Read off the artwork: the circles carry their own centres, and the rest were
+ * measured against a render rather than guessed. */
+const BUTTONS: { action: string; cx: number; cy: number; r: number; label: string }[] = [
+  { action: "a", cx: 2582, cy: 833, r: 101, label: "A" },
+  { action: "b", cx: 2381, cy: 931, r: 61, label: "B" },
+  { action: "y", cx: 2528, cy: 645, r: 54, label: "Y" },
+  { action: "x", cx: 2775, cy: 800, r: 54, label: "X" },
+  { action: "start", cx: 2048, cy: 850, r: 42, label: "" },
+];
+
+/* L, R and Z are on the back edge and a top-down outline cannot show them, so
+ * they are labelled pills above the body rather than hotspots floating over
+ * artwork that does not depict them. */
+const SHOULDERS: { action: string; x: number; label: string }[] = [
+  { action: "l", x: 1360, label: "L" },
+  { action: "r", x: 2480, label: "R" },
+  { action: "z", x: 2800, label: "Z" },
+];
+
+const CLUSTERS: {
+  prefix: string;
+  cx: number;
+  cy: number;
+  spread: number;
+  size: number;
+}[] = [
+  { prefix: "stick", cx: 1514, cy: 829, spread: 42, size: 26 },
+  { prefix: "cstick", cx: 2334, cy: 1216, spread: 44, size: 26 },
+  { prefix: "dpad", cx: 1762, cy: 1214, spread: 64, size: 30 },
+];
+
+const DIRS = [
+  { key: "up", dx: 0, dy: -1 },
+  { key: "down", dx: 0, dy: 1 },
+  { key: "left", dx: -1, dy: 0 },
+  { key: "right", dx: 1, dy: 0 },
+];
 
 export default function ControllerMap({
   selected,
@@ -33,191 +71,102 @@ export default function ControllerMap({
    *  A part that looks clickable and is not is worse than one that does not. */
   interactive?: boolean;
 }) {
-  const fill = (action: string) =>
-    selected === action ? VIOLET : bound(action) ? "#24242a" : "transparent";
-  const stroke = (action: string) =>
-    selected === action ? VIOLET : bound(action) ? "#9a9aa4" : "#33333b";
-  const text = (action: string) =>
-    selected === action ? "#000000" : bound(action) ? "#ffffff" : "#55555f";
+  const fill = (a: string) =>
+    selected === a ? VIOLET : bound(a) ? "rgba(255,255,255,0.16)" : "transparent";
+  const stroke = (a: string) =>
+    selected === a ? VIOLET : bound(a) ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.2)";
+  const ink = (a: string) =>
+    selected === a ? "#000000" : bound(a) ? "#ffffff" : "rgba(255,255,255,0.35)";
 
-  const hit = (action: string) => ({
-    onClick: interactive ? () => onPick(action) : undefined,
+  const hit = (a: string) => ({
+    onClick: interactive ? () => onPick(a) : undefined,
     style: { cursor: interactive ? "pointer" : "default" } as const,
     className:
-      selected === action
-        ? "animate-attention motion-reduce:animate-none"
-        : undefined,
+      selected === a ? "animate-attention motion-reduce:animate-none" : undefined,
   });
 
-  const Round = ({
-    action,
-    cx,
-    cy,
-    r,
-    label,
-    size = 13,
-  }: {
-    action: string;
-    cx: number;
-    cy: number;
-    r: number;
-    label: string;
-    size?: number;
-  }) => (
-    <g {...hit(action)}>
-      <circle
-        cx={cx}
-        cy={cy}
-        r={r}
-        fill={fill(action)}
-        stroke={stroke(action)}
-        strokeWidth={2}
-      />
-      <text
-        x={cx}
-        y={cy + size * 0.35}
-        textAnchor="middle"
-        fontSize={size}
-        fontWeight={800}
-        fill={text(action)}
-      >
-        {label}
-      </text>
-    </g>
-  );
+  return (
+    <div className="w-full max-w-3xl">
+      <svg viewBox="0 0 4096 2160" role="group" aria-label="Controller map">
+        {/* the artwork, dimmed so the hotspots read on top of it */}
+        <g
+          className="text-white/50"
+          dangerouslySetInnerHTML={{ __html: ART }}
+        />
 
-  const Slab = ({
-    action,
-    x,
-    y,
-    w,
-    h,
-    label,
-  }: {
-    action: string;
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-    label: string;
-  }) => (
-    <g {...hit(action)}>
-      <rect
-        x={x}
-        y={y}
-        width={w}
-        height={h}
-        fill={fill(action)}
-        stroke={stroke(action)}
-        strokeWidth={2}
-      />
-      <text
-        x={x + w / 2}
-        y={y + h / 2 + 4}
-        textAnchor="middle"
-        fontSize={12}
-        fontWeight={800}
-        fill={text(action)}
-      >
-        {label}
-      </text>
-    </g>
-  );
+        {BUTTONS.map((b) => (
+          <g key={b.action} {...hit(b.action)}>
+            <circle
+              cx={b.cx}
+              cy={b.cy}
+              r={b.r}
+              fill={fill(b.action)}
+              stroke={stroke(b.action)}
+              strokeWidth={10}
+            />
+            {b.label ? (
+              <text
+                x={b.cx}
+                y={b.cy + b.r * 0.34}
+                textAnchor="middle"
+                fontSize={b.r}
+                fontWeight={800}
+                fill={ink(b.action)}
+              >
+                {b.label}
+              </text>
+            ) : null}
+          </g>
+        ))}
 
-  /* The stick and d-pad are four directions each, so they are drawn as a hub
-   * with four wedges rather than one shape -- you bind "stick up", never
-   * "stick". */
-  const Cluster = ({
-    prefix,
-    cx,
-    cy,
-    r,
-    title,
-  }: {
-    prefix: string;
-    cx: number;
-    cy: number;
-    r: number;
-    title: string;
-  }) => {
-    const arm = r * 0.62;
-    const dirs = [
-      { key: "up", dx: 0, dy: -1 },
-      { key: "down", dx: 0, dy: 1 },
-      { key: "left", dx: -1, dy: 0 },
-      { key: "right", dx: 1, dy: 0 },
-    ];
-    return (
-      <g>
-        <circle cx={cx} cy={cy} r={r} fill="none" stroke="#2a2a31" strokeWidth={2} />
-        <text
-          x={cx}
-          y={cy + r + 16}
-          textAnchor="middle"
-          fontSize={9}
-          fontWeight={700}
-          letterSpacing="0.12em"
-          fill="#6b6b76"
-        >
-          {title}
-        </text>
-        {dirs.map((d) => {
-          const action = `${prefix}_${d.key}`;
-          return (
-            <g key={d.key} {...hit(action)}>
+        {CLUSTERS.map((c) =>
+          DIRS.map((d) => {
+            const action = `${c.prefix}_${d.key}`;
+            return (
               <rect
-                x={cx + d.dx * arm - 8}
-                y={cy + d.dy * arm - 8}
-                width={16}
-                height={16}
+                key={action}
+                {...hit(action)}
+                x={c.cx + d.dx * c.spread - c.size / 2}
+                y={c.cy + d.dy * c.spread - c.size / 2}
+                width={c.size}
+                height={c.size}
                 fill={fill(action)}
                 stroke={stroke(action)}
-                strokeWidth={2}
+                strokeWidth={8}
               />
-            </g>
-          );
-        })}
-      </g>
-    );
-  };
+            );
+          }),
+        )}
 
-  return (
-    <svg
-      viewBox="0 0 460 250"
-      className="w-full max-w-xl"
-      role="group"
-      aria-label="Controller map"
-    >
-      {/*
-        A capsule, not a silhouette.  A traced controller outline drawn badly
-        looks like a mistake; a deliberate schematic does not, and the job here
-        is to say where the buttons are relative to each other.
-      */}
-      <rect
-        x={70}
-        y={40}
-        width={320}
-        height={160}
-        rx={80}
-        fill="#0e0e10"
-        stroke="#23232a"
-        strokeWidth={2}
-      />
+        {SHOULDERS.map((s) => (
+          <g key={s.action} {...hit(s.action)}>
+            <rect
+              x={s.x}
+              y={270}
+              width={s.action === "z" ? 150 : 260}
+              height={110}
+              fill={fill(s.action)}
+              stroke={stroke(s.action)}
+              strokeWidth={10}
+            />
+            <text
+              x={s.x + (s.action === "z" ? 75 : 130)}
+              y={345}
+              textAnchor="middle"
+              fontSize={70}
+              fontWeight={800}
+              fill={ink(s.action)}
+            >
+              {s.label}
+            </text>
+          </g>
+        ))}
+      </svg>
 
-      <Slab action="l" x={110} y={14} w={60} h={20} label="L" />
-      <Slab action="z" x={222} y={14} w={44} h={20} label="Z" />
-      <Slab action="r" x={300} y={14} w={60} h={20} label="R" />
-
-      <Cluster prefix="stick" cx={155} cy={90} r={30} title="STICK" />
-      <Cluster prefix="dpad" cx={185} cy={160} r={20} title="D-PAD" />
-
-      <Round action="a" cx={320} cy={100} r={24} label="A" size={16} />
-      <Round action="b" cx={282} cy={128} r={14} label="B" />
-      <Round action="y" cx={302} cy={62} r={14} label="Y" />
-      <Round action="x" cx={356} cy={80} r={14} label="X" />
-
-      <Cluster prefix="cstick" cx={272} cy={170} r={20} title="C-STICK" />
-      <Round action="start" cx={230} cy={112} r={11} label="S" size={10} />
-    </svg>
+      {/* CC BY 3.0 requires credit; it costs one line. */}
+      <p className="pt-1 text-center text-[0.68rem] text-mu-dim/70">
+        Controller art by Zacksly (CC BY 3.0, modified) · zacksly.itch.io
+      </p>
+    </div>
   );
 }
