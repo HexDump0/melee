@@ -1,5 +1,5 @@
 diff --git a/src/melee/cm/camera.c b/src/melee/cm/camera.c
-index 3449507c3..1ccda8141 100644
+index a009521ab..3ced67604 100644
 --- a/src/melee/cm/camera.c
 +++ b/src/melee/cm/camera.c
 @@ -939,6 +939,18 @@ void Camera_ApplyQuake(CameraBounds* bounds, CameraTransformState* state)
@@ -29,3 +29,36 @@ index 3449507c3..1ccda8141 100644
      depth_factor_y = Stage_GetCamZoomRate();
      depth_factor_x = Stage_GetCamMaxDepth() - depth_factor_y;
  
+@@ -2943,6 +2956,32 @@ bool Camera_8002E234(void)
+         break;
+     case 2:
+         ret = true;
++#ifdef PORT_PC
++        /* P-847: `sp10`, `spC` and `sp8` are written only by the three
++         * `Camera_8002E158` calls below, each behind its own
++         * `x35C.bits.b*`, and are then read unconditionally.  A boss intro
++         * sets only the axes it animates: Master Hand's entry
++         * (`ftmasterhandentry.c:70`) sets the distance (`Camera_8002ED9C`)
++         * and the yaw (`Camera_8002EC7C`) and never touches the pitch, so
++         * `b1` is clear and `sp10` -- the pitch, fed straight into
++         * `lbVector_Rotate` and from there into
++         * `game_camera.transform.position` -- is whatever the stack held.
++         *
++         * `x368` is the *start* of the interpolation these three calls run
++         * (`Camera_8002F0E4` fills it from the live camera), so holding the
++         * start value is exactly what "this axis is not being animated"
++         * means, and it is what the console gets in practice: the slot at
++         * this depth holds the previous frame's value of the same local.
++         *
++         * Same family as P-781 (`FObjUpdateAnim`'s `default:` arm) and P-819
++         * (`itcoll.c:815`): a leftover that is benign on PowerPC and a PIE
++         * address -- about 1e14 read as a float -- on 32-bit x86.  Here it
++         * reached `lbVector_WorldToScreen` and asserted at `lbvector.c:397`
++         * on the first frame of the Master Hand fight (G-205). */
++        sp10 = game_camera.x368.y;
++        spC = game_camera.x368.z;
++        sp8 = (f32) *(s16*) &game_camera.x368;
++#endif
+         if (game_camera.x35C.bits.b1) {
+             ret &= Camera_8002E158(&sp10, game_camera.x368.y,
+                                    game_camera.x35C.vec.y);

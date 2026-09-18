@@ -161,6 +161,22 @@ Classic character-select screen.  Keep the branch **before** the debug-VS
 stock/logging code in `match_boot_frame`: `log_match_state` walks
 `Player_GetEntity`, which is stale once the VS scene is gone and segfaults.
 
+## Boss-intro camera (P-847)
+
+```sh
+MELEE_BOSSCAM=800 MELEE_NO_CARD=1 MELEE_MATCH_P0=0 MELEE_MATCH_P1=1 \
+    MELEE_MATCH_STAGE=32 SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy \
+    ./build/native/melee --match 600 --frames 1100 --no-items
+```
+
+Runs Master Hand's entry camera sequence (`ftmasterhandentry.c:70`) on an
+ordinary VS match at frame 800.  The Classic Master Hand fight is the eleventh
+round and no harness can win ten matches to reach it, so this is how that code
+is exercised at all.  Expect one `[bosscam]` line (with
+`MELEE_VIEWER_TRIAGE=1`) and a clean exit.  A panic at `lbvector.c:397`
+`pos3d->x>-50000.0F` is P-847 back: `Camera_8002E234` is feeding an
+uninitialised pitch into the camera position (G-205).
+
 ## 1P character select text (SIS engine)
 
 ```sh

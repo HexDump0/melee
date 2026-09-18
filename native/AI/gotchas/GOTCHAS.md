@@ -3995,6 +3995,35 @@ reads as if the assignment always happens. They show up when a soak runs long
 enough for the "no entry matched" case to occur, which is why the 5400-frame
 matrix found this and the 900-frame one never did. P-819.
 
+**Fourth member, 2026-09-18: the boss-intro camera (P-847).**
+`Camera_8002E234`'s `case 2` writes `sp10`, `spC` and `sp8` only through three
+`Camera_8002E158` calls, each behind its own `x35C.bits.b*`, and then reads all
+three unconditionally into `lbVector_Rotate` and `game_camera.transform
+.position`. A boss intro sets only the axes it animates: Master Hand's entry
+(`ftmasterhandentry.c:70`) sets the distance and the yaw and **never the
+pitch**, so `b1` is clear and the camera's eye position came from a leftover.
+The panic is at the other end of the frame -- `lbvector.c:397`
+`pos3d->x>-50000.0F` inside `lbVector_WorldToScreen`, reached from
+`ftLib_80086A8C` while *drawing a fighter* -- which is why five stack frames
+of camera code sit between the defect and the report.
+
+**Here the right value was not "nothing" but "the one it is interpolating
+from".** `Camera_8002F0E4` fills `x368` from the live camera as the start of
+the interpolation, so holding `x368` is precisely what "this axis is not
+animated" means -- and it is what the console gets by accident, since the slot
+at that depth holds the previous frame's value of the same local. Contrast
+P-819, where there was no correct index to invent and the guard does nothing.
+**Ask what the leftover would have been on the console before choosing**; the
+answer is sometimes a real value.
+
+**And this one was reachable from a probe, not from a soak.** The Classic
+Master Hand fight is the eleventh round and no harness can win ten matches to
+get there. `MELEE_BOSSCAM=<frame>` runs the entry camera sequence on an
+ordinary VS match instead and reproduces the panic backtrace for backtrace --
+seven frames, `lbVector_WorldToScreen` through `gm_801A4D34`, identical to the
+owner's report. When a screen is unreachable, **call its code from one that
+is**.
+
 ## G-203: byte-identical captures are only meaningful at a fixed -O level
 
 **What happened.** `-O3` was measured as a free 2.5% (67.65e9 -> 65.96e9

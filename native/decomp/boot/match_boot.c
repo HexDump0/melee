@@ -37,6 +37,8 @@
 #include <melee/pl/player.h>
 #include <melee/it/forward.h>
 #include <melee/it/types.h>
+#include <math.h>
+
 #include <melee/cm/camera.h>
 #include <melee/gr/forward.h>
 #include <melee/gr/ground.h>
@@ -1310,6 +1312,31 @@ static void match_boot_frame(void)
             match_boot_force(GM_CLASSIC);
         }
         return;
+    }
+    /* MELEE_BOSSCAM=<frame>: run Master Hand's entry camera sequence on a
+     * live match camera at that frame.  It is the only way to exercise the
+     * boss-intro camera headlessly -- the Classic Master Hand fight is the
+     * eleventh round and the harness cannot win ten matches to get there --
+     * and it reproduces P-847's panic exactly, backtrace for backtrace.
+     * The calls are `ftmasterhandentry.c:70`'s `ftMh_UnkEnum0_Unk00` arm
+     * verbatim, minus the enemy lookup that picks the interest slot. */
+    {
+        const char* e = getenv("MELEE_BOSSCAM");
+        static int boss_cam_done;
+        if (e != NULL && !boss_cam_done &&
+            frame >= (unsigned) strtoul(e, NULL, 0))
+        {
+            boss_cam_done = 1;
+            boot_triage_note("[bosscam] frame %u: entry camera sequence\n",
+                             frame);
+            Camera_8002E6FC(0);
+            Camera_8002ED9C(40.0f);
+            Camera_8002EEC8(45.0f);
+            Camera_8002EC7C(-M_PI);
+            Camera_8002EF14();
+            Camera_8002EC7C(0.0f);
+            Camera_8002F0E4(120);
+        }
     }
     /* Before anything else: whatever `onEnterDebugVs` just wrote into
      * `gmVsMelee_StartData`, put the matrix selection back (P-759). */

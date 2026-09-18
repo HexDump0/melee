@@ -1,5 +1,21 @@
 # State of the port
 
+> **The Master Hand fight's camera was reading an uninitialised pitch, and
+> that is the last Classic round's crash (2026-09-18, P-847, G-205).**
+> `Camera_8002E234`'s `case 2` writes `sp10`, `spC` and `sp8` only inside
+> three `x35C.bits.b*` guards and then reads all three into
+> `lbVector_Rotate` and `game_camera.transform.position`. Master Hand's entry
+> cinematic sets the distance and the yaw and **never the pitch**, so the
+> camera's eye came from a stack leftover -- benign on PowerPC, a PIE address
+> or a NaN on 32-bit x86 -- and a fighter's ordinary on-screen test asserted
+> at `lbvector.c:397` five frames later. Seeded from `x368`, the start of the
+> interpolation those calls run, which is what "this axis is not animated"
+> means. Fourth member of G-205's family after P-781, `fn_8001E60C` and
+> P-819. **`MELEE_BOSSCAM=<frame>` reproduces it on an ordinary VS match** --
+> the eleventh Classic round is otherwise unreachable headlessly -- and the
+> panic backtrace matches the owner's frame for frame. GameCube build still
+> 100.00% matched, 100.00% linked; ctest 34/34.
+
 > **The boot has two movies now, and the second one is Melee's (2026-09-18,
 > P-847).** `mods/unbound/files/MvUnbound.mth` is the Unbound logo animation as
 > a **real MTH file**, streamed by the game's own player, decoded by the port's
