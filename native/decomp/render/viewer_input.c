@@ -196,8 +196,9 @@ PadInputFrame* frontend_load_script(const char* path, unsigned total,
  * what the keyboard path above already uses. */
 #define PAD_STICK_RANGE 80
 /* SDL's axes are +-32767; below this a stick is at rest.  Melee does its own
- * deadzone on top, so this only has to reject drift. */
-#define PAD_STICK_DEADZONE 2600
+ * deadzone on top, so this only has to reject drift -- and it has to reject
+ * *worn* drift, which is why it is not as tight as it could be (P-855). */
+#define PAD_STICK_DEADZONE 4000
 /* A GameCube trigger clicks at the bottom of its travel; SDL reports the
  * click as the shoulder button on an adapter and as nothing on a pad with
  * analog-only triggers, so take either. */
@@ -294,28 +295,28 @@ static void pad_poll_gamepad(SDL_Gamepad* gp, PadInputFrame* out)
         signed char v;
         /* SDL's y axis points down, the GameCube's points up. */
         v = pad_axis_to_stick(SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_LEFTX));
-        if (v != 0) {
+        if (v != 0 && out->stick_x == 0) {
             out->stick_x = v;
         }
         v = pad_axis_to_stick(
             -(int) SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_LEFTY));
-        if (v != 0) {
+        if (v != 0 && out->stick_y == 0) {
             out->stick_y = v;
         }
         v = pad_axis_to_stick(SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_RIGHTX));
-        if (v != 0) {
+        if (v != 0 && out->cstick_x == 0) {
             out->cstick_x = v;
         }
         v = pad_axis_to_stick(
             -(int) SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_RIGHTY));
-        if (v != 0) {
+        if (v != 0 && out->cstick_y == 0) {
             out->cstick_y = v;
         }
     }
-    if (lt > 0) {
+    if (lt > 0 && out->trigger_l == 0) {
         out->trigger_l = pad_axis_to_trigger(lt);
     }
-    if (rt > 0) {
+    if (rt > 0 && out->trigger_r == 0) {
         out->trigger_r = pad_axis_to_trigger(rt);
     }
 
@@ -433,9 +434,17 @@ void frontend_poll_live(void)
     if (keys[SDL_SCANCODE_T]) {
         p1->buttons |= PAD_BUTTON_START;
     }
-    /* Gamepads last, and only where they are actually being moved: a
-     * deflected stick or a pulled trigger wins over the keyboard, everything
-     * else leaves the keyboard's value alone and buttons simply OR in. */
+    /*
+     * Gamepads last, and only into axes the keyboard left alone.
+     *
+     * **A held key beats an analog stick.**  The first version let any
+     * deflected axis win, which is fine until the pad has drift: a worn stick
+     * sitting outside the deadzone then owns the axis forever and the arrow
+     * keys do nothing, with no way to tell from the outside that a controller
+     * is the reason (P-855).  Explicit input is never ambiguous, so it wins,
+     * and the pad fills in whatever the keyboard is not asking for.  Buttons
+     * OR in from both, as before.
+     */
     if (!pad_gamepad_scanned) {
         pad_gamepad_scanned = 1;
         pad_scan_gamepads();
@@ -448,6 +457,26 @@ void frontend_poll_live(void)
             {
                 pad_poll_gamepad(pad_gamepads[i], &match_view.live[i]);
             }
+        }
+    }
+    /* MELEE_INPUT_TRACE=1 prints port 1 whenever it changes: "the key did
+     * nothing" and "something else overwrote it" look identical from the
+     * outside, and this tells them apart in one line. */
+    {
+        static int trace = -1;
+        static PadInputFrame last;
+        const PadInputFrame* now = &match_view.live[0];
+        if (trace < 0) {
+            trace = getenv("MELEE_INPUT_TRACE") != NULL;
+        }
+        if (trace && memcmp(now, &last, sizeof(last)) != 0) {
+            last = *now;
+            fprintf(stderr,
+                    "[input] p1 stick=(%d,%d) c=(%d,%d) lr=(%u,%u) "
+                    "buttons=%04x  pads=%d\n",
+                    now->stick_x, now->stick_y, now->cstick_x, now->cstick_y,
+                    now->trigger_l, now->trigger_r, now->buttons,
+                    pad_gamepads[0] != NULL);
         }
     }
     pad_set_live_input(match_view.live, 4);
