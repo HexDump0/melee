@@ -1,0 +1,36 @@
+diff --git a/src/melee/ft/ftbosslib.c b/src/melee/ft/ftbosslib.c
+index d47d3bed3..d1e782d17 100644
+--- a/src/melee/ft/ftbosslib.c
++++ b/src/melee/ft/ftbosslib.c
+@@ -36,6 +36,31 @@ void ftBossLib_8015BD20(HSD_GObj* gobj)
+ void ftBossLib_8015BD24(s32 arg0, float* arg1, float arg2, s32 arg3, s32 arg4,
+                         s32 arg5)
+ {
++#ifdef PORT_PC
++    /* P-851: `arg0` is the boss's CPU level, and it can be **0**.  It comes
++     * from `gm_8017EB64`, a plain table lookup
++     * (`lbl_803D85F0[stage + difficulty * 5]`), so nothing on the way here
++     * clamps it -- and `Player::cpu_level` is documented "1 to 9", which is
++     * the tell that 0 is out of range rather than meaningful.
++     *
++     * PowerPC's `divw` by zero does not trap; it leaves the target register
++     * undefined and execution carries on, so retail computes a nonsense
++     * attack interval for one frame and never notices.  x86's `idiv` raises
++     * **SIGFPE**, which is the owner's crash in `ftMh_Wait1_0_Anim` on the
++     * Classic Master Hand fight.  Same shape as G-205's family: a hardware
++     * difference, not a logic error, and the port is the only one that dies.
++     *
++     * 1 is not an invented value.  The quotient is the *floor* of the attack
++     * interval and it shrinks as the level rises, so level 0 -- below the
++     * documented minimum -- means the longest interval, and 1 is the longest
++     * the table can legally ask for.  The alternative, leaving `*arg1`
++     * unwritten, is worse than the crash: the caller only reaches this after
++     * `--x223C < 0`, so an unwritten counter re-enters and picks a fresh
++     * attack every frame. */
++    if (arg0 == 0) {
++        arg0 = 1;
++    }
++#endif
+     *arg1 = ((arg3 / arg0) + HSD_Randi(arg4 - arg5) + arg5) / arg2;
+ }
+ 

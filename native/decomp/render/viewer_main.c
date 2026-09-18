@@ -822,7 +822,7 @@ int main(int argc, char** argv)
         }
     }
 
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMEPAD)) {
         fprintf(stderr, "viewer: SDL_Init failed: %s\n", SDL_GetError());
         return 1;
     }
@@ -1004,6 +1004,10 @@ int main(int argc, char** argv)
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             switch (e.type) {
+            case SDL_EVENT_GAMEPAD_ADDED:
+            case SDL_EVENT_GAMEPAD_REMOVED:
+                frontend_gamepads_changed();
+                break;
             case SDL_EVENT_QUIT:
                 quit = 1;
                 break;

@@ -179,6 +179,160 @@ PadInputFrame* frontend_load_script(const char* path, unsigned total,
     return frames;
 }
 
+/*
+ * Gamepads (P-852).
+ *
+ * One SDL gamepad per port, in the order SDL reports them, merged with the
+ * keyboard so both work at once -- unplugging a pad mid-session must not
+ * leave the player with no way to press Start.
+ *
+ * The button names map straight across: SDL's SOUTH/EAST/WEST/NORTH are
+ * physical positions, and on the GameCube adapter's own SDL mapping they are
+ * exactly A/B/X/Y, so a real GameCube controller reproduces its own layout
+ * and an Xbox-style pad gives A->A, B->B, X->X, Y->Y.
+ */
+#define PAD_GAMEPAD_MAX 4
+/* The physical stick's usable range in the units PADStatus reports, which is
+ * what the keyboard path above already uses. */
+#define PAD_STICK_RANGE 80
+/* SDL's axes are +-32767; below this a stick is at rest.  Melee does its own
+ * deadzone on top, so this only has to reject drift. */
+#define PAD_STICK_DEADZONE 2600
+/* A GameCube trigger clicks at the bottom of its travel; SDL reports the
+ * click as the shoulder button on an adapter and as nothing on a pad with
+ * analog-only triggers, so take either. */
+#define PAD_TRIGGER_CLICK 30000
+
+static SDL_Gamepad* pad_gamepads[PAD_GAMEPAD_MAX];
+static int pad_gamepad_scanned;
+
+static void pad_scan_gamepads(void)
+{
+    int count = 0;
+    SDL_JoystickID* ids;
+    int i;
+
+    /* Close what went away first, so a pad that was unplugged and replugged
+     * does not end up open twice. */
+    for (i = 0; i < PAD_GAMEPAD_MAX; ++i) {
+        if (pad_gamepads[i] != NULL &&
+            !SDL_GamepadConnected(pad_gamepads[i]))
+        {
+            SDL_CloseGamepad(pad_gamepads[i]);
+            pad_gamepads[i] = NULL;
+        }
+    }
+
+    ids = SDL_GetGamepads(&count);
+    if (ids == NULL) {
+        return;
+    }
+    for (i = 0; i < count && i < PAD_GAMEPAD_MAX; ++i) {
+        if (pad_gamepads[i] == NULL) {
+            pad_gamepads[i] = SDL_OpenGamepad(ids[i]);
+            if (pad_gamepads[i] != NULL) {
+                fprintf(stderr, "viewer: port %d = %s\n", i + 1,
+                        SDL_GetGamepadName(pad_gamepads[i]));
+            }
+        }
+    }
+    SDL_free(ids);
+}
+
+static signed char pad_axis_to_stick(Sint16 axis)
+{
+    int v;
+
+    if (axis > -PAD_STICK_DEADZONE && axis < PAD_STICK_DEADZONE) {
+        return 0;
+    }
+    v = (int) axis * PAD_STICK_RANGE / 32767;
+    if (v > PAD_STICK_RANGE) {
+        v = PAD_STICK_RANGE;
+    }
+    if (v < -PAD_STICK_RANGE) {
+        v = -PAD_STICK_RANGE;
+    }
+    return (signed char) v;
+}
+
+static unsigned char pad_axis_to_trigger(Sint16 axis)
+{
+    int v = (int) axis * 255 / 32767;
+    if (v < 0) {
+        v = 0;
+    }
+    if (v > 255) {
+        v = 255;
+    }
+    return (unsigned char) v;
+}
+
+static void pad_poll_gamepad(SDL_Gamepad* gp, PadInputFrame* out)
+{
+    Sint16 lt = SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_LEFT_TRIGGER);
+    Sint16 rt = SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
+    int dx = 0;
+    int dy = 0;
+
+    out->stick_x = pad_axis_to_stick(
+        SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_LEFTX));
+    /* SDL's y axis points down, the GameCube's points up. */
+    out->stick_y = pad_axis_to_stick(
+        (Sint16) -SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_LEFTY));
+    out->cstick_x = pad_axis_to_stick(
+        SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_RIGHTX));
+    out->cstick_y = pad_axis_to_stick(
+        (Sint16) -SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_RIGHTY));
+    out->trigger_l = pad_axis_to_trigger(lt);
+    out->trigger_r = pad_axis_to_trigger(rt);
+
+    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_SOUTH)) {
+        out->buttons |= PAD_BUTTON_A;
+    }
+    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_EAST)) {
+        out->buttons |= PAD_BUTTON_B;
+    }
+    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_WEST)) {
+        out->buttons |= PAD_BUTTON_X;
+    }
+    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_NORTH)) {
+        out->buttons |= PAD_BUTTON_Y;
+    }
+    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_START)) {
+        out->buttons |= PAD_BUTTON_START;
+    }
+    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER)) {
+        out->buttons |= PAD_TRIGGER_Z;
+    }
+    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) ||
+        lt >= PAD_TRIGGER_CLICK)
+    {
+        out->buttons |= PAD_TRIGGER_L;
+    }
+    if (rt >= PAD_TRIGGER_CLICK) {
+        out->buttons |= PAD_TRIGGER_R;
+    }
+    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_DPAD_LEFT)) {
+        dx -= 1;
+    }
+    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_DPAD_RIGHT)) {
+        dx += 1;
+    }
+    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_DPAD_DOWN)) {
+        dy -= 1;
+    }
+    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_DPAD_UP)) {
+        dy += 1;
+    }
+    if (dx != 0) {
+        out->buttons |= dx < 0 ? PAD_BUTTON_LEFT : PAD_BUTTON_RIGHT;
+    }
+    if (dy != 0) {
+        out->buttons |= dy < 0 ? PAD_BUTTON_DOWN : PAD_BUTTON_UP;
+    }
+}
+
 void frontend_poll_live(void)
 {
     const bool* keys = SDL_GetKeyboardState(NULL);
@@ -247,5 +401,27 @@ void frontend_poll_live(void)
     if (keys[SDL_SCANCODE_T]) {
         p1->buttons |= PAD_BUTTON_START;
     }
+    /* Gamepads last so a connected pad's sticks and triggers win over the
+     * keyboard's, while keyboard buttons still OR in. */
+    if (!pad_gamepad_scanned) {
+        pad_gamepad_scanned = 1;
+        pad_scan_gamepads();
+    }
+    {
+        int i;
+        for (i = 0; i < PAD_GAMEPAD_MAX; ++i) {
+            if (pad_gamepads[i] != NULL &&
+                SDL_GamepadConnected(pad_gamepads[i]))
+            {
+                pad_poll_gamepad(pad_gamepads[i], &match_view.live[i]);
+            }
+        }
+    }
     pad_set_live_input(match_view.live, 4);
+}
+
+/* Hot-plug: the event loop calls this when SDL says the set changed. */
+void frontend_gamepads_changed(void)
+{
+    pad_scan_gamepads();
 }

@@ -98,6 +98,7 @@ void draw_hud(const Viewer* v);
 void dump_draws(unsigned frame);
 PadInputFrame* frontend_load_script(const char* path, unsigned total, unsigned* channels_out);
 void frontend_poll_live(void);
+void frontend_gamepads_changed(void);
 int handle_key(Viewer* v, const SDL_KeyboardEvent* key, int* want_shot);
 int parse_pad_buttons(const char* names, unsigned short* out);
 void print_status(const Viewer* v);
