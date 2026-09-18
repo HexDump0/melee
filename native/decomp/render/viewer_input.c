@@ -239,14 +239,22 @@ static void pad_scan_gamepads(void)
     SDL_free(ids);
 }
 
-static signed char pad_axis_to_stick(Sint16 axis)
+/*
+ * Takes an `int`, not a `Sint16`, and the callers negate in `int` space.
+ *
+ * SDL's axis range is -32768..32767, so an `Sint16` negation of a stick held
+ * fully in the negative direction is `-(-32768)`, which wraps straight back
+ * to -32768: full up read as full down, on the two axes that need flipping
+ * and only at the very end of their travel (P-853).
+ */
+static signed char pad_axis_to_stick(int axis)
 {
     int v;
 
     if (axis > -PAD_STICK_DEADZONE && axis < PAD_STICK_DEADZONE) {
         return 0;
     }
-    v = (int) axis * PAD_STICK_RANGE / 32767;
+    v = axis * PAD_STICK_RANGE / 32767;
     if (v > PAD_STICK_RANGE) {
         v = PAD_STICK_RANGE;
     }
@@ -275,15 +283,15 @@ static void pad_poll_gamepad(SDL_Gamepad* gp, PadInputFrame* out)
     int dx = 0;
     int dy = 0;
 
-    out->stick_x = pad_axis_to_stick(
-        SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_LEFTX));
+    out->stick_x =
+        pad_axis_to_stick(SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_LEFTX));
     /* SDL's y axis points down, the GameCube's points up. */
-    out->stick_y = pad_axis_to_stick(
-        (Sint16) -SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_LEFTY));
-    out->cstick_x = pad_axis_to_stick(
-        SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_RIGHTX));
+    out->stick_y =
+        pad_axis_to_stick(-(int) SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_LEFTY));
+    out->cstick_x =
+        pad_axis_to_stick(SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_RIGHTX));
     out->cstick_y = pad_axis_to_stick(
-        (Sint16) -SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_RIGHTY));
+        -(int) SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_RIGHTY));
     out->trigger_l = pad_axis_to_trigger(lt);
     out->trigger_r = pad_axis_to_trigger(rt);
 
