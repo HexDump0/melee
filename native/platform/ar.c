@@ -100,6 +100,33 @@ u32 ARAlloc(u32 length)
     u32 pointer;
 
     boot_triage_real("ARAlloc", BOOT_CAT_AR);
+    /*
+     * **Round the block up to 32 bytes.**  ARAM DMA is 32-byte granular and
+     * the SDK says so in its own words -- `ar.c:171` asserts
+     * `!(length & 0x1F)`, "ARAlloc(): length is not multiple of 32bytes!" --
+     * but it only asserts, and retail compiles that out.
+     *
+     * The game does pass a non-multiple.  `HSD_SynthInit`'s `bank_size` is
+     * `lbl_804D643C + lbl_804D6440 + lbl_804D6444` (lbaudio_ax.c:2144), the
+     * summed sizes of the sound banks that are loaded, so whether it lands on
+     * 32 depends on which banks a given boot path loads.  When it does not,
+     * every ARAM address after it is misaligned, and the **next** DMA
+     * asserts instead -- `devcom.c:431`, `dest % 32 == 0`, five frames and
+     * one subsystem away from the allocation that caused it.  Measured in the
+     * browser build, where the opening movie's banks make the sum
+     * `0xFFC28`: the following `ARAlloc(0x30000)` returned `0x104128`,
+     * misaligned by exactly 8 (P-857).
+     *
+     * Retail survives it because both asserts are compiled out and the DSP
+     * masks the low bits of a transfer address.  Here ARAM is a host buffer
+     * and the transfer is a memcpy, so there is no hardware requirement to
+     * satisfy -- only the invariant the rest of the code is entitled to
+     * assume.  Rounding makes that invariant true rather than merely
+     * unchecked, which keeps the assert useful for real bugs, and costs at
+     * most 31 bytes of a 16 MB pool per allocation.  The stored block length
+     * is the rounded one so `ARFree` pops exactly what was pushed.
+     */
+    length = (length + 31u) & ~31u;
     if (!ar_init_flag || block_length == NULL || free_blocks == 0 ||
         length > ARAM_SIZE - stack_pointer) {
         boot_triage_note("[boot] ARAlloc: out of ARAM (%u bytes)\n", length);

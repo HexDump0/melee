@@ -4871,3 +4871,39 @@ in the type system between them. `u8` against an `enum` compiles silently.
 When a gate is *intermittent* rather than broken, suspect that it is keyed on
 something that only sometimes means what the code thinks -- and prove it by
 printing both numbers side by side, which is what the trace does now.
+
+## G-224: an SDK assert is a requirement on the caller, not a promise from it
+
+`ARAlloc` asserts `!(length & 0x1F)` -- *"ARAlloc(): length is not multiple of
+32bytes!"* -- and that is the only thing enforcing ARAM's 32-byte granularity.
+Retail compiles the assert out, so the game is free to pass a non-multiple,
+and it does: `HSD_SynthInit`'s `bank_size` is the summed sizes of whichever
+sound banks the current boot path loaded (`lbaudio_ax.c:2144`), which lands on
+32 only by luck.
+
+When it misses, `ARAlloc` returns fine and **the next DMA asserts instead** --
+`devcom.c:431`, `dest % 32 == 0` -- in a different subsystem, frames later,
+naming a destination address with no hint of where it came from. The port had
+faithfully reproduced the bump allocator *without* the assert, which is the
+worst of both: neither the check nor the guarantee.
+
+**Two things worth carrying forward.**
+
+**A data-dependent bug reads as a platform bug.** This only ever fired in the
+browser, which made it look like a wasm problem. It is not: the browser boots
+through the opening movie, that loads a different set of banks, and the sum
+lands off 32. The desktop would do the same thing with the same banks. Before
+blaming the platform, ask what *data* differs.
+
+**Make the invariant true, not merely unchecked.** The fix rounds the block up
+to 32 in the port's own `ARAlloc`. Relaxing the `devcom` assert instead would
+have worked -- ARAM here is a host buffer and the transfer is a memcpy, so
+there is no hardware to offend -- but it would have spent an assert that
+catches real bugs to paper over one. Rounding costs 31 bytes of a 16 MB pool
+and leaves the check meaning what it says.
+
+**And the diagnostic is the story.** The panic alone said `dest % 32 == 0` and
+nothing else; it does not reproduce natively, so there is no second run to
+breakpoint. Printing `file/src/dest/size/type` on the failing path turned it
+into `dest=0x104128`, and `0x4000 + 0x500 + 0xFFC28` reproduced that address
+on paper before a line of the fix was written. P-857.
