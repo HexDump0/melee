@@ -1,5 +1,5 @@
 diff --git a/src/melee/lb/lbmthp.c b/src/melee/lb/lbmthp.c
-index fde58837b..1ba08860d 100644
+index fde58837b..e6888a762 100644
 --- a/src/melee/lb/lbmthp.c
 +++ b/src/melee/lb/lbmthp.c
 @@ -14,6 +14,17 @@
@@ -20,7 +20,27 @@ index fde58837b..1ba08860d 100644
  /* Struct used by fn_8001EBF0 for THP decode component init */
  typedef struct THPDecComp {
      /* 0x00 */ u8 pad0[0x08];
-@@ -117,7 +128,12 @@ static void fn_8001E910(int arg0, int arg1, void* arg2, int cancelflag)
+@@ -90,7 +101,18 @@ struct lbl_803BAFE8_t {
+ }; /* size = 0x18 */
+ 
+ /* 01F294 */ static s32 fn_8001F294(void);
+-/* 4333E0 */ static THPDecComp MoviePlayer;
++/* DMA destination: `fn_8001EB14` reads the movie's first 0x40 bytes straight
++ * into the head of this struct (`lbFile_800161C4(..., (u32) data, 0x40, 0x21,
++ * 1)`), and `HSD_DevComRequest` asserts `dest % 32 == 0`.  On the console the
++ * section alignment made that true and the declaration never had to say so; a
++ * host compiler aligns it to the struct's own members, and wasm-ld put it 8
++ * bytes off -- `dest=0x104168`, which moved by 0x20 every rebuild, because a
++ * static's address follows whatever is laid out before it.  The browser
++ * therefore aborted on the opening movie's very first read, which is why no
++ * cutscene played at all.  Same class as `hsd_SynthSFXLoadBuf` and
++ * `lbl_804C4540` (synth.static.h, P-808): state the alignment the hardware
++ * requires instead of inheriting it by luck.  P-857. */
++/* 4333E0 */ static THPDecComp MoviePlayer ATTRIBUTE_ALIGN(32);
+ 
+ static void fn_8001E910(int arg0, int arg1, void* arg2, int cancelflag)
+ {
+@@ -117,7 +139,12 @@ static void fn_8001E910(int arg0, int arg1, void* arg2, int cancelflag)
      } else {
          var_r0 = streamPlayer->unk_8C - 1;
      }
@@ -33,7 +53,7 @@ index fde58837b..1ba08860d 100644
      if (streamPlayer->unk_90 != streamPlayer->unk_8C &&
          streamPlayer->unk_70 != 0)
      {
-@@ -167,6 +183,18 @@ static s32 fn_8001EB14(THPDecComp* data, const char* path)
+@@ -167,6 +194,18 @@ static s32 fn_8001EB14(THPDecComp* data, const char* path)
      data->file_entrynum = DVDConvertPathToEntrynum(path);
      lbFile_800161C4(data->file_entrynum, 0, (u32) data, 0x40, 0x21, 1);
  
@@ -52,7 +72,7 @@ index fde58837b..1ba08860d 100644
      data->unk_40 = data->num_frames;
      data->width = data->x_size;
      data->height = data->y_size;
-@@ -297,7 +325,11 @@ static void fn_8001ECF4(THPDecComp* data, void* buf)
+@@ -297,7 +336,11 @@ static void fn_8001ECF4(THPDecComp* data, void* buf)
                              1);
              csizep = var_r29;
              data->curr_file_offset += var_r24;
