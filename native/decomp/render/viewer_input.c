@@ -199,6 +199,8 @@ PadInputFrame* frontend_load_script(const char* path, unsigned total,
  * deadzone on top, so this only has to reject drift -- and it has to reject
  * *worn* drift, which is why it is not as tight as it could be (P-855). */
 #define PAD_STICK_DEADZONE 4000
+/* Overridable per install; see pad_load_bindings. */
+static int pad_deadzone = PAD_STICK_DEADZONE;
 /* A GameCube trigger clicks at the bottom of its travel; SDL reports the
  * click as the shoulder button on an adapter and as nothing on a pad with
  * analog-only triggers, so take either. */
@@ -248,11 +250,229 @@ static void pad_scan_gamepads(void)
  * to -32768: full up read as full down, on the two axes that need flipping
  * and only at the very end of their travel (P-853).
  */
+/* ------------------------------------------------------------- bindings
+ *
+ * Every control the player can rebind (P-871), read once from the environment
+ * that `melee.toml` populates: `[controls.p1.keyboard] a = "Z"` arrives here
+ * as `MELEE_CONTROLS_P1_KEYBOARD_A`.
+ *
+ * Unset means the default, so a player who has never opened the launcher gets
+ * exactly the bindings this file shipped with -- the defaults below are the
+ * literal keys the hard-coded version used, not a tidied-up version of them.
+ *
+ * A keyboard binding is a **comma-separated list**, because Start has always
+ * answered to both Return and Keypad Enter and losing that to a single-key
+ * model would be a regression nobody asked for.
+ */
+typedef enum {
+    ACT_STICK_UP, ACT_STICK_DOWN, ACT_STICK_LEFT, ACT_STICK_RIGHT,
+    ACT_CSTICK_UP, ACT_CSTICK_DOWN, ACT_CSTICK_LEFT, ACT_CSTICK_RIGHT,
+    ACT_A, ACT_B, ACT_X, ACT_Y, ACT_Z, ACT_L, ACT_R, ACT_START,
+    ACT_DPAD_UP, ACT_DPAD_DOWN, ACT_DPAD_LEFT, ACT_DPAD_RIGHT,
+    ACT_COUNT
+} PadAction;
+
+/* Config key, and the PAD_* bit it sets (0 for the analog directions, which
+ * are handled by their own axis rather than by a button mask). */
+static const struct {
+    const char* key;
+    unsigned int button;
+} pad_actions[ACT_COUNT] = {
+    { "stick_up", 0 },      { "stick_down", 0 },
+    { "stick_left", 0 },    { "stick_right", 0 },
+    { "cstick_up", 0 },     { "cstick_down", 0 },
+    { "cstick_left", 0 },   { "cstick_right", 0 },
+    { "a", PAD_BUTTON_A },  { "b", PAD_BUTTON_B },
+    { "x", PAD_BUTTON_X },  { "y", PAD_BUTTON_Y },
+    { "z", PAD_TRIGGER_Z }, { "l", PAD_TRIGGER_L },
+    { "r", PAD_TRIGGER_R }, { "start", PAD_BUTTON_START },
+    { "dpad_up", PAD_BUTTON_UP },     { "dpad_down", PAD_BUTTON_DOWN },
+    { "dpad_left", PAD_BUTTON_LEFT }, { "dpad_right", PAD_BUTTON_RIGHT },
+};
+
+/* The keys the hard-coded version used, verbatim. */
+static const char* const kb_default[2][ACT_COUNT] = {
+    { "Up", "Down", "Left", "Right",
+      "", "", "", "",
+      "Z", "X", "C", "V", "Q", "A", "S", "Return,Keypad Enter",
+      "", "", "", "" },
+    { "I", "K", "J", "L",
+      "", "", "", "",
+      "F", "G", "", "", "", "", "", "T",
+      "", "", "", "" },
+};
+
+/* SDL's own names, so the launcher and the port agree without a table in
+ * between: `SDL_GetGamepadButtonFromString` parses what the UI writes. */
+static const char* const gp_default[ACT_COUNT] = {
+    "", "", "", "",
+    "", "", "", "",
+    "a", "b", "x", "y",
+    /* Z on the right shoulder and L on the left, as before.  R has no button
+     * by default on purpose: it is the analog trigger's click, handled below,
+     * which is what a GameCube R actually is. */
+    "rightshoulder", "leftshoulder", "", "start",
+    "dpup", "dpdown", "dpleft", "dpright",
+};
+
+#define PAD_MAX_KEYS 4
+static SDL_Scancode kb_binding[2][ACT_COUNT][PAD_MAX_KEYS];
+static int kb_binding_count[2][ACT_COUNT];
+static int gp_binding[ACT_COUNT]; /* SDL_GamepadButton, or -1 */
+static int pad_bindings_loaded;
+
+static const char* pad_env(const char* fmt, int player, const char* key)
+{
+    char name[128];
+    char upper[128];
+    size_t i;
+    snprintf(name, sizeof(name), fmt, player, key);
+    for (i = 0; name[i] != '\0' && i + 1 < sizeof(upper); ++i) {
+        upper[i] = (name[i] >= 'a' && name[i] <= 'z')
+                       ? (char) (name[i] - 'a' + 'A')
+                       : name[i];
+    }
+    upper[i] = '\0';
+    return getenv(upper);
+}
+
+/* "Z" or "Return,Keypad Enter" -> scancodes.  Unknown names are reported
+ * rather than dropped: a binding that silently does nothing is the worst
+ * possible outcome for a remapping screen. */
+static void pad_parse_keys(const char* spec, int player, PadAction act)
+{
+    const char* p = spec;
+    kb_binding_count[player][act] = 0;
+    while (*p != '\0' && kb_binding_count[player][act] < PAD_MAX_KEYS) {
+        char name[64];
+        size_t n = strcspn(p, ",");
+        SDL_Scancode code;
+        if (n == 0 || n >= sizeof(name)) {
+            break;
+        }
+        memcpy(name, p, n);
+        name[n] = '\0';
+        code = SDL_GetScancodeFromName(name);
+        if (code == SDL_SCANCODE_UNKNOWN) {
+            fprintf(stderr, "[controls] p%d %s: unknown key \"%s\"\n",
+                    player + 1, pad_actions[act].key, name);
+        } else {
+            kb_binding[player][act][kb_binding_count[player][act]++] = code;
+        }
+        p += n;
+        if (*p == ',') {
+            ++p;
+        }
+    }
+}
+
+static void pad_load_bindings(void)
+{
+    int player;
+    int act;
+    const char* dz;
+
+    if (pad_bindings_loaded) {
+        return;
+    }
+    pad_bindings_loaded = 1;
+
+    for (player = 0; player < 2; ++player) {
+        for (act = 0; act < ACT_COUNT; ++act) {
+            const char* spec =
+                pad_env("MELEE_CONTROLS_P%d_KEYBOARD_%s", player + 1,
+                        pad_actions[act].key);
+            if (spec == NULL) {
+                spec = kb_default[player][act];
+            }
+            pad_parse_keys(spec, player, (PadAction) act);
+        }
+    }
+
+    for (act = 0; act < ACT_COUNT; ++act) {
+        const char* spec =
+            pad_env("MELEE_CONTROLS_P%d_GAMEPAD_%s", 1, pad_actions[act].key);
+        if (spec == NULL) {
+            spec = gp_default[act];
+        }
+        gp_binding[act] = (spec[0] == '\0')
+                              ? -1
+                              : (int) SDL_GetGamepadButtonFromString(spec);
+        if (spec[0] != '\0' && gp_binding[act] < 0) {
+            fprintf(stderr, "[controls] gamepad %s: unknown button \"%s\"\n",
+                    pad_actions[act].key, spec);
+        }
+    }
+
+    dz = getenv("MELEE_CONTROLS_DEADZONE");
+    if (dz != NULL && dz[0] != '\0') {
+        int v = atoi(dz);
+        /* A deadzone at or above full deflection is a dead stick, which
+         * looks exactly like a broken build. */
+        if (v >= 0 && v < 30000) {
+            pad_deadzone = v;
+        }
+    }
+}
+
+/*
+ * Print what the bindings actually resolved to.
+ *
+ * `--controls` runs this and exits, which is the only way to tell a binding
+ * that did not apply from one that applied to a key you did not mean -- and it
+ * needs no window, so it works over ssh and in a script.
+ */
+void frontend_print_bindings(void)
+{
+    int player;
+    int act;
+
+    pad_load_bindings();
+    for (player = 0; player < 2; ++player) {
+        for (act = 0; act < ACT_COUNT; ++act) {
+            int i;
+            if (kb_binding_count[player][act] == 0) {
+                continue;
+            }
+            /* Comma-separated, and not space-separated, because scancode
+             * names contain spaces ("Keypad Enter") and the launcher parses
+             * this back. */
+            fprintf(stderr, "[controls] p%d %s = ", player + 1,
+                    pad_actions[act].key);
+            for (i = 0; i < kb_binding_count[player][act]; ++i) {
+                fprintf(stderr, "%s%s", i > 0 ? "," : "",
+                        SDL_GetScancodeName(kb_binding[player][act][i]));
+            }
+            fprintf(stderr, "\n");
+        }
+    }
+    for (act = 0; act < ACT_COUNT; ++act) {
+        if (gp_binding[act] >= 0) {
+            fprintf(stderr, "[controls] pad %s = %s\n",
+                    pad_actions[act].key,
+                    SDL_GetGamepadStringForButton(
+                        (SDL_GamepadButton) gp_binding[act]));
+        }
+    }
+    fprintf(stderr, "[controls] deadzone = %d\n", pad_deadzone);
+}
+
+static int pad_key_held(const bool* keys, int player, PadAction act)
+{
+    int i;
+    for (i = 0; i < kb_binding_count[player][act]; ++i) {
+        if (keys[kb_binding[player][act][i]]) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static signed char pad_axis_to_stick(int axis)
 {
     int v;
 
-    if (axis > -PAD_STICK_DEADZONE && axis < PAD_STICK_DEADZONE) {
+    if (axis > -pad_deadzone && axis < pad_deadzone) {
         return 0;
     }
     v = axis * PAD_STICK_RANGE / 32767;
@@ -320,43 +540,36 @@ static void pad_poll_gamepad(SDL_Gamepad* gp, PadInputFrame* out)
         out->trigger_r = pad_axis_to_trigger(rt);
     }
 
-    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_SOUTH)) {
-        out->buttons |= PAD_BUTTON_A;
-    }
-    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_EAST)) {
-        out->buttons |= PAD_BUTTON_B;
-    }
-    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_WEST)) {
-        out->buttons |= PAD_BUTTON_X;
-    }
-    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_NORTH)) {
-        out->buttons |= PAD_BUTTON_Y;
-    }
-    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_START)) {
-        out->buttons |= PAD_BUTTON_START;
-    }
-    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER)) {
-        out->buttons |= PAD_TRIGGER_Z;
-    }
-    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) ||
-        lt >= PAD_TRIGGER_CLICK)
+    /* Buttons come from the binding table, so a remap reaches the pad and
+     * the keyboard through the same list. */
     {
+        int act;
+        for (act = 0; act < ACT_COUNT; ++act) {
+            if (gp_binding[act] < 0 || pad_actions[act].button == 0) {
+                continue;
+            }
+            if (SDL_GetGamepadButton(gp, (SDL_GamepadButton) gp_binding[act])) {
+                out->buttons |= pad_actions[act].button;
+                if (act == ACT_DPAD_LEFT) {
+                    dx = -1;
+                } else if (act == ACT_DPAD_RIGHT) {
+                    dx = 1;
+                } else if (act == ACT_DPAD_DOWN) {
+                    dy = -1;
+                } else if (act == ACT_DPAD_UP) {
+                    dy = 1;
+                }
+            }
+        }
+    }
+    /* L and R also answer to their analog triggers, whatever else they are
+     * bound to: a GameCube trigger is a button at the bottom of its travel,
+     * and a player who presses it all the way expects the click. */
+    if (lt >= PAD_TRIGGER_CLICK) {
         out->buttons |= PAD_TRIGGER_L;
     }
     if (rt >= PAD_TRIGGER_CLICK) {
         out->buttons |= PAD_TRIGGER_R;
-    }
-    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_DPAD_LEFT)) {
-        dx -= 1;
-    }
-    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_DPAD_RIGHT)) {
-        dx += 1;
-    }
-    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_DPAD_DOWN)) {
-        dy -= 1;
-    }
-    if (SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_DPAD_UP)) {
-        dy += 1;
     }
     if (dx != 0) {
         out->buttons |= dx < 0 ? PAD_BUTTON_LEFT : PAD_BUTTON_RIGHT;
@@ -366,74 +579,52 @@ static void pad_poll_gamepad(SDL_Gamepad* gp, PadInputFrame* out)
     }
 }
 
+
 void frontend_poll_live(void)
 {
     const bool* keys = SDL_GetKeyboardState(NULL);
-    PadInputFrame* p0 = &match_view.live[0];
-    PadInputFrame* p1 = &match_view.live[1];
-    int sx = 0;
-    int sy = 0;
+    PadInputFrame* live[2];
+    int player;
 
+    pad_load_bindings();
+    live[0] = &match_view.live[0];
+    live[1] = &match_view.live[1];
     memset(match_view.live, 0, sizeof(match_view.live));
-    if (keys[SDL_SCANCODE_LEFT]) {
-        sx -= 80;
+
+    for (player = 0; player < 2; ++player) {
+        PadInputFrame* out = live[player];
+        int sx = 0, sy = 0, cx = 0, cy = 0;
+        int act;
+
+        for (act = 0; act < ACT_COUNT; ++act) {
+            if (!pad_key_held(keys, player, (PadAction) act)) {
+                continue;
+            }
+            if (pad_actions[act].button != 0) {
+                out->buttons |= pad_actions[act].button;
+                continue;
+            }
+            /* The analog directions. A key is full deflection, which is what
+             * the hard-coded version did and what makes the keyboard usable
+             * at all. */
+            switch (act) {
+            case ACT_STICK_UP:      sy += PAD_STICK_RANGE; break;
+            case ACT_STICK_DOWN:    sy -= PAD_STICK_RANGE; break;
+            case ACT_STICK_LEFT:    sx -= PAD_STICK_RANGE; break;
+            case ACT_STICK_RIGHT:   sx += PAD_STICK_RANGE; break;
+            case ACT_CSTICK_UP:     cy += PAD_STICK_RANGE; break;
+            case ACT_CSTICK_DOWN:   cy -= PAD_STICK_RANGE; break;
+            case ACT_CSTICK_LEFT:   cx -= PAD_STICK_RANGE; break;
+            case ACT_CSTICK_RIGHT:  cx += PAD_STICK_RANGE; break;
+            default: break;
+            }
+        }
+        out->stick_x = (signed char) sx;
+        out->stick_y = (signed char) sy;
+        out->cstick_x = (signed char) cx;
+        out->cstick_y = (signed char) cy;
     }
-    if (keys[SDL_SCANCODE_RIGHT]) {
-        sx += 80;
-    }
-    if (keys[SDL_SCANCODE_UP]) {
-        sy += 80;
-    }
-    if (keys[SDL_SCANCODE_DOWN]) {
-        sy -= 80;
-    }
-    p0->stick_x = (signed char) sx;
-    p0->stick_y = (signed char) sy;
-    if (keys[SDL_SCANCODE_RETURN] || keys[SDL_SCANCODE_KP_ENTER]) {
-        p0->buttons |= PAD_BUTTON_START;
-    }
-    if (keys[SDL_SCANCODE_Z]) {
-        p0->buttons |= PAD_BUTTON_A;
-    }
-    if (keys[SDL_SCANCODE_X]) {
-        p0->buttons |= PAD_BUTTON_B;
-    }
-    if (keys[SDL_SCANCODE_C]) {
-        p0->buttons |= PAD_BUTTON_X;
-    }
-    if (keys[SDL_SCANCODE_V]) {
-        p0->buttons |= PAD_BUTTON_Y;
-    }
-    if (keys[SDL_SCANCODE_A]) {
-        p0->buttons |= PAD_TRIGGER_L;
-    }
-    if (keys[SDL_SCANCODE_S]) {
-        p0->buttons |= PAD_TRIGGER_R;
-    }
-    if (keys[SDL_SCANCODE_Q]) {
-        p0->buttons |= PAD_TRIGGER_Z;
-    }
-    if (keys[SDL_SCANCODE_J]) {
-        p1->stick_x -= 80;
-    }
-    if (keys[SDL_SCANCODE_L]) {
-        p1->stick_x += 80;
-    }
-    if (keys[SDL_SCANCODE_I]) {
-        p1->stick_y += 80;
-    }
-    if (keys[SDL_SCANCODE_K]) {
-        p1->stick_y -= 80;
-    }
-    if (keys[SDL_SCANCODE_F]) {
-        p1->buttons |= PAD_BUTTON_A;
-    }
-    if (keys[SDL_SCANCODE_G]) {
-        p1->buttons |= PAD_BUTTON_B;
-    }
-    if (keys[SDL_SCANCODE_T]) {
-        p1->buttons |= PAD_BUTTON_START;
-    }
+
     /*
      * Gamepads last, and only into axes the keyboard left alone.
      *

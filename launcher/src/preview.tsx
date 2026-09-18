@@ -108,7 +108,25 @@ const CRASHES = [
   },
 ];
 
+const CONTROLS = {
+  deadzone: 4000,
+  problems: [] as string[],
+  bindings: [
+    ["stick_up", "Up"], ["stick_down", "Down"],
+    ["stick_left", "Left"], ["stick_right", "Right"],
+    ["a", "Z"], ["b", "X"], ["x", "C"], ["y", "V"],
+    ["z", "Q"], ["l", "A"], ["r", "S"],
+    ["start", "Return,Keypad Enter"],
+  ].map(([action, value]) => ({
+    device: "keyboard" as const,
+    player: 1,
+    action,
+    value,
+  })),
+};
+
 const RESPONSES: Record<string, unknown> = {
+  control_bindings: CONTROLS,
   snapshot: SNAPSHOT,
   crashes: CRASHES,
   save_settings: null,
@@ -136,6 +154,7 @@ const page = (params.get("page") ?? "play") as
   | "play"
   | "mods"
   | "graphics"
+  | "controls"
   | "crashes";
 
 const { default: App } = await import("./App");

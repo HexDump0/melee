@@ -44,6 +44,19 @@ export type Snapshot = {
   crashes: number;
 };
 
+export type Binding = {
+  device: "keyboard" | "gamepad";
+  player: number;
+  action: string;
+  value: string;
+};
+
+export type Controls = {
+  bindings: Binding[];
+  deadzone: number;
+  problems: string[];
+};
+
 export type ReleaseInfo = {
   tag: string;
   asset: string;
@@ -72,6 +85,7 @@ export const api = {
   start: (profile: string, seed?: string) =>
     invoke<void>("start", { profile, seed: seed ?? null }),
   stop: () => invoke<void>("stop"),
+  controlBindings: () => invoke<Controls>("control_bindings"),
   latestRelease: () => invoke<ReleaseInfo>("latest_release"),
   downloadRelease: (info: ReleaseInfo) =>
     invoke<string>("download_release", {

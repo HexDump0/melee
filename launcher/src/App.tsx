@@ -5,17 +5,19 @@ import Play from "./pages/Play";
 import Mods from "./pages/Mods";
 import Graphics from "./pages/Graphics";
 import Crashes from "./pages/Crashes";
+import Controls from "./pages/Controls";
 /* The mark itself, from assets/ -- branding.md is the source of truth and a
  * hand-set wordmark in markup is a second copy of it. The transparent file
  * is the right one here: the rail is already black. */
 import banner from "../../assets/melee-unbound-banner-transparent.svg?url";
 
-export type PageId = "play" | "mods" | "graphics" | "crashes";
+export type PageId = "play" | "mods" | "graphics" | "controls" | "crashes";
 
 const NAV: { id: PageId; label: string }[] = [
   { id: "play", label: "Play" },
   { id: "mods", label: "Mods" },
   { id: "graphics", label: "Graphics" },
+  { id: "controls", label: "Controls" },
   { id: "crashes", label: "Crashes" },
 ];
 
@@ -28,6 +30,13 @@ export type Store = {
   values: Record<string, Value>;
   dirty: boolean;
   set: (key: string, value: Value) => void;
+  /* Deletes the key rather than writing an empty value.
+   *
+   * These are not the same thing: the port falls back to its built-in default
+   * only when a variable is *absent*, so writing "" is "unbound" and removing
+   * the key is "use the default". A Reset button that wrote "" would unbind
+   * every control while claiming to restore them. */
+  remove: (key: string) => void;
   save: () => Promise<void>;
   reload: () => Promise<void>;
 };
@@ -37,6 +46,7 @@ export default function App({ initialPage }: { initialPage?: PageId } = {}) {
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [values, setValues] = useState<Record<string, Value>>({});
   const [dirty, setDirty] = useState(false);
+  const [removed, setRemoved] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const [log, setLog] = useState<string[]>([]);
@@ -47,6 +57,7 @@ export default function App({ initialPage }: { initialPage?: PageId } = {}) {
     const s = await api.snapshot();
     setSnap(s);
     setValues(s.values);
+    setRemoved([]);
     setDirty(false);
   }, []);
 
@@ -85,11 +96,21 @@ export default function App({ initialPage }: { initialPage?: PageId } = {}) {
       dirty,
       set: (key, value) => {
         setValues((prev) => ({ ...prev, [key]: value }));
+        setRemoved((prev) => prev.filter((k) => k !== key));
+        setDirty(true);
+      },
+      remove: (key) => {
+        setValues((prev) => {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+        setRemoved((prev) => (prev.includes(key) ? prev : prev.concat(key)));
         setDirty(true);
       },
       save: async () => {
         try {
-          await api.save(values);
+          await api.save(values, removed);
           setError(null);
           await reload();
         } catch (e) {
@@ -98,7 +119,7 @@ export default function App({ initialPage }: { initialPage?: PageId } = {}) {
       },
       reload,
     }),
-    [snap, values, dirty, reload],
+    [snap, values, dirty, removed, reload],
   );
 
   const start = async (profile: string, seed?: string) => {
@@ -205,6 +226,8 @@ export default function App({ initialPage }: { initialPage?: PageId } = {}) {
             <Mods store={store} />
           ) : page === "graphics" ? (
             <Graphics store={store} />
+          ) : page === "controls" ? (
+            <Controls store={store} />
           ) : (
             <Crashes store={store} onReplay={(seed) => start("play", seed)} />
           )}

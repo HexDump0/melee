@@ -811,6 +811,19 @@ int main(int argc, char** argv)
         fprintf(stderr, "[config] %s\n", config_used);
     }
 
+    {
+        /* Before anything opens a window: `--controls` is a question about
+         * configuration, and it has to be answerable on a machine that cannot
+         * open one. */
+        int ci;
+        for (ci = 1; ci < argc; ++ci) {
+            if (strcmp(argv[ci], "--controls") == 0) {
+                frontend_print_bindings();
+                return 0;
+            }
+        }
+    }
+
     opt.disc = RENDER_SCENE_DISC_DEFAULT;
     {
         /* `disc` is the one setting nobody can run without, so it is worth a

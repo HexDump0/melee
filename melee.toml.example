@@ -62,3 +62,27 @@ aspect_correct = false
 # Traces are plain variables too, e.g. widescreen_trace = true is
 # MELEE_WIDESCREEN_TRACE.  They live at the top level, not under a section:
 # widescreen_trace = true
+
+
+# Controls.  `melee --controls` prints what these resolved to, without opening
+# a window -- the only way to tell a binding that did not apply from one that
+# applied to a key you did not mean.  Names are SDL's, and a key that SDL does
+# not know is reported rather than ignored.
+#
+# Absent means the built-in default; an empty string means *unbound*.  Those
+# are different, and the launcher's Reset removes the keys rather than blanking
+# them for exactly that reason.
+
+# [controls.p1.keyboard]
+# a = "Z"
+# b = "X"
+# start = "Return,Keypad Enter"   # a comma-separated list is allowed
+# cstick_up = "Keypad 8"          # the C-stick has no default on a keyboard
+
+# [controls.p1.gamepad]
+# a = "a"                # SDL button names: a b x y leftshoulder
+# z = "rightshoulder"    # rightshoulder leftstick rightstick start back
+# r = ""                 # unbound: R is the analog trigger's click
+
+# [controls]
+# deadzone = 4000        # raise it for a worn stick that drifts

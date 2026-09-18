@@ -755,3 +755,34 @@ should appear with no launcher change.  Nothing in such a block may be named
 `id`, `name`, `version`, `module`, `abi_version` or `priority`: the loader's
 `manifest_read` takes any `key = value` line regardless of which section it is
 in, so those names would be read as the mod's own.
+
+## Controls (P-871)
+
+```sh
+./build/native/melee --controls          # what the bindings resolved to
+MELEE_CONTROLS_P1_KEYBOARD_A=K ./build/native/melee --controls
+```
+
+`--controls` prints and exits **without opening a window**, so it works over
+ssh and in a script.  It is the answer to "I rebound something and nothing
+happened": a binding that did not apply and one that applied to the wrong key
+look identical from inside the game.
+
+The launcher's Controls page is built on this rather than on a copy of the
+defaults -- it runs `melee --controls` and parses the result, so what the page
+shows is what the port will actually use.  Change the output format and
+`launcher/src-tauri/src/controls.rs` must change with it; its test pins the
+format.  The list is **comma-separated on purpose**: scancode names contain
+spaces (`Keypad Enter`), so a space-separated list could not be split back.
+
+**Absent and empty are different.**  A variable that is not set falls back to
+the built-in default; one set to `""` is genuinely unbound.  That is why the
+launcher's Reset removes keys from `melee.toml` instead of writing empty
+strings -- writing `""` would unbind every control while claiming to restore
+them.
+
+Defaults are the keys the hard-coded version used, verbatim, so a player who
+never opens the launcher sees no change: arrows, `Z X C V`, `Q A S`, Return and
+Keypad Enter for P1; `IJKL`, `F G`, `T` for P2; and on a pad, A/B/X/Y to
+south/east/west/north with Z on the right shoulder, L on the left, and R on the
+analog trigger's click.

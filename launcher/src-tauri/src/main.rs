@@ -3,6 +3,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod config;
+mod controls;
 mod launch;
 mod mods;
 mod release;
@@ -249,6 +250,13 @@ fn download_release(info_url: String, asset: String, tag: String, size: u64) -> 
 }
 
 #[tauri::command]
+fn control_bindings() -> Result<controls::Controls, String> {
+    let root = repo_root();
+    let prefs = load_prefs();
+    controls::read(&resolve_port(&prefs, &root), &ConfigFile::default_path())
+}
+
+#[tauri::command]
 fn stop(state: State<'_, AppState>) {
     launch::stop(&state.run);
 }
@@ -277,6 +285,7 @@ fn main() {
             set_profile,
             env_for,
             start,
+            control_bindings,
             latest_release,
             download_release,
             stop,
