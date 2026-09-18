@@ -320,7 +320,7 @@ export function PlayPage() {
       <main className="flex flex-1 flex-col items-center gap-8 py-8 lg:gap-10 lg:py-10">
         <div className="max-w-2xl text-center">
           <h1 className="text-3xl leading-[1.06] font-black tracking-tight text-balance lg:text-4xl">
-            Native web build
+            NATIVE WEB BUILD
           </h1>
         </div>
 
@@ -491,16 +491,11 @@ export function PlayPage() {
           <p className="border-t border-mu-white/10 pt-5 text-center text-micro uppercase text-mu-dim">
             Need the desktop build?{' '}
             <a href="/#download" className="text-mu-white underline-offset-4 hover:underline">
-              How to play
+              Get it Here
             </a>
           </p>
         </div>
       </main>
-
-      <footer className="flex flex-wrap items-center justify-between gap-x-10 gap-y-3 border-t border-mu-white/10 py-6">
-        <p className="text-micro uppercase text-mu-dim">Same game. A wider stage.</p>
-        <p className="text-micro uppercase text-mu-dim">Runs locally · nothing is uploaded</p>
-      </footer>
     </div>
   );
 }
