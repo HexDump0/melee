@@ -24,11 +24,21 @@ void widescreen_on_camera_setup(UnboundCameraSetup* cam);
 void credits_on_frame(const UnboundFrame* frame);
 void credits_draw_description(void);
 
+static int credits_overlay = 1;
+
 void unbound_mod_init(void)
 {
     unbound_hook_enable(UNBOUND_HOOK_CAMERA_SETUP, UNBOUND_PRIORITY_NORMAL);
     unbound_hook_enable(UNBOUND_HOOK_DISPLAY_RESIZED, UNBOUND_PRIORITY_NORMAL);
     unbound_hook_enable(UNBOUND_HOOK_FRAME, UNBOUND_PRIORITY_NORMAL);
+
+    /*
+     * The overlay plate draws after the game, so it covers anything the
+     * engine's own text renderer puts on the page.  MELEE_MOD_UNBOUND_
+     * CREDITS_OVERLAY=0 turns it off, which is how the native text is looked
+     * at while it is being placed.
+     */
+    credits_overlay = unbound_config_int("credits_overlay", 1);
 
     widescreen_init();
 }
@@ -49,7 +59,9 @@ static void unbound_on_frame(const UnboundFrame* frame)
      * button leaves it, so the mod only draws.  No open/close state here.
      */
     if (unbound_menu_page_open()) {
-        credits_on_frame(frame);
+        if (credits_overlay) {
+            credits_on_frame(frame);
+        }
         return;
     }
     if (unbound_menu_hovered()) {

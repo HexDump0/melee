@@ -350,6 +350,34 @@ static const char* const credit_lines[] = {
  * buffer, so a long line smashes the stack rather than truncating.  Keep
  * lines short until that is bounded properly.
  */
+/*
+ * Screen placement for the engine's text, in the authored 640x480 space.
+ * Derived by measuring probe markers; see page_text_create.
+ */
+#define TEXT_BASE_Y 417.0f  /* where a y offset of 0 lands */
+#define TEXT_BASE_X 146.5f  /* where an x offset of 0 puts the left edge */
+#define TEXT_UNIT 0.517f    /* screen pixels per text unit at font 0.0278 */
+#define TEXT_GLYPH_W 15.0f  /* glyph advance */
+#define TEXT_CENTRE_X 320.0f
+#define TEXT_TOP_Y 112.0f
+#define TEXT_LINE_STEP 24.0f
+
+static float text_off_y(float screen_y)
+{
+    return (screen_y - TEXT_BASE_Y) / TEXT_UNIT;
+}
+
+static float text_off_x_centred(const char* line)
+{
+    unsigned len = 0;
+    float left;
+    while (line[len] != '\0') {
+        ++len;
+    }
+    left = TEXT_CENTRE_X - 0.5f * (float) len * TEXT_GLYPH_W;
+    return (left - TEXT_BASE_X) / TEXT_UNIT;
+}
+
 static void page_text_create(void)
 {
     unsigned i;
@@ -379,22 +407,42 @@ static void page_text_create(void)
     page_text->pos_z = 17.0f;
     page_text->box_size_x = 364.68332f;
     page_text->box_size_y = 38.38772f;
-    page_text->font_size.x = 0.0521f;
-    page_text->font_size.y = 0.0521f;
+    page_text->font_size.x = 0.0278f;
+    page_text->font_size.y = 0.0278f;
     page_text->text_color.r = 0xFF;
     page_text->text_color.g = 0xFF;
     page_text->text_color.b = 0xFF;
     page_text->text_color.a = 0xFF;
 
-    y = 0.0f;
+    /*
+     * Place the block by measurement, not by guesswork.
+     *
+     * Four markers drawn at known offsets (MELEE_MENU_TEXT_PROBE=1) and
+     * measured off the screenshot give both axes at font size 0.0278:
+     *
+     *     screen_y = 417.0 + 0.517 * y_offset      (negative offset is up)
+     *     left_x   = 146.5 + 0.517 * x_offset
+     *     glyph advance ~15 px, glyph height ~11 px, all in 640x480 space
+     *
+     * The unit scale tracks font_size -- it was 0.975 at 0.0521 -- so these
+     * constants belong with that size and move if it does.
+     */
+    if (getenv("MELEE_MENU_TEXT_PROBE") != NULL) {
+        HSD_SisLib_803A6B98(page_text, 0.0f, 0.0f, "AAAA");
+        HSD_SisLib_803A6B98(page_text, 100.0f, -40.0f, "BBBB");
+        HSD_SisLib_803A6B98(page_text, 0.0f, -300.0f, "CCCCCCCC");
+        HSD_SisLib_803A6B98(page_text, -100.0f, -340.0f, "DDDD");
+        return;
+    }
+
+    y = TEXT_TOP_Y;
     for (i = 0; i < sizeof(credit_lines) / sizeof(credit_lines[0]); ++i) {
-        if (credit_lines[i][0] != '\0') {
-            /* Each line is its own print: `HSD_SisLib_803A6B98` encodes
-             * through a 128-byte stack buffer, and a long enough string
-             * smashes it rather than truncating. */
-            HSD_SisLib_803A6B98(page_text, 0.0f, y, credit_lines[i]);
+        const char* line = credit_lines[i];
+        if (line[0] != '\0') {
+            HSD_SisLib_803A6B98(page_text, text_off_x_centred(line),
+                                text_off_y(y), line);
         }
-        y += 26.0f;
+        y += TEXT_LINE_STEP;
     }
 }
 
