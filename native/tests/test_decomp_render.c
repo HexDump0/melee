@@ -2591,6 +2591,8 @@ int main(int argc, char** argv)
     char error[256];
     const char* shot = NULL;
     int dump = 0;
+    int hide_draw = -1;
+    int only_draw = -1;
     int no_gl = 0;
     const char* dump_world = NULL;
     int direct = 0;
@@ -2653,6 +2655,12 @@ int main(int argc, char** argv)
             opt.no_scale = 1;
         } else if (strcmp(argv[i], "--dump") == 0) {
             dump = 1;
+        } else if (strcmp(argv[i], "--hide-draw") == 0 &&
+                   (int) i + 1 < argc) {
+            hide_draw = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--only-draw") == 0 &&
+                   (int) i + 1 < argc) {
+            only_draw = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--dump-world") == 0 &&
                    (int) i + 1 < argc) {
             dump_world = argv[++i];
@@ -2784,6 +2792,17 @@ int main(int argc, char** argv)
         static const u8 vfilter[7] = { 8, 8, 10, 12, 10, 8, 8 };
         GXSetCopyFilter(GX_FALSE, NULL, GX_TRUE, vfilter);
         GXCopyDisp(NULL, GX_FALSE);
+        if (hide_draw >= 0 || only_draw >= 0) {
+            GxGlOptions o;
+            o.textures = 1;
+            o.lighting = 1;
+            o.only_draw = only_draw;
+            o.hide_draw = hide_draw;
+            o.wireframe = 0;
+            o.no_cull = 0;
+            o.no_alpha_test = 0;
+            gx_gl_set_options(&o);
+        }
         if (!gx_gl_init(opt.width, opt.height, error, sizeof(error))) {
             fprintf(stderr, "decomp_render: GL init failed: %s\n", error);
             return 1;
@@ -2840,6 +2859,18 @@ int main(int argc, char** argv)
                    dr->state.z_enable, dr->state.z_func,
                    dr->state.num_stages, off0, off1, vmn[0], vmn[1], vmn[2],
                    vmx[0], vmx[1], vmx[2]);
+            printf("      blend=%u/%u/%u mat_a=%.3f/%.3f amb_a=%.3f "
+                   "c=[%.2f %.2f %.2f %.2f] k=[%.2f %.2f %.2f %.2f] "
+                   "matsrc=%u/%u chan=%u\n",
+                   dr->state.blend_type, dr->state.blend_src,
+                   dr->state.blend_dst, dr->state.ch_mat[0][3],
+                   dr->state.ch_mat[2][3], dr->state.ch_amb[0][3],
+                   dr->state.tev_color[0][3], dr->state.tev_color[1][3],
+                   dr->state.tev_color[2][3], dr->state.tev_color[3][3],
+                   dr->state.tev_kcolor[0][3], dr->state.tev_kcolor[1][3],
+                   dr->state.tev_kcolor[2][3], dr->state.tev_kcolor[3][3],
+                   dr->state.ch_mat_src[0], dr->state.ch_mat_src[2],
+                   dr->state.num_chans);
         }
     }
     if (shot != NULL && !no_gl) {

@@ -66,6 +66,7 @@ int check_kumite_tables(const char* image);
 int check_converter_sweep(const char* image);
 int check_yorster_param(const char* image);
 int check_stage_params(const char* image);
+int check_stage_display_lists(const char* image);
 int check_castle_dynamics(const char* image);
 int check_castle_param(const char* image);
 int check_pstadium_param(const char* image, const char* file);

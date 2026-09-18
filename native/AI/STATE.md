@@ -1,5 +1,19 @@
 # State of the port
 
+> **Battlefield was drawing as shards because one `u16` inside a display list
+> was byte-swapped (2026-09-18, P-848/P-849, G-222).** The geometry was never
+> damaged -- `--wire` drew the stage perfectly -- but
+> `conv_orphan_matanim_trees`, the heuristic that P-830 already caught making
+> false positives, walked a `HSD_TexAnim` into a `HSD_PObj`'s display list and
+> swapped a strip's vertex count from `0x0008` to `0x0800`. The renderer then
+> read 2048 vertices out of a 1480-byte tail. **Six archives were affected** --
+> `GrNBa` and five Target Test stages, two of them the pair P-830 named.
+> Converter **v137** records each display list's extent in `conv_pobj` and
+> refuses any numeric write inside it, which is the invariant the file's own
+> header has always stated and nothing enforced. `check_stage_display_lists`
+> compares 624 display lists against the untouched archive. Coverage unchanged
+> at 83.13%; ctest 34/34; Battlefield verified in the game.
+
 > **The Master Hand fight's camera was reading an uninitialised pitch, and
 > that is the last Classic round's crash (2026-09-18, P-847, G-205).**
 > `Camera_8002E234`'s `case 2` writes `sp10`, `spC` and `sp8` only inside

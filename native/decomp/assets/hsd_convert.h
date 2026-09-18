@@ -68,6 +68,9 @@ typedef struct HsdConvertStats {
     unsigned dobjs;
     unsigned mobjs;
     unsigned pobjs;
+    /* Writes a walker attempted inside a GX display list and this file
+     * refused.  Always a walker bug; see `conv_u16` (P-849). */
+    unsigned dl_guarded;
     unsigned tobjs;
     unsigned anim_joints;
     unsigned aobjs;

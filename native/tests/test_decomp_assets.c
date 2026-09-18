@@ -411,6 +411,7 @@ int main(int argc, char** argv)
     failures += check_kumite_tables(image);
     failures += check_yorster_param(image);
     failures += check_stage_params(image);
+    failures += check_stage_display_lists(image);
     failures += check_castle_dynamics(image);
     failures += check_castle_param(image);
     failures += check_pstadium_param(image, "GrPs.dat");

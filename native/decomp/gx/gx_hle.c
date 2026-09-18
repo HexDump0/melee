@@ -2176,6 +2176,15 @@ void GXBegin(GXPrimitive type, GXVtxFmt vtxfmt, u16 nverts)
     begin_draw_snapshot();
 }
 
+static int dl_trace(void)
+{
+    static int trace = -1;
+    if (trace < 0) {
+        trace = getenv("MELEE_DL_TRACE") != NULL;
+    }
+    return trace;
+}
+
 void GXCallDisplayList(void* list, u32 nbytes)
 {
     const u8* p = (const u8*) list;
@@ -2185,16 +2194,31 @@ void GXCallDisplayList(void* list, u32 nbytes)
     flush_direct();
     stat_display_lists++;
     begin_draw_snapshot();
+    /* MELEE_DL_TRACE prints every primitive with the bytes it consumed, which
+     * is how a display list that has been written into is found: the vertex
+     * size per primitive is constant for a POBJ, so a row with a different
+     * one -- or a count larger than the list -- names the damaged word
+     * (P-849). */
+    if (dl_trace()) {
+        fprintf(stderr, "[dl] list=%p nbytes=%u\n", list, (unsigned) nbytes);
+    }
     while (cursor + 3 <= length) {
         u8 op = p[cursor];
         u16 n;
+        size_t before;
         if (op == 0) {
             break;
         }
         n = be16(p + cursor + 1);
         cursor += 3;
         stat_primitives++;
+        before = cursor;
         exec_primitive(op, p, length, &cursor, n);
+        if (dl_trace()) {
+            fprintf(stderr, "[dl]   op=%02x n=%u cursor %u->%u (vsz=%u)\n", op,
+                    (unsigned) n, (unsigned) before, (unsigned) cursor,
+                    (unsigned) (n != 0 ? (cursor - before) / n : 0));
+        }
     }
     (void) draw_vertex_start;
     end_draw_snapshot();

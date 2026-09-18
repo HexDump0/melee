@@ -279,6 +279,138 @@ static const StageParamCase stage_param_cases[] = {
       (unsigned) (sizeof(pushon_ranges) / sizeof(pushon_ranges[0])) },
 };
 
+/* P-849: a GX display list is a byte stream -- opcodes and vertex data -- and
+ * conversion must leave every byte of it alone.  `conv_orphan_matanim_trees`
+ * is a heuristic that accepts any relocation target which "looks like" an
+ * unconverted `HSD_MatAnimJoint`, and in six archives on the disc it walked a
+ * `HSD_TexAnim` whose fields landed inside one.  In `GrNBa.dat` that swapped a
+ * `GX_DRAW_TRIANGLESTRIP`'s vertex count from `0x0008` to `0x0800`, so the
+ * renderer read 2048 vertices out of a 1480-byte tail and drew Battlefield as
+ * a screenful of shards.
+ *
+ * The check is the invariant itself rather than the six known archives: walk
+ * every stage map's joints and compare each `HSD_PObjDesc`'s display list
+ * against the untouched original. */
+static int dl_walk_joint(const char* path, const unsigned char* buffer,
+                         const unsigned char* raw, size_t size,
+                         const unsigned char* joint, int depth, int* checked)
+{
+    const unsigned char* data = buffer + 0x20;
+    const unsigned char* dobj;
+    int failed = 0;
+
+    if (depth > 64 || joint == NULL || !ptr_in_buffer(joint, buffer, size)) {
+        return 0;
+    }
+    dobj = read_host_ptr(joint + 0x10);
+    while (dobj != NULL && ptr_in_buffer(dobj, buffer, size)) {
+        const unsigned char* pobj = read_host_ptr(dobj + 0x0C);
+        while (pobj != NULL && ptr_in_buffer(pobj, buffer, size)) {
+            const unsigned char* display = read_host_ptr(pobj + 0x10);
+            size_t bytes = (size_t) read_host_u16(pobj + 0x0E) * 32;
+            if (display != NULL && bytes != 0 &&
+                ptr_in_buffer(display, buffer, size) &&
+                (size_t) (display - buffer) + bytes <= size)
+            {
+                size_t at = (size_t) (display - buffer);
+                (*checked)++;
+                if (memcmp(buffer + at, raw + at, bytes) != 0) {
+                    printf("decomp_assets: %s display list at %#x was "
+                           "converted (must stay raw)\n",
+                           path, (unsigned) (at - 0x20));
+                    failed = 1;
+                }
+            }
+            pobj = read_host_ptr(pobj + 0x04);
+        }
+        dobj = read_host_ptr(dobj + 0x04);
+    }
+    failed |= dl_walk_joint(path, buffer, raw, size,
+                            read_host_ptr(joint + 0x08), depth + 1, checked);
+    failed |= dl_walk_joint(path, buffer, raw, size,
+                            read_host_ptr(joint + 0x0C), depth + 1, checked);
+    (void) data;
+    return failed;
+}
+
+int check_stage_display_lists(const char* image)
+{
+    /* The six that tripped it, plus two that never did: a guard that only
+     * ever looked at broken archives would not notice if it started
+     * refusing legitimate writes. */
+    static const char* paths[] = { "GrNBa.dat", "GrTKb.dat", "GrTMs.dat",
+                                   "GrTMt.dat", "GrTPk.dat", "GrTPr.dat",
+                                   "GrYt.dat",  "GrNLa.dat" };
+    unsigned c;
+    int failed = 0;
+
+    for (c = 0; c < sizeof(paths) / sizeof(paths[0]); c++) {
+        char error[256];
+        size_t size = 0;
+        unsigned char* buffer =
+            load_archive(image, paths[c], NULL, &size, error, sizeof(error));
+        unsigned char* raw;
+        HSD_Archive archive;
+        HsdConvertStats stats;
+        unsigned char* head;
+        const unsigned char* maps;
+        uint32_t count;
+        uint32_t m;
+        int checked = 0;
+        int case_failed = 0;
+
+        if (buffer == NULL) {
+            printf("decomp_assets: %s SKIP (%s)\n", paths[c], error);
+            continue;
+        }
+        raw = malloc(size);
+        if (raw == NULL) {
+            free(buffer);
+            return failed + 1;
+        }
+        memcpy(raw, buffer, size);
+        if (!hsd_asset_convert(buffer, size, &stats) ||
+            HSD_ArchiveParse(&archive, buffer, size) != 0)
+        {
+            printf("decomp_assets: %s conversion failed\n", paths[c]);
+            failed++;
+            free(raw);
+            free(buffer);
+            continue;
+        }
+        head = HSD_ArchiveGetPublicAddress(&archive, "map_head");
+        if (head == NULL || !ptr_in_buffer(head, buffer, size)) {
+            printf("decomp_assets: %s map_head missing\n", paths[c]);
+            failed++;
+            free(raw);
+            free(buffer);
+            continue;
+        }
+        maps = read_host_ptr(head + 0x08);
+        count = read_host_u32(head + 0x0C);
+        if (count > 64) {
+            count = 64;
+        }
+        if (maps == NULL || !ptr_in_buffer(maps, buffer, size)) {
+            count = 0;
+        }
+        for (m = 0; m < count; m++) {
+            case_failed |=
+                dl_walk_joint(paths[c], buffer, raw, size,
+                              read_host_ptr(maps + m * 0x34), 0, &checked);
+        }
+        if (case_failed) {
+            failed++;
+        } else {
+            printf("decomp_assets: %s %d display lists left raw ok\n",
+                   paths[c], checked);
+        }
+        free(raw);
+        free(buffer);
+    }
+    return failed;
+}
+
 int check_stage_params(const char* image)
 {
     /* Stages whose `yakumono_param` is packed data (offsets, bytes, mixed

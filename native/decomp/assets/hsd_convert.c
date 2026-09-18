@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 136u
+#define HSD_CONVERTER_VERSION 137u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -192,6 +192,11 @@ typedef struct Conv {
      * excluded.  Only the heuristic orphan scans need this; see
      * `conv_imagedesc` for why. */
     unsigned char* tobj_span;
+    /* Bytes covered by a GX display list.  A display list is a byte
+     * stream -- opcodes and vertex data -- and is the one thing in the
+     * archive that a numeric walker must never write into; see `conv_u16`.
+     * Filled by `conv_pobj` as the model walk finds each one. */
+    unsigned char* dl_span;
     unsigned char* num;   /* one byte per data offset: numeric field done */
     HsdConvertStats st;
     int depth;
@@ -285,11 +290,41 @@ static int mark(Conv* c, uint32_t off)
 
 /* Converts a non-pointer u32/f32 field; relocation targets are already host
  * order and are left alone. */
+/* A walker tried to write inside a display list.  That is always a bug in the
+ * walker, so say which one and where, once per archive: silence would hide the
+ * next heuristic that wanders in (P-849). */
+static void conv_dl_guard_hit(Conv* c, const char* who, uint32_t off)
+{
+    c->st.dl_guarded++;
+    if (c->st.dl_guarded == 1) {
+        fprintf(stderr,
+                "hsd: refused %s inside a display list at %#x "
+                "(a walker is off the rails)\n",
+                who, (unsigned) off);
+    }
+}
+
+static void mark_dl_span(Conv* c, uint32_t off, size_t size)
+{
+    size_t b;
+
+    if (c->dl_span == NULL || !in_data(c, off, size)) {
+        return;
+    }
+    for (b = 0; b < size; b++) {
+        c->dl_span[off + b] = 1;
+    }
+}
+
 static void conv_u32(Conv* c, uint32_t off)
 {
     /* Descriptor fields are 4-aligned; an unaligned offset means a walker
      * misidentified data (and a write would cross pointer boundaries). */
     if (!in_data(c, off, 4) || (off & 3u) || c->reloc[off] || c->num[off]) {
+        return;
+    }
+    if (c->dl_span != NULL && c->dl_span[off]) {
+        conv_dl_guard_hit(c, "conv_u32", off);
         return;
     }
     c->num[off] = 1;
@@ -304,6 +339,21 @@ static void conv_u16(Conv* c, uint32_t off)
     if (!in_data(c, off, 2) || (off & 1u) || c->num[off] ||
         c->reloc[off & ~3u])
     {
+        return;
+    }
+    /* **A display list is bytes, never numeric fields.**  The conversion
+     * strategy at the top of this file says so, and every walker here obeys
+     * it by construction -- except the heuristic ones.
+     * `conv_orphan_matanim_trees` accepts any relocation target that "looks
+     * like" an unconverted `HSD_MatAnimJoint`; in `GrNBa.dat` it accepted two
+     * and walked a `HSD_TexAnim` whose `+0x14` landed inside a `HSD_PObj`
+     * display list.  That swapped one `u16`: a `GX_DRAW_TRIANGLESTRIP`'s
+     * vertex count `0x0008` became `0x0800`, so the renderer read 2048
+     * vertices out of a 1480-byte tail and drew Battlefield as a screenful of
+     * shards (P-849).  `conv_imagedesc` guards the same class the same way,
+     * by the property rather than by patching the heuristic. */
+    if (c->dl_span != NULL && c->dl_span[off]) {
+        conv_dl_guard_hit(c, "conv_u16", off);
         return;
     }
     c->num[off] = 1;
@@ -606,6 +656,17 @@ static void conv_pobj(Conv* c, uint32_t off)
     conv_u16(c, off + 0x0C);
     conv_u16(c, off + 0x0E);
     memcpy(&flags, c->data + off + 0x0C, 2);
+    /* Record the display list's extent before anything else walks: `n_display`
+     * is in 32-byte units (`pobj.c:1293` calls `GXCallDisplayList(display,
+     * n_display << 5)`).  Nothing may byte-swap inside it (P-849). */
+    {
+        uint32_t display = rd32(c, off + 0x10);
+        uint16_t n_display;
+        memcpy(&n_display, c->data + off + 0x0E, 2);
+        if (display != 0 && n_display != 0) {
+            mark_dl_span(c, display, (size_t) n_display * 32);
+        }
+    }
     next = rd32(c, off + 0x04);
     verts = rd32(c, off + 0x08);
     upt = rd32(c, off + 0x14);
@@ -6558,6 +6619,7 @@ static int convert_archive(unsigned char* data, size_t size, Conv* c)
     c->seen = calloc(data_size ? data_size : 1, 1);
     c->num = calloc(data_size ? data_size : 1, 1);
     c->tobj_span = calloc(data_size ? data_size : 1, 1);
+    c->dl_span = calloc(data_size ? data_size : 1, 1);
     if (c->reloc == NULL || c->seen == NULL || c->num == NULL) {
         free(c->reloc);
         free(c->seen);
@@ -6567,6 +6629,8 @@ static int convert_archive(unsigned char* data, size_t size, Conv* c)
         c->num = NULL;
         free(c->tobj_span);
         c->tobj_span = NULL;
+        free(c->dl_span);
+        c->dl_span = NULL;
         return 0;
     }
 
@@ -6592,10 +6656,12 @@ static int convert_archive(unsigned char* data, size_t size, Conv* c)
     free(c->seen);
     free(c->num);
     free(c->tobj_span);
+    free(c->dl_span);
     c->reloc = NULL;
     c->seen = NULL;
     c->num = NULL;
     c->tobj_span = NULL;
+    c->dl_span = NULL;
     return 1;
 }
 

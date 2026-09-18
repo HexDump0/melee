@@ -4797,3 +4797,48 @@ that the pass was written for -- hit neither bug, which is how it survived.
    unchanged through the main shader. Early-Z was not a reason to keep it
    either -- the shader already contains an unconditional `discard` for the
    alpha test, so it had no early-Z to lose. P-846.
+
+## G-222: the invariant the converter states but never enforced -- writes inside a display list
+
+`hsd_convert.c`'s own header says what must never be written:
+
+> Byte-defined ranges are simply never written: FObj `ad` streams, **GX display
+> lists**, vertex arrays, pixel/TLUT data, FigaTree node bytes and the symbol
+> strings stay big-endian.
+
+Every typed walker obeys that by construction. The **heuristic** ones do not.
+`conv_orphan_matanim_trees` accepts any relocation target that "looks like" an
+unconverted `HSD_MatAnimJoint` and walks the tree under it; in `GrNBa.dat` it
+accepted two and reached a `HSD_TexAnim` whose `+0x14` landed inside a
+`HSD_PObj` display list. One `u16` was swapped: a `GX_DRAW_TRIANGLESTRIP`'s
+vertex count `0x0008` became `0x0800`, the renderer read 2048 vertices out of a
+1480-byte tail, and **Battlefield drew as a screenful of shards** -- in the
+game, not only the viewer.
+
+**Six archives on the disc were affected**, and two of them -- `GrTKb.dat` and
+`GrTMs.dat` -- are the exact pair that `conv_imagedesc`'s comment already
+names as false positives of the same heuristic from P-830. The class was known
+and had been fixed once, narrowly, at the one descriptor type that had been
+seen to suffer.
+
+**The lesson is about where to put the guard.** P-830 guarded
+`conv_imagedesc`; this bug walked past it into a display list instead. A guard
+on the *thing that must not be written* covers every walker at once, including
+the ones not written yet: `conv_pobj` now records each display list's extent
+(`n_display << 5`) and `conv_u16`/`conv_u32` refuse to write inside one,
+count it, and report the first refusal. Silence would have hidden the next
+heuristic that wanders in.
+
+**How it was found, which generalises.** Three tools, in this order:
+`--hide-draw N` on `test_decomp_render` to find the one draw doing the damage
+(hiding it made the stage correct); the vertex count in the port's own
+draw dump against the count the archive's `HSD_PObjDesc` implies (825 vs 714
+-- the renderer was making up 37 triangles); and `MELEE_DL_TRACE`, which
+prints each primitive with the bytes it consumed, so the malformed one names
+itself. Then a gdb watchpoint on the byte, inside a standalone driver that
+calls `hsd_asset_convert` on one archive, gave the walker's whole stack.
+
+**Do not read the screenshot as geometry corruption.** `--wire` drew
+Battlefield perfectly intact before the fix -- the joint tree and vertex
+arrays were never touched. Only the *display list* was, and only one word of
+it. P-849.

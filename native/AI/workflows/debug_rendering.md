@@ -71,3 +71,35 @@ If numbers changed intentionally, update `STATE.md` in the same commit.
 
 Add a `gotchas/GOTCHAS.md` entry with the symptom so the next agent greps
 instead of debugs.
+
+## Finding the one draw that is wrong (P-849)
+
+When a stage or model looks broken, isolate before theorising:
+
+```sh
+# Which draw is doing the damage?  Sweep and diff against the unmodified shot.
+for n in $(seq 0 63); do
+    ./build/native/test_decomp_render --stage GrNBa.dat --no-fighter \
+        --stage-cam --hide-draw $n --shot /tmp/h$n.bmp
+done
+```
+
+`--only-draw N` renders just that one.  `--wire` answers a different question
+and is worth asking first: if the wireframe is intact, the joint tree and the
+vertex arrays are fine and the fault is in the display list, the material or
+the blend, not in the geometry.
+
+Then compare the port's vertex count for the draw against what the archive
+says: `HSD_PObjDesc`'s display list is `n_display << 5` bytes, and its
+primitives give an exact triangle count.  A renderer producing *more* vertices
+than the data holds is reading a malformed primitive header.
+
+```sh
+MELEE_DL_TRACE=1 ./build/native/test_decomp_render --stage GrNBa.dat \
+    --no-fighter --stage-map 6 2>&1 | grep -A12 nbytes=2656
+```
+
+prints every primitive with the bytes it consumed; the vertex size per
+primitive is constant within a POBJ, so the row with a different one names the
+damaged word.  See G-222 for the walk from there to the converter walker that
+wrote it.
