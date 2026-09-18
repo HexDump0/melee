@@ -1591,6 +1591,122 @@ static int efb_test(void)
         }
     }
 
+    /* ---- pass 8b: P-843 the 64-byte tile formats stay inside the buffer ----
+     * RGBA8 and Z24X8 are the only copy formats with a 64-byte tile, and both
+     * encoders built the first half of the tile as a half-word index and then
+     * doubled it -- a 128-byte stride over a 64-byte tile.  Every tile but
+     * the first landed on the next tile's memory and the image ran off the
+     * end of the allocation: the Classic-mode VS splash (gm_1832.c:603) copies
+     * 380x400 Z24X8 into a 608,000-byte `lb_800121FC` buffer and overran it by
+     * 607,904 bytes of mostly-0xFF depth, over whatever the arena had put
+     * there -- gobjs and live `Fighter`s, which is the corruption P-816/P-836/
+     * P-843 all crash on.  Two assertions, both of which failed before:
+     * the guard band past `GXGetTexBufferSize` is untouched, and what the
+     * encoder wrote is what `gx_texture_decode` reads back. */
+    {
+        /* The guard has to be big enough that the *buggy* encoder stays
+         * inside this array: its 128-byte stride put the last tile's first
+         * half at byte 416. */
+        enum { TILED = 4 * 64, GUARD = 256 };
+        unsigned char dst_rgba8[TILED + GUARD];
+        unsigned char dst_z24[TILED + GUARD];
+        GXColor green = { 0x00, 0xFF, 0x00, 0xFF };
+        uint8_t* rgba = NULL;
+        char err[64];
+        int i;
+
+        gx_hle_begin_frame();
+        gx_hle_reset_state();
+        GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
+        GXSetNumChans(1);
+        GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX,
+                      GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
+        GXSetNumTexGens(0);
+        GXSetNumTevStages(1);
+        GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL,
+                      GX_COLOR0A0);
+        GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+        GXSetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
+        GXSetCullMode(GX_CULL_NONE);
+        GXClearVtxDesc();
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+        GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+        GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+        GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+        GXPosition3f32(-1.0f, -1.0f, 0.0f);
+        GXColor4u8(green.r, green.g, green.b, green.a);
+        GXPosition3f32(1.0f, -1.0f, 0.0f);
+        GXColor4u8(green.r, green.g, green.b, green.a);
+        GXPosition3f32(1.0f, 1.0f, 0.0f);
+        GXColor4u8(green.r, green.g, green.b, green.a);
+        GXPosition3f32(-1.0f, 1.0f, 0.0f);
+        GXColor4u8(green.r, green.g, green.b, green.a);
+
+        /* Both copy paths zero exactly `copy_tex_dest_size` bytes before
+         * encoding, so a 0x5A left anywhere past that is a write the bound
+         * did not account for. */
+        memset(dst_rgba8, 0x5A, sizeof(dst_rgba8));
+        memset(dst_z24, 0x5A, sizeof(dst_z24));
+        GXSetTexCopySrc(0, 0, 640, 480);
+        GXSetTexCopyDst(8, 8, GX_TF_RGBA8, GX_FALSE);
+        GXCopyTex(dst_rgba8, GX_FALSE);
+        GXSetTexCopyDst(8, 8, GX_TF_Z24X8, GX_FALSE);
+        GXCopyTex(dst_z24, GX_FALSE);
+        if (gx_gl_render_frame() < 0) {
+            printf("efb: FAIL render_frame (64-byte tiles)\n");
+            return 0;
+        }
+        if (GXGetTexBufferSize(8, 8, GX_TF_RGBA8, GX_FALSE, 0) != TILED ||
+            GXGetTexBufferSize(8, 8, GX_TF_Z24X8, GX_FALSE, 0) != TILED)
+        {
+            printf("efb: FAIL 8x8 64-byte-tile buffer size %u/%u (want %u)\n",
+                   (unsigned) GXGetTexBufferSize(8, 8, GX_TF_RGBA8,
+                                                 GX_FALSE, 0),
+                   (unsigned) GXGetTexBufferSize(8, 8, GX_TF_Z24X8,
+                                                 GX_FALSE, 0),
+                   (unsigned) TILED);
+            fail = 1;
+        }
+        for (i = 0; i < GUARD; i++) {
+            if (dst_rgba8[TILED + i] != 0x5A) {
+                printf("efb: FAIL RGBA8 copy wrote %d bytes past the "
+                       "buffer\n", GUARD - i);
+                fail = 1;
+                break;
+            }
+        }
+        for (i = 0; i < GUARD; i++) {
+            if (dst_z24[TILED + i] != 0x5A) {
+                printf("efb: FAIL Z24X8 copy wrote %d bytes past the "
+                       "buffer\n", GUARD - i);
+                fail = 1;
+                break;
+            }
+        }
+        /* Z24X8 shares the expression, so the guard band above is its
+         * assertion; the round trip below pins the tiling itself. */
+        if (gx_texture_decode(dst_rgba8, TILED, 8, 8, TEX_FMT_RGBA8, &rgba,
+                              err, sizeof(err)) != 0) {
+            printf("efb: FAIL RGBA8 copy decode: %s\n", err);
+            fail = 1;
+        } else {
+            for (i = 0; i < 8 * 8; i++) {
+                const uint8_t* q = rgba + (size_t) i * 4;
+                if (q[0] != 0x00 || q[1] != 0xFF || q[2] != 0x00 ||
+                    q[3] != 0xFF)
+                {
+                    printf("efb: FAIL RGBA8 copy texel %d = %02x,%02x,%02x,"
+                           "%02x (want 00,ff,00,ff)\n", i, q[0], q[1], q[2],
+                           q[3]);
+                    fail = 1;
+                    break;
+                }
+            }
+            free(rgba);
+        }
+    }
+
     /* ---- pass 9: P-680 lines and points rasterize ----
      * A horizontal red line at window row 240 and a 5px green point at
      * window (480,360) must produce those pixels (before P-680 the

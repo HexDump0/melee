@@ -1,5 +1,25 @@
 # State of the port
 
+> **The Classic VS splash was shredding the arena, and that is the crash
+> P-816/P-836/P-843 have all been reporting (2026-09-18, G-220).** The owner
+> placed it exactly: the versus screen between Classic rounds, on the middle
+> round only. That round is the **team battle** (`entry->x1 & 8` ->
+> `model_scale_kind == 4`), the only Classic intro that calls `fn_80185A0C`
+> and so the only one that does a `GX_TF_Z24X8` EFB copy. Both 64-byte-tile
+> encoders in `gx_gl.c` built the first half of a tile as a half-word index
+> and doubled it -- a 128-byte stride over a 64-byte tile -- so the copy
+> reached `tiles * 128` where `GXGetTexBufferSize` promised `tiles * 64`. The
+> splash's 380x400 depth copy **overran its 608,000-byte buffer by 607,904
+> bytes**, up to three times, laying far-plane `0xFF, 0xFF` 32 bytes in every
+> 128 over ~600 KB of arena -- live `Fighter`s and gobjs in two pools at once,
+> with `0xFFFFFFFF` in fields nothing assigns, which is what every one of the
+> six reports has shown. ASan was always going to be silent: `HSD_MemAlloc` is
+> `OSAllocFromHeap` on one host allocation, so there is no redzone between the
+> image buffer and the fighter pools. Fixed, with a guard-band + round-trip
+> regression test in `test_decomp_render --efb`; ctest 33/33, ASan clean.
+> RGBA8 and Z24X8 EFB copies also *decode correctly* now for the first time --
+> every tile but the first was landing on its neighbour.
+
 > **The fighter crash dumps have been naming the wrong objects (2026-09-17,
 > P-843, G-219).** `HSD_GOBJ_CLASS_FIGHTER` is **4** and nothing reserves the
 > number -- the menus create their widgets with a bare

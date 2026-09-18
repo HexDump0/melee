@@ -4680,3 +4680,50 @@ cleared its in-use bit on teardown; another call path can hold anything in
 **ASan does not catch it,** which is why it survived the sanitizer runs: a
 global-array index large enough to land *inside* a neighbouring global never
 touches a redzone. P-843.
+
+## G-220: a tile offset is a *byte* offset -- the EFB copy that overran its buffer by its own size
+
+`GXGetTexBufferSize` hands out `tiles * 64` bytes for the two 64-byte-tile
+copy formats, `GX_TF_RGBA8` and `GX_TF_Z24X8`. Both halves of such a tile are
+byte offsets: 32 bytes of AR (or Z high/mid) pairs, then 32 bytes of GB (or Z
+low). `copy_tex_encode`/`copy_tex_encode_z24x8` in `native/decomp/gx/gx_gl.c`
+built the *first* half as a half-word index --
+
+```c
+ar = tile * 64 + (y % 4) * 4 + (x % 4);   /* then dest[ar * 2] */
+gb = tile * 64 + 32 + (y % 4) * 8 + (x % 4) * 2;  /* dest[gb], correct */
+```
+
+-- so its stride was **128 bytes over a 64-byte tile**. Two consequences, and
+the second is the expensive one:
+
+1. Every tile but the first wrote onto the next tile's memory, so an EFB copy
+   in either format decoded to garbage past its first 4x4 block.
+2. The image ran off the end of the allocation. The encode reached
+   `tiles * 128` where the allocator promised `tiles * 64`: **the buffer was
+   overrun by its own size.**
+
+The Classic-mode team-battle VS splash (`gm_1832.c:603`, the only intro with
+`model_scale_kind == 4`) copies 380x400 `GX_TF_Z24X8` into an
+`lb_800121FC` buffer of 608,000 bytes and overran it by **607,904** -- once
+per costume slot, up to three. The overrun bytes are the depth high/mid pair,
+which at the far plane is `0xFF, 0xFF`, laid down 32 bytes in every 128 over
+~600 KB of arena. That is the corruption behind P-816, P-836 and P-843: live
+`Fighter`s and `HSD_GObj`s with `0xFFFFFFFF` in fields nothing assigns, in two
+`HSD_ObjAlloc` pools at once, one to two frames after a heavy transition.
+
+**Why five crash reports and three investigations missed it.** `HSD_MemAlloc`
+is `OSAllocFromHeap` on the game's own arena -- one host allocation. ASan sees
+no redzone between the image buffer and the fighter pools, so a sanitizer run
+is clean while the arena is being shredded (same blind spot as G-219's
+neighbouring global). And the crash is nowhere near the write: the copy
+happens on the splash, the fault happens when a fighter next reads a
+`0xFFFFFFFF` pointer.
+
+**The lesson that generalises.** An encoder and its decoder can agree on tile
+0 and disagree everywhere else while nothing looks obviously wrong, so test a
+copy that is **more than one tile** and put a guard band past
+`GXGetTexBufferSize` -- `test_decomp_render --efb` now does both, and round
+trips the copy through `gx_texture_decode`, which is the authority for the
+layout. Formats with a 32-byte tile were right all along; only the two
+64-byte ones have two halves to get out of step. P-843.

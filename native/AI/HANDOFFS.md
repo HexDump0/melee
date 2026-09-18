@@ -29,6 +29,7 @@ something the next agent must know, or finish a task that changes interfaces.
 
 | Date | Task | Agent | File |
 |---|---|---|---|
+| 2026-09-18 | **P-843 root-caused and fixed: the Classic team-battle VS splash's Z24X8 EFB copy overran its buffer by 607,904 bytes** | claude (opus-5 1M) | [`2026-09-18-P-843-efb-copy-overrun.md`](handoffs/2026-09-18-P-843-efb-copy-overrun.md) — one code path (`model_scale_kind == 4`) matched the owner's "only the middle round"; both 64-byte-tile encoders used a half-word index with a 128-byte stride. G-220 |
 | 2026-09-16 | **Browser port is playable: gate zero, DMA alignment, 130 casts, the optimiser** | claude (opus-5, 1M) | [`2026-09-16-browser-playable.md`](handoffs/2026-09-16-browser-playable.md) — owner-confirmed boot to a match in Firefox; supersedes the two earlier browser notes; **read this first**, and note the P-806..P-810 / G-193..G-198 renumbering at the merge |
 | 2026-09-16 | Session wind-up: P-796..P-800, three owner-reported bugs | claude (opus-5) | [`2026-09-16-P-800-windup.md`](handoffs/2026-09-16-P-800-windup.md) — Brinstar's acid, every particle float byte-reversed, GX raster sizes in 1/6 pixel units, and why the 754/754 matrix number should not be quoted as stability |
 | 2026-09-16 | P-502 WASM/browser feasibility audit, pending review | codex (gpt-5) | [`2026-09-16-P-502-wasm-feasibility.md`](handoffs/2026-09-16-P-502-wasm-feasibility.md) — repo evidence, critical blockers, proposed W0-W5 gates, and exact independent-review checklist |

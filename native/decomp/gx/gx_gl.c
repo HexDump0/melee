@@ -2516,7 +2516,16 @@ static size_t copy_tex_dest_size(unsigned int fmt, int w, int h)
 
 /* P-682: the EFB depth snapshot.  Same 64-byte 4x4 tile shape as RGBA8 with
  * the 24-bit Z in [high, mid] then [low, 0]; native/gx/texture.c's
- * decode_z24x8 mirrors this.  The depth values are GL [0,1] floats. */
+ * decode_z24x8 mirrors this.  The depth values are GL [0,1] floats.
+ *
+ * P-843: both halves of a 64-byte tile are *byte* offsets.  `hi` used to be
+ * built as a half-word index (`tile * 64 + texel`) and then doubled, which
+ * made its stride 128 bytes a tile -- so every tile but the first was written
+ * outside its own tile, and the tail of the image was written **past the end
+ * of the buffer**: `GXGetTexBufferSize` hands out `tiles * 64` and the encode
+ * reached `tiles * 128`.  A 380x400 Z24X8 copy overran its 608,000-byte
+ * allocation by 607,904 bytes.  `lo` was always a byte offset and was right;
+ * it is now written relative to `hi`, so the two cannot drift again. */
 static void copy_tex_encode_z24x8(unsigned char* dest, int dst_w, int dst_h,
                                   const float* depth, int src_w, int src_h)
 {
@@ -2535,10 +2544,10 @@ static void copy_tex_encode_z24x8(unsigned char* dest, int dst_w, int dst_h,
             z = (unsigned) (d * 16777215.0f + 0.5f);
             if (z > 0xFFFFFFu) z = 0xFFFFFFu;
             tile = (size_t) (y / 4) * ((dst_w + 3) / 4) + (size_t) (x / 4);
-            hi = tile * 64 + (size_t) (y % 4) * 4 + (size_t) (x % 4);
-            lo = tile * 64 + 32 + (size_t) (y % 4) * 8 + (size_t) (x % 4) * 2;
-            dest[hi * 2 + 0] = (unsigned char) (z >> 16);
-            dest[hi * 2 + 1] = (unsigned char) ((z >> 8) & 0xFF);
+            hi = tile * 64 + (size_t) (y % 4) * 8 + (size_t) (x % 4) * 2;
+            lo = hi + 32;
+            dest[hi + 0] = (unsigned char) (z >> 16);
+            dest[hi + 1] = (unsigned char) ((z >> 8) & 0xFF);
             dest[lo] = (unsigned char) (z & 0xFF);
             dest[lo + 1] = 0;
         }
@@ -2639,12 +2648,14 @@ static void copy_tex_encode(unsigned int fmt, unsigned char* dest,
                 break;
             }
             case GX_TF_RGBA8: {
+                /* Byte offsets, both halves -- see copy_tex_encode_z24x8 for
+                 * what the half-word `ar` cost (P-843). */
                 size_t tile = ((size_t) (y / 4) * ((dst_w + 3) / 4) + x / 4);
-                size_t ar = tile * 64 + (size_t) (y % 4) * 4 + (x % 4);
-                size_t gb = tile * 64 + 32 + (size_t) (y % 4) * 8 +
+                size_t ar = tile * 64 + (size_t) (y % 4) * 8 +
                             (size_t) (x % 4) * 2;
-                dest[ar * 2 + 0] = p[3];
-                dest[ar * 2 + 1] = p[0];
+                size_t gb = ar + 32;
+                dest[ar + 0] = p[3];
+                dest[ar + 1] = p[0];
                 dest[gb] = p[1];
                 dest[gb + 1] = p[2];
                 break;
