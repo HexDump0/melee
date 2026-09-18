@@ -38,7 +38,7 @@ void unbound_mod_init(void)
      * CREDITS_OVERLAY=0 turns it off, which is how the native text is looked
      * at while it is being placed.
      */
-    credits_overlay = unbound_config_int("credits_overlay", 1);
+    credits_overlay = unbound_config_int("credits_overlay", 0);
 
     widescreen_init();
 }

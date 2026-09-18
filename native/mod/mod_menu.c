@@ -359,8 +359,11 @@ static const char* const credit_lines[] = {
 #define TEXT_UNIT 0.517f    /* screen pixels per text unit at font 0.0278 */
 #define TEXT_GLYPH_W 15.0f  /* glyph advance */
 #define TEXT_CENTRE_X 320.0f
-#define TEXT_TOP_Y 112.0f
-#define TEXT_LINE_STEP 24.0f
+/* Clear of the panel's header pill, which sits around y 105..140 and is not
+ * part of `MainMenuData::tree` -- hiding all 42 of those joints leaves it
+ * untouched, so it belongs to a GObj this file has not found yet (P-839). */
+#define TEXT_TOP_Y 172.0f
+#define TEXT_LINE_STEP 23.0f
 
 static float text_off_y(float screen_y)
 {
@@ -378,6 +381,60 @@ static float text_off_x_centred(const char* line)
     return (left - TEXT_BASE_X) / TEXT_UNIT;
 }
 
+/*
+ * Hide the panel's own furniture on our page.
+ *
+ * Every menu kind renders through `MenMainConTop_Top`, so our page inherits
+ * the breadcrumb header and the option pills whether or not it wants them --
+ * they are driven by per-menu animation state we do not set, and with the
+ * mod's overlay plate gone they show through the credits.
+ *
+ * `mn_8022B3A0` hands back the panel GObj, and `MainMenuData::tree` is the
+ * same flattened joint array the menu indexes by `mn_803EAE68`, so the
+ * header and the option anchors can simply be marked hidden.
+ */
+static HSD_GObj* page_panel;
+
+static void page_hide_furniture(HSD_GObj* panel)
+{
+    MainMenuData* data;
+    unsigned i;
+    unsigned hide_max;
+
+    if (panel == NULL) {
+        return;
+    }
+    data = (MainMenuData*) HSD_GObjGetUserData(panel);
+    if (data == NULL) {
+        return;
+    }
+    if (getenv("MELEE_MENU_FURNITURE_TRACE") != NULL) {
+        static int said;
+        if (!said) {
+            said = 1;
+            fprintf(stderr,
+                    "[menu] panel data=%p tree3=%p tree4=%p tree14=%p\n",
+                    (void*) data, (void*) data->tree[3],
+                    (void*) data->tree[4], (void*) data->tree[14]);
+        }
+    }
+    /* 0..3 is the header and breadcrumb, 4..13 the ten option anchors;
+     * MELEE_MENU_HIDE_MAX raises the bound while the rest are identified. */
+    {
+        const char* env = getenv("MELEE_MENU_HIDE_MAX");
+        hide_max = env != NULL ? (unsigned) atoi(env) : 13u;
+    }
+    for (i = 0; i <= hide_max && i < 42u; ++i) {
+        if (data->tree[i] != NULL) {
+            /* Subtree, not the single joint: the meshes hang below these
+             * anchors, and `displayfunc.c` tests the flag on the node it is
+             * drawing.  The animation also drives this flag (jobj.c:422), so
+             * it has to be re-applied every frame rather than set once. */
+            HSD_JObjSetFlagsAll(data->tree[i], JOBJ_HIDDEN);
+        }
+    }
+}
+
 static void page_text_create(void)
 {
     unsigned i;
@@ -386,7 +443,7 @@ static void page_text_create(void)
     if (page_text != NULL || !menu_text_ctx_valid) {
         return;
     }
-    if (getenv("MELEE_MENU_NATIVE_TEXT") == NULL) {
+    if (getenv("MELEE_MENU_NO_NATIVE_TEXT") != NULL) {
         return;
     }
     page_text = HSD_SisLib_803A6754(0, menu_text_ctx);
@@ -409,6 +466,16 @@ static void page_text_create(void)
     page_text->box_size_y = 38.38772f;
     page_text->font_size.x = 0.0278f;
     page_text->font_size.y = 0.0278f;
+    /*
+     * `fitting` stretches a string across the box width, which is why short
+     * lines came out letter-spaced to the edges.  The box is wide because it
+     * was copied from the description; the lines are not, so turn fitting off
+     * and let them set naturally.
+     */
+    page_text->default_fitting = 0;
+    page_text->fitting = 0;
+    page_text->default_kerning = 1;
+    page_text->kerning = 1;
     page_text->text_color.r = 0xFF;
     page_text->text_color.g = 0xFF;
     page_text->text_color.b = 0xFF;
@@ -473,12 +540,16 @@ static void unbound_page_think(HSD_GObj* gp)
     (void) gp;
 
     mn_804A04F0.buttons = buttons;
+    /* Every frame: the panel proc re-animates these joints, so hiding them
+     * once at entry does not hold. */
+    page_hide_furniture(page_panel);
     if ((buttons & MenuInput_Back) == 0) {
         return;
     }
     /* Back out the way every other submenu does, landing on our own entry. */
     sfxBack();
     page_text_destroy();
+    page_panel = NULL;
     page_open = 0;
     mn_804A04F0.entering_menu = 0;
     mn_804D6BC8.cooldown = 5;
@@ -500,7 +571,9 @@ static void enter_unbound_page(void)
     mn_804A04F0.prev_menu = mn_804A04F0.cur_menu;
     mn_804A04F0.cur_menu = UNBOUND_MENU_KIND;
     mn_804A04F0.hovered_selection = 0;
-    HSD_GObj_80390CD4(mn_8022B3A0(1));
+    page_panel = mn_8022B3A0(1);
+    HSD_GObj_80390CD4(page_panel);
+    page_hide_furniture(page_panel);
     HSD_GObjFree(HSD_GObj_CurrentInvokedProcGObj);
     start_menu_think(unbound_page_think);
 }
