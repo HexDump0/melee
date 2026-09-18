@@ -672,3 +672,14 @@ To isolate the rim light, build with `CINE_RIM` at `0.0f` and diff against the
 normal build; it should change ~5% of pixels with a large maximum, which is a
 silhouette.  A large *fraction* with a small maximum means the host gate has
 stopped working and unlit 2D geometry is being lit.
+
+`MELEE_CINEMATIC_TUNE` overrides any tunable at runtime, so finding a look does
+not mean a rebuild per guess:
+
+```sh
+MELEE_CINEMATIC_TUNE="rim=0.9,bloom=0.8,wide=0.6,sharpen=0.5" ./build/native/melee
+```
+
+Keys: `rim bloom wide sharpen exposure sat vignette threshold knee`.  Each one
+accepted prints its value and an unknown key is reported, because a silent typo
+looks exactly like a setting that does nothing.

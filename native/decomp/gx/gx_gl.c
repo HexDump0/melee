@@ -1176,6 +1176,76 @@ static const char* FRAGMENT_SRC =
 #define CINE_RIM 0.55f
 #define CINE_SHARPEN 0.35f
 
+/*
+ * The defaults above are a starting point, not a verdict, and finding a look
+ * by rebuilding between every guess is not finding a look.  MELEE_CINEMATIC_TUNE
+ * overrides any of them at runtime:
+ *
+ *   MELEE_CINEMATIC_TUNE="rim=0.9,bloom=0.8,wide=0.6,sharpen=0.5"
+ *
+ * Keys: rim bloom wide sharpen exposure sat vignette threshold knee.
+ * Unknown keys are reported rather than ignored, because a silent typo here
+ * looks exactly like "the setting does nothing".
+ */
+static float cine_rim_v = CINE_RIM;
+static float cine_bloom_v = CINE_BLOOM;
+static float cine_wide_v = CINE_BLOOM_WIDE;
+static float cine_sharpen_v = CINE_SHARPEN;
+static float cine_exposure_v = CINE_EXPOSURE;
+static float cine_sat_v = CINE_SATURATION;
+static float cine_vignette_v = CINE_VIGNETTE;
+static float cine_threshold_v = CINE_THRESHOLD;
+static float cine_knee_v = CINE_KNEE;
+
+static void cine_load_tuning(void)
+{
+    static const struct {
+        const char* key;
+        float* value;
+    } keys[] = {
+        { "rim", &cine_rim_v },           { "bloom", &cine_bloom_v },
+        { "wide", &cine_wide_v },         { "sharpen", &cine_sharpen_v },
+        { "exposure", &cine_exposure_v }, { "sat", &cine_sat_v },
+        { "vignette", &cine_vignette_v }, { "threshold", &cine_threshold_v },
+        { "knee", &cine_knee_v },
+    };
+    const char* env = getenv("MELEE_CINEMATIC_TUNE");
+    const char* p;
+    if (env == NULL) {
+        return;
+    }
+    for (p = env; *p != '\0';) {
+        size_t n = strcspn(p, "=,");
+        size_t i;
+        int matched = 0;
+        if (p[n] != '=') {
+            p += n + (p[n] != '\0' ? 1 : 0);
+            continue;
+        }
+        for (i = 0; i < sizeof(keys) / sizeof(keys[0]); ++i) {
+            if (strlen(keys[i].key) == n &&
+                strncmp(p, keys[i].key, n) == 0)
+            {
+                *keys[i].value = (float) atof(p + n + 1);
+                fprintf(stderr, "[cinematic] %s = %.3f\n", keys[i].key,
+                        *keys[i].value);
+                matched = 1;
+                break;
+            }
+        }
+        if (!matched) {
+            fprintf(stderr, "[cinematic] unknown key \"%.*s\" (rim bloom wide "
+                            "sharpen exposure sat vignette threshold knee)\n",
+                    (int) n, p);
+        }
+        p += n + 1;
+        p += strcspn(p, ",");
+        if (*p == ',') {
+            ++p;
+        }
+    }
+}
+
 /* --------------------------------------------------------- cinematic post
  *
  * Bloom, a filmic curve and a vignette, applied to the *finished* frame on its
@@ -2208,7 +2278,7 @@ static GLfloat draw_rim_strength(const GxHleDrawState* s)
     }
     for (i = 0; i < 4; ++i) {
         if (s->ch_enable[i] != 0 && s->ch_light_mask[i] != 0) {
-            return CINE_RIM;
+            return cine_rim_v;
         }
     }
     return 0.0f;
@@ -3217,6 +3287,7 @@ static int cine_build(void)
         return !cine_failed;
     }
     cine_built = 1;
+    cine_load_tuning();
     cine_bright_program = cine_link(CINE_BRIGHT_SRC, "bright-pass");
     cine_blur_program = cine_link(CINE_BLUR_SRC, "blur");
     cine_composite_program = cine_link(CINE_COMPOSITE_SRC, "composite");
@@ -3343,8 +3414,8 @@ static void apply_cinematic(void)
     glViewport(0, 0, cine_blur_w, cine_blur_h);
     glUseProgram(cine_bright_program);
     glUniform1i(u_cine_bright_scene, 0);
-    glUniform1f(u_cine_bright_threshold, CINE_THRESHOLD);
-    glUniform1f(u_cine_bright_knee, CINE_KNEE);
+    glUniform1f(u_cine_bright_threshold, cine_threshold_v);
+    glUniform1f(u_cine_bright_knee, cine_knee_v);
     cine_blit();
 
     /* 3. separable Gaussian: horizontal into [1], vertical back into [0]. */
@@ -3391,14 +3462,14 @@ static void apply_cinematic(void)
     glUniform1i(u_cine_comp_scene, 0);
     glUniform1i(u_cine_comp_bloom, 1);
     glUniform1i(u_cine_comp_bloom_wide, 2);
-    glUniform1f(u_cine_comp_amount, CINE_BLOOM);
-    glUniform1f(u_cine_comp_wide_amount, CINE_BLOOM_WIDE);
-    glUniform1f(u_cine_comp_sharpen, CINE_SHARPEN);
+    glUniform1f(u_cine_comp_amount, cine_bloom_v);
+    glUniform1f(u_cine_comp_wide_amount, cine_wide_v);
+    glUniform1f(u_cine_comp_sharpen, cine_sharpen_v);
     glUniform2f(u_cine_comp_texel, 1.0f / (float) gl_width,
                 1.0f / (float) gl_height);
-    glUniform1f(u_cine_comp_exposure, CINE_EXPOSURE);
-    glUniform1f(u_cine_comp_saturation, CINE_SATURATION);
-    glUniform1f(u_cine_comp_vignette, CINE_VIGNETTE);
+    glUniform1f(u_cine_comp_exposure, cine_exposure_v);
+    glUniform1f(u_cine_comp_saturation, cine_sat_v);
+    glUniform1f(u_cine_comp_vignette, cine_vignette_v);
     cine_blit();
 
     glBindTexture(GL_TEXTURE_2D, 0);
