@@ -401,6 +401,7 @@ int main(int argc, char** argv)
     failures += check_kirby_hats(image);
     failures += check_fighter_articles(image);
     failures += check_item_articles(image);
+    failures += check_vis_lookups(image);
     failures += check_ft_data_tables(image, "PlLk.dat", "ftDataLink");
     failures += check_ft_data_tables(image, "PlCl.dat", "ftDataClink");
     failures += check_ft_data_tables(image, "PlYs.dat", "ftDataYoshi");

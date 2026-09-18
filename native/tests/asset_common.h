@@ -88,6 +88,8 @@ int check_kirby_hats(const char* image);
 int check_fighter_articles(const char* image);
 /* ItCo's common/character/pokemon Article tables (P-866). */
 int check_item_articles(const char* image);
+/* Part-visibility lookup counts, which must not be big-endian (P-873). */
+int check_vis_lookups(const char* image);
 int check_archive(const char* image, const char* path, ModelResult* result, int require_public);
 int cache_check(const char* image, const char* path);
 

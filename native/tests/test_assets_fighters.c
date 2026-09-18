@@ -1260,6 +1260,145 @@ int check_item_articles(const char* image)
     return failed;
 }
 
+/*
+ * Every fighter's part-visibility lookups, checked for the one thing that
+ * makes them fatal: a `count` left big-endian (P-873).
+ *
+ * `ftParts_80074D7C` reads each lookup's count and walks that many `TempS`
+ * entries, each of which holds a `u8*` list of DObj indices.  A count read
+ * from the wrong end is enormous -- big-endian 11 is 0x0B000000 -- so the walk
+ * runs off the end of the list and dereferences a run of index bytes as a
+ * pointer.  The owner's crash was `SIGSEGV at 0x15141312`, which is the bytes
+ * 0x12 0x13 0x14 0x15: four consecutive DObj indices.
+ *
+ * The signature is unmistakable and that is what this tests.  A real count is
+ * small; a small number read from the wrong end has its value in the **top**
+ * byte and zeroes below it.  Nothing else in this data looks like that, so the
+ * check is specific enough to assert on every archive.
+ */
+static int vis_count_is_byte_reversed(uint32_t count)
+{
+    return count > 64 && (count & 0x00FFFFFFu) == 0 &&
+           (count >> 24) >= 1 && (count >> 24) <= 64;
+}
+
+int check_vis_lookups(const char* image)
+{
+    DiscFileList list;
+    char error[256];
+    unsigned files = 0;
+    unsigned lookups = 0;
+    unsigned entries = 0;
+    size_t i;
+    int failed = 0;
+
+    if (disc_list(image, "Pl", ".dat", &list, error, sizeof(error)) != 0) {
+        fprintf(stderr, "decomp_assets: Pl*.dat: %s\n", error);
+        return 1;
+    }
+    for (i = 0; i < list.count; i++) {
+        const char* path = list.names[i];
+        size_t size = 0;
+        unsigned char* buffer;
+        HsdConvertStats stats;
+        HSD_Archive archive;
+        unsigned char* ft_data = NULL;
+        unsigned char* parts;
+        unsigned char* table;
+        uint32_t model_num;
+        int j;
+        int costume;
+
+        buffer = load_archive(image, path, NULL, &size, error, sizeof(error));
+        if (buffer == NULL) {
+            continue;
+        }
+        if (!hsd_asset_convert(buffer, size, &stats) ||
+            HSD_ArchiveParse(&archive, buffer, size) != 0)
+        {
+            free(buffer);
+            continue;
+        }
+        for (j = 0; (uint32_t) j < archive.header.nb_public && ft_data == NULL;
+             j++)
+        {
+            const char* name = archive.symbols + archive.public_info[j].symbol;
+            if (strncmp(name, "ftData", 6) == 0) {
+                ft_data = HSD_ArchiveGetPublicAddress(&archive, name);
+            }
+        }
+        if (ft_data == NULL) {
+            free(buffer);
+            continue;
+        }
+        /* ftData->x8 is the FtPartsDesc: { model_num, vis_table, ... }. */
+        parts = read_host_ptr(ft_data + 0x08);
+        if (parts == NULL || !ptr_in_buffer(parts, buffer, size)) {
+            free(buffer);
+            continue;
+        }
+        model_num = read_host_u32(parts + 0x00);
+        table = read_host_ptr(parts + 0x04);
+        if (model_num == 0 || model_num > 12 || table == NULL ||
+            !ptr_in_buffer(table, buffer, size))
+        {
+            free(buffer);
+            continue;
+        }
+        files++;
+
+        /* Eight costumes of four, the span the converter walks. */
+        for (costume = 0; costume < 8; costume++) {
+            int col;
+            for (col = 0; col < 4; col++) {
+                unsigned char* slot =
+                    table + ((size_t) costume * 4 + (size_t) col) * 4;
+                unsigned char* lookup;
+                uint32_t m;
+                if (!ptr_in_buffer(slot, buffer, size)) {
+                    continue;
+                }
+                lookup = read_host_ptr(slot);
+                if (lookup == NULL || !ptr_in_buffer(lookup, buffer, size)) {
+                    continue;
+                }
+                lookups++;
+                for (m = 0; m < model_num; m++) {
+                    unsigned char* entry = lookup + (size_t) m * 8;
+                    uint32_t count;
+                    if (!ptr_in_buffer(entry, buffer, size)) {
+                        break;
+                    }
+                    count = read_host_u32(entry + 0x00);
+                    entries++;
+                    if (vis_count_is_byte_reversed(count)) {
+                        fprintf(stderr,
+                                "decomp_assets: %s vis lookup model %u count "
+                                "0x%08x is big-endian (%u) -- "
+                                "ftParts_80074D7C would run off the list\n",
+                                path, m, count, count >> 24);
+                        failed = 1;
+                    }
+                }
+            }
+        }
+        free(buffer);
+    }
+    disc_list_free(&list);
+    if (files < 25) {
+        fprintf(stderr, "decomp_assets: %u fighters with a vis table "
+                        "(want >=25)\n",
+                files);
+        failed = 1;
+    }
+    if (!failed) {
+        printf("decomp_assets: vis lookups files=%u lookups=%u entries=%u "
+               "counts ok\n",
+               files, lookups, entries);
+    }
+    return failed;
+}
+
 int check_kirby_hats(const char* image)
 {
     DiscFileList list;

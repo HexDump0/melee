@@ -32,7 +32,7 @@
 
 #include <sysdolphin/baselib/archive.h>
 
-#define HSD_CONVERTER_VERSION 138u
+#define HSD_CONVERTER_VERSION 139u
 #define HSD_CACHE_MAGIC 0x31444353u /* "SCD1" little-endian */
 #define HSD_PREFIX_SIZE 0x20u
 #define HSD_MAX_DEPTH 256
@@ -3888,7 +3888,8 @@ static void conv_ft_vis_lookup(Conv* c, uint32_t off, int model_num)
         return;
     }
     /*
-     * Prove it is a lookup before claiming it (P-866).
+     * Prove it is a lookup before claiming it (P-866), and decide from the
+     * **whole array** rather than from entry 0 (P-873).
      *
      * `conv_ft_vis_table` sweeps a fixed 8x4 grid because nothing in the
      * archive states how many costumes a fighter has, and it treats a NULL
@@ -3896,21 +3897,56 @@ static void conv_ft_vis_lookup(Conv* c, uint32_t off, int model_num)
      * the words it reads still carry relocations, so it handed this walker
      * whatever they pointed at -- and marking is irreversible: the descriptor
      * is claimed, `conv_joint` finds the bit already set and returns, and a
-     * whole joint tree stays big-endian.  That is a `HSD_Panic` in `DObjLoad`
-     * the first time the model is loaded, not a rendering glitch: the owner's
-     * `0x3c001060` is `0x6010003c` read from the wrong end.
+     * whole joint tree stays big-endian.
      *
-     * The shape settles it.  A real `FtPartsVisLookup` is
-     * `{ int count; TempS* }` -- a numeric count and a pointer -- so the
-     * second word is a relocation and the first is not.  An `HSD_JObjDesc`
-     * root, which is what the overrun actually found in `PlKbCpPe`,
-     * `PlKbCpPp` and `PlKbCpSk`, has a NULL `class_name` and a numeric
-     * `flags`, so neither word is.  A lookup with a NULL `TempS*` is refused
-     * too and loses nothing: its only numeric field is a zero count, which
-     * reads the same from either end.
+     * **Entry 0 cannot settle it.**  A real lookup whose first model has no
+     * visibility groups is `{count = 0, TempS* = NULL}`, and an
+     * `HSD_JObjDesc` root is `{class_name = NULL, flags}` -- neither word is a
+     * relocation in either case, so they are indistinguishable.  Judging on
+     * entry 0 rejected four legitimate arrays, one of them eleven models long,
+     * and left every entry behind the first big-endian: `ftParts_80074D7C`
+     * then read a byte-reversed count, walked off the end of the list and
+     * dereferenced a run of `u8` DObj indices as a pointer (`0x15141312`).
+     *
+     * The array as a whole does settle it.  Every entry's `count` is numeric,
+     * so **no** entry may have a relocation in its first word -- a joint root
+     * fails this at entry 1, whose first word is the `child` pointer.  And a
+     * lookup that is worth converting has at least one real `TempS*`, so at
+     * least one entry must have a relocation in its second word.  An array
+     * where every entry is empty is refused and loses nothing: its only
+     * numeric fields are zeroes, which read the same from either end.
      */
-    if (c->reloc[off] || !c->reloc[off + 4]) {
-        return;
+    {
+        int entries = model_num > 0 ? model_num : 1;
+        int any_temps = 0;
+        int i;
+        for (i = 0; i < entries; i++) {
+            uint32_t entry = off + (uint32_t) i * 8;
+            if (!in_data(c, entry, 8)) {
+                break;
+            }
+            if (c->reloc[entry]) {
+                /* a count is never a pointer */
+                if (getenv("MELEE_VIS_TRACE") != NULL) {
+                    fprintf(stderr,
+                            "[vis] +0x%x refused: entry %d count is a "
+                            "relocation\n",
+                            off, i);
+                }
+                return;
+            }
+            if (c->reloc[entry + 4]) {
+                any_temps = 1;
+            }
+        }
+        if (!any_temps) {
+            if (getenv("MELEE_VIS_TRACE") != NULL) {
+                fprintf(stderr, "[vis] +0x%x refused: no entry has a TempS "
+                                "pointer (%d models)\n",
+                        off, entries);
+            }
+            return;
+        }
     }
     if (!mark(c, off)) {
         return;
