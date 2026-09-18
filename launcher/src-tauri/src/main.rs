@@ -190,10 +190,16 @@ fn profile_env(profile: &str) -> Vec<(String, String)> {
     }
 }
 
+/// The mode flag, spelled out rather than relied on.
+///
+/// The port boots its retail frontend when nothing selects a mode, and that is
+/// what Play wants -- but saying so explicitly means the intent is visible in
+/// `ps`, and a future flag the launcher passes cannot quietly turn Play into
+/// the development model viewer, which is exactly what `--config` did.
 fn profile_args(profile: &str) -> Vec<String> {
     match profile {
         "record" => vec!["--match".into(), "--no-items".into()],
-        _ => Vec::new(),
+        _ => vec!["--frontend".into()],
     }
 }
 

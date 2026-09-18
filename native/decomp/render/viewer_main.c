@@ -766,6 +766,8 @@ int main(int argc, char** argv)
     int want_shot = 0;
     int match_mode = 0;
     int frontend_mode = 0;
+    /* Arguments that locate things rather than choose a mode. */
+    int mode_neutral_args = 0;
     int no_items = 0;
     const char* input_path = NULL;
     unsigned match_frame = 20;
@@ -842,8 +844,10 @@ int main(int argc, char** argv)
     for (i = 1; (int) i < argc; ++i) {
         if (strcmp(argv[i], "--config") == 0 && (int) i + 1 < argc) {
             ++i; /* already consumed by the pre-scan above */
+            mode_neutral_args += 2;
         } else if (strcmp(argv[i], "--disc") == 0 && (int) i + 1 < argc) {
             opt.disc = argv[++i];
+            mode_neutral_args += 2;
         } else if (strcmp(argv[i], "--model") == 0 && (int) i + 1 < argc) {
             opt.model = argv[++i];
         } else if (strcmp(argv[i], "--match") == 0) {
@@ -948,8 +952,17 @@ int main(int argc, char** argv)
     opt.width = width;
     opt.height = height;
 
-    /* The product runs the retail flow from a bare invocation. */
-    if (argc == 1 && !match_mode && !frontend_mode) {
+    /*
+     * The product runs the retail flow from a bare invocation.
+     *
+     * "Bare" cannot mean `argc == 1`.  `--config` and `--disc` say *where
+     * things are*, not *what to do*, and counting them as arguments meant
+     * that adding either one silently switched the program from the game to
+     * the development model viewer -- the launcher passes `--config` on every
+     * launch, so Play opened the viewer.  Every mode-selecting flag sets its
+     * own variable, so the test is whether anything but these two was given.
+     */
+    if (argc - 1 - mode_neutral_args == 0 && !match_mode && !frontend_mode) {
         frontend_mode = 1;
         fprintf(stderr,
                 "melee: retail frontend (live input; ESC quits).  Use "
