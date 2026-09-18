@@ -320,11 +320,8 @@ export function PlayPage() {
       <main className="flex flex-1 flex-col items-center gap-8 py-8 lg:gap-10 lg:py-10">
         <div className="max-w-2xl text-center">
           <h1 className="text-3xl leading-[1.06] font-black tracking-tight text-balance lg:text-4xl">
-            Play it right here.
+            Native web build
           </h1>
-          <p className="mt-4 text-micro uppercase text-mu-dim">
-            Desktop Chrome or Firefox · early build
-          </p>
         </div>
 
         <Controls />
@@ -510,7 +507,7 @@ export function PlayPage() {
 
 function Controls() {
   return (
-    <details className="group w-full max-w-2xl border-t border-mu-white/10 pt-5">
+    <details className="group w-full max-w-2xl border-mu-white/10 pt-5">
       <summary className="flex cursor-pointer items-center justify-between gap-4 text-micro uppercase text-mu-white/80">
         Controls
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden className="w-4 text-mu-dim transition-transform duration-300 group-open:rotate-180">
