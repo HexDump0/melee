@@ -88,6 +88,7 @@ SHIM="-include $W/native/decomp/shim/decomp_shim.h"
            platform/ar platform/ssm platform/sem platform/hps \
            platform/complete platform/card platform/pad_card \
            audio/ax_hle audio/ax_mixer decomp/fonts platform/misc \
+           platform/melee_config \
            mod/mod mod/mod_cobj mod/mod_menu mod/mod_opening \
            mod/mod_builtin; do
     echo "$W/native/$f.c"

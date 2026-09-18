@@ -1231,6 +1231,36 @@ static void cine_load_tuning(void)
     };
     const char* env = getenv("MELEE_CINEMATIC_TUNE");
     const char* p;
+
+    /*
+     * Each key is also its own variable, so `melee.toml` can carry it.  The
+     * settings file maps `[cinematic] bloom` to `MELEE_CINEMATIC_BLOOM` by
+     * the same rule it maps everything else (P-867); making the renderer read
+     * that is what keeps the file from needing a special case for this one
+     * composite string.  The tune string still works and is read first, so a
+     * one-off on the command line overrides what the file set.
+     */
+    {
+        size_t k;
+        for (k = 0; k < sizeof(keys) / sizeof(keys[0]); ++k) {
+            char name[64];
+            const char* value;
+            size_t c;
+            snprintf(name, sizeof(name), "MELEE_CINEMATIC_%s", keys[k].key);
+            for (c = 0; name[c] != '\0'; ++c) {
+                if (name[c] >= 'a' && name[c] <= 'z') {
+                    name[c] = (char) (name[c] - 'a' + 'A');
+                }
+            }
+            value = getenv(name);
+            if (value != NULL && value[0] != '\0') {
+                *keys[k].value = (float) atof(value);
+                fprintf(stderr, "[cinematic] %s = %.3f\n", keys[k].key,
+                        *keys[k].value);
+            }
+        }
+    }
+
     if (env == NULL) {
         return;
     }

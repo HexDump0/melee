@@ -785,6 +785,15 @@ add_test(NAME decomp_render COMMAND test_decomp_render
 set_tests_properties(decomp_render PROPERTIES
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
     PASS_REGULAR_EXPRESSION "decomp_render: PASS")
+add_executable(test_config
+    tests/test_config.c
+    platform/melee_config.c)
+target_include_directories(test_config BEFORE PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME config COMMAND test_config)
+set_tests_properties(config PROPERTIES
+    PASS_REGULAR_EXPRESSION "config: PASS")
+
 add_test(NAME decomp_gx_direct COMMAND test_decomp_render --direct)
 set_tests_properties(decomp_gx_direct PROPERTIES
     PASS_REGULAR_EXPRESSION "direct: PASS")
@@ -870,6 +879,7 @@ if(MELEE_SDL3_LIB32)
       audio/ax_mixer.c
         decomp/fonts.c
       platform/misc.c
+      platform/melee_config.c
       $<TARGET_OBJECTS:melee_decomp_game>)
   target_include_directories(melee BEFORE PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim

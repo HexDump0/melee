@@ -1,0 +1,64 @@
+# melee.toml -- the port's settings.
+#
+# Copy to ~/.config/melee/melee.toml, or pass --config PATH.  The port also
+# looks for ./melee.toml.  Everything here is optional.
+#
+# Precedence, highest first: command line, environment, this file, default.
+# An exported variable always beats what is written here, so
+#   MELEE_CINEMATIC=1 ./melee
+# still does what it says with this file in place.
+#
+# The rule is that a section is the prefix the port already uses:
+# `[match] cpu` is MELEE_MATCH_CPU, `[mods.unbound] widescreen` is
+# MELEE_MOD_UNBOUND_WIDESCREEN.  A key named `enabled` collapses into its
+# section, so `[cinematic] enabled` is MELEE_CINEMATIC.  Run with
+# MELEE_CONFIG_TRACE=1 to see exactly what this file set and what it left
+# alone because the environment already had it.
+
+# The disc image.  The one setting nothing runs without.
+disc = "/path/to/melee.iso"
+
+# Replay a run exactly; the port prints the seed it used on every boot.
+# rng_seed = "0x6adb28af"
+
+
+[cinematic]
+# Bloom, a filmic tone curve, rim lighting, sharpening and a vignette.
+enabled = false
+
+# Tuning.  Thresholds are in linear light: 0.90 is about 0.96 on screen, so
+# only specular hits, energy and flashes bloom.  Lower it and bright stages
+# haze over.
+threshold = 0.90
+bloom = 0.20
+wide = 0.10
+rim = 0.35
+sharpen = 0.35
+exposure = 0.85
+sat = 1.10
+vignette = 0.26
+
+
+[mods.unbound]
+# 0 off, 1 gameplay only (default), 2 everywhere -- 2 widens menus too, where
+# the backdrops are authored for 4:3 and will show gaps at the edges.
+widescreen = 1
+
+# Draw the world at the shape it is presented at rather than the shape Melee
+# authored.  Off by default because it is a deliberate departure: retail is
+# about 9.5% wider than a neutral projection, on a GameCube too.
+aspect_correct = false
+
+
+# A CPU vs CPU match, for recording.  Uncomment to launch straight into one.
+# [match]
+# cpu = 9          # both slots become CPUs at this level
+# p0 = 0           # character-select indices, not Ft_Kind values
+# p1 = 1
+# stage = 31       # St_Kind: 31 Battlefield, 32 Final Destination
+
+
+# [debug]
+# Traces are plain variables too, e.g. widescreen_trace = true is
+# MELEE_WIDESCREEN_TRACE.  They live at the top level, not under a section:
+# widescreen_trace = true

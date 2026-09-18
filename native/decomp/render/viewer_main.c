@@ -25,6 +25,7 @@
  */
 #include "decomp/render/viewer_internal.h"
 #include "mod/mod.h"
+#include "platform/melee_config.h"
 
 #include <melee/if/ifall.h>
 
@@ -66,7 +67,8 @@ static const ModDisplayBackend mod_gx_gl_display = {
 static void usage(const char* argv0)
 {
     fprintf(stderr,
-            "usage: %s [--disc PATH] [--model NAME] [--stage NAME]\n"
+            "usage: %s [--config PATH] [--disc PATH] [--model NAME]\n"
+            "          [--stage NAME]\n"
             "          [--fighter NAME] [--stage-map N] [--stage-cam]\n"
             "          [--no-fighter] [--width N] [--height N]\n"
             "          [--angle DEG] [--elevation DEG] [--zoom F]\n"
@@ -743,6 +745,8 @@ static int run_match(SDL_Window* window, SDL_GLContext context,
 int main(int argc, char** argv)
 {
     RenderSceneOptions opt;
+    const char* config_path = NULL;
+    const char* config_used;
     Viewer viewer;
     Viewer* v = &viewer;
     const char* shot = NULL;
@@ -782,7 +786,38 @@ int main(int argc, char** argv)
     match_boot_install_crash_dump();
     memset(&opt, 0, sizeof(opt));
     memset(v, 0, sizeof(*v));
+    /*
+     * The settings file, before anything reads an environment variable.
+     *
+     * `--config` has to be found by a pre-scan rather than in the loop below:
+     * the loop's own defaults are read from the environment, so the file has
+     * to have populated it by then.  Everything the file sets is set with
+     * `setenv(..., 0)`, so an environment variable the person exported still
+     * wins, and a command-line flag still wins over both.
+     */
+    {
+        int ci;
+        for (ci = 1; ci + 1 < argc; ++ci) {
+            if (strcmp(argv[ci], "--config") == 0) {
+                config_path = argv[ci + 1];
+                break;
+            }
+        }
+    }
+    config_used = melee_config_load(config_path);
+    if (config_used != NULL) {
+        fprintf(stderr, "[config] %s\n", config_used);
+    }
+
     opt.disc = RENDER_SCENE_DISC_DEFAULT;
+    {
+        /* `disc` is the one setting nobody can run without, so it is worth a
+         * variable of its own rather than only a command-line flag. */
+        const char* disc_env = getenv("MELEE_DISC");
+        if (disc_env != NULL && disc_env[0] != '\0') {
+            opt.disc = disc_env;
+        }
+    }
     opt.angle = 25.0f;
     opt.elevation = -12.0f;
     opt.zoom = 1.0f;
@@ -805,7 +840,9 @@ int main(int argc, char** argv)
     v->hud = 1;
 
     for (i = 1; (int) i < argc; ++i) {
-        if (strcmp(argv[i], "--disc") == 0 && (int) i + 1 < argc) {
+        if (strcmp(argv[i], "--config") == 0 && (int) i + 1 < argc) {
+            ++i; /* already consumed by the pre-scan above */
+        } else if (strcmp(argv[i], "--disc") == 0 && (int) i + 1 < argc) {
             opt.disc = argv[++i];
         } else if (strcmp(argv[i], "--model") == 0 && (int) i + 1 < argc) {
             opt.model = argv[++i];

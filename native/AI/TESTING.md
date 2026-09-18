@@ -703,3 +703,26 @@ looks exactly like a setting that does nothing.
 opposite; `aniso=0` drops the only part that changes CPU-side behaviour.  Those
 three split the preset into its independent halves, which is how P-865 gets
 narrowed without a rebuild per guess.
+
+## melee.toml (P-867)
+
+The port reads a settings file and populates the environment from it, so every
+existing `getenv` site keeps working and there is one source of truth at the
+point of use.  `melee.toml.example` at the repo root documents the schema.
+
+Precedence, highest first: command line, environment, file, default.  The
+environment winning is the contract, not an accident -- the file is applied
+with `setenv(name, value, 0)`, which refuses to overwrite.
+
+```sh
+MELEE_CONFIG_TRACE=1 ./build/native/melee --config melee.toml
+```
+
+prints every variable the file set and every one it left alone because the
+environment already had it.  That second list is the one to read when a
+setting "does nothing": an exported variable from an earlier experiment
+outranks the file, silently and correctly.
+
+The key-to-variable mapping is a contract between the launcher (which writes
+the file) and the port (which reads it), so it is tested rather than kept in
+both their heads -- `test_config`, `ctest -R config`.
