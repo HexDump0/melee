@@ -45,6 +45,7 @@
 #include <sysdolphin/baselib/jobj.h>
 
 #include <sysdolphin/baselib/gobj.h>
+#include <sysdolphin/baselib/gobjproc.h>
 #include <sysdolphin/baselib/random.h>
 #include <sysdolphin/baselib/initialize.h>
 #include <dolphin/os/OSAlloc.h>
@@ -599,6 +600,8 @@ static void install_match_selection(void)
  * slots and any game mode, since the owner plays ordinary VS rather than the
  * harness's GM_DEBUG_VS. */
 static int stuck_trace;
+static int gobj_watch;
+static void check_gobj_watch(void);
 static unsigned stuck_frames; /* MELEE_STUCK_TRACE=<frames> overrides */
 static unsigned anim_stall_frames; /* MELEE_ANIM_STALL=<frames> */
 static unsigned pos_period = 60; /* MELEE_POS_TRACE=<frames> */
@@ -1127,6 +1130,7 @@ static void match_boot_frame(void)
     /* Also before the gate: MELEE_STUCK_TRACE is for the owner's own play,
      * which never enters the harness's match flow (P-780). */
     check_anim_stall();
+    check_gobj_watch();
     if (stuck_trace) {
         check_fighter_stuck();
         /* A fighter that runs away rather than wedging never trips the stuck
@@ -1551,6 +1555,39 @@ static int mem1_ok(const void* p, size_t n)
            a - MEM1_BASE <= (uintptr_t) MEM1_SIZE - n;
 }
 
+/* **`Fighter::gobj` is at offset 0, and that is what makes this exact.**
+ *
+ * `HSD_ObjFree` (objalloc.c:119) pushes a freed block onto the pool's free
+ * list by writing the list link into the block's **first word** -- and a
+ * `Fighter`'s first word is its own `gobj` back-pointer (ft/types.h:1331,
+ * written by `initFighter`, fighter.c:726).  So the moment a `Fighter` is
+ * freed, `fp->gobj` becomes a pointer to another block of `fighter_alloc_data`
+ * and can never again equal the gobj that points at it.  The same holds once
+ * the block is handed out again and overwritten by its new owner.
+ *
+ * `fp->gobj == gobj` is therefore not a plausibility heuristic like the
+ * `mem1_ok` tests around it: it is a **freed-or-reused detector with no false
+ * positives**, two instructions wide.  Every live fighter passes it; a
+ * fighter whose memory has been released cannot.
+ *
+ * This is the invariant P-816, P-836 and P-843 all break, one frame before
+ * they are seen.  Checking it every frame is what turns "SIGSEGV four minutes
+ * in" into "went stale at frame N, on the transition out of scene S". */
+static int fighter_gobj_ok(const HSD_GObj* gobj)
+{
+    const Fighter* fp;
+
+    if (gobj->classifier != HSD_GOBJ_CLASS_FIGHTER || gobj->user_data == NULL)
+    {
+        return 1;
+    }
+    fp = (const Fighter*) gobj->user_data;
+    if (!mem1_ok(fp, sizeof(*fp))) {
+        return 0;
+    }
+    return fp->gobj == gobj;
+}
+
 static void dump_joint_chain(FILE* out, HSD_JObj* joint)
 {
     int level;
@@ -1637,6 +1674,31 @@ static void dump_fighter(FILE* out, const char* tag, HSD_GObj* gobj)
                 tag, (void*) gobj, (void*) fp);
         return;
     }
+    /* **The classifier alone does not mean this is a fighter.**  See
+     * `check_gobj_watch`: `HSD_GOBJ_CLASS_FIGHTER` is 4 and the menus create
+     * their widgets with a bare `GObj_Create(4, 5, 0x80)`.  Printing one of
+     * those through the lines below is what produced the
+     * `kind=?(-1) player=255 motion=-1 scale=(0.6,0.6,1)` entries that P-816,
+     * P-836 and P-843 all read as a corrupted fighter.  `fp->gobj == gobj`
+     * settles it exactly, so say which of the two this is instead of
+     * implying the answer. */
+    if (fp->gobj != gobj) {
+        char sym[128];
+        boot_triage_symbol((const void*) (uintptr_t)
+                               gobj->user_data_remove_func,
+                           sym, sizeof(sym));
+        fprintf(out,
+                "[crash]   %s gobj=%p user_data=%p class=%u p_link=%u "
+                "kind=%u remove_fn=%s\n",
+                tag, (void*) gobj, (void*) fp, (unsigned) gobj->classifier,
+                (unsigned) gobj->p_link, (unsigned) gobj->user_data_kind,
+                sym);
+        fprintf(out,
+                "[crash]     NOT A FIGHTER -- fp->gobj=%p, so this is either "
+                "a menu object sharing class 4 or a freed Fighter\n",
+                (void*) fp->gobj);
+        return;
+    }
     fprintf(out,
             "[crash]   %s gobj=%p kind=%s(%d) player=%d motion=%d anim=%d "
             "ga=%d facing=%.3g scale=(%.4g,%.4g,%.4g)\n",
@@ -1694,6 +1756,177 @@ static void dump_fighter(FILE* out, const char* tag, HSD_GObj* gobj)
     if (joint != NULL) {
         fprintf(out, "[crash]     camera-bone chain (bone -> root):\n");
         dump_joint_chain(out, joint);
+    }
+}
+
+/* `MELEE_GOBJ_WATCH=1`: two invariants, checked on every proc, every frame.
+ *
+ * **1. A queued proc must still be owned by its gobj.**  `HSD_GObj_RunProcs`
+ * walks `HSD_GObj_GObjProcHead[s_link]` and calls `proc->on_invoke(proc->gobj)`
+ * for each entry; `HSD_GObjFree` is supposed to take every one of a gobj's
+ * procs off that queue through `HSD_GObjProc_RemoveAllProcs`.  So for a live
+ * proc, walking `proc->gobj->proc` down the `child` chain must find `proc`
+ * again.  A proc the queue holds but its owner does not is **leaked**: the
+ * gobj behind it has been freed, and the entry is a call into whatever now
+ * owns that memory.  That is P-836's unfound producer, stated as a test.
+ *
+ * **2. A fighter proc must run on a live `Fighter`.**  See `fighter_gobj_ok`:
+ * `Fighter::gobj` is the first word of the struct and therefore the word
+ * `HSD_ObjFree` overwrites, so the check is exact.
+ *
+ * **Why this is not the obvious check, which does not work.**  The natural
+ * test is "walk the gobjs and look at the ones classified as fighters", and
+ * it is wrong: `HSD_GOBJ_CLASS_FIGHTER` is **4**, and the menus create their
+ * own widgets with a bare `GObj_Create(4, 5, 0x80)` -- `mncharsel.c:4571`,
+ * `mnstagesel.c` in a dozen places, `mnmain.c:793`, `toy.c:5909`.  Nothing
+ * reserves the number; only `fighter.c:852` and `ftdemo.c:60` make real
+ * fighters, and those use **p_link 8**.  The first draft of this watch fired
+ * on a character-select name tag -- `user_data_kind=4`, `remove_fn=HSD_Free`,
+ * `on_invoke=fn_802633B0` -- within 112 frames of entering Classic.
+ *
+ * **That same confusion is why three crash reports pointed nowhere.**
+ * `match_boot_dump_fighters` filtered on the classifier alone, so every
+ * `kind=?(-1) player=255 motion=-1 scale=(0.6,0.6,1)` line in P-816, P-836
+ * and P-843 is a menu widget being printed as a `Fighter`, and the
+ * "non-Fighter on the fighter GX link" all three chased was the dump's own
+ * doing.  Both are fixed here: the watch keys on the proc, and the dump
+ * labels what it cannot vouch for.
+ *
+ * Costs a pointer chase per queued proc, so it can run for a whole session.
+ * It reports and keeps going; it repairs nothing. */
+static int proc_owned_by_gobj(const HSD_GObjProc* proc, const HSD_GObj* gobj)
+{
+    const HSD_GObjProc* cur;
+    unsigned depth;
+
+    for (cur = gobj->proc, depth = 0; cur != NULL && depth < 32;
+         cur = cur->child, depth++)
+    {
+        if (cur == proc) {
+            return 1;
+        }
+        if (!mem1_ok(cur->child, sizeof(*cur))) {
+            break;
+        }
+    }
+    return 0;
+}
+
+static int is_fighter_proc(HSD_GObjEvent fn)
+{
+    return fn == Fighter_procUpdate || fn == Fighter_procMap ||
+           fn == Fighter_8006A360 || fn == Fighter_8006C80C ||
+           fn == Fighter_8006D9AC;
+}
+
+static void report_bad_proc(const HSD_GObjProc* proc, const HSD_GObj* gobj,
+                            unsigned s_link, const char* what)
+{
+    char sym[128];
+    const Fighter* fp = (const Fighter*) gobj->user_data;
+
+    boot_triage_symbol((const void*) (uintptr_t) proc->on_invoke, sym,
+                       sizeof(sym));
+    boot_triage_note("[gobj-watch] frame %u: %s -- s_link=%u proc=%p "
+                     "on_invoke=%s\n",
+                     frame, what, (unsigned) s_link, (const void*) proc, sym);
+    boot_triage_symbol((const void*) (uintptr_t) gobj->user_data_remove_func,
+                       sym, sizeof(sym));
+    boot_triage_note("[gobj-watch]   gobj=%p class=%u p_link=%u prio=%u "
+                     "gx_link=%u user_data=%p kind=%u remove_fn=%s\n",
+                     (const void*) gobj, (unsigned) gobj->classifier,
+                     (unsigned) gobj->p_link, (unsigned) gobj->p_priority,
+                     (unsigned) gobj->gx_link, gobj->user_data,
+                     (unsigned) gobj->user_data_kind, sym);
+    if (is_fighter_proc(proc->on_invoke)) {
+        boot_triage_note("[gobj-watch]   fp->gobj=%p (want %p)\n",
+                         mem1_ok(fp, sizeof(*fp)) ? (const void*) fp->gobj
+                                                  : NULL,
+                         (const void*) gobj);
+    }
+    boot_triage_note("[gobj-watch]   mode=%u scene=%u\n",
+                     (unsigned) gm_GetCurrentGameMode(),
+                     (unsigned) gm_GetCurrentSceneIndex());
+}
+
+static void check_gobj_watch(void)
+{
+    static unsigned reports;
+    unsigned s;
+
+    if (!gobj_watch || HSD_GObj_GObjProcHead == NULL || reports >= 16) {
+        return;
+    }
+    /* **Periodic, not per-frame, and the default period is not 1.**  The walk
+     * is the whole proc queue, which on the frontend is hundreds of entries,
+     * and running it every frame cost enough to make `decomp_opening` and
+     * `decomp_frontend_card` miss their deadlines -- the probe changing the
+     * result it is measuring.  A leaked proc does not heal: once the queue
+     * holds an entry its gobj disowns, it stays there until something runs
+     * it.  So sampling twice a second finds it in the same transition a
+     * per-frame check would, for a thirtieth of the cost. */
+    if ((frame % (unsigned) gobj_watch) != 0) {
+        return;
+    }
+    for (s = 0; s <= (unsigned) HSD_GObjLibInitData.gproc_pri_max; s++) {
+        const HSD_GObjProc* proc;
+        unsigned n = 0;
+        for (proc = HSD_GObj_GObjProcHead[s];
+             proc != NULL && n < 4096 && reports < 16;
+             proc = proc->next, n++)
+        {
+            const HSD_GObj* gobj;
+            if (!mem1_ok(proc, sizeof(*proc))) {
+                boot_triage_note("[gobj-watch] frame %u: s_link=%u queue "
+                                 "holds a bad proc %p\n",
+                                 frame, s, (const void*) proc);
+                reports++;
+                break;
+            }
+            gobj = proc->gobj;
+            if (!mem1_ok(gobj, sizeof(*gobj))) {
+                boot_triage_note("[gobj-watch] frame %u: s_link=%u proc=%p "
+                                 "has a bad gobj %p\n",
+                                 frame, s, (const void*) proc,
+                                 (const void*) gobj);
+                reports++;
+                continue;
+            }
+            if (!proc_owned_by_gobj(proc, gobj)) {
+                reports++;
+                report_bad_proc(proc, gobj, s, "leaked proc: its gobj does "
+                                               "not own it");
+                continue;
+            }
+            if (is_fighter_proc(proc->on_invoke) && !fighter_gobj_ok(gobj)) {
+                reports++;
+                report_bad_proc(proc, gobj, s,
+                                "fighter proc on a dead Fighter");
+                continue;
+            }
+            /* **`Fighter::x61C` is an index into a six-element array, and
+             * nothing in the game bounds it.**  `ftData_800859A8`
+             * (ftdata.c:1668) returns early on -1 and otherwise does
+             * `ft_8045993C[fp->x61C].x6_b0 = false` -- an unbounded
+             * read-modify-write through an `s8`.  `Player_80031AD0` sets it
+             * to -1 for every match fighter and nothing ever assigns
+             * anything else, so -1 is the only value that can legitimately
+             * be here; `ftdemo.c`'s demo fighters used to inherit stack
+             * garbage instead (P-843).  Checking it here is how that fix
+             * stays fixed. */
+            if (is_fighter_proc(proc->on_invoke)) {
+                const Fighter* fp = (const Fighter*) gobj->user_data;
+                int slot = (int) fp->x61C;
+                if (slot != -1 && (slot < 0 || slot >= 6)) {
+                    reports++;
+                    report_bad_proc(proc, gobj, s,
+                                    "Fighter::x61C out of range");
+                    boot_triage_note("[gobj-watch]   x61C=%d (want -1, or "
+                                     "0..5 for ft_8045993C)\n",
+                                     slot);
+                }
+            }
+        }
     }
 }
 
@@ -1779,6 +2012,17 @@ void match_boot_init(unsigned frame_in)
     if (getenv("MELEE_TITLE_TEST") != NULL) {
         title_test = 1;
         boot_platform_set_frame_hook(match_boot_frame);
+    }
+    {
+        /* `MELEE_GOBJ_WATCH=<frames>` sets the sampling period, and bare
+         * `=1` keeps the half-second default -- the same shape as
+         * `MELEE_STUCK_TRACE`, so the two read alike. */
+        const char* e = getenv("MELEE_GOBJ_WATCH");
+        if (e != NULL) {
+            long n = strtol(e, NULL, 0);
+            gobj_watch = n > 1 ? (int) n : 30;
+            boot_platform_set_frame_hook(match_boot_frame);
+        }
     }
     if (getenv("MELEE_CPU_TEST") != NULL) {
         cpu_test = 1;

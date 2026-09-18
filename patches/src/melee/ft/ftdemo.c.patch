@@ -1,0 +1,50 @@
+diff --git a/src/melee/ft/ftdemo.c b/src/melee/ft/ftdemo.c
+index 6c6e71efc..68a7138ab 100644
+--- a/src/melee/ft/ftdemo.c
++++ b/src/melee/ft/ftdemo.c
+@@ -49,6 +49,45 @@ static HSD_GObjEvent on_create_fighter[16] = {
+ static void initFighter(HSD_GObj* gobj, plAllocInfo2* alloc_info)
+ {
+     struct plAllocInfo temp1;
++#ifdef PORT_PC
++    /* P-843: `temp1` is a stack local and this function fills three of the
++     * four fields `Fighter_UnkInitLoad_80068914` reads.  The fourth is `x5`,
++     * and it goes straight into `fp->x61C`.
++     *
++     * `Player_80031AD0` -- the only other place in the game that builds a
++     * `plAllocInfo` -- sets `x5 = -1` for both of its fighters, and -1 is the
++     * only value anything ever assigns to it.  It means "owns no
++     * `ft_8045993C` slot", and `ftData_800859A8` (ftdata.c:1668) checks for
++     * exactly that before using it:
++     *
++     *     s8 temp_r6 = fp->x61C;
++     *     if (temp_r6 == -1) { return; }
++     *     ...
++     *     ft_8045993C[temp_r6].x6_b0 = false;
++     *
++     * `ft_8045993C` is **six** elements of 8 bytes.  `temp_r6` is an
++     * `s8` that this path leaves as whatever was on the stack, so that last
++     * line is an unbounded read-modify-write anywhere from 1 KB below the
++     * array to 1 KB above it -- and `gFtDataList[Ft_Kind_Max]` is the object
++     * immediately *below* it in bss.  Clearing a bit inside one of those
++     * `ftData*` pointers is how a fighter ends up reading its tables from an
++     * address one power of two off.
++     *
++     * It runs on every demo fighter's teardown: `ftData_800859A8` is called
++     * from `Fighter_Unload_8006DABC` (fighter.c:3113), so leaving the Classic
++     * intro screen fires it once per demo fighter on screen.  That is the
++     * screen -- `mode=3 scene=56` -- that P-816, P-836, P-841 and both of
++     * P-843's reports all crash on or just after.
++     *
++     * The console gets away with it because the stack there holds something
++     * benign and deterministic at this depth; ours does not.  Initialising
++     * the struct the way the sibling path does is the whole fix, and it is
++     * gated so the GameCube build keeps matching. */
++    temp1.x5 = -1;
++    temp1.has_transformation = 0;
++    temp1.b2 = temp1.b3 = temp1.b4 = 0;
++    temp1.b5 = temp1.b6 = temp1.b7 = 0;
++#endif
+     temp1.internal_id = alloc_info->internal_id;
+     temp1.slot = alloc_info->slot;
+     temp1.b0 = alloc_info->has_transformation;

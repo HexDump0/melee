@@ -1,5 +1,26 @@
 # State of the port
 
+> **The fighter crash dumps have been naming the wrong objects (2026-09-17,
+> P-843, G-219).** `HSD_GOBJ_CLASS_FIGHTER` is **4** and nothing reserves the
+> number -- the menus create their widgets with a bare
+> `GObj_Create(4, 5, 0x80)`, while real fighters use p_link 8 -- so every
+> `kind=?(-1) player=255 scale=(0.6,0.6,1)` line in P-816, P-836 and P-843 is
+> a menu object printed through `Fighter*`. The "non-Fighter on the fighter
+> GX link" three investigations chased was the dump's own doing. The
+> discriminator is free and exact: `Fighter::gobj` is the struct's first word,
+> which is the word `HSD_ObjFree` overwrites with the free-list link, so
+> `fp->gobj == gobj` tells live fighter, freed fighter and menu widget apart
+> with no false positives. **`MELEE_GOBJ_WATCH=<frames>`** is built on it and
+> is armed in the windowed build: it reports a proc queued on
+> `HSD_GObj_GObjProcHead[]` that its gobj no longer owns, and a fighter proc
+> on a dead `Fighter`, on the frame it happens rather than minutes later.
+> **Also fixed, on the screen all five reports crash on:** `ftdemo.c`'s
+> `initFighter` left `plAllocInfo.x5` uninitialised, so every demo fighter's
+> `x61C` was stack garbage -- measured as **0** where the match path always
+> sets **-1** -- and `ftData_800859A8` uses it as an unbounded index into a
+> six-element array *and writes through it*. The SIGSEGV itself is not yet
+> proven; the watch is how the next report gets past guesswork.
+
 > **Kirby's copy hats are converted for the first time (2026-09-17, P-842).**
 > `KirbyHatStruct` has **two on-disc layouts** and the converter knew one, so
 > the five hats the `LOAD_HAT` macro loads -- Donkey Kong, Jigglypuff, Mewtwo,

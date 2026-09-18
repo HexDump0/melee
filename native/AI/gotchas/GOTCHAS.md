@@ -4624,3 +4624,59 @@ type in the source is wrong and the use is what counts.
 array" branch had never once fired -- the summary line said `0 inside arrays`
 and nobody read it as a bug. A converter that writes into an array element
 was reported as converting an offset that is "not a field". P-842.
+
+## G-219: the classifier is not a type tag, and three crash reports believed it
+
+**Symptom.** `SIGSEGV` inside a fighter proc on the Classic intro screen
+(`mode=3 scene=56`), with a crash dump listing "fighters" that are obviously
+not fighters: `kind=?(-1) player=255 motion=-1 ga=1 scale=(0.6,0.6,1)`,
+`self_vel` all NaN, `held=0xe97de97d`.
+
+**`HSD_GOBJ_CLASS_FIGHTER` is 4, and nothing reserves the number.** The menus
+create their own widgets with a bare `GObj_Create(4, 5, 0x80)` --
+`mncharsel.c:4571`, `mnstagesel.c` in a dozen places, `mnmain.c:793`,
+`toy.c:5909`. Only `fighter.c:852` and `ftdemo.c:60` make real fighters, and
+those use **p_link 8**. `match_boot_dump_fighters` filtered on the classifier
+alone, so every one of those lines is a menu object printed through
+`Fighter*`. The "non-Fighter on the fighter GX link" that P-816 and P-836
+both chased was the dump's own doing.
+
+**The discriminator is free and exact: `fp->gobj == gobj`.** `Fighter::gobj`
+is the **first word** of the struct (ft/types.h:1331, written by
+`initFighter`), and the first word is exactly what `HSD_ObjFree`
+(objalloc.c:119) overwrites with the free-list link. So the test separates a
+live fighter from a freed one *and* from a menu widget, with no false
+positives, in two instructions. Prefer it to any `mem1_ok`-style
+plausibility check.
+
+**A probe that only reports the consequence is worth less than it looks.**
+All three reports are snapshots taken one frame after the fault and minutes
+after the cause. `MELEE_GOBJ_WATCH` checks the two invariants that actually
+break -- a queued proc its own gobj no longer owns, and a fighter proc on a
+dead `Fighter` -- so the transition gets named instead of the crash.
+
+**Sample it, do not run it every frame.** The first draft walked the whole
+proc queue per frame; on the frontend that is hundreds of entries and it made
+`decomp_opening` and `decomp_frontend_card` miss their deadlines -- the probe
+changing the result it was measuring. A leaked proc does not heal, so a
+half-second period finds it in the same transition for a thirtieth of the
+cost.
+
+**And the underlying defect, found on the way: an uninitialised struct field
+used as an unbounded array index.** `ftdemo.c`'s `initFighter` builds a
+stack `plAllocInfo` and fills three of the four fields
+`Fighter_UnkInitLoad_80068914` reads. The fourth, `x5`, becomes `fp->x61C`,
+and `ftData_800859A8` (ftdata.c:1668) does
+`ft_8045993C[fp->x61C].x6_b0 = false` after checking only for `-1`.
+`ft_8045993C` has **six** elements and `x61C` is an `s8`. `Player_80031AD0`
+sets `x5 = -1` for every match fighter and nothing in the game assigns
+anything else, so `-1` is the only value that can be meant. Measured on the
+intro screen the stack held **0**, so every demo fighter claimed slot 0 and
+cleared its in-use bit on teardown; another call path can hold anything in
+-128..127, and `gFtDataList[Ft_Kind_Max]` is the object immediately *below*
+`ft_8045993C` in bss -- retail reaches the array as `&gFtDataList[Ft_Kind_Max]`
+(G-217), which is the same statement.
+
+**ASan does not catch it,** which is why it survived the sanitizer runs: a
+global-array index large enough to land *inside* a neighbouring global never
+touches a redzone. P-843.

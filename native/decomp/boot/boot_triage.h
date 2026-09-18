@@ -87,6 +87,10 @@ void boot_triage_install_crash_reporter(void);
  * handler's capture.  label says what prompted it, e.g. "panic". */
 void boot_triage_print_backtrace(FILE* out, const char* label);
 
+/* Symbolise one code address into `buf` ("name+0xoff", or the bare
+ * pointer when it cannot be resolved). */
+void boot_triage_symbol(const void* pc, char* buf, size_t n);
+
 /* Post-mortem game-state dump.  The triage layer has no access to the
  * engine's types, so whoever owns that state registers a printer here and
  * every stop path -- assert, panic, signal -- calls it.  Unregistered is the

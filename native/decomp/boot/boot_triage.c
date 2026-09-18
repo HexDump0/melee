@@ -357,6 +357,29 @@ static void print_frame(FILE* out, int i, void* pc)
     fputc('\n', out);
 }
 
+/* One address, symbolised the way `print_frame` does it, for callers that
+ * want a callback's name inside a line of their own rather than a backtrace.
+ * Same `dladdr` caveat: a `static` function resolves to the nearest exported
+ * one, so the module offset is always printed too. */
+void boot_triage_symbol(const void* pc, char* buf, size_t n)
+{
+    Dl_info info;
+
+    if (buf == NULL || n == 0) {
+        return;
+    }
+    if (pc == NULL) {
+        snprintf(buf, n, "(null)");
+        return;
+    }
+    if (dladdr((void*) (uintptr_t) pc, &info) != 0 && info.dli_sname != NULL) {
+        snprintf(buf, n, "%s+0x%lx", info.dli_sname,
+                 (unsigned long) ((char*) pc - (char*) info.dli_saddr));
+        return;
+    }
+    snprintf(buf, n, "%p", pc);
+}
+
 void boot_triage_print_backtrace(FILE* out, const char* label)
 {
     void* frames_here[BOOT_MAX_FRAMES];
