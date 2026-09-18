@@ -14,18 +14,26 @@ melee-<os>-<arch>[.exe]
 | Field | Values |
 |---|---|
 | `os` | `linux`, `macos`, `windows` |
-| `arch` | `x86_64`, `aarch64` |
+| `arch` | `x86` |
 | `.exe` | Windows only |
 
 So a release publishes, as its assets:
 
 ```
-melee-linux-x86_64
-melee-linux-aarch64
-melee-macos-x86_64
-melee-macos-aarch64
-melee-windows-x86_64.exe
+melee-linux-x86
+melee-windows-x86.exe
 ```
+
+**`arch` is the *port's*, and the port is 32-bit** (ADR-0012: `archive.c`
+relocates pointers in place into `u32` slots). The launcher is an ordinary
+64-bit binary, so it must not derive the architecture from its own
+`cfg!(target_arch)` — the first version did, asked for an `x86_64` asset that
+will never exist, and the failure would have read as "no build for your
+platform" rather than as the bug it was. `release.rs` pins it in `PORT_ARCH`
+with a test that fails if it ever says `x86_64` again.
+
+The `os` **is** taken from the launcher's own target, correctly: it runs on the
+machine that will run the port.
 
 The launcher builds the name it wants from its own `cfg!(target_os)` and
 `cfg!(target_arch)`, asks the GitHub API for the latest release, and takes the
@@ -43,6 +51,20 @@ image, so there is nothing to bundle alongside it. Shipping a `.tar.gz` would
 mean carrying `tar`, `flate2` and `zip` into the launcher in order to unpack
 something with one file in it, and every one of those is a dependency that has
 to be kept and audited for as long as the launcher exists.
+
+**Windows keeps that promise by linking SDL statically.** A shared build needs
+`SDL3.dll` beside the exe, which would have made Windows the one platform
+whose release is two files and forced the launcher to learn about companion
+downloads. `MELEE_WIN_LINK=static` (the default in
+`native/tools/windows_build.sh`) produces a 22 MB `melee.exe` with no SDL
+import at all -- verified by running it from a directory containing nothing
+else. The side effect is the **GUI subsystem**: no console window appears on a
+double-click, and nothing prints if you run it from `cmd.exe`. The launcher is
+unaffected, because it reads the child's pipes rather than a console.
+`MELEE_WIN_LINK=shared` gives the console build for terminal debugging.
+
+Linux links the system SDL3 as usual: there the library is a package, not
+something a player has to be handed.
 
 **If a release ever needs more than the binary** — a data folder, a licence, a
 default `melee.toml` — that decision changes, and this file is where it

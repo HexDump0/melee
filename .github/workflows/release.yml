@@ -1,0 +1,162 @@
+# Build the port and the launcher for Linux and Windows, and publish them.
+#
+# Triggered by a tag (`git tag v0.2.0 && git push --tags`) or by hand from the
+# Actions tab.  The asset names are the contract in
+# native/AI/reference/releases.md -- the launcher matches on them exactly, so
+# renaming anything here breaks "Check for update" in every installed copy.
+#
+# **The port is 32-bit** (ADR-0012), on both platforms, which is why every job
+# builds a 32-bit SDL3 from source: no distribution ships one.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  SDL_VERSION: "3.4.14"
+
+jobs:
+  # Cross-compiled from Linux, which is exactly how it was developed and
+  # tested -- see native/AI/reference/windows.md.
+  port-windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
+
+      - name: MinGW toolchain
+        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-i686 cmake ninja-build
+
+      - name: Cross-build SDL3
+        run: |
+          curl -sL -o sdl.tar.gz \
+            "https://github.com/libsdl-org/SDL/releases/download/release-${SDL_VERSION}/SDL3-${SDL_VERSION}.tar.gz"
+          tar xzf sdl.tar.gz
+          cat > mingw.cmake <<'EOF'
+          set(CMAKE_SYSTEM_NAME Windows)
+          set(CMAKE_SYSTEM_PROCESSOR x86)
+          set(CMAKE_C_COMPILER i686-w64-mingw32-gcc)
+          set(CMAKE_CXX_COMPILER i686-w64-mingw32-g++)
+          set(CMAKE_RC_COMPILER i686-w64-mingw32-windres)
+          set(CMAKE_FIND_ROOT_PATH /usr/i686-w64-mingw32)
+          set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+          set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+          set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+          EOF
+          cmake -S "SDL3-${SDL_VERSION}" -B sdlb \
+            -DCMAKE_TOOLCHAIN_FILE=$PWD/mingw.cmake -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=$PWD/sdl3 \
+            -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF
+          cmake --build sdlb -j"$(nproc)"
+          cmake --install sdlb
+
+      # Static, so the release is one file: a user who downloads melee.exe and
+      # nothing else still has a working game.
+      - name: Build the port
+        run: MELEE_WIN_LINK=static native/tools/windows_build.sh "$PWD/win" "$PWD/sdl3"
+
+      - name: Name it for the release
+        run: |
+          mkdir -p out
+          cp win/melee.exe out/melee-windows-x86.exe
+
+      - uses: actions/upload-artifact@v4
+        with: { name: port-windows, path: out/* }
+
+  port-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
+
+      # 32-bit everything.  gcc-multilib gives -m32; the GL/EGL and audio
+      # headers have to come from the i386 architecture explicitly.
+      - name: 32-bit toolchain
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib g++-multilib cmake ninja-build \
+            libegl1-mesa-dev:i386 libgles2-mesa-dev:i386 libgl1-mesa-dev:i386 \
+            libasound2-dev:i386 libpulse-dev:i386 libx11-dev:i386 \
+            libxext-dev:i386 libwayland-dev:i386
+
+      - name: Build 32-bit SDL3
+        run: |
+          curl -sL -o sdl.tar.gz \
+            "https://github.com/libsdl-org/SDL/releases/download/release-${SDL_VERSION}/SDL3-${SDL_VERSION}.tar.gz"
+          tar xzf sdl.tar.gz
+          cmake -S "SDL3-${SDL_VERSION}" -B sdlb -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_FLAGS=-m32 -DCMAKE_CXX_FLAGS=-m32 \
+            -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF
+          cmake --build sdlb -j"$(nproc)"
+          sudo cmake --install sdlb
+          sudo ldconfig
+
+      - name: Build the port
+        run: |
+          cmake -S native -B build/native -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake --build build/native -j"$(nproc)" --target melee
+
+      - name: Name it for the release
+        run: |
+          mkdir -p out
+          cp build/native/melee out/melee-linux-x86
+
+      - uses: actions/upload-artifact@v4
+        with: { name: port-linux, path: out/* }
+
+  # The launcher is an ordinary 64-bit app and builds on its own platform:
+  # Tauri cross-compilation is not worth the trouble.
+  launcher:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Linux webview dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev \
+            libayatana-appindicator3-dev patchelf
+
+      - run: npm ci
+        working-directory: launcher
+
+      - run: npm run typecheck
+        working-directory: launcher
+
+      - run: npx tauri build
+        working-directory: launcher
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: launcher-${{ matrix.os }}
+          path: |
+            launcher/src-tauri/target/release/bundle/deb/*.deb
+            launcher/src-tauri/target/release/bundle/msi/*.msi
+            launcher/src-tauri/target/release/bundle/nsis/*.exe
+
+  publish:
+    needs: [port-windows, port-linux, launcher]
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist }
+      - name: What is being published
+        run: find dist -type f -printf "%f  %s bytes\n" | sort
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true

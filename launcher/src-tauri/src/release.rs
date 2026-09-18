@@ -20,6 +20,9 @@ use std::io::Read;
 use std::path::PathBuf;
 
 const REPO: &str = "HexDump0/melee";
+/// What the *port* is built as, which is not what the launcher is built as.
+/// ADR-0012 pins the port to i686; change this only if that changes.
+const PORT_ARCH: &str = "x86";
 const USER_AGENT: &str = "melee-unbound-launcher";
 /// A port binary is a few megabytes; this is a sanity bound, not a target.
 const MAX_BYTES: u64 = 256 * 1024 * 1024;
@@ -49,6 +52,13 @@ struct GhRelease {
 
 /// The asset this machine wants. Kept as one function so the scheme has one
 /// definition on this side.
+///
+/// **The architecture is the port's, not the launcher's.** The port builds
+/// 32-bit (ADR-0012: `archive.c` relocates pointers in place into `u32`
+/// slots), while this launcher is an ordinary 64-bit binary. Deriving the
+/// arch from `cfg!(target_arch)` here -- which is what the first version did
+/// -- asks for an `x86_64` asset that will never exist, and the failure would
+/// read as "no build for your platform" rather than as the bug it is.
 pub fn asset_name() -> String {
     let os = if cfg!(target_os = "windows") {
         "windows"
@@ -57,11 +67,9 @@ pub fn asset_name() -> String {
     } else {
         "linux"
     };
-    let arch = if cfg!(target_arch = "aarch64") {
-        "aarch64"
-    } else {
-        "x86_64"
-    };
+    /* The OS *is* taken from the launcher, correctly: it runs on the machine
+     * that will run the port. */
+    let arch = PORT_ARCH;
     let ext = if cfg!(target_os = "windows") { ".exe" } else { "" };
     format!("melee-{os}-{arch}{ext}")
 }
@@ -166,5 +174,21 @@ mod tests {
         // The scheme is melee-<os>-<arch>, so exactly two separators.
         let stem = name.trim_end_matches(".exe");
         assert_eq!(stem.split('-').count(), 3, "{name} is not melee-<os>-<arch>");
+    }
+
+    /// The launcher is 64-bit and the port is not.  Asking for the launcher's
+    /// architecture would request an asset that is never published.
+    #[test]
+    fn architecture_is_the_ports_not_the_launchers() {
+        assert!(
+            asset_name().contains("-x86"),
+            "{} should name the port's 32-bit target",
+            asset_name()
+        );
+        assert!(
+            !asset_name().contains("x86_64"),
+            "{} names the launcher's architecture, not the port's",
+            asset_name()
+        );
     }
 }

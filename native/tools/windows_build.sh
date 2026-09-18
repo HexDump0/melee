@@ -112,13 +112,35 @@ echo "linking"
 # dbghelp: boot_triage's stack walk.  winmm: SDL's timers/audio.
 # --large-address-aware: see the header of this file.
 # shellcheck disable=SC2086
-# -static-libgcc and a static libwinpthread so the result is melee.exe plus
-# SDL3.dll and nothing else.  MinGW links libwinpthread-1.dll dynamically by
-# default, which is one more file to ship and one more way for a user to get a
-# "the program can't start because ... is missing" box.
+# MELEE_WIN_LINK=static (default) links SDL in, so a release is one file and
+# `melee.exe` cannot be started without its DLL.  It is also the GUI subsystem,
+# because that is what SDL's static pkg-config asks for: no console window
+# appears when the game is double-clicked, and the launcher still captures
+# output because it reads the child's pipes rather than a console.
+#
+# MELEE_WIN_LINK=shared is the console build, which is what you want when
+# iterating from a terminal on real Windows -- a GUI-subsystem process there
+# has nowhere to print.  It needs SDL3.dll beside it.
+#
+# -static-libgcc and a static libwinpthread either way: MinGW links
+# libwinpthread-1.dll dynamically by default, which is one more file to ship
+# and one more "the program can't start because ... is missing" box.
+LINKMODE=${MELEE_WIN_LINK:-static}
+if [ "$LINKMODE" = "static" ]; then
+  SDLLIBS=$(PKG_CONFIG_PATH="$SDL/lib/pkgconfig" pkg-config --static --libs sdl3 2>/dev/null)
+  [ -n "$SDLLIBS" ] || SDLLIBS="-L$SDL/lib -lSDL3 -mwindows -lm -lkernel32 -luser32
+      -lgdi32 -lwinmm -limm32 -lole32 -loleaut32 -lversion -luuid -ladvapi32
+      -lsetupapi -lshell32 -ldinput8"
+else
+  SDLLIBS="-L$SDL/lib -lSDL3"
+fi
+
+# shellcheck disable=SC2086
 $CC -m32 "$OUT"/obj/*.o -o "$OUT/melee.exe" \
-  -L"$SDL/lib" -lSDL3 -ldbghelp -lwinmm \
+  $SDLLIBS -ldbghelp \
   -static-libgcc -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic \
   -Wl,--large-address-aware -Wl,--gc-sections
-cp "$SDL/bin/SDL3.dll" "$OUT/" 2>/dev/null || true
-echo "built $(du -h "$OUT/melee.exe" | cut -f1) -> $OUT/melee.exe"
+if [ "$LINKMODE" != "static" ]; then
+  cp "$SDL/bin/SDL3.dll" "$OUT/" 2>/dev/null || true
+fi
+echo "built $(du -h "$OUT/melee.exe" | cut -f1) ($LINKMODE) -> $OUT/melee.exe"
