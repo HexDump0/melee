@@ -78,6 +78,7 @@ static int select_p0 = -1;
 static int select_p1 = -1;
 static int select_stage = -1;
 static int select_cpu = -1;
+static int select_cpu_kind = 4;
 /* -2 means "leave onEnterDebugVs's choice"; -1..4 are real item_freq values
  * (-1 off, 4 very high), matching mnitemsw.c's menu index minus one. */
 static int select_items = -2;
@@ -556,14 +557,22 @@ static void match_boot_on_enter_debug_vs(GameModeState* state)
          * human slots reading the scripted pad, so the match is two players
          * doing whatever the script says rather than a fight (P-862).
          *
-         * `cpu_kind` 0 is the ordinary VS AI.  `onEnterDebugVs` has already
-         * filled the rest of the struct, so only these three fields move.
+         * **`cpu_kind` 4, not 0.**  0 is the training dummy -- it is what
+         * `gmtrainingmode.c:132` gives the partner, and it jumps on the spot
+         * and never closes distance, which is exactly what 0 produced here.
+         * A normal player's type is 4: `Player_InitPlayer` (player.c:1961)
+         * sets it as the default and `gmopeningmode.c:494` uses it for the
+         * demo fighters that actually fight.  `MELEE_MATCH_CPU_KIND`
+         * overrides it for anyone who wants one of the other behaviours.
+         *
+         * `onEnterDebugVs` has already filled the rest of the struct, so only
+         * these three fields move.
          */
         if (select_cpu > 0) {
             int i;
             for (i = 0; i < 2; i++) {
                 start->players[i].slot_type = Gm_PKind_Cpu;
-                start->players[i].cpu_kind = 0;
+                start->players[i].cpu_kind = (u8) select_cpu_kind;
                 start->players[i].cpu_level = (u8) select_cpu;
             }
         }
@@ -2228,6 +2237,9 @@ void match_boot_init(unsigned frame_in)
             if (select_cpu > 9) {
                 select_cpu = 9;
             }
+        }
+        if ((e = getenv("MELEE_MATCH_CPU_KIND")) != NULL) {
+            select_cpu_kind = (int) strtol(e, NULL, 0);
         }
     }
     if (frame_in != 0) {

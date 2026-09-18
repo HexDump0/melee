@@ -196,6 +196,10 @@ MELEE_MATCH_CPU=9 MELEE_MATCH_P0=0 MELEE_MATCH_P1=1 MELEE_MATCH_STAGE=31 \
 the harness leaves them as human slots reading the scripted pad, so the match
 is two players doing what the script says rather than a fight.
 
+The CPU *type* is 4, the normal fighting AI.  `MELEE_MATCH_CPU_KIND` changes
+it; **0 is the training dummy** (`gmtrainingmode.c:132` gives the partner
+that type), which jumps on the spot and never closes distance.
+
 `MELEE_MATCH_P0`/`P1` are character-select indices, not `Ft_Kind` values; the
 `[match] loaded p0=.. p1=.. grkind=..` line (with `MELEE_VIEWER_TRIAGE=1`)
 prints what they resolved to.  `MELEE_MATCH_STAGE` is an `St_Kind`: 31 is
