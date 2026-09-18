@@ -121,16 +121,20 @@ export function Toggle({
       role="switch"
       aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className={`relative h-7 w-13 border transition-colors ${
+      className={`relative h-7 w-14 border transition-colors ${
         checked
           ? "border-mu-violet bg-mu-violet"
-          : "border-white/20 bg-transparent hover:border-white/40"
+          : "border-white/25 bg-white/[0.06] hover:border-white/50"
       }`}
-      style={{ width: "3.25rem" }}
     >
+      {/* Black knob on violet, white on the empty track: the same contrast
+          rule as the buttons, and the reason the two states cannot be
+          confused at a glance. */}
       <span
-        className={`absolute top-1/2 block h-5 w-5 -translate-y-1/2 transition-all ${
-          checked ? "left-[1.6rem] bg-mu-black" : "left-1 bg-white/70"
+        className={`absolute left-1 top-1/2 block h-5 w-5 -translate-y-1/2 transition-transform ${
+          checked
+            ? "translate-x-[1.75rem] bg-mu-black"
+            : "translate-x-0 bg-white/60"
         }`}
       />
     </button>

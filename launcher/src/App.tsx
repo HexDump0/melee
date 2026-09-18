@@ -28,8 +28,8 @@ export type Store = {
   reload: () => Promise<void>;
 };
 
-export default function App() {
-  const [page, setPage] = useState<PageId>("play");
+export default function App({ initialPage }: { initialPage?: PageId } = {}) {
+  const [page, setPage] = useState<PageId>(initialPage ?? "play");
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [values, setValues] = useState<Record<string, Value>>({});
   const [dirty, setDirty] = useState(false);

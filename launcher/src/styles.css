@@ -45,3 +45,49 @@
     background: var(--color-mu-dim);
   }
 }
+
+@layer components {
+  /* Range inputs.
+     A browser draws its own thumb in its own accent colour -- Chromium's is
+     blue -- and branding.md allows exactly one accent. The track is painted
+     inline (the fill has to follow the value), so only the thumb is here. */
+  .mu-range {
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: pointer;
+  }
+
+  .mu-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 1rem;
+    width: 0.625rem;
+    border: 0;
+    border-radius: 0; /* square corners are the whole posture */
+    background: var(--color-mu-white);
+    transition: background-color 0.12s ease-out;
+  }
+
+  .mu-range:hover::-webkit-slider-thumb,
+  .mu-range:focus-visible::-webkit-slider-thumb {
+    background: var(--color-mu-violet);
+  }
+
+  .mu-range::-moz-range-thumb {
+    height: 1rem;
+    width: 0.625rem;
+    border: 0;
+    border-radius: 0;
+    background: var(--color-mu-white);
+  }
+
+  .mu-range::-moz-range-track {
+    background: transparent;
+  }
+
+  /* Same reason: the one accent, on the few native controls that keep one. */
+  input[type="checkbox"],
+  select {
+    accent-color: var(--color-mu-violet);
+  }
+}

@@ -62,3 +62,23 @@ launcher's stylesheet imports rather than copies — `branding.md` is the source
 of truth and a second copy of `--color-mu-violet` is a second thing to forget
 when the brand moves. The one rule worth repeating: **black text on violet**,
 never white, because white on violet is 2.77:1 and fails.
+
+## Looking at the UI without building the shell
+
+`preview.html` runs the real `App` against fabricated data in an ordinary
+browser, by stubbing the `window.__TAURI_INTERNALS__` object that `invoke`
+goes through. That makes the layout reviewable — and screenshottable — without
+compiling Rust or opening a window on anyone's desktop.
+
+```sh
+npm run dev
+# http://localhost:5183/preview.html?page=play|mods|graphics|crashes
+chromium --headless --window-size=1180,760 \
+    --screenshot=play.png "http://localhost:5183/preview.html?page=play"
+```
+
+It is dev-only: `vite build` has `index.html` as its entry, so nothing in the
+harness ships. It has already earned its keep — the first pass drew range
+thumbs in Chromium's default **blue**, against a palette that allows exactly
+one accent, and rendered the toggle's two states almost identically. Neither
+is visible in a type-check or a build log.
