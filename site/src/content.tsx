@@ -117,7 +117,7 @@ export const WAYS: WayCard[] = [
     title: 'desktop',
     badge: 'has more features',
     body: <>Runs natively, has more settings and is the recommended way to play.</>,
-    cta: { to: 'repo', icon: DownloadIcon, label: 'Download', tone: 'outline' },
+    cta: { to: 'releases', icon: DownloadIcon, label: 'Download', tone: 'outline' },
   },
 ];
 

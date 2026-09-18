@@ -241,9 +241,8 @@ Keep the height even (946, not 945) — x264 rejects odd heights with yuv420p.
 
 ## Before it goes live
 
-1. **Discord.** `LINKS.discord` is empty, so the hero's Discord button
-   toasts "link is not set yet" rather than going anywhere. Fill the entry in
-   when the invite exists; the unset behaviour is deliberate.
+1. **Releases.** The desktop card's Download opens `LINKS.releases`; cut a
+   GitHub release and it fills in with no code change.
 2. **Open Graph image.** The cards have no `og:image` yet. The 1280×400
    banner in `/assets` is the intended one; it needs a hosted URL first.
 3. **Gameplay capture.** The 1080p master is `assets/gameplay.mp4`; the web
