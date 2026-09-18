@@ -38,7 +38,7 @@ const SNAPSHOT = {
     {
       id: "unbound",
       name: "Melee Unbound",
-      version: "0.1.0",
+      version: "1.0.0",
       priority: 100,
       dir: "/home/you/projects/melee/mods/unbound",
       module: "unbound.wasm",
@@ -87,7 +87,7 @@ const CRASHES = [
     seed: "0x6adb28af",
     profile: "play",
     log: [
-      "[mod] loaded unbound (Melee Unbound 0.1.0) priority 100",
+      "[mod] loaded unbound (Melee Unbound 1.0.0) priority 100",
       "[rng] seed=0x6adb28af (MELEE_RNG_SEED=0x6adb28af replays this run)",
       "[ftdata] figatree over: kind=4 i=124 count=479",
       '*** PANIC:  in "/src/melee/ft/ftdata.c" on line 1745.',

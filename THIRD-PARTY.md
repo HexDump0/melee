@@ -1,4 +1,42 @@
-# Third-party assets
+# Licensing and third-party material
+
+## What the MIT licence in `LICENSE` covers
+
+**This project's own work**, which is everything written for it:
+
+- `native/` — the port layer: OS, DVD, GX→GLES3, AX audio, the asset
+  converter, the boot triage
+- `launcher/` — the Tauri launcher
+- `mods/` — Melee Unbound and the mod SDK headers
+- `site/` — the website
+- `patches/` — the portability patch series
+- the tooling, tests and documentation under `native/AI/` and `native/tools/`
+
+## What it does not cover, and cannot
+
+**`decomp/` is not ours to license.** It is the community decompilation at
+[doldecomp/melee](https://github.com/doldecomp/melee), included as a submodule.
+It is a reconstruction of *Super Smash Bros. Melee*, which is copyright
+Nintendo — neither this project nor the decompilation holds any rights in that
+game, and the MIT grant above extends to neither. The submodule carries no
+licence file of its own, which is deliberate on their part and not an oversight
+on ours.
+
+Practically, that means: **this software ships no game data and requires you to
+supply your own legally-obtained disc image.** It is a port of code that
+describes the game, not a copy of the game.
+
+**`native/third_party/` is other people's code**, under their own terms:
+
+| | |
+|---|---|
+| `wasm-micro-runtime` | Apache-2.0 (Bytecode Alliance) — submodule |
+| `khronos` | MIT and Apache-2.0, per each file's `SPDX-License-Identifier` |
+
+Code dependencies pulled by `Cargo.toml` and `package.json` carry their own
+licences and are not restated here.
+
+## Assets
 
 Assets in this repository that somebody else made, and what their licences
 require of us. Code dependencies are declared by their own manifests

@@ -6,7 +6,7 @@
 
 id = "unbound"
 name = "Melee Unbound"
-version = "0.1.0"
+version = "1.0.0"
 abi_version = 8
 
 # Ascending; ties break on load order. Unbound goes first so a third-party

@@ -113,5 +113,5 @@ static const ModBinding builtin_binding = { builtin_payload, builtin_init,
  */
 void mod_native_scan(void)
 {
-    mod_add("unbound", "Melee Unbound", "0.1.0", 100, &builtin_binding, NULL);
+    mod_add("unbound", "Melee Unbound", "1.0.0", 100, &builtin_binding, NULL);
 }

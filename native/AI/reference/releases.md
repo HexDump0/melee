@@ -121,3 +121,24 @@ The assets land as `melee-linux-x86`, `melee-windows-x86.exe`, the launcher's
 **After the first release**, check the launcher end to end: Check for update →
 Install → Launch. That is the first time the naming scheme is exercised by the
 thing it exists for, and a mismatch there is silent until someone tries it.
+
+## What the first dry run found
+
+Worth keeping, because both are the kind of thing that only appears on a
+runner.
+
+**Windows needed `g++-mingw-w64-i686`.** The port is C, but SDL3's CMakeLists
+calls `enable_language(CXX)`, so configuring fails without a C++ cross
+compiler that nothing ever uses.
+
+**Ubuntu's i386 is a partial architecture.** It carries what 32-bit games and
+Wine need and little else, so `libpulse-dev:i386` cannot be installed -- it
+depends on `libglib2.0-dev:i386`, which has no `libglib2.0-dev-bin:i386` to
+satisfy it. PulseAudio and Wayland are dropped and switched off in SDL, which
+makes the released Linux binary **X11 and ALSA**: Wayland desktops run it
+through XWayland and PulseAudio/PipeWire through their ALSA compatibility
+layer, which is how most 32-bit Linux games already work. If that ever needs
+to change, build the Linux job in a Debian container, where i386 is complete.
+
+The launcher job passed first time, AppImage included -- which is the answer to
+the one thing that could not be checked locally.

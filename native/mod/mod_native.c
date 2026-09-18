@@ -98,6 +98,6 @@ static const ModBinding native_binding = { native_payload, native_init,
 
 void mod_native_scan(void)
 {
-    mod_add("unbound", "Melee Unbound", "0.1.0", UNBOUND_PRIORITY_EARLY,
+    mod_add("unbound", "Melee Unbound", "1.0.0", UNBOUND_PRIORITY_EARLY,
             &native_binding, NULL);
 }

@@ -26,8 +26,14 @@ jobs:
       - uses: actions/checkout@v4
         with: { submodules: recursive }
 
+      # g++ as well as gcc: the port is C, but SDL3's CMakeLists calls
+      # enable_language(CXX), so configuring fails without a C++ cross
+      # compiler even though nothing C++ is ever built.
       - name: MinGW toolchain
-        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-i686 cmake ninja-build
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-i686 g++-mingw-w64-i686 \
+            cmake ninja-build pkg-config
 
       - name: Cross-build SDL3
         run: |
@@ -73,14 +79,26 @@ jobs:
 
       # 32-bit everything.  gcc-multilib gives -m32; the GL/EGL and audio
       # headers have to come from the i386 architecture explicitly.
+      #
+      # **Ubuntu's i386 is a partial architecture**, not a full one: it carries
+      # the packages 32-bit games and Wine need and little else.  The first run
+      # of this job died on `libglib2.0-dev:i386`, which has no
+      # `libglib2.0-dev-bin:i386` to satisfy it -- pulled in by
+      # `libpulse-dev:i386`.  PulseAudio and Wayland are both dropped here and
+      # switched off in SDL below, which keeps the i386 surface to things
+      # Ubuntu actually ships.
+      #
+      # The cost is stated rather than hidden: the released Linux binary is
+      # **X11 and ALSA**.  On a Wayland desktop it runs through XWayland, and
+      # PulseAudio/PipeWire users get audio through their ALSA compatibility
+      # layer, which is how most 32-bit games on Linux already work.
       - name: 32-bit toolchain
         run: |
           sudo dpkg --add-architecture i386
           sudo apt-get update
           sudo apt-get install -y gcc-multilib g++-multilib cmake ninja-build \
-            libegl1-mesa-dev:i386 libgles2-mesa-dev:i386 libgl1-mesa-dev:i386 \
-            libasound2-dev:i386 libpulse-dev:i386 libx11-dev:i386 \
-            libxext-dev:i386 libwayland-dev:i386
+            libegl1-mesa-dev:i386 libgl1-mesa-dev:i386 \
+            libasound2-dev:i386 libx11-dev:i386 libxext-dev:i386
 
       - name: Build 32-bit SDL3
         run: |
@@ -90,7 +108,13 @@ jobs:
           cmake -S "SDL3-${SDL_VERSION}" -B sdlb -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_FLAGS=-m32 -DCMAKE_CXX_FLAGS=-m32 \
             -DCMAKE_INSTALL_PREFIX=/usr/local \
-            -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF
+            -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF \
+            -DSDL_X11=ON -DSDL_WAYLAND=OFF \
+            -DSDL_ALSA=ON -DSDL_PULSEAUDIO=OFF -DSDL_PIPEWIRE=OFF
+          # Fail loudly here rather than at the port's link step: a backend
+          # silently switched off produces a window that never opens.
+          grep -q "SDL_VIDEO_DRIVER_X11 1" sdlb/include/build_config/SDL_build_config.h \
+            || { echo "SDL3 configured without X11 -- the port cannot open a window"; exit 1; }
           cmake --build sdlb -j"$(nproc)"
           sudo cmake --install sdlb
           sudo ldconfig
