@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="140 120 1320 780" fill="none">
+  <style>
+    @keyframes stage-float { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-7px) } }
+    @keyframes orbit-drift { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(5px) } }
+    .stage { animation: stage-float 12s ease-in-out infinite }
+    .orbit { animation: orbit-drift 16s ease-in-out infinite }
+    @media (prefers-reduced-motion: reduce) { .stage, .orbit { animation: none } }
+  </style>
+  <!-- perspective floor -->
+  <g stroke="#ffffff" stroke-opacity="0.14" stroke-width="1">
+    <path d="M-400 900 L704 470"/>
+    <path d="M-200 900 L720 470"/>
+    <path d="M0 900 L736 470"/>
+    <path d="M200 900 L752 470"/>
+    <path d="M400 900 L768 470"/>
+    <path d="M600 900 L784 470"/>
+    <path d="M800 900 L800 470"/>
+    <path d="M1000 900 L816 470"/>
+    <path d="M1200 900 L832 470"/>
+    <path d="M1400 900 L848 470"/>
+    <path d="M1600 900 L864 470"/>
+    <path d="M1800 900 L880 470"/>
+    <path d="M2000 900 L896 470"/>
+    <path d="M0 470 H1600"/>
+    <path d="M0 484 H1600"/>
+    <path d="M0 504 H1600"/>
+    <path d="M0 533 H1600"/>
+    <path d="M0 574 H1600"/>
+    <path d="M0 631 H1600"/>
+    <path d="M0 713 H1600"/>
+    <path d="M0 830 H1600"/>
+  </g>
+  <g class="orbit">
+    <ellipse cx="800" cy="560" rx="640" ry="150" stroke="#a08aff" stroke-opacity="0.45" stroke-width="1.6" transform="rotate(-7 800 560)"/>
+  </g>
+  <g class="stage">
+  <g stroke-linejoin="miter">
+    <path d="M660 250 L940 250 L985 275 L615 275 Z" fill="#101013" stroke="#ffffff" stroke-width="1.6"/>
+    <path d="M615 275 L985 275 L985 286 L615 286 Z" fill="#08080a" stroke="#ffffff" stroke-width="1.4"/>
+    <path d="M660 250 L940 250" stroke="#a08aff" stroke-width="2.4"/>
+  </g>
+  <g stroke-linejoin="miter">
+    <path d="M300 430 L520 430 L560 452 L260 452 Z" fill="#101013" stroke="#ffffff" stroke-width="1.6"/>
+    <path d="M260 452 L560 452 L560 463 L260 463 Z" fill="#08080a" stroke="#ffffff" stroke-width="1.4"/>
+    <path d="M300 430 L520 430" stroke="#a08aff" stroke-width="2.4"/>
+    <path d="M1080 430 L1300 430 L1340 452 L1040 452 Z" fill="#101013" stroke="#ffffff" stroke-width="1.6"/>
+    <path d="M1040 452 L1340 452 L1340 463 L1040 463 Z" fill="#08080a" stroke="#ffffff" stroke-width="1.4"/>
+    <path d="M1080 430 L1300 430" stroke="#a08aff" stroke-width="2.4"/>
+  </g>
+  <g stroke-linejoin="miter">
+    <path d="M390 545 L1210 545 L1330 600 L800 625 L270 600 Z" fill="#101013" stroke="#ffffff" stroke-width="1.8"/>
+    <path d="M270 600 L800 625 L1330 600 L1330 628 L800 655 L270 628 Z" fill="#08080a" stroke="#ffffff" stroke-width="1.5"/>
+    <path d="M270 600 L800 625 L1330 600" stroke="#a08aff" stroke-width="2.4"/>
+    <path d="M430 655 L1170 655 L1030 742 L570 742 Z" fill="#0c0c0f" stroke="#ffffff" stroke-width="1.5"/>
+    <path d="M570 742 L1030 742 L958 818 L642 818 Z" fill="#08080a" stroke="#ffffff" stroke-width="1.5"/>
+    <path d="M570 742 L1030 742" stroke="#a08aff" stroke-width="2"/>
+    <path d="M800 655 L800 742" stroke="#ffffff" stroke-opacity="0.35" stroke-width="1.2"/>
+    <path d="M642 818 L958 818" stroke="#ffffff" stroke-opacity="0.5" stroke-width="1.4"/>
+  </g>
+  </g>
+</svg>

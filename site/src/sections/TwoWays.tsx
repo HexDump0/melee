@@ -1,30 +1,23 @@
-/* Browser or desktop. The violet card is the path that exists; the light one
-   carries a badge saying what it is. The tone drives colour *and* the bullet
-   treatment — ticks for the real option, dots for the planned one — so the
-   two cards read as a claim and a caveat rather than two equal offers.
-
-   The CTA is pushed to the bottom with `mt-auto` so both cards' buttons line
-   up however much body copy sits above them. */
+/* Browser or desktop, after the owner's comp: two windows — the port's
+   launcher and a browser — with the stage art inside, and the honest button
+   under each. The browser window is what is planned, so it is quieter and
+   carries the badge; the desktop window is the path that exists. */
 
 import { HEADINGS, WAYS, type WayCard } from '../content.tsx';
-import { useDestination } from '../hooks/useDestination.ts';
-import { ArrowIcon, CheckIcon } from '../components/icons.tsx';
+import { Button } from '../components/Button.tsx';
+import { StageWindow } from '../components/StageWindow.tsx';
 import { SectionHeading } from '../components/SectionHeading.tsx';
-
-/** The violet the tick is cut out of — see CheckIcon. */
-const VIOLET = '#a08aff';
+import { WRAP } from '../lib/layout.ts';
 
 export function TwoWays() {
-  const { eyebrow, title, sub } = HEADINGS.download;
+  const { eyebrow, title } = HEADINGS.download;
 
   return (
-    <section id="download" className="band scroll-mt-4 bg-mu-black">
-      <div className="wrap">
-        <SectionHeading eyebrow={eyebrow} title={title} tone="dark">
-          <p className="mt-5 text-eyebrow uppercase tracking-[0.3em] text-mu-white/80">{sub}</p>
-        </SectionHeading>
+    <section id="download" className="scroll-mt-4 bg-mu-black py-12 lg:py-16">
+      <div className={WRAP}>
+        <SectionHeading eyebrow={eyebrow} title={title} tone="dark" />
 
-        <div className="mt-block grid gap-grid lg:grid-cols-2">
+        <div className="mt-8 grid gap-x-10 gap-y-14 lg:mt-10 lg:grid-cols-2">
           {WAYS.map((way) => (
             <Way key={way.title.join(' ')} way={way} />
           ))}
@@ -35,18 +28,13 @@ export function TwoWays() {
 }
 
 function Way({ way }: { way: WayCard }) {
-  const destination = useDestination(way.cta.to);
-  const violet = way.tone === 'violet';
-  const Icon = way.icon;
+  const planned = way.tone === 'light';
 
   return (
-    <article
-      className={`flex flex-col rounded-card p-card text-mu-black ${
-        violet ? 'on-violet bg-mu-violet' : 'on-pale bg-mu-white'
-      }`}
-    >
-      <header className="flex flex-wrap items-center gap-x-6 gap-y-3">
-        <Icon className="w-12 shrink-0" />
+    <article className="flex flex-col">
+      <StageWindow variant={way.frame} url={way.frame === 'browser'} />
+
+      <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3">
         <h3 className="text-h3 uppercase">
           {way.title[0]}
           <br />
@@ -57,34 +45,17 @@ function Way({ way }: { way: WayCard }) {
             {way.badge}
           </span>
         )}
-      </header>
+      </div>
 
-      <p className={`mt-6 text-lede ${violet ? '' : 'text-mu-ink-dim'}`}>{way.body}</p>
+      <p className={`mt-5 max-w-md text-lede ${planned ? 'text-mu-dim' : 'text-mu-white/80'}`}>
+        {way.body}
+      </p>
 
-      <ul className={`mt-5 space-y-2.5 text-lede ${violet ? '' : 'text-mu-ink-dim'}`}>
-        {way.points.map((point) => (
-          <li key={point} className="flex items-start gap-3">
-            {violet ? (
-              <CheckIcon tick={VIOLET} className="mt-1 w-5 shrink-0" />
-            ) : (
-              <span className="mt-2.5 h-1.5 w-1.5 shrink-0 rounded-full bg-mu-violet-deep" />
-            )}
-            {point}
-          </li>
-        ))}
-      </ul>
+      {/* Minimum gap, then all remaining height — so both buttons sit on the
+          same line however much copy is above them. */}
+      <div className="mt-8 grow lg:mt-10" />
 
-      {/* Minimum gap, then all remaining height — so both cards' CTAs sit
-          on the same line however much body copy is above them. */}
-      <div className="mt-block grow" />
-
-      <a
-        {...destination}
-        className="group flex items-center justify-center gap-3 bg-mu-black px-6 py-4 text-micro uppercase text-mu-white transition-colors duration-200 hover:bg-mu-ink-dim"
-      >
-        {way.cta.label}
-        <ArrowIcon className="w-5 transition-transform duration-300 group-hover:translate-x-1" />
-      </a>
+      <Button {...way.cta} className="w-full" />
     </article>
   );
 }

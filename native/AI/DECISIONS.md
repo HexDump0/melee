@@ -1851,3 +1851,123 @@ scale, the cap-height measuring method and the `gsap.from` trap recorded there
 all still hold and carried over unchanged.
 
 **Status:** accepted (2026-09-18), website implementation.
+
+---
+
+## ADR-0031: The site's motion is load-once CSS; nothing scroll-reveals
+
+**Context.** ADR-0029 and ADR-0030 wired GSAP + ScrollTrigger to fade every
+band in as it entered the viewport, and armed it before first paint with an
+inline `reveal-ready` script plus a `useReveals` hook. On the built page the
+owner read the scroll reveal as sloppy, and asked for the page to simply be
+there. The replacement had to keep the site's "works with JavaScript off"
+promise (ADR-0030), which a no-JS page can still do with CSS animation.
+
+**Decision.** GSAP and ScrollTrigger are gone as a dependency and as a
+concept: no `reveal-ready` class, no `useReveals`, no scroll listener besides
+`useScrollSpy`. Motion is one CSS pass on load plus interaction feedback:
+
+- The hero's lockup, headline lines, tagline, planet and cards enter through
+  `.enter` / `.enter-fade` / `.enter-planet` in `site/src/styles.css`, with
+  the stagger as an inline `animationDelay` in `Hero.tsx`. Because it runs on
+  paint, the prerendered page animates the same with JavaScript off.
+- Hover lifts, arrow nudges, FAQ row hover and the FAQ answer stay as they
+  were, all CSS.
+
+The rail's active link no longer fades between states. `useScrollSpy` still
+marks the current section — it is navigation state, not decoration — but the
+mark is a tick/underline, applied instantly.
+
+**Consequences.** ~70 kB gzipped left the bundle with GSAP. There is no
+script that can fail and leave content hidden, so the ADR-0030 failsafe and
+its hidden-page failure mode are deleted with it. Everything is off under
+`prefers-reduced-motion: reduce`, which lands each element at its finished
+position. Adding a scroll-triggered reveal back would reverse this decision;
+do not do it casually.
+
+**Supersedes** the animation half of ADR-0030 and of ADR-0029. The React
+structure, Tailwind `@theme`, prerendering and palette decisions carry over
+unchanged.
+
+**Status:** accepted (2026-09-18), website implementation.
+
+---
+
+## ADR-0032: A top bar and a video hero, not the rail and the illustration
+
+**Context.** The page ADR-0029/0030 built was a poster: a full-height violet
+rail, a giant planet mark beside the headline, and two oversized door cards.
+After the scroll reveal came out (ADR-0031), the owner asked for a quieter,
+more serious page for a community port — a top navigation bar, the product
+name, one paragraph and two doors. Two further comps then settled the shape:
+the name set large and leaned over a window that holds the stage and a play
+ring, and, below it, a browser window and a desktop-launcher window with the
+three steps as a numbered strip.
+
+**Decision.** The rail is gone; `Header.tsx` is a top bar — lockup left, a
+hairline rule, Setup / Docs / Source right, the active section underlined in
+violet. The hero sets the name in display type with the comp's lean (`italic`
+in the hero only), the subtitle, one lede, two icon buttons ("Build for
+desktop", "Read the docs") and a browser window whose media is the line-art
+stage, `public/media/stage.svg`, with the violet play ring over it. The
+two-ways band redraws the same frame twice — the desktop launcher with its
+sidebar, and a browser at `localhost` (never a hosted domain, because none
+exists) — with an honest button under each. Docs is a four-row rule-separated
+list; the steps are numbered discs with arrows; the FAQ uses chevrons; the
+footer is black and closes the page the way the header opens it. Palette,
+type scale and the no-scroll-animation rule are unchanged; `.enter-planet` is
+renamed `.enter-media` for the window. The hero video plays
+`/media/gameplay.mp4` when the owner drops one in; otherwise it plays
+`/media/stage-loop.mp4`, a 16-second camera move generated from the stage SVG
+with rsvg-convert + ffmpeg (the command is in the site README), so the window
+is alive without shipping any game footage.
+
+**Consequences.** `--spacing-rail`, `Rail.tsx` and `RAIL_TAGLINE` are deleted,
+and `.wrap` now spans the window (still capped at 86rem). The light wordmark
+is no longer used on the site — it stays for other light surfaces. The stage
+artwork is a site asset, drawn for this page and committed as SVG; it is not
+game art. The content honesty rules are unchanged: no browser build, no
+download, and the browser card stays **Planned**.
+
+**Status:** accepted (2026-09-18), website implementation.
+
+---
+
+## ADR-0033: The hero is a full-viewport poster, and its name has its own face
+
+**Context.** ADR-0032's hero was a two-column band with a paragraph; the owner
+read it as corporate next to the comp, which is a full-screen poster: the name
+huge and slanted on the lower left, a browser window hanging from the top
+right so the name runs into its corner, two large icon buttons, and a rule of
+small caps along the floor. The comp's name is set in a heavy condensed italic
+that Inter cannot stand in for. The owner also asked for the styling to be
+plain Tailwind in the JSX rather than bespoke component classes.
+
+**Decision.**
+
+- **One viewport.** `App` wraps the header and the hero in a `min-h-svh`
+  block; the hero's grid is `flex-1`, the window `self-start`, the copy
+  `self-end`, and at `xl` the two share one grid cell so they overlap like the
+  comp. Below `xl` they stack in reading order.
+- **A display face.** `--font-display` is Archivo 900 italic, `wdth 87.5`,
+  loaded from Google Fonts; the hero `h1` is the only user. Everything else
+  stays Inter (ADR-0028). If the face is ever revisited, prefer adding a
+  width/weight axis over adding another family.
+- **Component styles are gone.** `.btn`, `.wrap`, `.band`, `.nav-link`,
+  `.eyebrow-rule`, `.wordmark` and `.enter*` are deleted; buttons, rules and
+  layout are Tailwind utilities in the components, `WRAP` and `BAND` are two
+  shared class strings in `lib/layout.ts`, and `styles.css` holds only the
+  `@theme` tokens, four `--animate-*` entries and the base layer.
+- **Comp details adopted.** A fixed violet edge (the comp's slim left rail,
+  decoration only), a rounded window with a soft neutral glow (the one place
+  the page rounds corners), larger tracked nav and buttons, and the wordmark
+  SVGs pre-cropped to their ink box so they size with a plain `w-*`.
+
+**Consequences.** The hero no longer explains the project in a paragraph; the
+sections below carry that, so the hero's honesty load is the two buttons,
+which still promise nothing that has not shipped. `--spacing-band` and
+friends are gone; band rhythm rounds to Tailwind steps and the README says so.
+The hero's overlap only holds while the name is short — if the headline ever
+grows, check it against the window at `xl` before shipping.
+
+**Status:** accepted (2026-09-18), website implementation.

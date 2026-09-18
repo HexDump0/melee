@@ -177,6 +177,11 @@ logo.
 uppercase, with tight negative tracking (`-0.03em`); body is Inter 400. The
 wordmark is outlined vector paths, so it is unaffected by this choice.
 
+One exception, recorded in ADR-0033: the website's hero name is **Archivo 900
+italic**, condensed to `wdth 87.5`, because the owner's comp sets the name in a
+heavy slanted grotesque. It is used on the site hero and nowhere else; any
+other surface uses Inter.
+
 This was settled by the website, the first real UI surface, on 2026-09-17
 (ADR-0028). The in-game UI and the launcher have not picked yet; use Inter
 there too rather than inventing a second face, and record any change here and

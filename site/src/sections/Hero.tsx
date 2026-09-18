@@ -1,91 +1,79 @@
-/* The masthead: lockup, display headline, and the two doors.
+/* The hero, after the owner's comp: one full viewport, with the window hung
+   from the top right and the name standing on the floor of the same row. The
+   name overlaps the window's lower-left corner, which is the comp's whole
+   poster effect — and why at `xl` the two are stacked in one grid cell
+   rather than sitting in two columns.
 
-   The oversized mark behind it is translated and scaled only — branding.md
-   forbids rotating, stretching or recolouring the lockup. Below `lg` it
-   drops to 10% opacity and becomes texture, because at that width there is
-   no room for it to be artwork without colliding with the copy. */
+   Nothing here offers a download or a browser build — see the note at the
+   top of content.tsx. The window plays `/media/gameplay.mp4` when that file
+   exists; without it, the stage artwork shows, which is what the comp
+   draws. */
 
-import { HERO, type HeroCard } from '../content.tsx';
-import { useDestination } from '../hooks/useDestination.ts';
-import { ArrowIcon } from '../components/icons.tsx';
-import { Wordmark } from '../components/Wordmark.tsx';
+import { HERO, NAV, TAGLINE } from '../content.tsx';
+import { Button } from '../components/Button.tsx';
+import { StageWindow } from '../components/StageWindow.tsx';
+import { WRAP } from '../lib/layout.ts';
+
+const LINK =
+  'text-sm font-extrabold tracking-[0.2em] uppercase text-mu-dim transition-colors hover:text-mu-white lg:text-base';
 
 export function Hero() {
   return (
-    <section id="play" className="band relative overflow-hidden scroll-mt-4 bg-mu-black">
-      <img
-        src="/media/icon.svg"
-        alt=""
-        aria-hidden
-        className="pointer-events-none absolute top-[-6%] right-[-14%] w-[86%] opacity-10 select-none lg:top-[4%] lg:right-[-4%] lg:w-[42%] lg:opacity-100"
-      />
+    <section id="play" className="flex flex-1 scroll-mt-4 flex-col bg-mu-black">
+      <div className={`${WRAP} flex flex-1 flex-col pt-8 pb-8`}>
+        {/* At `xl` both children sit in the one cell: the window hangs from
+            the top, the copy stands on the floor, and they overlap. Below
+            `xl` they stack in reading order. */}
+        <div className="grid flex-1 content-start gap-y-12 xl:grid-rows-[1fr] xl:content-stretch">
+          <div
+            className="animate-enter-media order-2 self-start motion-reduce:animate-none xl:col-start-1 xl:row-start-1 xl:w-[60%] xl:justify-self-end"
+            style={{ animationDelay: '200ms' }}
+          >
+            <StageWindow variant="browser" video play ratio="photo" status="Ready to play" />
+          </div>
 
-      <div className="wrap relative">
-        <div className="flex items-start justify-between gap-8">
-          <a href="#top" className="block min-w-0">
-            <Wordmark surface="dark" width="min(40rem, 74vw)" />
-          </a>
+          <div className="animate-enter order-1 z-10 self-end motion-reduce:animate-none xl:col-start-1 xl:row-start-1">
+            <h1 className="font-display text-display uppercase italic">
+              <span className="block">{HERO.headline[0]}</span>
+              <span className="block">{HERO.headline[1]}</span>
+            </h1>
 
-          <div className="hidden pt-1 text-right sm:block">
-            <p className="text-micro uppercase text-mu-dim">
-              {HERO.kicker.map((word, i) => (
-                <span key={word}>
-                  {word}
-                  {i < HERO.kicker.length - 1 && <br />}
-                </span>
-              ))}
+            <p className="mt-6 text-sm font-extrabold uppercase tracking-[0.4em] text-mu-white lg:text-base">
+              {HERO.tagline}
             </p>
-            <span className="mt-3 ml-auto block h-px w-9 bg-mu-violet" />
+
+            <div className="mt-8 flex flex-wrap gap-4">
+              {HERO.doors.map((door) => (
+                <Button key={door.to} {...door} className="min-w-56 flex-1 sm:flex-none" />
+              ))}
+            </div>
           </div>
         </div>
 
-        <h1 className="mt-block text-display uppercase">
-          {HERO.headline.map((line) => (
-            <span key={line} className="block">
-              {line}
+        <div className="mt-10 flex flex-wrap items-center justify-between gap-x-10 gap-y-5">
+          <p className="flex items-center gap-5 text-sm font-extrabold uppercase tracking-[0.16em] text-mu-dim">
+            <span aria-hidden className="block h-px w-14 flex-none bg-mu-white/40" />
+            <span>
+              {TAGLINE[0]}
+              <br />
+              {TAGLINE[1]}
             </span>
-          ))}
-        </h1>
+          </p>
 
-        <p className="mt-5 text-eyebrow uppercase text-mu-white/80 lg:tracking-[0.3em]">
-          {HERO.sub}
-        </p>
-
-        <div className="mt-block grid gap-grid sm:grid-cols-2">
-          {HERO.cards.map((card, i) => (
-            /* The first card is the door that works today, so it gets the
-               violet; the second is the quieter white. */
-            <HeroCta key={card.to + card.title[0]} card={card} tone={i === 0 ? 'violet' : 'white'} />
-          ))}
+          <nav aria-label="Hero" className="flex items-center gap-7">
+            <span aria-hidden className="block h-px w-28 flex-none bg-mu-white/25" />
+            <a href="#play" className={LINK}>
+              Play
+            </a>
+            {NAV.map(({ id, label }) => (
+              <a key={id} href={`#${id}`} className={LINK}>
+                {label}
+              </a>
+            ))}
+            <span aria-hidden className="h-7 w-px bg-mu-white/25" />
+          </nav>
         </div>
       </div>
     </section>
-  );
-}
-
-function HeroCta({ card, tone }: { card: HeroCard; tone: 'violet' | 'white' }) {
-  const destination = useDestination(card.to);
-  const Icon = card.icon;
-
-  return (
-    <a
-      {...destination}
-      className={`group flex items-center gap-6 rounded-card p-card text-mu-black transition-transform duration-300 hover:-translate-y-1 ${
-        tone === 'violet' ? 'on-violet bg-mu-violet' : 'on-pale bg-mu-white'
-      }`}
-    >
-      <Icon className="w-11 shrink-0 lg:w-12" />
-
-      <span className="min-w-0 flex-1">
-        <strong className="block text-h3 uppercase">
-          {card.title[0]}
-          <br />
-          {card.title[1]}
-        </strong>
-        <span className="mt-3 block text-micro uppercase">{card.sub}</span>
-      </span>
-
-      <ArrowIcon className="w-6 shrink-0 self-center transition-transform duration-300 group-hover:translate-x-1" />
-    </a>
   );
 }

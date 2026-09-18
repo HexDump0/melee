@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/vite';
 
 // The client build emits dist/; `npm run build` then renders the same App to
 // static HTML and injects it (see prerender.mjs), so the shipped page is real
-// markup that works with JS off. React hydrates it for GSAP and the scroll-spy.
+// markup that works with JS off. React hydrates it for the scroll-spy.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   build: { outDir: 'dist', emptyOutDir: true },

@@ -12,57 +12,42 @@
 
 import type { ComponentType, ReactNode, SVGProps } from 'react';
 import type { LinkKey } from './lib/links.ts';
-import { BookIcon, DocIcon, DownloadIcon, GlobeIcon } from './components/icons.tsx';
+import { BookIcon, CubeIcon, DocIcon, DownloadIcon, GlobeIcon, HelpIcon } from './components/icons.tsx';
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>;
 
 /* --- navigation --------------------------------------------------------- */
 
-/** Section ids, in page order. The rail, the footer and the scroll-spy all
-    read this, so adding a section to the nav means adding it here once. */
+/** Section ids, in page order. The header, the footer and the scroll-spy all
+    read this, so adding a section to the page means adding it here once. */
 export const SECTION_IDS = ['play', 'setup', 'download', 'docs', 'faq'] as const;
 export type SectionId = (typeof SECTION_IDS)[number];
 
 export type NavItem = { id: SectionId; label: string };
 
+/** The header's in-page links. "Source" is off-site and added by the header
+    itself, because it is not a section. */
 export const NAV: NavItem[] = [
-  { id: 'play', label: 'Play' },
-  { id: 'download', label: 'Download' },
   { id: 'setup', label: 'Setup' },
   { id: 'docs', label: 'Docs' },
 ];
 
 /* --- hero --------------------------------------------------------------- */
 
-export type HeroCard = {
-  to: LinkKey;
-  icon: Icon;
-  /** Two lines, stacked. The comp sets both card titles on two lines. */
-  title: [string, string];
-  sub: string;
-};
+/** The project's tagline, one entry per line. The hero sets it under the
+    buttons; the footer joins it back into one line. */
+export const TAGLINE = ['Same game.', 'A wider stage.'] as const;
 
 export const HERO = {
-  /** Top-right, above the rule. One word per line. */
-  kicker: ['Play', 'anywhere', 'together'],
-  /** The display headline, one entry per clipped line. */
-  headline: ['Pick up', 'and play'],
-  sub: 'Same game. More places.',
-  /** The violet card is the door that works today. */
-  cards: [
-    {
-      to: 'repo',
-      icon: DownloadIcon,
-      title: ['Build for', 'desktop'],
-      sub: 'Build from source. Runs natively.',
-    },
-    {
-      to: 'docs',
-      icon: DocIcon,
-      title: ['Read the', 'docs'],
-      sub: 'Setup, architecture, tests.',
-    },
-  ] satisfies [HeroCard, HeroCard],
+  /** The display headline, one entry per line. */
+  headline: ['Melee,', 'Unbound.'],
+  /** The tracked line under the headline. */
+  tagline: 'Play anywhere.',
+  /** The first door is the one that works today, so it is the filled one. */
+  doors: [
+    { to: 'repo', icon: DownloadIcon, label: 'Build for desktop', tone: 'violet' },
+    { to: 'docs', icon: BookIcon, label: 'Read the docs', tone: 'outline' },
+  ],
 } as const;
 
 /* --- three steps -------------------------------------------------------- */
@@ -104,72 +89,42 @@ export const STEPS: Step[] = [
 export type WayCard = {
   /** `violet` is the path that exists today; `light` is the one that does not. */
   tone: 'violet' | 'light';
-  icon: Icon;
+  /** Which window the cards draw above their copy. */
+  frame: 'app' | 'browser';
   title: [string, string];
   /** Rendered next to the title. Used to mark what has not shipped. */
   badge?: string;
   body: ReactNode;
-  /** Ticks on the violet card, dots on the light one — see the components. */
-  points: string[];
-  cta: { to: LinkKey; label: string };
+  cta: { to: LinkKey; icon: Icon; label: string; tone: 'violet' | 'white' | 'outline' };
 };
 
 export const WAYS: WayCard[] = [
   {
     tone: 'violet',
-    icon: DownloadIcon,
+    frame: 'app',
     title: ['Build for', 'desktop'],
-    body: (
-      <>
-        Compiled from the game's own decompiled source and run natively — not
-        emulated. The same build for everyone, from the repository.
-      </>
-    ),
-    points: [
-      'Highest performance',
-      'Widescreen, mods and your own disc image',
-      'Free, and built in the open',
-    ],
-    cta: { to: 'repo', label: 'Open the repository' },
+    body: <>Runs natively, compiled from the game&apos;s own source. You bring the disc.</>,
+    cta: { to: 'repo', icon: DownloadIcon, label: 'Build for desktop', tone: 'violet' },
   },
   {
     tone: 'light',
-    icon: GlobeIcon,
+    frame: 'browser',
     title: ['Play in', 'browser'],
     badge: 'Planned',
-    body: (
-      <>
-        A web build is a goal, not a release. The WebAssembly in the project
-        today runs <em>mods</em>, not the game. When that changes, this card
-        will say so.
-      </>
-    ),
-    points: [
-      'The mod host runs in Chrome and Firefox',
-      'WebAssembly loads mods from the disc',
-      'The game build is the remaining work',
-    ],
-    cta: { to: 'repo', label: 'Follow the work' },
+    body: <>A goal, not a release. Today the WebAssembly runs mods, not the game.</>,
+    cta: { to: 'repo', icon: GlobeIcon, label: 'Follow the work', tone: 'outline' },
   },
 ];
 
 /* --- documentation ------------------------------------------------------ */
 
-export type DocCard = { to: LinkKey; icon: Icon; title: string; sub: string };
+export type DocCard = { to: LinkKey; icon: Icon; title: string };
 
 export const DOC_CARDS: DocCard[] = [
-  {
-    to: 'setup',
-    icon: BookIcon,
-    title: 'Setup guide',
-    sub: 'Step-by-step build instructions, from clone to launch.',
-  },
-  {
-    to: 'docs',
-    icon: DocIcon,
-    title: 'Documentation',
-    sub: 'Architecture, testing, and how the port is put together.',
-  },
+  { to: 'setup', icon: BookIcon, title: 'Setup guide' },
+  { to: 'docs', icon: DocIcon, title: 'Documentation' },
+  { to: 'mods', icon: CubeIcon, title: 'Mods' },
+  { to: 'issues', icon: HelpIcon, title: 'Issues' },
 ];
 
 /* --- faq ---------------------------------------------------------------- */
@@ -231,31 +186,24 @@ export const HEADINGS = {
   setup: {
     eyebrow: 'Get started',
     title: ['Three steps', 'to play'],
-    note: ['Simple setup.', 'Real games.'],
   },
   download: {
     eyebrow: 'Two ways to play',
     title: ['Browser or desktop?'],
-    sub: 'Same game. Your choice.',
   },
   docs: {
     eyebrow: 'Setup & documentation',
     title: ['Everything you need'],
-    note: ['Guides.', 'Answers.', "You're covered."],
   },
   faq: {
     eyebrow: 'Quick answers',
     title: ['FAQ'],
-    note: ['Still have questions?', 'Check the docs.'],
   },
 } as const;
 
-/* --- rail and footer ---------------------------------------------------- */
-
-export const RAIL_TAGLINE = ['Same', 'game', 'further', 'together'];
+/* --- footer ------------------------------------------------------------- */
 
 export const FOOTER = {
-  tagline: ['Same game.', 'Further together.'],
   legal:
     'A fan project. Not affiliated with or endorsed by Nintendo. No game assets are distributed here.',
 } as const;
