@@ -185,6 +185,23 @@ where they are actually deflected -- an idle pad never zeroes the keyboard.
 Ports 3 and 4 are gamepad-only.  Each pad prints `viewer: port N = <name>` when
 it opens, and hot-plug is handled through `SDL_EVENT_GAMEPAD_ADDED/REMOVED`.
 
+## A CPU vs CPU match, for recording (P-862)
+
+```sh
+MELEE_MATCH_CPU=9 MELEE_MATCH_P0=0 MELEE_MATCH_P1=1 MELEE_MATCH_STAGE=31 \
+    MELEE_NO_CARD=1 ./build/native/melee --match 600 --no-items
+```
+
+`MELEE_MATCH_CPU=<1..9>` turns both slots into CPUs at that level.  Without it
+the harness leaves them as human slots reading the scripted pad, so the match
+is two players doing what the script says rather than a fight.
+
+`MELEE_MATCH_P0`/`P1` are character-select indices, not `Ft_Kind` values; the
+`[match] loaded p0=.. p1=.. grkind=..` line (with `MELEE_VIEWER_TRIAGE=1`)
+prints what they resolved to.  `MELEE_MATCH_STAGE` is an `St_Kind`: 31 is
+Battlefield, 32 Final Destination.  Add `MELEE_MATCH_ITEMS=<freq>` for items
+and `MELEE_RNG_SEED=<hex>` to replay a run exactly.
+
 ## Render toggles while the game runs (P-858)
 
 Function keys in the retail frontend, for captures and for looking at what the
