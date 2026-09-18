@@ -297,7 +297,114 @@ static int unbound_menu_start_pressed(void)
  * the same panel, and what differs is the animation range, the option count
  * and the labels.  So there is no missing-panel problem for a new page.
  */
+/*
+ * The menu's SIS context, taken from the description box as it is built.
+ *
+ * `HSD_SisLib_803A611C` binds a context to a GObj and `mn_804D6BB4` holds
+ * the menu's, but that is a static in mnmain.c.  The description is created
+ * with it, so intercepting that call is how we get one -- and text created
+ * with the same context renders with the menu.
+ */
+static s32 menu_text_ctx;
+static int menu_text_ctx_valid;
+
 static int page_open;
+
+/*
+ * The credits, drawn by the engine's own text renderer.
+ *
+ * `HSD_SisLib_803A6B98` is printf-shaped and renders in the game's font, but
+ * only into an object from `HSD_SisLib_803A6754`, which allocates the block
+ * it writes through -- the menu's own description comes from
+ * `HSD_SisLib_803A5ACC` and has none, so printing into that one faults at
+ * 0x8.  So the page makes its own.
+ *
+ * The lines live here rather than in the mod because the ABI has no way to
+ * ask for a native text object yet; that is the gap this feature found and
+ * P-839 records.
+ */
+static HSD_Text* page_text;
+
+static const char* const credit_lines[] = {
+    "MELEE UNBOUND",
+    "A native port of Melee",
+    "",
+    "Port     HexDump0",
+    "Built on doldecomp",
+    "Runtime  WAMR + SDL3",
+    "",
+    "No game data ships",
+    "Bring your own disc",
+};
+
+/*
+ * Behind MELEE_MENU_NATIVE_TEXT=1 while the coordinate space is worked out.
+ *
+ * What is established: the text renders, in the game's own font, so this is
+ * the right road.  `pos_x/pos_y/pos_z` place the object (the description's
+ * -9.5, 9.1, 17 puts it in the bottom box) and `HSD_SisLib_803A6B98`'s x,y
+ * offset each string within it.  What is not: the mapping from those units to
+ * a block of lines centred in the panel.
+ *
+ * Also established the hard way: the engine encodes through a 128-byte stack
+ * buffer, so a long line smashes the stack rather than truncating.  Keep
+ * lines short until that is bounded properly.
+ */
+static void page_text_create(void)
+{
+    unsigned i;
+    float y;
+
+    if (page_text != NULL || !menu_text_ctx_valid) {
+        return;
+    }
+    if (getenv("MELEE_MENU_NATIVE_TEXT") == NULL) {
+        return;
+    }
+    page_text = HSD_SisLib_803A6754(0, menu_text_ctx);
+    if (page_text == NULL) {
+        return;
+    }
+    /* `fn_8022AFEC` clears this on the description every frame, so a fresh
+     * text object starts hidden and draws nothing until it is cleared. */
+    /*
+     * A fresh text object starts hidden and at font size 1.0, which is the
+     * whole screen per glyph -- `fn_8022AFEC` clears `hidden` on the
+     * description every frame and `mn_80229A7C` sets its size to 0.0521, so
+     * both are the caller's job rather than the constructor's.
+     */
+    page_text->hidden = 0;
+    page_text->pos_x = -9.5f;
+    page_text->pos_y = 9.1f;
+    page_text->pos_z = 17.0f;
+    page_text->box_size_x = 364.68332f;
+    page_text->box_size_y = 38.38772f;
+    page_text->font_size.x = 0.0521f;
+    page_text->font_size.y = 0.0521f;
+    page_text->text_color.r = 0xFF;
+    page_text->text_color.g = 0xFF;
+    page_text->text_color.b = 0xFF;
+    page_text->text_color.a = 0xFF;
+
+    y = 0.0f;
+    for (i = 0; i < sizeof(credit_lines) / sizeof(credit_lines[0]); ++i) {
+        if (credit_lines[i][0] != '\0') {
+            /* Each line is its own print: `HSD_SisLib_803A6B98` encodes
+             * through a 128-byte stack buffer, and a long enough string
+             * smashes it rather than truncating. */
+            HSD_SisLib_803A6B98(page_text, 0.0f, y, credit_lines[i]);
+        }
+        y += 26.0f;
+    }
+}
+
+static void page_text_destroy(void)
+{
+    if (page_text != NULL) {
+        HSD_SisLib_803A5CC4(page_text);
+        page_text = NULL;
+    }
+}
 
 static void start_menu_think(void (*think)(HSD_GObj*))
 {
@@ -323,6 +430,7 @@ static void unbound_page_think(HSD_GObj* gp)
     }
     /* Back out the way every other submenu does, landing on our own entry. */
     sfxBack();
+    page_text_destroy();
     page_open = 0;
     mn_804A04F0.entering_menu = 0;
     mn_804D6BC8.cooldown = 5;
@@ -338,6 +446,7 @@ static void enter_unbound_page(void)
 {
     sfxForward();
     page_open = 1;
+    page_text_create();
     mn_804D6BC8.cooldown = 5;
     mn_804A04F0.entering_menu = 1;
     mn_804A04F0.prev_menu = mn_804A04F0.cur_menu;
@@ -404,6 +513,8 @@ HSD_Text* unbound_HSD_SisLib_803A5ACC(int a, s32 b, f32 c, f32 d, f32 e,
     HSD_Text* text = HSD_SisLib_803A5ACC(a, b, c, d, e, w, h);
     if (w == DESC_BOX_W && h == DESC_BOX_H) {
         description_text = text;
+        menu_text_ctx = b;
+        menu_text_ctx_valid = 1;
     }
     return text;
 }

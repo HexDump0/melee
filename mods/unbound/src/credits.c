@@ -1,15 +1,15 @@
 /*
- * The Unbound credits overlay.
+ * The Unbound credits, drawn onto the mod's own menu page (P-838).
  *
- * Step 1 of the main-menu entry (P-838).  The entry itself will be a real
- * menu item -- cloned geometry with a generated label texture -- but what it
- * opens is this, and this part is the same either way, so it is built first
- * and reached by a button until the entry exists.
+ * The page is a real menu kind: the game transitions into it and its Back
+ * button leaves it, so this file owns no open/closed state and no input
+ * handling.  It is handed a frame while the page is up and it draws -- which
+ * is the right split, and it only became obvious once the page stopped being
+ * a popup.
  *
- * Everything here goes through the mod ABI: it draws with `unbound_draw_*`,
- * reads the pad with `unbound_buttons_*`, and asks the host what screen is
- * showing.  If any of that turns out to be awkward, the ABI is what needs
- * fixing -- that is the whole reason Unbound is a mod rather than port code.
+ * Everything here goes through the mod ABI.  If any of it turns out to be
+ * awkward, the ABI is what needs fixing -- that is the whole reason Unbound
+ * is a mod rather than port code.
  */
 #include "unbound_mod.h"
 
@@ -17,14 +17,19 @@
 #define SCREEN_W 640.0f
 #define SCREEN_H 480.0f
 
-/* The menu's own frame, so the page sits inside it. */
-#define PANEL_X 56.0f
-#define PANEL_Y 64.0f
-#define PANEL_W 528.0f
-#define PANEL_H 320.0f
-
-static int open_now;
-static unsigned opened_frame;
+/*
+ * The plate, sized to the menu's own frame.
+ *
+ * It has to reach the frame's inner edge rather than sit politely inside it:
+ * the panel still carries its breadcrumb header along the top and our page's
+ * single option pill down the left, both of which are animation state we do
+ * not set (P-839).  Covering them is honest for now and looks deliberate;
+ * the alternative is a page with another menu's title above it.
+ */
+#define PANEL_X 34.0f
+#define PANEL_Y 40.0f
+#define PANEL_W 572.0f
+#define PANEL_H 350.0f
 
 struct Line {
     const char* text;
@@ -85,52 +90,32 @@ void credits_draw_description(void)
                           DESC_TEXT, (unsigned) (sizeof(DESC_TEXT) - 1));
 }
 
-void credits_open(void)
-{
-    open_now = 1;
-    opened_frame = 0;
-}
-
-int credits_is_open(void) { return open_now; }
-
+/*
+ * Draw the credits.  Called only while the page is the current menu, so
+ * there is nothing to check and nothing to close.
+ */
 void credits_on_frame(const UnboundFrame* frame)
 {
     float y;
     int i;
 
-    if (!open_now) {
-        return;
-    }
-    if (opened_frame == 0) {
-        opened_frame = frame->frame;
-    }
-
-    /* B or START closes.  Read every port so it does not matter which
-     * controller is plugged in. */
-    for (i = 0; i < 4; ++i) {
-        unsigned pressed = unbound_buttons_pressed(i);
-        if (pressed & (UNBOUND_BUTTON_B | UNBOUND_BUTTON_START)) {
-            open_now = 0;
-            return;
-        }
-    }
+    (void) frame;
 
     /*
-     * A panel inside the menu frame rather than a full-screen wash: this is
-     * meant to read as another page of the main menu, not as something
-     * printed over the top of it.
+     * A plate inside the menu's own frame, so the text reads against the
+     * panel rather than against whatever the animated background is doing.
      *
-     * One quad each.  Drawing a backdrop out of text costs a quad per glyph
+     * One quad each: drawing a backdrop out of text costs a quad per glyph
      * pixel and silently exhausts the host's vertex budget, which then drops
      * everything after it -- the backdrop appeared and the credits did not.
      */
-    unbound_draw_color(0.62f, 0.66f, 0.85f, 0.95f);
+    unbound_draw_color(0.55f, 0.60f, 0.82f, 0.90f);
     unbound_draw_rect(PANEL_X - 2.0f, PANEL_Y - 2.0f, PANEL_W + 4.0f,
                       PANEL_H + 4.0f);
-    unbound_draw_color(0.05f, 0.04f, 0.12f, 0.96f);
+    unbound_draw_color(0.04f, 0.04f, 0.11f, 0.94f);
     unbound_draw_rect(PANEL_X, PANEL_Y, PANEL_W, PANEL_H);
 
-    y = PANEL_Y + 22.0f;
+    y = PANEL_Y + 34.0f;
     for (i = 0; i < CREDITS_COUNT; ++i) {
         const struct Line* l = &credits[i];
         y += l->gap;
@@ -149,7 +134,6 @@ void credits_on_frame(const UnboundFrame* frame)
     }
 
     unbound_draw_color(0.62f, 0.64f, 0.72f, 1.0f);
-    unbound_draw_text(PANEL_X + 0.5f * PANEL_W - 60.0f,
-                      PANEL_Y + PANEL_H - 22.0f, 1.0f,
-                      "B  OR  START  TO  GO  BACK");
+    unbound_draw_text(PANEL_X + 0.5f * PANEL_W - 42.0f,
+                      PANEL_Y + PANEL_H - 24.0f, 1.0f, "B  TO  GO  BACK");
 }

@@ -21,8 +21,6 @@ void widescreen_init(void);
 void widescreen_on_display_resized(const UnboundDisplayResized* size);
 void widescreen_on_camera_setup(UnboundCameraSetup* cam);
 
-void credits_open(void);
-int credits_is_open(void);
 void credits_on_frame(const UnboundFrame* frame);
 void credits_draw_description(void);
 
