@@ -159,12 +159,11 @@ navigation state rather than decoration.
    light variant (`public/media/wordmark-light.svg`) stays for light surfaces
    elsewhere.
 3. **The hero window.** The comp fills it with concept art; here it is a real
-   video element. It plays `/media/gameplay.mp4` when a capture is present
-   and falls back to `/media/stage-loop.mp4`, a slow camera move generated
-   from `stage.svg`, so the window is always moving. The capture itself is
-   **not committed** — the repo ships no game footage (see Before it goes
-   live). The two-ways windows keep the drawn frame, so only one video ever
-   decodes.
+   video element. It plays `/media/gameplay.mp4` — the owner's own recording
+   of the port, committed — and falls back to `/media/stage-loop.mp4`, a slow
+   camera move generated from `stage.svg`, if the capture is ever removed.
+   Never add third-party gameplay here. The two-ways windows keep the drawn
+   frame, so only one video ever decodes.
 4. **The lockups are pre-cropped.** `public/media/wordmark*.svg` are the
    brand files with the clear space trimmed (`viewBox="200 103 880 193"`), so
    they size with a plain `w-*` class instead of the old negative-margin crop.
@@ -211,11 +210,18 @@ Keep the height even (946, not 945) — x264 rejects odd heights with yuv420p.
    release and it fills in with no code change.
 3. **Open Graph image.** The cards have no `og:image` yet. The 1280×400
    banner in `/assets` is the intended one; it needs a hosted URL first.
-4. **Gameplay capture.** The hero prefers `public/media/gameplay.mp4` and
-   falls back to `stage-loop.mp4`. A capture lives outside git — record your
-   own build and drop the file in (H.264, silently played); do not commit it.
-   If the capture is the 1080p master, the web copy is
-   `ffmpeg -i in.mp4 -vf scale=1280:-2,fps=30 -an -c:v libx264 -crf 28 ...`.
+4. **Gameplay capture.** The 1080p master is `assets/gameplay.mp4`; the web
+   copy is `public/media/gameplay.mp4` (1280×720, 30fps, silent, ~5MB). The
+   hero prefers the copy and falls back to `stage-loop.mp4` without it.
+   Re-copy after a new recording:
+
+   ```sh
+   ffmpeg -y -i assets/gameplay.mp4 -vf "scale=1280:-2,fps=30" -an \
+     -c:v libx264 -crf 28 -preset slow -movflags +faststart \
+     public/media/gameplay.mp4
+   ```
+
+   It is the owner's own capture. Do not swap in someone else's footage.
 
 ## Copy
 
