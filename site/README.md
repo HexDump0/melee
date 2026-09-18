@@ -13,18 +13,27 @@ npm run preview    # serve dist/ exactly as it will ship
 npm run typecheck  # tsc --noEmit, on its own
 ```
 
-`dist/` is the deployable artifact and is **not** committed. Point GitHub
-Pages, Netlify or Cloudflare Pages at `site/` with build `npm run build` and
-output `dist`.
+`dist/` is the deployable artifact and is **not** committed. Any static host
+works: point GitHub Pages, Netlify or Cloudflare Pages at `site/` with build
+`npm run build` and output `dist`.
+
+**Vercel** needs no dashboard setup: the repo-root `vercel.json` installs and
+builds `site/`, serves `site/dist`, rewrites `/play` to `/play/index.html`,
+and pins the wasm's MIME type and cache policy. (Setting the Vercel project
+root to `site/` works too — the defaults then match — but keep the rewrites
+and headers from `vercel.json`.)
 
 ## Where things are
 
 ```
 site/
 ├── index.html            the shell Vite fills; loads Inter
-├── vite.config.ts        react + tailwind plugins
+├── vite.config.ts        react + tailwind plugins; two entries (main, play)
 ├── prerender.mjs         build step 3: render the App into dist/index.html
+├── scripts/              build-play.sh — compiles the wasm and stages it
+├── play/                 /play — the browser port's page (main.tsx + PlayPage.tsx)
 ├── public/media/         brand art, served at /media/*
+├── public/play/          melee.js + melee.wasm, staged by build-play.sh
 └── src/
     ├── main.tsx          client entry — hydrates, does not render
     ├── entry-server.tsx  build-time entry — never shipped
@@ -145,13 +154,13 @@ navigation state rather than decoration.
 
 ## Where the page differs from the comp, on purpose
 
-1. **The two doors.** The comp's hero offers "Play in browser" (violet) and
-   "Download desktop". There is no browser build — the WebAssembly in the
-   project runs *mods*, not the game — so the browser-or-desktop section
-   still marks that card **Planned**. The hero's doors are **Download**
-   (violet), which scrolls to the "How to play" section — it never offers a
-   file — and **Discord** (outline), which toasts until `LINKS.discord` is
-   filled in. Never point Download at a binary that does not exist.
+1. **The doors.** The comp's hero offers "Play in browser" (violet) and
+   "Download desktop". The browser build is real now: **Play in browser**
+   (violet) leads to `/play`, which runs the port from the user's own disc.
+   **Download** (white) scrolls to "How to play" — it never offers a file,
+   because there are no binary releases — and **Discord** (outline) toasts
+   until `LINKS.discord` is filled in. Never point Download at a binary that
+   does not exist.
 2. **The footer lockup.** The comp's page was drawn for a light footer; ours
    closes on black to mirror the header, so it uses the dark lockup. The
    light variant (`public/media/wordmark-light.svg`) stays for light surfaces
@@ -166,6 +175,37 @@ navigation state rather than decoration.
    brand files with the clear space trimmed (`viewBox="200 103 880 193"`), so
    they size with a plain `w-*` class instead of the old negative-margin crop.
    The masters in `/assets` keep their clear space; do not recolour either.
+
+## The browser port (`/play`)
+
+`/play` is a second Vite entry (`play/index.html` + `play/play.ts`) that loads
+`native/tools/wasm_census.sh`'s output — the game, the port layer and Unbound
+compiled into one wasm module (ADR-0026) — and hands it the user's disc. The
+disc never leaves the tab: `platform/disc.c` streams `Blob.slice()` ranges
+through JSPI.
+
+Build the artifacts and stage them:
+
+```sh
+source ~/projects/emsdk/emsdk_env.sh
+site/scripts/build-play.sh            # compiles, links, wasm-opt -O2, copies
+```
+
+That puts `melee.js` + `melee.wasm` (~5 MB after `-O2`) in `public/play/`, so
+`npm run build` never needs emsdk and any static host can serve them. Rebuild
+after any change under `native/`, `decomp/` or `mods/unbound/`.
+
+The page gates on the two things the build actually needs — JSPI
+(`WebAssembly.Suspending`) and a 2.25 GiB linear-memory reservation — and says
+which one is missing instead of failing halfway. **Keep the canvas's
+`id="canvas"`:** SDL3's emscripten backend finds its GL canvas by selector
+(`SDL_HINT_EMSCRIPTEN_CANVAS_SELECTOR`, default `#canvas`), and any other id
+makes `SDL_GL_CreateContext` fail with "Could not create webgl context" even
+though the module itself booted fine. Desktop Chrome/Edge 137+ and
+Firefox; Safari and mobile are untested and the memory reservation is the
+reason. On a real failure it opens the console drawer and, where the cause is
+recognisable (no WebGL2 context, out of memory, missing glue), says so in
+plain words.
 
 ## The stage artwork
 

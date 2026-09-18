@@ -5,10 +5,9 @@
    every call site fails at `npm run typecheck` instead of rendering blank.
 
    One rule this file exists to protect: every claim on the page has to be
-   checkable against the repo. There is no browser build — the WebAssembly in
-   the project runs *mods*, not the game. The hero's Download button points
-   at `LINKS.releases`, the repository's releases page, which is where a
-   binary will appear; never point it at a file that does not exist yet. */
+   checkable against the repo. The browser build is real — `/play` runs the
+   port from the user's own disc — and the hero's Download door scrolls to
+   "How to play" rather than pointing at a file that does not exist. */
 
 import type { ComponentType, ReactNode, SVGProps } from 'react';
 import type { LinkKey } from './lib/links.ts';
@@ -19,6 +18,7 @@ import {
   DownloadIcon,
   GlobeIcon,
   MonitorIcon,
+  PlayIcon,
 } from './components/icons.tsx';
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>;
@@ -49,13 +49,13 @@ export const HERO = {
   /** The page's h1 — the headline, not display type; the window is the art. */
   statement: 'A true port of Super Smash Bros. Melee.',
   /** Sits under the headline, before the buttons. */
-  lede: 'Built from the game’s own decompiled source and run natively, not emulated. Free, open, and yours to build.',
+  lede: 'Built from the game’s own decompiled source and runs natively. Free, open, and yours to build.',
   /** Closes the hero's floor rule, where the section links used to sit. */
   status: 'Beta',
   /** The first door is the one that works today, so it is the filled one.
       Download scrolls to the "How to play" section; Discord is off-site. */
   doors: [
-    { href: '#download', icon: DownloadIcon, label: 'Play', tone: 'violet' },
+    { href: '#download', icon: PlayIcon, label: 'Play', tone: 'violet' },
     { to: 'discord', icon: DiscordIcon, label: 'Discord', tone: 'outline' },
   ],
 } as const;
@@ -68,22 +68,22 @@ export const FEATURES: Feature[] = [
   {
     icon: CheckCircleIcon,
     title: '100% byte matched',
-    body: <>The decompilation builds matched to retail, function for function.</>,
+    body: <>Compiled from the decompilation</>,
   },
   {
     icon: MonitorIcon,
     title: 'OpenGL renderer',
-    body: <>Native GL/ES rendering — the game is ported, not emulated.</>,
+    body: <>Native GL/ES rendering</>,
   },
   {
     icon: GlobeIcon,
     title: 'Web support',
-    body: <>The WebAssembly mod host runs in the browser today; the game build is next.</>,
+    body: <>Runs in the browser</>,
   },
   {
     icon: CubeIcon,
     title: 'Mods',
-    body: <>WebAssembly mods, loaded straight from your disc image.</>,
+    body: <>Native mod support</>,
   },
 ];
 
@@ -98,7 +98,7 @@ export type WayCard = {
   /** Rendered next to the title. Used to mark what has not shipped. */
   badge?: string;
   body: ReactNode;
-  cta: { to: LinkKey; icon: Icon; label: string; tone: 'violet' | 'white' | 'outline' };
+  cta: { icon: Icon; label: string; tone: 'violet' | 'white' | 'outline' } & ({ to: LinkKey } | { href: string });
 };
 
 /** The browser leads, with the violet button, because it is the one the
@@ -108,8 +108,8 @@ export const WAYS: WayCard[] = [
     tone: 'light',
     frame: 'browser',
     title: 'browser',
-    body: <>Melee Unbound build for WASM, except a bit of graphical issues and slightly less performance</>,
-    cta: { to: 'repo', icon: GlobeIcon, label: 'Play', tone: 'violet' },
+    body: <>Melee Unbound build for WASM, expect a bit of graphical issues and slightly less performance</>,
+    cta: { href: '/play', icon: GlobeIcon, label: 'Open', tone: 'violet' },
   },
   {
     tone: 'violet',
@@ -130,8 +130,7 @@ export const FAQS: Faq[] = [
     q: 'Is Melee Unbound free?',
     a: (
       <>
-        There is nothing to buy and no store page. It is a fan project built in
-        the open; you supply your own copy of the game.
+        Absolutely! It is completely free and open source.
       </>
     ),
   },
@@ -139,18 +138,15 @@ export const FAQS: Faq[] = [
     q: 'Do I need to download anything to play in my browser?',
     a: (
       <>
-        There is no browser build yet — it is a goal, not a release. Today you
-        build the desktop port from source.
+        No, if you browser supports WA(which most browsers do), you just have to provide your own Melee disc image and you can play it in your browser.
       </>
     ),
   },
   {
-    q: 'What do I need to build it?',
+    q: 'Can I contribute to the project?',
     a: (
       <>
-        A Linux machine with a 32-bit toolchain, SDL3 and Mesa (EGL/GLESv2),
-        plus CMake and Ninja. The reference setup is Arch Linux; Windows and
-        macOS are not supported yet.
+        Yes, we are always looking for contributors! Please join our discord and introduce yourself.
       </>
     ),
   },
@@ -158,17 +154,15 @@ export const FAQS: Faq[] = [
     q: 'Does it need the original game?',
     a: (
       <>
-        Yes. You need a disc image of Melee v1.02 (<code>GALE01</code>). No
-        Nintendo data is distributed here.
+        Yes. You need a disc image of Melee v1.02 (<code>GALE01</code>).We cannot help you in obtaining one
       </>
     ),
   },
   {
-    q: "Where can I get help if something isn't working?",
+    q: "Where can I get help if something is broken?",
     a: (
       <>
-        Open an issue on GitHub with your platform, the command you ran and the
-        output. Crashes are worth a stack trace.
+        Make a bug report on discord
       </>
     ),
   },
@@ -182,7 +176,7 @@ export const HEADINGS = {
     title: ['How to play'],
   },
   faq: {
-    eyebrow: 'Quick answers',
+    eyebrow: 'Questions',
     title: ['FAQ'],
   },
 } as const;

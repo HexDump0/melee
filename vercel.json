@@ -1,0 +1,37 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "installCommand": "cd site && npm install",
+  "buildCommand": "cd site && npm run build",
+  "outputDirectory": "site/dist",
+  "rewrites": [
+    {
+      "source": "/play",
+      "destination": "/play/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/play/melee.wasm",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/wasm"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/play/melee.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    }
+  ]
+}

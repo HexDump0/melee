@@ -32,6 +32,12 @@ export function Header({ active }: { active: SectionId | null }) {
         <span aria-hidden className="hidden h-px flex-1 bg-mu-white/15 sm:block" />
 
         <nav aria-label="Main" className="flex flex-wrap items-center gap-x-10 gap-y-2 lg:gap-x-14">
+          <a
+            href="/play"
+            className="relative text-sm font-extrabold tracking-[0.2em] uppercase text-mu-violet transition-colors hover:text-mu-violet-hi lg:text-base"
+          >
+            Play
+          </a>
           {NAV.map(({ id, label }) => (
             <a key={id} href={`#${id}`} data-active={active === id ? '' : undefined} className={LINK}>
               {label}

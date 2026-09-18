@@ -65,6 +65,14 @@ export function CheckCircleIcon(props: IconProps) {
 }
 
 /** A display, for the renderer. */
+export function PlayIcon(props: IconProps) {
+  return (
+    <svg {...stroke} strokeWidth={1.7} {...props}>
+      <path d="M8 5.5 18.5 12 8 18.5z" />
+    </svg>
+  );
+}
+
 export function MonitorIcon(props: IconProps) {
   return (
     <svg {...stroke} strokeWidth={1.7} {...props}>
