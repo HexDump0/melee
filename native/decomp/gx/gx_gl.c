@@ -1196,6 +1196,11 @@ static float cine_sat_v = CINE_SATURATION;
 static float cine_vignette_v = CINE_VIGNETTE;
 static float cine_threshold_v = CINE_THRESHOLD;
 static float cine_knee_v = CINE_KNEE;
+/* Separately switchable because it is the one part of the preset that
+ * changes CPU-side behaviour: the anisotropy floor is part of the
+ * texture cache key, so raising it turns cache hits into full decodes.
+ * `aniso=0` isolates that from the purely GPU-side passes. */
+static float cine_aniso_v = 3.0f; /* 1<<3 = 8x */
 
 static void cine_load_tuning(void)
 {
@@ -1207,7 +1212,7 @@ static void cine_load_tuning(void)
         { "wide", &cine_wide_v },         { "sharpen", &cine_sharpen_v },
         { "exposure", &cine_exposure_v }, { "sat", &cine_sat_v },
         { "vignette", &cine_vignette_v }, { "threshold", &cine_threshold_v },
-        { "knee", &cine_knee_v },
+        { "knee", &cine_knee_v },         { "aniso", &cine_aniso_v },
     };
     const char* env = getenv("MELEE_CINEMATIC_TUNE");
     const char* p;
@@ -1510,6 +1515,10 @@ static int build_program(char* error, size_t error_size)
 static int gl_setup(char* error, size_t error_size)
 {
     const char* extensions;
+    /* Before anything samples a texture: the anisotropy floor is part of the
+     * cache key, so reading the tuning on the first post-process frame would
+     * read it one frame's worth of uploads too late. */
+    cine_load_tuning();
     if (!build_program(error, error_size)) {
         return 0;
     }
@@ -1928,7 +1937,8 @@ static int gx_copy_format_compatible(unsigned copied, unsigned sampled)
  */
 static unsigned char tex_effective_aniso(unsigned char requested)
 {
-    unsigned char floor_aniso = gl_options.cinematic ? 3 : 0; /* 1<<3 = 8x */
+    unsigned char floor_aniso =
+        gl_options.cinematic ? (unsigned char) cine_aniso_v : 0;
     return requested > floor_aniso ? requested : floor_aniso;
 }
 
@@ -3294,7 +3304,6 @@ static int cine_build(void)
         return !cine_failed;
     }
     cine_built = 1;
-    cine_load_tuning();
     cine_bright_program = cine_link(CINE_BRIGHT_SRC, "bright-pass");
     cine_blur_program = cine_link(CINE_BLUR_SRC, "blur");
     cine_composite_program = cine_link(CINE_COMPOSITE_SRC, "composite");
