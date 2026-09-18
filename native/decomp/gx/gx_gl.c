@@ -245,6 +245,7 @@ static int cine_wide_w, cine_wide_h;
 /* Built once, on the first frame that wants it.  A post-process that fails to
  * compile must not fail renderer init -- the game is still perfectly
  * playable without it -- and must not retry every frame either. */
+static int cine_presented;
 static int cine_built;
 static int cine_failed;
 
@@ -1571,6 +1572,7 @@ int gx_gl_attach(int width, int height, char* error, size_t error_size)
     cine_wide_tex[0] = cine_wide_tex[1] = 0;
     cine_fbo = 0;
     cine_tex_w = cine_tex_h = 0;
+    cine_presented = 0;
     if (width > 0) {
         gl_width = width;
     }
@@ -3414,6 +3416,42 @@ static void cine_blit(void)
  * encoder does to the finished EFB, so it belongs to the picture, and the
  * cinematic grade sits on top of the picture rather than in the middle of it.
  */
+/*
+ * Put the ungraded frame back in the EFB before the next one starts.
+ *
+ * Framebuffer 0 **is** the EFB here, and the composite writes the graded
+ * picture into it.  Running the grade after every mid-frame `GXCopyTex` keeps
+ * this frame's captures clean, but the buffer keeps the graded pixels
+ * afterwards, so a capture taken early in the *next* frame -- before anything
+ * has drawn over it -- reads the bloom back as texture data, and the game's
+ * own captures start compounding it.  That is the exact failure the pass was
+ * placed at present time to avoid, one frame later.
+ *
+ * The ungraded frame is already in `cine_scene_tex`, so a single blit restores
+ * it.  This also makes the EFB's contents deterministic across a swap, which
+ * they otherwise are not: after `SwapBuffers` the back buffer holds whatever
+ * the driver left there.
+ */
+static void cine_restore_efb(void)
+{
+    if (!cine_presented || cine_failed || cine_scene_tex == 0) {
+        return;
+    }
+    cine_presented = 0;
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, cine_fbo);
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                           GL_TEXTURE_2D, cine_scene_tex, 0);
+    if (glCheckFramebufferStatus(GL_READ_FRAMEBUFFER) ==
+        GL_FRAMEBUFFER_COMPLETE)
+    {
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        glDisable(GL_SCISSOR_TEST);
+        glBlitFramebuffer(0, 0, cine_tex_w, cine_tex_h, 0, 0, cine_tex_w,
+                          cine_tex_h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
 static void apply_cinematic(void)
 {
     if (!gl_options.cinematic || cine_failed || cine_post_v == 0.0f) {
@@ -3502,6 +3540,7 @@ static void apply_cinematic(void)
     glUniform1f(u_cine_comp_vignette, cine_vignette_v);
     cine_blit();
 
+    cine_presented = 1;
     glActiveTexture(GL_TEXTURE2);
     /* Unbind every unit this pass touched, not just the last one.  The
      * backend's own unit bookkeeping is reset per frame, but leaving a
@@ -3559,6 +3598,9 @@ int gx_gl_render_frame(void)
     glDepthMask(GL_TRUE);
     glFrontFace(GL_CW); /* GX front faces are clockwise */
 
+    /* Before anything draws or captures: the EFB still holds last frame's
+     * graded picture, and a GXCopyTex here would read it. */
+    cine_restore_efb();
     glUseProgram(program);
     glBindVertexArray(vertex_vao);
     glBindBuffer(GL_ARRAY_BUFFER, vertex_vbo);
