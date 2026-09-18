@@ -173,8 +173,25 @@ case "${MELEE_WASM_SUSPEND:-jspi}" in
 esac
 echo "suspend mechanism: ${MELEE_WASM_SUSPEND:-jspi}"
 
+# The Unbound opening clip is read from the host filesystem by path
+# (`mod_opening.c` resolves `mods/unbound/files/MvUnbound.mth` and hands it to
+# `platform_disc_add_host_file`).  A page has no filesystem, so the file is
+# embedded at the same path inside MEMFS and the resolver needs no special
+# case -- the relative path lands on `/mods/...`, which is where this puts it.
+# Absent, the build still links and the retail opening plays, which is exactly
+# what `mod_opening.c` does when the file is missing on the desktop.
+MOVIE="$W/mods/unbound/files/MvUnbound.mth"
+EMBED=""
+if [ -f "$MOVIE" ]; then
+  EMBED="--embed-file $MOVIE@/mods/unbound/files/MvUnbound.mth"
+  echo "embedding $(du -h "$MOVIE" | cut -f1) Unbound opening clip"
+else
+  echo "no mods/unbound/files/MvUnbound.mth; the retail opening will play"
+fi
+
 echo "linking"
-emcc "$OUT"/obj/*.o -o "$OUT/melee.html" --use-port=sdl3 \
+# shellcheck disable=SC2086
+emcc "$OUT"/obj/*.o -o "$OUT/melee.html" --use-port=sdl3 $EMBED \
   --shell-file "$W/native/tools/wasm_shell.html" \
   -sINITIAL_MEMORY=2415919104 -sALLOW_MEMORY_GROWTH=0 -sMAX_WEBGL_VERSION=2 -sMIN_WEBGL_VERSION=2 \
   $SUSPEND -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 \
