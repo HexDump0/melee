@@ -65,6 +65,14 @@ unsigned pad_input_frame(void);
 /* Reads a file from the mounted host disc image (port bootstrap helpers). */
 int platform_disc_load_file(const char* disc_path, void** data, size_t* size);
 
+/*
+ * Publish a host file into the disc's root directory under `name`, so the
+ * game opens it like any disc file (P-847).  Register before the disc is
+ * mounted where possible; a later call re-inits DVDFS.  Returns 0 if the
+ * host file is missing or the table is full.
+ */
+int platform_disc_add_host_file(const char* name, const char* host_path);
+
 /* Name of the disc file a loaded buffer came from, or NULL.  A hint for
  * diagnostics only -- buffers are reused, so an entry can outlive its data. */
 const char* melee_dvd_origin(const void* ptr);

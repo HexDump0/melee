@@ -50,7 +50,12 @@ fi
 
 # The suite pins MELEE_NO_OPENING=1 (CMakeLists.txt); clear it for the one run
 # that is about the movie, which then boots exactly as the shipped game does.
-MELEE_NO_OPENING=0 MELEE_CARD_DIR="$work" SDL_VIDEODRIVER=offscreen \
+# MELEE_NO_MODS=1 because this case is the *retail* movie's regression -- the
+# Unbound clip that now plays ahead of it is decomp_unbound_opening's subject
+# (P-845), and a test that silently measured the wrong movie would be worse
+# than no test.
+MELEE_NO_MODS=1 MELEE_NO_OPENING=0 MELEE_CARD_DIR="$work" \
+    SDL_VIDEODRIVER=offscreen \
     SDL_AUDIODRIVER=dummy "$melee" --frontend --no-items \
     --input "$work/idle.txt" --frames 300 --shot "$work/opening.bmp" \
     >"$work/opening.log" 2>&1

@@ -452,6 +452,17 @@ set_source_files_properties(
 set_source_files_properties(
     ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/sysdolphin/baselib/sislib.c
     PROPERTIES COMPILE_DEFINITIONS "MELEE_SISLIB_INTERNAL=1")
+# P-847: lbmthp.c defines the movie player entry points the Unbound opening
+# interposes, and gm_1A36.c defines the button read it spends.
+set_source_files_properties(
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/melee/lb/lbmthp.c
+    PROPERTIES COMPILE_DEFINITIONS "MELEE_MTHP_INTERNAL=1")
+set_source_files_properties(
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/melee/gm/gm_1A36.c
+    PROPERTIES COMPILE_DEFINITIONS "MELEE_GM_INPUT_INTERNAL=1")
+set_source_files_properties(
+    ${CMAKE_CURRENT_SOURCE_DIR}/../decomp/src/melee/lb/lbaudio_ax.c
+    PROPERTIES COMPILE_DEFINITIONS "MELEE_AUDIO_AX_INTERNAL=1")
 
 # ---------------------------------------------------------------- mods
 #
@@ -469,6 +480,7 @@ add_library(melee_mod STATIC
     mod/mod.c
     mod/mod_cobj.c
     mod/mod_menu.c
+    mod/mod_opening.c
     mod/mod_wasm.c)
 target_include_directories(melee_mod BEFORE PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/decomp/shim
@@ -489,6 +501,9 @@ set_source_files_properties(mod/mod_cobj.c
     PROPERTIES COMPILE_DEFINITIONS "MELEE_COBJ_INTERNAL=1")
 set_source_files_properties(mod/mod_menu.c
     PROPERTIES COMPILE_DEFINITIONS "MELEE_JOBJ_INTERNAL=1;MELEE_SISLIB_INTERNAL=1")
+set_source_files_properties(mod/mod_opening.c
+    PROPERTIES COMPILE_DEFINITIONS
+    "MELEE_MTHP_INTERNAL=1;MELEE_GM_INPUT_INTERNAL=1;MELEE_AUDIO_AX_INTERNAL=1")
 target_link_libraries(melee_mod PUBLIC wamr_vm)
 
 # mods/unbound/unbound.wasm: the default mod, built from the same sources the
@@ -991,6 +1006,17 @@ if(MELEE_SDL3_LIB32)
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
       PASS_REGULAR_EXPRESSION "frontend_opening: PASS"
       TIMEOUT 600)
+  # P-847: the Unbound opening movie plays before MvOpen.mth, a press skips
+  # it into that movie rather than past it, and MELEE_NO_MODS=1 removes it.
+  add_test(NAME decomp_unbound_opening
+      COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/tests/unbound_opening.sh
+              $<TARGET_FILE:melee>
+              ${CMAKE_CURRENT_SOURCE_DIR}/tests/frontend_vs.txt
+              ${CMAKE_CURRENT_BINARY_DIR}/unbound-opening)
+  set_tests_properties(decomp_unbound_opening PROPERTIES
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
+      PASS_REGULAR_EXPRESSION "unbound_opening: PASS"
+      TIMEOUT 900)
   # P-646: the game's own card filesystem (hsd_3A94 pump) must create save
   # data on an empty card and reload it; two short frontend runs so the
   # card image stays inside the build directory.

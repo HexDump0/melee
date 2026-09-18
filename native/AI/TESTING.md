@@ -274,6 +274,42 @@ MELEE_NO_OPENING=0 MELEE_CARD_DIR=<dir with a save> SDL_VIDEODRIVER=offscreen \
 Expect `mode=24 scene=0` in the log and a frame that is not black; `mode=0`
 straight after `mode=40` means the boot skipped the movie.
 
+## The Unbound opening movie (P-847)
+
+`mods/unbound/files/MvUnbound.mth` is a real MTH file, played by the game's own
+`lbmthp.c` before `MvOpen.mth`.  Regenerate it after any change to the logo
+animation:
+
+```sh
+python3 scripts/make_boot_mth.py        # assets/*.mp4 -> mods/unbound/files/*.mth
+```
+
+The script asserts what `thp_dec.c` requires before writing anything: 4:2:0
+baseline, all four Huffman tables, a chain that walks to exactly EOF.  **The
+one rule that is not JPEG's:** THP scan data is *not* byte-stuffed, and the
+port's bit reader unescapes nothing, so the packer strips the `FF 00` pairs
+back out.  Leave them in and the flat-black first frame decodes while every
+later frame returns `-1` -- which `lbmthp.c` hands to `THPDec_80331340` as a
+state pointer, so it reads as a SIGSEGV four frames into the boot rather than
+as a bad picture.
+
+`ctest decomp_unbound_opening` covers the clip, the hand-off to MvOpen.mth, a
+button skipping into that movie (mode stays 24; GM_TITLE would mean the press
+also reached the scene's own Start/A branch), the deferred music, and
+`MELEE_NO_MODS=1` booting retail.  `decomp_opening` pins `MELEE_NO_MODS=1` for
+the same reason: it is the *retail* movie's regression.
+
+To watch it by hand:
+
+```sh
+MELEE_VIEWER_TRIAGE=1 MELEE_CARD_DIR=<dir with a save> ./build/native/melee
+```
+
+Expect `[unbound] opening: playing MvUnbound.mth before MvOpen.mth`, then
+`holding track 0x3e`, then `clip finished at frame 239` (or `skipped at frame
+N`) followed by `starting track 0x3e`.  `MELEE_UNBOUND_MOVIE=<path>` points the
+clip somewhere else; `MELEE_NO_MODS=1` removes it.
+
 ## Title-demo CPU attacks
 
 `ctest decomp_opening` now covers the idle title demo as well as the opening

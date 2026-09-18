@@ -562,6 +562,9 @@ static int run_match(SDL_Window* window, SDL_GLContext context,
      */
     if (mod_is_enabled("unbound")) {
         mod_menu_init();
+        /* Before the engine's main() mounts the disc, so the clip is in the
+         * FST by the time anything can open it. */
+        mod_opening_init();
     }
     gx_gl_set_options(gl);
     boot_platform_set_present_hook(match_present);

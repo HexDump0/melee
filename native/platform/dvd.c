@@ -59,8 +59,40 @@ typedef struct DvdFile {
     int is_ssm;
     int is_sem;
     int is_hps;
+    const char* host_path; /* non-NULL: served from the host, not the disc */
     SsmStreamTable ssm;
 } DvdFile;
+
+/*
+ * Host-backed disc files (P-847, the first slice of P-832).
+ *
+ * A mod can hand the game a file the disc never had.  The entry is appended
+ * to the in-memory FST, so `DVDConvertPathToEntrynum` resolves it exactly
+ * like a real one and every layer above -- DVDFS, DevCom, the MTH player's
+ * entrynum streaming -- needs to know nothing.  Only this file knows the
+ * difference, and only in `dvd_read_range`: the synthetic disc offsets sit
+ * above any real one, so a read that lands in that range is served from a
+ * host file instead of the image.
+ *
+ * Registration happens before the disc is mounted (mods initialise ahead of
+ * the engine's main()), so requests queue until mount_disc applies them; a
+ * later registration applies immediately and re-inits DVDFS.
+ */
+/* Above the real disc (a GameCube image tops out at 0x57058000) but still
+ * positive as the signed 32-bit offset the DVD entry points take. */
+#define HOST_FILE_BASE 0x70000000u
+#define MAX_HOST_FILES 8
+
+typedef struct HostFile {
+    char name[64];
+    char path[512];
+    uint32_t position;
+    uint32_t length;
+    int applied;
+} HostFile;
+
+static HostFile host_files[MAX_HOST_FILES];
+static unsigned host_file_count;
 
 static DiscImage* disc_image;
 static char disc_image_path[512];
@@ -125,6 +157,183 @@ static void swap_fst_entries(unsigned char* entries_data, uint32_t count)
     }
 }
 
+static void build_file_table(void);
+
+static const char* host_file_path(uint32_t position)
+{
+    unsigned i;
+
+    if (position < HOST_FILE_BASE) {
+        return NULL;
+    }
+    for (i = 0; i < host_file_count; i++) {
+        if (host_files[i].position == position) {
+            return host_files[i].path;
+        }
+    }
+    return NULL;
+}
+
+/*
+ * Append every registered-but-unapplied host file to the FST.
+ *
+ * Name offsets in an FST entry are relative to the string table, and the
+ * string table starts where the entries end -- so appending entries and then
+ * the new names leaves every existing offset correct.  Entry 0's length field
+ * is the entry count, which is also the root directory's extent, so bumping
+ * it is what makes the new files root-level and visible to path resolution.
+ *
+ * Runs before build_file_table() and __DVDFSInit(), with the FST already
+ * byte-swapped into host order.
+ */
+static void host_files_apply(void)
+{
+    unsigned char* grown;
+    uint32_t old_strings_len;
+    uint32_t added_entries = 0;
+    uint32_t added_names = 0;
+    uint32_t name_cursor;
+    unsigned char* entry;
+    unsigned i;
+
+    if (fst == NULL) {
+        return;
+    }
+    for (i = 0; i < host_file_count; i++) {
+        if (!host_files[i].applied) {
+            added_entries++;
+            added_names += (uint32_t) strlen(host_files[i].name) + 1;
+        }
+    }
+    if (added_entries == 0) {
+        return;
+    }
+
+    old_strings_len = fst_size - fst_strings;
+    grown = malloc(fst_size + added_entries * 12 + added_names);
+    if (grown == NULL) {
+        boot_triage_note("[boot] DVD: out of memory adding %u host file(s)\n",
+                         added_entries);
+        return;
+    }
+    memcpy(grown, fst, fst_strings);
+    memcpy(grown + fst_strings + added_entries * 12, fst + fst_strings,
+           old_strings_len);
+
+    entry = grown + fst_strings;
+    name_cursor = old_strings_len;
+    for (i = 0; i < host_file_count; i++) {
+        uint32_t word;
+        size_t len;
+
+        if (host_files[i].applied) {
+            continue;
+        }
+        len = strlen(host_files[i].name) + 1;
+        memcpy(grown + fst_strings + added_entries * 12 + name_cursor,
+               host_files[i].name, len);
+        word = name_cursor; /* type 0 (file) in the high byte */
+        memcpy(entry + 0, &word, 4);
+        memcpy(entry + 4, &host_files[i].position, 4);
+        memcpy(entry + 8, &host_files[i].length, 4);
+        entry += 12;
+        name_cursor += (uint32_t) len;
+        host_files[i].applied = 1;
+        boot_triage_note("[boot] DVD: %s -> %s (%u bytes, host file)\n",
+                         host_files[i].name, host_files[i].path,
+                         host_files[i].length);
+    }
+
+    free(fst);
+    fst = grown;
+    fst_entries += added_entries;
+    fst_size += added_entries * 12 + added_names;
+    fst_strings = fst_entries * 12;
+    /* Entry 0's length is the entry count and the root's extent. */
+    memcpy(fst + 8, &fst_entries, 4);
+}
+
+/*
+ * Register a host file under `name` in the disc's root directory.
+ *
+ * Idempotent per name.  Safe before the disc is mounted, which is the normal
+ * case: mods initialise ahead of the engine's main().
+ */
+int platform_disc_add_host_file(const char* name, const char* host_path)
+{
+    FILE* fp;
+    long length;
+    unsigned i;
+    HostFile* slot;
+
+    if (name == NULL || host_path == NULL || name[0] == '\0') {
+        return 0;
+    }
+    for (i = 0; i < host_file_count; i++) {
+        if (strcmp(host_files[i].name, name) == 0) {
+            return 1;
+        }
+    }
+    if (host_file_count >= MAX_HOST_FILES) {
+        return 0;
+    }
+    fp = fopen(host_path, "rb");
+    if (fp == NULL) {
+        return 0;
+    }
+    if (fseek(fp, 0, SEEK_END) != 0 || (length = ftell(fp)) <= 0) {
+        fclose(fp);
+        return 0;
+    }
+    fclose(fp);
+
+    slot = &host_files[host_file_count];
+    if (strlen(name) + 1 > sizeof(slot->name) ||
+        strlen(host_path) + 1 > sizeof(slot->path)) {
+        return 0;
+    }
+    snprintf(slot->name, sizeof(slot->name), "%s", name);
+    snprintf(slot->path, sizeof(slot->path), "%s", host_path);
+    slot->length = (uint32_t) length;
+    /* 32-byte aligned and clear of every real disc offset, with a gap so a
+     * read that runs past one file cannot land inside the next. */
+    slot->position = HOST_FILE_BASE + host_file_count * 0x00800000u;
+    slot->applied = 0;
+    host_file_count++;
+
+    if (disc_ready) {
+        host_files_apply();
+        build_file_table();
+        __DVDFSInit();
+    }
+    return 1;
+}
+
+static int host_file_read(const DvdFile* file, uint32_t offset, void* addr,
+                          uint32_t length)
+{
+    FILE* fp = fopen(file->host_path, "rb");
+    uint32_t rel = offset - file->position;
+    size_t got;
+
+    if (fp == NULL) {
+        return 0;
+    }
+    if (rel >= file->length || fseek(fp, (long) rel, SEEK_SET) != 0) {
+        fclose(fp);
+        return 0;
+    }
+    if (length > file->length - rel) {
+        /* The last read of a file is padded up to the DVD's 32-byte grain. */
+        memset((unsigned char*) addr + (file->length - rel), 0,
+               length - (file->length - rel));
+        length = file->length - rel;
+    }
+    got = fread(addr, 1, length, fp);
+    fclose(fp);
+    return got == length;
+}
+
 static void build_file_table(void)
 {
     uint32_t i;
@@ -154,6 +363,7 @@ static void build_file_table(void)
         file->is_ssm = name_ends_with(file->name, ".ssm");
         file->is_sem = name_ends_with(file->name, ".sem");
         file->is_hps = name_ends_with(file->name, ".hps");
+        file->host_path = host_file_path(file->position);
         if (file->is_ssm) {
             ssm_stream_init(&file->ssm);
         }
@@ -332,6 +542,9 @@ static int mount_disc(void)
     }
     swap_fst_entries(fst, fst_entries);
     fst_strings = fst_entries * 12;
+    /* Before the boot info is published and before DVDFS reads it, so the
+     * added entries are indistinguishable from the disc's own. */
+    host_files_apply();
     melee_port_fonts_load();
 
     /* Publish the boot info the SDK reads through OSPhysicalToCached(0). */
@@ -340,7 +553,7 @@ static int mount_disc(void)
     *(volatile uint32_t*) (GC_BOOT_INFO + BOOT_INFO_FST_LOCATION_OFF) =
         (uint32_t) fst;
     *(volatile uint32_t*) (GC_BOOT_INFO + BOOT_INFO_FST_LENGTH_OFF) =
-        fst_length;
+        fst_size;
 
     build_file_table();
     __DVDFSInit();
@@ -358,10 +571,13 @@ static int dvd_read_range(uint32_t offset, void* addr, uint32_t length)
     if (!disc_ready || addr == NULL) {
         return 0;
     }
+    file = find_file(offset);
+    if (file != NULL && file->host_path != NULL) {
+        return host_file_read(file, offset, addr, length);
+    }
     if (disc_image_read(disc_image, offset, addr, length) != DISC_OK) {
         return 0;
     }
-    file = find_file(offset);
     if (file != NULL && file->is_ssm) {
         uint32_t rel = offset - file->position;
         ssm_fix_read((unsigned char*) addr, rel, length, &file->ssm);

@@ -1,5 +1,45 @@
 # State of the port
 
+> **The boot has two movies now, and the second one is Melee's (2026-09-18,
+> P-847).** `mods/unbound/files/MvUnbound.mth` is the Unbound logo animation as
+> a **real MTH file**, streamed by the game's own player, decoded by the port's
+> own THP decoder and drawn on the same SObj -- the port still links no video
+> decoder and still is not getting one. `scripts/make_boot_mth.py` packs it out
+> of `assets/melee-unbound-boot.mp4`; the format came off the disc and was
+> cross-checked against `lbmthp.c`.
+>
+> **The thing that made it work is that THP's scan data is not byte-stuffed.**
+> A standard JPEG escapes every 0xFF in the entropy segment as `FF 00`;
+> `thp_dec.c`'s bit reader indexes scan bytes directly and unescapes nothing.
+> MvOpen.mth's first frames carry **241, 507 and 648 raw 0xFF bytes and no
+> `FF 00` pairs at all**, so the packer strips the stuffing back out. With it
+> left in, frame 0 (flat black, no 0xFF anywhere) decoded and **every one of
+> the other 119 returned -1** -- which `lbmthp.c` hands to `THPDec_80331340`
+> as a state pointer, so the symptom was a SIGSEGV four frames into the boot
+> rather than a bad picture.
+>
+> **Three link-time interposers, no new engine callback.** `lbMthp_8001F410`
+> takes the scene's `MvOpen.mth` request, parks it and starts the clip;
+> `lbMthp_8001F578` -- the opening scene's own per-frame pump, called from
+> nowhere else -- is the frame hook that hands over when the clip ends or a
+> button is pressed; `gm_GetButtonsTriggered` **spends** that press, because
+> the scene reads the buttons later in the same frame and its Start/A branch
+> would otherwise swallow the Melee movie and drop the player at the title.
+> A fourth, `lbAudioAx_80023F28`, holds the movie's music: the scene starts the
+> BGM *before* the movie, so the fanfare used to play over the Unbound logo and
+> arrive four seconds ahead of its own picture (owner-reported). Every retail
+> timing is untouched -- they are all relative to the movie's own frame
+> counter, which restarts at zero with MvOpen.mth.
+>
+> **Mods can add files to the disc now** (`platform_disc_add_host_file`, the
+> first slice of P-832): the entry is appended to the in-memory FST, so
+> `DVDConvertPathToEntrynum` resolves it like any other and DVDFS, DevCom and
+> the player's entrynum streaming know nothing; only `dvd_read_range` does.
+> `MELEE_NO_MODS=1` publishes nothing and the boot is retail, which
+> `decomp_unbound_opening` asserts alongside the clip, the hand-off, the skip
+> and the music. `decomp_opening` now pins `MELEE_NO_MODS=1` so it keeps
+> measuring the movie it names. ctest 34/34.
+
 > **Z-texture draws lost their colour, and the Classic team-battle splash was
 > the one that noticed (2026-09-18, P-846, G-221).** `GXSetZTexture` replaces
 > the depth, not the colour, but the port sent every `ztex_op != 0` draw to a

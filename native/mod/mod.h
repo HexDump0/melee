@@ -164,6 +164,10 @@ int mod_menu_page_open(void);
 /* Re-applies the menu page's joint hiding after the frame's procs have run. */
 void mod_menu_hide_late(void);
 
+/* The Unbound opening movie (P-845); see mod_opening.c.  Publishes the clip
+ * into the disc namespace, which must happen before the disc is mounted. */
+void mod_opening_init(void);
+
 /* Add the mods compiled into this binary.  Browser. */
 void mod_native_scan(void);
 

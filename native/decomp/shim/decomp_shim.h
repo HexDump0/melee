@@ -58,6 +58,40 @@
 #endif
 
 /*
+ * The Unbound opening movie (P-847).  lbmthp.c defines these and gmopening.c
+ * calls them, so the rename reaches the calls: the interposer starts the
+ * Unbound clip where the game asked for MvOpen.mth, and hands the real movie
+ * over when the clip ends or the player presses a button.  The opening
+ * scene's own per-frame pump is the second rename, which is what gives the
+ * interposer a frame hook inside that scene and nowhere else.
+ */
+#ifndef MELEE_MTHP_INTERNAL
+#define lbMthp_8001F410 unbound_lbMthp_8001F410
+#define lbMthp_8001F578 unbound_lbMthp_8001F578
+#endif
+
+/*
+ * The opening scene starts the movie's music *before* it starts the movie, so
+ * with a clip in front of MvOpen.mth the Melee fanfare would play over the
+ * Unbound logo and be seconds ahead of its own picture by the time that movie
+ * began.  The interposer holds that one request back and makes it at the
+ * hand-off instead.  Every other caller in the game -- there are 50 -- is
+ * passed straight through; see mod_opening.c.
+ */
+#ifndef MELEE_AUDIO_AX_INTERNAL
+#define lbAudioAx_80023F28 unbound_lbAudioAx_80023F28
+#endif
+
+/*
+ * The press that skips the Unbound clip, spent so the opening scene does not
+ * also act on it in the same frame.  Every other caller reads the real edge;
+ * see mod_opening.c.  gm_1A36.c defines it, so it sees the real symbol.
+ */
+#ifndef MELEE_GM_INPUT_INTERNAL
+#define gm_GetButtonsTriggered unbound_gm_GetButtonsTriggered
+#endif
+
+/*
  * The main-menu label swap (P-838).  jobj.c defines these and mnmain.c calls
  * them, so the rename reaches the calls -- which is exactly why the menu's
  * own `mn_8022DB10` could not be done this way and is hooked through the

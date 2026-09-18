@@ -130,6 +130,9 @@ int main(int argc, char** argv)
      * this class of bug, and a mod that only ever ran under the windowed
      * build would never meet it. */
     mod_system_init();
+    if (mod_is_enabled("unbound")) {
+        mod_opening_init();
+    }
     boot_triage_set_frame_budget(frames);
     boot_triage_install_stop_target(&stop);
     match_boot_init(match_frame);
