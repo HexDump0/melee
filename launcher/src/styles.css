@@ -12,6 +12,25 @@
 
 @source "./";
 
+@theme {
+  /* The one control that blocks everything else -- Browse, when no disc is
+     set -- pulses until it is dealt with. The site's motion rule is load-once
+     because nothing there is waiting on you; here something is. */
+  --animate-attention: attention 1.9s ease-in-out infinite;
+
+  @keyframes attention {
+    0%,
+    100% {
+      border-color: color-mix(in srgb, var(--color-mu-violet) 55%, transparent);
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-mu-violet) 45%, transparent);
+    }
+    50% {
+      border-color: var(--color-mu-violet);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-mu-violet) 18%, transparent);
+    }
+  }
+}
+
 @layer base {
   /* A desktop window, not a page: it never scrolls as a whole, the panes do. */
   html,

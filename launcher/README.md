@@ -34,6 +34,21 @@ the port binary's path and the last profile. Those are nobody's business but
 the launcher's, and every key in `melee.toml` becomes an environment variable
 the port reads, so they must not go there.
 
+## Getting the port
+
+**Check for update** asks the GitHub API for the latest release and shows the
+tag and size; **Install** then downloads it. Two steps on purpose — a button
+that silently pulls a binary off the internet is not one anyone should trust.
+
+Assets are matched **by name**, `melee-<os>-<arch>[.exe]`, with no fuzzy
+matching and no "it's the only asset" fallback: a wrong binary is worse than a
+clear failure. When nothing matches, the launcher lists what the release did
+contain. The scheme is `native/AI/reference/releases.md`, and it is a contract
+with whatever publishes releases.
+
+Downloads land in `$XDG_DATA_HOME/melee-unbound/bin/`, never next to the
+launcher, which may be installed somewhere unwritable.
+
 ## Profiles
 
 Applied as environment overrides on top of the file, never saved into it, so
@@ -54,6 +69,13 @@ reproduces the run exactly. **Copy report** puts the whole thing on the
 clipboard in one block.
 
 Reports live in `~/.local/share/melee-unbound/crashes/`.
+
+## Permissions
+
+Tauri 2 denies every plugin command that a capability does not grant, silently.
+`src-tauri/capabilities/default.json` is what makes the Browse buttons work;
+without it they do nothing at all and say nothing about why. A new plugin
+command needs a line there.
 
 ## Design
 

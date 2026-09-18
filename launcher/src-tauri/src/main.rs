@@ -5,6 +5,7 @@
 mod config;
 mod launch;
 mod mods;
+mod release;
 
 use config::{ConfigFile, Value};
 use serde::Serialize;
@@ -92,6 +93,10 @@ struct Snapshot {
 fn resolve_port(prefs: &Prefs, root: &Path) -> PathBuf {
     if let Some(p) = prefs.port_path.as_ref().filter(|p| !p.is_empty()) {
         return PathBuf::from(p);
+    }
+    let downloaded = release::install_dir().join(release::asset_name());
+    if downloaded.exists() {
+        return downloaded;
     }
     launch::port_candidates(root)
         .into_iter()
@@ -219,6 +224,24 @@ fn start(
     )
 }
 
+/// Two steps, not one: the window shows what it is about to fetch and how big
+/// it is before anything is written, because a button that silently pulls a
+/// binary off the internet is not a button anyone should trust.
+#[tauri::command]
+fn latest_release() -> Result<release::ReleaseInfo, String> {
+    release::latest()
+}
+
+#[tauri::command]
+fn download_release(info_url: String, asset: String, tag: String, size: u64) -> Result<String, String> {
+    let info = release::ReleaseInfo { tag, asset, url: info_url, size };
+    let path = release::download(&info)?;
+    let mut prefs = load_prefs();
+    prefs.port_path = Some(path.to_string_lossy().to_string());
+    save_prefs(&prefs);
+    Ok(path.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 fn stop(state: State<'_, AppState>) {
     launch::stop(&state.run);
@@ -248,6 +271,8 @@ fn main() {
             set_profile,
             env_for,
             start,
+            latest_release,
+            download_release,
             stop,
             crashes,
             forget_crash

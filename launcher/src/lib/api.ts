@@ -44,6 +44,13 @@ export type Snapshot = {
   crashes: number;
 };
 
+export type ReleaseInfo = {
+  tag: string;
+  asset: string;
+  url: string;
+  size: number;
+};
+
 export type CrashReport = {
   id: string;
   when: string;
@@ -65,6 +72,14 @@ export const api = {
   start: (profile: string, seed?: string) =>
     invoke<void>("start", { profile, seed: seed ?? null }),
   stop: () => invoke<void>("stop"),
+  latestRelease: () => invoke<ReleaseInfo>("latest_release"),
+  downloadRelease: (info: ReleaseInfo) =>
+    invoke<string>("download_release", {
+      infoUrl: info.url,
+      asset: info.asset,
+      tag: info.tag,
+      size: info.size,
+    }),
   crashes: () => invoke<CrashReport[]>("crashes"),
   forgetCrash: (id: string) => invoke<void>("forget_crash", { id }),
 };

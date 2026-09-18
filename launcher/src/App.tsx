@@ -5,6 +5,10 @@ import Play from "./pages/Play";
 import Mods from "./pages/Mods";
 import Graphics from "./pages/Graphics";
 import Crashes from "./pages/Crashes";
+/* The mark itself, from assets/ -- branding.md is the source of truth and a
+ * hand-set wordmark in markup is a second copy of it. The transparent file
+ * is the right one here: the rail is already black. */
+import banner from "../../assets/melee-unbound-banner-transparent.svg?url";
 
 export type PageId = "play" | "mods" | "graphics" | "crashes";
 
@@ -116,11 +120,14 @@ export default function App({ initialPage }: { initialPage?: PageId } = {}) {
 
   return (
     <div className="flex h-full bg-mu-black text-mu-white">
-      <nav className="flex w-56 shrink-0 flex-col border-r border-white/10">
-        <div className="px-6 pb-7 pt-7">
-          <div className="text-h4 leading-none">MELEE</div>
-          <div className="text-h4 leading-none text-mu-violet">UNBOUND</div>
-          <div className="mt-2 text-micro uppercase text-mu-dim">Launcher</div>
+      <nav className="flex w-64 shrink-0 flex-col border-r border-white/10">
+        <div className="px-4 pb-6 pt-6">
+          <img
+            src={banner}
+            alt="Melee Unbound"
+            className="w-full"
+            draggable={false}
+          />
         </div>
 
         <ul className="flex-1">

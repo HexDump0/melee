@@ -47,7 +47,7 @@ const SNAPSHOT = {
           key: "widescreen",
           kind: "enum",
           label: "Widescreen",
-          help: "Everywhere also widens menus, whose backdrop plates are authored for 4:3 and fall short by about 6% a side.",
+          help: "Everywhere widens menus too, which shows gaps at the edges.",
           default: 1,
           choices: [
             { value: 0, label: "Off — 4:3" },
@@ -59,7 +59,7 @@ const SNAPSHOT = {
           key: "aspect_correct",
           kind: "bool",
           label: "Correct the aspect",
-          help: "Draw the world at the shape it is presented at rather than the shape Melee authored. Retail is about 9.5% wider than a neutral projection, on a GameCube too.",
+          help: "Retail is ~9.5% wider than neutral. A departure, not a fix.",
           default: 0,
           choices: [],
         },
@@ -67,7 +67,7 @@ const SNAPSHOT = {
           key: "credits_overlay",
           kind: "bool",
           label: "Credits overlay",
-          help: "Draw the mod's own credit line over the engine's credits.",
+          help: "Show the mod's credit line over the engine's credits.",
           default: 0,
           choices: [],
         },
@@ -125,7 +125,14 @@ const RESPONSES: Record<string, unknown> = {
   transformCallback: (cb: unknown) => cb,
 };
 
-const page = (new URLSearchParams(location.search).get("page") ?? "play") as
+const params = new URLSearchParams(location.search);
+if (params.get("nodisc") !== null) {
+  SNAPSHOT.disc_found = false;
+  SNAPSHOT.disc_path = "";
+  SNAPSHOT.values.disc = "";
+}
+
+const page = (params.get("page") ?? "play") as
   | "play"
   | "mods"
   | "graphics"

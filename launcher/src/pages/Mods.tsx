@@ -82,15 +82,12 @@ export default function Mods({ store }: { store: Store }) {
       <PageHead
         eyebrow="Mods"
         title={`${mods.length} loaded`}
-        lede="Loaded in ascending priority, so a mod later in this list layers on top of the ones above it."
       />
 
       {mods.length === 0 ? (
         <Card className="p-6">
           <p className="text-[0.9rem] text-mu-dim">
-            No mods found in{" "}
-            <code className="selectable">{snap?.mods_dir}</code>. A mod is a
-            folder with a <code>mod.toml</code> in it.
+            No mods in <code className="selectable">{snap?.mods_dir}</code>
           </p>
         </Card>
       ) : null}
@@ -117,10 +114,8 @@ export default function Mods({ store }: { store: Store }) {
               {mod.settings.map((s) => control(store, mod, s))}
             </div>
           ) : (
-            <p className="mt-4 max-w-prose text-[0.82rem] leading-relaxed text-mu-dim">
-              This mod declares no settings. Adding a{" "}
-              <code>[[setting]]</code> block to its <code>mod.toml</code> gives
-              it controls here, with no change to the launcher.
+            <p className="mt-4 text-[0.82rem] text-mu-dim">
+              No settings declared.
             </p>
           )}
         </section>

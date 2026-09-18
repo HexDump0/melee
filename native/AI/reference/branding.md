@@ -8,6 +8,8 @@ README, release artwork — follows this page.
 
 Artwork lives in `assets/` at the repo root, not in this folder.
 
+Release asset names are their own contract: see `releases.md`.
+
 ## Palette
 
 Three colours. There is no secondary accent and no gradient.

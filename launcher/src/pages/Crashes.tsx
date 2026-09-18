@@ -69,15 +69,12 @@ export default function Crashes({
       <PageHead
         eyebrow="Crashes"
         title={reports.length === 0 ? "Nothing to report" : `${reports.length} captured`}
-        lede="Each report keeps the port's own output, the settings it ran with, and the seed that reproduces the run exactly."
       />
 
       {reports.length === 0 ? (
         <Card className="p-6">
-          <p className="max-w-prose text-[0.9rem] leading-relaxed text-mu-dim">
-            When the port panics or dies on a signal, the launcher captures the
-            backtrace, the fighter dump and the seed, and the report lands here
-            instead of scrolling past in a terminal.
+          <p className="text-[0.9rem] text-mu-dim">
+            Reports appear here when the port panics or dies on a signal.
           </p>
         </Card>
       ) : (

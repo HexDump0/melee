@@ -4,7 +4,7 @@
  * square corners, one violet, and BLACK text on any violet fill -- white on
  * violet is 2.77:1 and fails, which is the single contrast trap in this
  * palette. */
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 export function Eyebrow({ children }: { children: ReactNode }) {
   return (
@@ -15,12 +15,10 @@ export function Eyebrow({ children }: { children: ReactNode }) {
 export function PageHead({
   eyebrow,
   title,
-  lede,
   action,
 }: {
   eyebrow: string;
   title: string;
-  lede?: string;
   action?: ReactNode;
 }) {
   return (
@@ -28,9 +26,6 @@ export function PageHead({
       <div className="min-w-0 animate-enter motion-reduce:animate-none">
         <Eyebrow>{eyebrow}</Eyebrow>
         <h1 className="mt-2 text-h3">{title}</h1>
-        {lede ? (
-          <p className="mt-2 max-w-prose text-lede text-mu-dim">{lede}</p>
-        ) : null}
       </div>
       {action ? <div className="shrink-0">{action}</div> : null}
     </div>
@@ -44,6 +39,7 @@ export function Button({
   disabled,
   title,
   size = "md",
+  attention = false,
 }: {
   children: ReactNode;
   onClick?: () => void;
@@ -51,6 +47,7 @@ export function Button({
   disabled?: boolean;
   title?: string;
   size?: "md" | "lg";
+  attention?: boolean;
 }) {
   const base =
     "inline-flex items-center justify-center gap-2 text-micro uppercase " +
@@ -69,7 +66,9 @@ export function Button({
       title={title}
       onClick={onClick}
       disabled={disabled}
-      className={`${base} ${sizing} ${look}`}
+      className={`${base} ${sizing} ${look} ${
+        attention ? "animate-attention motion-reduce:animate-none" : ""
+      }`}
     >
       {children}
     </button>
@@ -176,6 +175,11 @@ export function Slider({
   );
 }
 
+/* A dropdown drawn by us, not by the platform.
+ *
+ * A native <select> inside webkit2gtk is painted by GTK, which on the owner's
+ * machine meant a white field with pale text on a black page -- unreadable,
+ * and nothing in the stylesheet can reach it. */
 export function Select({
   value,
   options,
@@ -185,18 +189,89 @@ export function Select({
   options: { value: string; label: string }[];
   onChange: (v: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const current = options.find((o) => o.value === value);
+  const index = options.findIndex((o) => o.value === value);
+
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => {
+      if (root.current && !root.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", away);
+    return () => document.removeEventListener("mousedown", away);
+  }, [open]);
+
+  const step = (by: number) => {
+    const next = Math.min(Math.max(index + by, 0), options.length - 1);
+    if (next !== index) onChange(options[next].value);
+  };
+
   return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="min-w-48 border border-white/15 bg-mu-card px-3 py-2 text-[0.88rem] text-mu-white outline-none hover:border-white/40 focus-visible:border-mu-violet"
-    >
-      {options.map((o) => (
-        <option key={o.value} value={o.value} className="bg-mu-card">
-          {o.label}
-        </option>
-      ))}
-    </select>
+    <div ref={root} className="relative">
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            open ? step(1) : setOpen(true);
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            step(-1);
+          } else if (e.key === "Escape") {
+            setOpen(false);
+          }
+        }}
+        className={`flex min-w-52 items-center justify-between gap-3 border bg-mu-card px-3 py-2 text-left text-[0.88rem] transition-colors ${
+          open
+            ? "border-mu-violet text-mu-white"
+            : "border-white/15 text-mu-white hover:border-white/40"
+        }`}
+      >
+        <span className="truncate">{current?.label ?? value}</span>
+        <span
+          className={`text-[0.6rem] transition-transform ${open ? "rotate-180" : ""}`}
+          aria-hidden
+        >
+          ▼
+        </span>
+      </button>
+
+      {open ? (
+        <ul
+          role="listbox"
+          className="absolute right-0 z-20 mt-1 min-w-52 border border-mu-violet bg-mu-card shadow-[0_12px_32px_rgba(0,0,0,0.9)]"
+        >
+          {options.map((o) => {
+            const active = o.value === value;
+            return (
+              <li key={o.value} role="option" aria-selected={active}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChange(o.value);
+                    setOpen(false);
+                  }}
+                  className={`block w-full px-3 py-2 text-left text-[0.88rem] transition-colors ${
+                    active
+                      ? "on-violet bg-mu-violet text-mu-black"
+                      : "text-mu-white hover:bg-mu-card-hi"
+                  }`}
+                >
+                  {o.label}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 

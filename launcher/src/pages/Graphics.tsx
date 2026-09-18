@@ -19,7 +19,7 @@ const CINEMATIC: {
   {
     key: "cinematic.threshold",
     label: "Bloom threshold",
-    help: "Linear light, not screen values: 0.90 is about 0.96 on screen, so only specular hits, energy and flashes bloom. Lower it and bright pastel stages haze over.",
+    help: "Linear light. Lower it and bright stages haze over.",
     min: 0.3,
     max: 1,
     step: 0.01,
@@ -28,7 +28,7 @@ const CINEMATIC: {
   {
     key: "cinematic.bloom",
     label: "Bloom",
-    help: "The tight glow that hugs its source.",
+    help: "",
     min: 0,
     max: 1,
     step: 0.01,
@@ -37,7 +37,7 @@ const CINEMATIC: {
   {
     key: "cinematic.wide",
     label: "Wide halo",
-    help: "The second, softer bloom at a quarter resolution. One Gaussian can be tight or wide, not both.",
+    help: "",
     min: 0,
     max: 1,
     step: 0.01,
@@ -46,7 +46,7 @@ const CINEMATIC: {
   {
     key: "cinematic.rim",
     label: "Rim light",
-    help: "A per-pixel fresnel term on lit geometry. Melee lights per vertex, so this is something the hardware could not do; it is what separates a character from the stage behind it.",
+    help: "Per-pixel fresnel on lit geometry.",
     min: 0,
     max: 1.5,
     step: 0.01,
@@ -55,7 +55,7 @@ const CINEMATIC: {
   {
     key: "cinematic.sharpen",
     label: "Sharpen",
-    help: "Contrast-adaptive, so flat areas keep their gradients instead of gaining ringing.",
+    help: "",
     min: 0,
     max: 1,
     step: 0.01,
@@ -64,7 +64,7 @@ const CINEMATIC: {
   {
     key: "cinematic.exposure",
     label: "Exposure",
-    help: "Pays for the tone curve. ACES lifts midtones, so without this the grade reads as a brightness change rather than a grade.",
+    help: "Holds brightness against the tone curve.",
     min: 0.4,
     max: 1.4,
     step: 0.01,
@@ -112,13 +112,12 @@ export default function Graphics({ store }: { store: Store }) {
       <PageHead
         eyebrow="Graphics"
         title="Cinematic"
-        lede="Bloom, a filmic tone curve, per-pixel rim lighting, sharpening and an anisotropy floor — applied to the finished frame on its way to the window."
       />
 
       <section>
         <Field
           label="Cinematic preset"
-          help="Presentation only: it reads and writes the colour buffer after the last draw of the frame, so a recording made with it on is the same match as one made without."
+          help="Presentation only. F8 toggles it in game."
           env="MELEE_CINEMATIC"
         >
           <Toggle
@@ -159,7 +158,7 @@ export default function Graphics({ store }: { store: Store }) {
         <div className="mt-2">
           <Field
             label="Widescreen"
-            help="Everywhere also widens menus, whose backdrops are authored for 4:3 and will show gaps at the edges."
+            help="Everywhere widens menus too, which shows gaps at the edges."
             env="MELEE_MOD_UNBOUND_WIDESCREEN"
           >
             <Select
@@ -170,7 +169,7 @@ export default function Graphics({ store }: { store: Store }) {
           </Field>
           <Field
             label="Correct the aspect"
-            help="Draw the world at the shape it is presented at rather than the shape Melee authored. Retail is about 9.5% wider than a neutral projection — on a GameCube too — so this is a deliberate departure, not a fix."
+            help="Retail is ~9.5% wider than neutral. A departure, not a fix."
             env="MELEE_MOD_UNBOUND_ASPECT_CORRECT"
           >
             <Toggle
@@ -181,11 +180,6 @@ export default function Graphics({ store }: { store: Store }) {
         </div>
       </section>
 
-      <p className="max-w-prose pb-4 text-[0.8rem] leading-relaxed text-mu-dim">
-        In game, <strong className="text-mu-white">F8</strong> toggles the
-        preset live and <strong className="text-mu-white">F1</strong> switches
-        to wireframe with the HUD hidden.
-      </p>
     </div>
   );
 }

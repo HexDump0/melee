@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "What the launcher window is allowed to ask the backend for. Tauri 2 denies every plugin command that is not granted here, which is why the Browse buttons silently did nothing without this file.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:allow-open"
+  ]
+}

@@ -40,7 +40,7 @@ key = "widescreen"
 kind = "enum"
 default = 1
 label = "Widescreen"
-help = "Everywhere also widens menus, whose backdrop plates are authored for 4:3 and fall short by about 6% a side."
+help = "Everywhere widens menus too, which shows gaps at the edges."
 choices = [{ value = 0, label = "Off — 4:3" }, { value = 1, label = "Gameplay only" }, { value = 2, label = "Everywhere" }]
 
 [[setting]]
@@ -48,11 +48,11 @@ key = "aspect_correct"
 kind = "bool"
 default = 0
 label = "Correct the aspect"
-help = "Draw the world at the shape it is presented at rather than the shape Melee authored. Retail is about 9.5% wider than a neutral projection, on a GameCube too, so this is a deliberate departure rather than a fix."
+help = "Retail is ~9.5% wider than neutral. A departure, not a fix."
 
 [[setting]]
 key = "credits_overlay"
 kind = "bool"
 default = 0
 label = "Credits overlay"
-help = "Draw the mod's own credit line over the engine's credits."
+help = "Show the mod's credit line over the engine's credits."
