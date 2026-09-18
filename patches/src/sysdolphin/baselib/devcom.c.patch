@@ -1,0 +1,38 @@
+diff --git a/src/sysdolphin/baselib/devcom.c b/src/sysdolphin/baselib/devcom.c
+index 9193913b0..9d7015db9 100644
+--- a/src/sysdolphin/baselib/devcom.c
++++ b/src/sysdolphin/baselib/devcom.c
+@@ -1,5 +1,9 @@
+ #include "devcom.h"
+ 
++#ifdef PORT_PC
++#include <stdio.h>
++#endif
++
+ #include "debug.h"
+ #include "devcom.static.h"
+ #include "synth.h"
+@@ -406,6 +410,23 @@ int HSD_DevComRequest(int file, uintptr_t src, uintptr_t dest, size_t size,
+         !(HSD_DevComGetDestType(type) == DEVCOMDEST_SBUF
+             && size > DEVCOM_BUF_SIZE));
+ 
++#ifdef PORT_PC
++    /* P-857: these four say only that *an* alignment rule broke, and the one
++     * that fires in the browser fires nowhere else, so there is no second run
++     * to put a breakpoint in.  Name the request instead: `type` alone
++     * separates an ARAM DMA from the 0x1B readdress, which reuses `src`,
++     * `dest` and `size` as two callbacks and a context and has no alignment
++     * to speak of. */
++    if (src % 32 != 0 || dest % 32 != 0 || size % 32 != 0 || size == 0) {
++        fprintf(stderr,
++                "devcom: file=%d src=%#lx dest=%#lx size=%#lx type=%#x "
++                "(src%%32=%lu dest%%32=%lu size%%32=%lu)\n",
++                file, (unsigned long) src, (unsigned long) dest,
++                (unsigned long) size, (unsigned) type,
++                (unsigned long) (src % 32), (unsigned long) (dest % 32),
++                (unsigned long) (size % 32));
++    }
++#endif
+     HSD_ASSERT(0x1EF, src % 32 == 0);
+     HSD_ASSERT(0x1F0, dest % 32 == 0);
+     HSD_ASSERT(0x1F1, size % 32 == 0);
