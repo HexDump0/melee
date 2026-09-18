@@ -55,13 +55,14 @@ export default function Play({
   }, [log, follow]);
 
   const pickDisc = async () => {
-    const picked = await open({
-      multiple: false,
-      directory: false,
-      filters: [
-        { name: "GameCube disc", extensions: ["iso", "gcm", "usd", "img"] },
-      ],
-    });
+    /* No extension filter.
+     *
+     * A filter is the dialog's *default* selection, not a hint, so anything
+     * not matching it is simply invisible -- and disc images turn up as .iso,
+     * .gcm, .gcz, .rvz, .ciso, .nkit.iso, or with no extension at all. The
+     * owner could not see his own ISO through the list I guessed. The port
+     * validates what it is handed; the picker should not second-guess it. */
+    const picked = await open({ multiple: false, directory: false });
     if (typeof picked === "string") store.set("disc", picked);
   };
 

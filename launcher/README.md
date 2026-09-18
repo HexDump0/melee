@@ -77,6 +77,24 @@ Tauri 2 denies every plugin command that a capability does not grant, silently.
 without it they do nothing at all and say nothing about why. A new plugin
 command needs a line there.
 
+## Noise on stderr
+
+Running the launcher from a terminal on GTK3 prints, repeatedly:
+
+```
+*** BUG ***
+In pixman_region32_init_rect: Invalid rectangle passed
+```
+
+That is GTK3, not this application. It fires whenever a widget is realized at
+a size below the client-side-decoration shadow (~50x50), and it shows up the
+same way in Inkscape, Audacity, Scintilla and Eclipse. The window works.
+
+It cannot reach a crash report: the port runs as a child with its own piped
+stdout and stderr, so the launcher's own stderr is a separate stream and never
+enters the captured log. Launching from the desktop entry the `.deb` installs
+sends it to the journal, where you will not see it. From a terminal, `2>/dev/null`.
+
 ## Design
 
 The palette, type and motion come from `site/src/styles.css`, which the
