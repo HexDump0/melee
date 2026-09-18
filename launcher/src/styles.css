@@ -1,0 +1,47 @@
+/* The launcher's stylesheet is the site's stylesheet.
+
+   branding.md is the source of truth for the palette, and site/src/styles.css
+   is where it already lives as Tailwind `@theme` tokens. Importing it rather
+   than copying the values is the whole point: the launcher is the product's
+   face on the desktop, and a second copy of `--color-mu-violet` is a second
+   thing to forget when the brand moves.
+
+   `@source` is required because Tailwind v4 infers what to scan from the
+   stylesheet's own location, which here is the site's directory. */
+@import "../../site/src/styles.css";
+
+@source "./";
+
+@layer base {
+  /* A desktop window, not a page: it never scrolls as a whole, the panes do. */
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  /* The launcher is chrome around a game. Selecting its labels by accident
+     while dragging is noise; the log and the config preview opt back in. */
+  body {
+    user-select: none;
+  }
+
+  .selectable {
+    user-select: text;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-mu-card-hi);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-mu-dim);
+  }
+}

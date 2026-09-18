@@ -20,3 +20,39 @@ module = "unbound.wasm"
 [settings]
 # Overridable at run time as MELEE_MOD_UNBOUND_WIDESCREEN.
 widescreen = 1
+
+# --- settings schema -------------------------------------------------------
+#
+# What the launcher builds its controls from.  A mod that ships these gets
+# labelled, ranged, explained controls without the launcher knowing it exists;
+# a mod without them still loads and simply has nothing to configure.
+#
+# `[[setting]]` is an array of tables rather than `[settings.widescreen]`
+# because `[settings]` above already holds the *defaults* the loader reads, and
+# TOML will not let one key be both a value and a table.
+#
+# The loader's manifest reader takes any `key = value` line and keeps the half
+# dozen names it knows, so nothing here may be called `id`, `name`, `version`,
+# `module`, `abi_version` or `priority`.  Hence `label`, not `name`.
+
+[[setting]]
+key = "widescreen"
+kind = "enum"
+default = 1
+label = "Widescreen"
+help = "Everywhere also widens menus, whose backdrop plates are authored for 4:3 and fall short by about 6% a side."
+choices = [{ value = 0, label = "Off — 4:3" }, { value = 1, label = "Gameplay only" }, { value = 2, label = "Everywhere" }]
+
+[[setting]]
+key = "aspect_correct"
+kind = "bool"
+default = 0
+label = "Correct the aspect"
+help = "Draw the world at the shape it is presented at rather than the shape Melee authored. Retail is about 9.5% wider than a neutral projection, on a GameCube too, so this is a deliberate departure rather than a fix."
+
+[[setting]]
+key = "credits_overlay"
+kind = "bool"
+default = 0
+label = "Credits overlay"
+help = "Draw the mod's own credit line over the engine's credits."

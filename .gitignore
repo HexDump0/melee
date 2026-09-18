@@ -26,3 +26,10 @@ __pycache__/
 # Built by cmake from mods/*/src (ADR-0026); the manifest is committed, the
 # module is not.
 mods/**/*.wasm
+
+# Launcher build outputs (AGENTS rule 6: never commit generated files).  The
+# lockfiles and the icons are inputs and are committed; what they build is not.
+launcher/node_modules/
+launcher/dist/
+launcher/src-tauri/target/
+launcher/src-tauri/gen/

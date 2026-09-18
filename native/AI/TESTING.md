@@ -726,3 +726,32 @@ outranks the file, silently and correctly.
 The key-to-variable mapping is a contract between the launcher (which writes
 the file) and the port (which reads it), so it is tested rather than kept in
 both their heads -- `test_config`, `ctest -R config`.
+
+## The launcher (P-868)
+
+```sh
+cd launcher
+npm install
+npm run app            # dev window, hot reload
+cd src-tauri && cargo test   # mapping parity, comment-preserving edits, crash parsing
+cd .. && npm run typecheck
+```
+
+`cargo test` is where the **key-to-variable mapping is checked against the
+port's**.  `config::env_name` in Rust and `melee_config_env_name` in C have to
+agree exactly or the launcher writes settings the port cannot read, so both
+sides assert the same table of examples.  If you change one, change and test
+both.
+
+The other test worth keeping honest is `edits_keep_the_comments`.
+`melee.toml.example` explains every knob in prose, and a launcher that erased
+those comments the first time someone moved a slider would be a downgrade from
+editing the file by hand -- hence `toml_edit` rather than a
+serialize-the-struct round trip.
+
+To check the Mods page is really generated rather than hard-coded, add a
+`[[setting]]` block to any mod's `mod.toml` and reopen the page; the control
+should appear with no launcher change.  Nothing in such a block may be named
+`id`, `name`, `version`, `module`, `abi_version` or `priority`: the loader's
+`manifest_read` takes any `key = value` line regardless of which section it is
+in, so those names would be read as the mod's own.

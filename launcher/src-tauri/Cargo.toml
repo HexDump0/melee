@@ -1,0 +1,23 @@
+[package]
+name = "melee-unbound-launcher"
+version = "0.1.0"
+edition = "2021"
+description = "Launcher for the Melee Unbound native port"
+default-run = "melee-unbound-launcher"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+toml_edit = "0.22"
+dirs = "5"
+
+[profile.release]
+strip = true
+lto = true
+opt-level = "s"
