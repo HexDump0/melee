@@ -225,12 +225,36 @@ static GLuint display_filter_program;
 static GLint u_display_filter_sampler;
 static GLint u_display_filter_step;
 static GLint u_display_filter_weights;
+static GLuint cine_bright_program;
+static GLuint cine_blur_program;
+static GLuint cine_composite_program;
+static GLint u_cine_bright_scene, u_cine_bright_threshold, u_cine_bright_knee;
+static GLint u_cine_blur_src, u_cine_blur_dir;
+static GLint u_cine_comp_scene, u_cine_comp_bloom, u_cine_comp_amount;
+static GLint u_cine_comp_bloom_wide, u_cine_comp_wide_amount;
+static GLint u_cine_comp_sharpen, u_cine_comp_texel;
+static GLint u_cine_comp_exposure;
+static GLint u_cine_comp_saturation, u_cine_comp_vignette;
+static GLuint cine_scene_tex;
+static GLuint cine_blur_tex[2];
+static GLuint cine_wide_tex[2];
+static GLuint cine_fbo;
+static int cine_tex_w, cine_tex_h;
+static int cine_blur_w, cine_blur_h;
+static int cine_wide_w, cine_wide_h;
+/* Built once, on the first frame that wants it.  A post-process that fails to
+ * compile must not fail renderer init -- the game is still perfectly
+ * playable without it -- and must not retry every frame either. */
+static int cine_built;
+static int cine_failed;
+
 static GLuint display_filter_texture;
 static int display_filter_width;
 static int display_filter_height;
 static GLint u_tex_lod_bias;
 static GLint u_tex_dynamic_i4;
 static GLint u_dst_alpha_enable;
+static GLint u_cine_rim;
 static GLint u_dst_alpha;
 static GLint u_ch_enable;
 static GLint u_ch_amb_src;
@@ -443,7 +467,19 @@ static GLuint zcopy_rb;
 static int zcopy_w;
 static int zcopy_h;
 
-static GxGlOptions gl_options = { 1, 1, -1, -1, 0, 0, 0 };
+/*
+ * Cinematic is off in this default and on in the viewer's.
+ *
+ * The backend's default is what an offscreen probe gets -- the EFB conformance
+ * harness, the parity runner, anything that renders to compare pixels against
+ * what a GameCube produces.  Grading those is not a feature, it is a broken
+ * test, and the first version of this defaulted it on here and failed
+ * `decomp_efb` on the clear colour.  What the owner plays is the viewer, which
+ * turns it on explicitly (viewer_main.c) -- so the default the player sees
+ * lives next to the window, and a new headless path cannot inherit a grade by
+ * forgetting to opt out.
+ */
+static GxGlOptions gl_options = { 1, 1, -1, -1, 0, 0, 0, 0 };
 
 static void configure_vertex_layout(void)
 {
@@ -524,6 +560,12 @@ static const char* VERTEX_SRC =
     "out vec4 v_ras0;\n"
     "out vec4 v_ras1;\n"
     "out float v_dist;\n"
+    /* Cinematic rim lighting needs the surface orientation per
+     * *pixel*.  Melee evaluates its channels per vertex, which is
+     * what a Flipper does, so these two are new varyings rather
+     * than something the TEV path already had. */
+    "out vec3 v_nrm;\n"
+    "out vec3 v_view;\n"
     "bool light_infinite(vec3 p) { return dot(p, p) > 1.0e10; }\n"
     "void light_view_dir(int i, vec3 view, out vec3 ldir, out float dist,\n"
     "                    out float attn) {\n"
@@ -667,6 +709,8 @@ static const char* VERTEX_SRC =
     "    v_ras0 = channel_raster(0, a_color, has_color);\n"
     "    v_ras1 = channel_raster(1, a_color, has_color);\n"
     "    v_dist = -a_view.z;\n"
+    "    v_nrm = a_nrm;\n"
+    "    v_view = a_view;\n"
     "}\n";
 
 /* Melee renders a deliberately dithered EFB, then asks GXCopyDisp for the
@@ -773,6 +817,9 @@ static const char* FRAGMENT_SRC =
     "in vec4 v_ras0;\n"
     "in vec4 v_ras1;\n"
     "in float v_dist;\n"
+    "in vec3 v_nrm;\n"
+    "in vec3 v_view;\n"
+    "uniform float u_cine_rim;\n"
     "out vec4 frag_color;\n"
     "vec4 swap4(vec4 v, ivec4 t) {\n"
     "    return vec4(v[t.x], v[t.y], v[t.z], v[t.w]);\n"
@@ -1026,6 +1073,30 @@ static const char* FRAGMENT_SRC =
     "                    (u_aop == 3) ? (p0 == p1) : (p0 && p1);\n"
     "        if (!pass) discard;\n"
     "    }\n"
+    /*
+     * Rim light.
+     *
+     * This is the part of the cinematic preset that is not a filter.
+     * Bloom and a tone curve rearrange pixels that are already there;
+     * this asks what each pixel's *surface* is doing and lights the
+     * grazing angles, which is what separates a character from the
+     * stage behind it.  Melee cannot do it -- Flipper lights per vertex
+     * and a fresnel term needs the normal per pixel.
+     *
+     * The host passes 0 for anything unlit (`u_cine_rim`), so 2D
+     * elements, sprites and the HUD -- whose normals are whatever the
+     * vertex format happened to carry -- keep their authored colour.
+     * It is tinted half toward white rather than added as white, so a
+     * dark surface gets a dark rim instead of a chalk outline.
+     */
+    "    if (u_cine_rim > 0.0) {\n"
+    "        vec3 nrm = normalize(v_nrm);\n"
+    "        vec3 eye = normalize(-v_view);\n"
+    "        float f = 1.0 - clamp(dot(nrm, eye), 0.0, 1.0);\n"
+    "        f = f * f * f;\n"
+    "        color.rgb += mix(color.rgb, vec3(1.0), 0.5) *\n"
+    "                     f * u_cine_rim * color.a;\n"
+    "    }\n"
     "    if (u_fog_enable != 0) {\n"
     "        /* P-679: hardware fog coordinate from the screen depth:\n"
     "         * base = A/(B - z_ndc), fog = clamp(base - C, 0, 1), then the\n"
@@ -1078,6 +1149,145 @@ static const char* FRAGMENT_SRC =
     "    } else {\n"
     "        gl_FragDepth = gl_FragCoord.z;\n"
     "    }\n"
+    "}\n";
+
+
+/*
+ * Thresholds are in linear light, not in the 0-1 of the colour buffer: 0.50
+ * linear is about 0.74 on screen, which sits just above Melee's lit diffuse
+ * range, so skin and cloth do not glow and specular highlights, energy
+ * effects and emissive stage work do.
+ *
+ * The exposure exists to pay for the curve.  ACES lifts midtones -- without
+ * it the grade reads as "someone turned the brightness up" rather than as a
+ * grade -- so it is set to hold the frame's mean luminance while the curve
+ * does its work at the top end.
+ */
+#define CINE_THRESHOLD 0.50f
+#define CINE_KNEE 0.18f
+#define CINE_BLOOM 0.60f
+#define CINE_EXPOSURE 0.80f
+#define CINE_SATURATION 1.10f
+#define CINE_VIGNETTE 0.26f
+/* Bloom is built at two scales: a tight glow that hugs the source and a
+ * wide halo at a quarter resolution.  One Gaussian can be tight or wide,
+ * not both, and a single wide one is what makes bloom look like fog. */
+#define CINE_BLOOM_WIDE 0.45f
+#define CINE_RIM 0.55f
+#define CINE_SHARPEN 0.35f
+
+/* --------------------------------------------------------- cinematic post
+ *
+ * Bloom, a filmic curve and a vignette, applied to the *finished* frame on its
+ * way to the window (P-864).
+ *
+ * **At present time, not on the EFB, and that is not a detail.**  The game
+ * copies the EFB mid-frame and reads those copies back as textures: the
+ * Classic splash captures the opponent that way (gm_1832.c:602), the
+ * off-screen magnifier does, shadows do.  Bloom the EFB and the game's own
+ * captures ingest the bloom, which then blooms again next frame.  Running
+ * after `apply_display_filter` -- the same place GXCopyDisp's deflicker runs
+ * -- means every one of those copies sees exactly what the console's would.
+ *
+ * It is presentation only by construction: it reads the colour buffer and
+ * writes the colour buffer, after the last draw of the frame.  Nothing here
+ * can reach the simulation, which is what keeps `MELEE_NO_MODS=1` and the
+ * capture-comparison harness honest.
+ */
+static const char* CINE_BRIGHT_SRC =
+    "#version 300 es\n"
+    "precision highp float;\n"
+    "uniform sampler2D u_scene;\n"
+    "uniform float u_threshold;\n"
+    "uniform float u_knee;\n"
+    "in vec2 v_uv;\n"
+    "out vec4 frag;\n"
+    "void main() {\n"
+    /* Linear light.  The frame in the colour buffer is gamma-encoded, and
+     * summing gamma-encoded values is not summing light -- a bloom built in
+     * that space spreads a grey haze instead of a glow, which is exactly the
+     * "washed out" look that gives post-processed emulators away. */
+    "    vec3 c = pow(texture(u_scene, v_uv).rgb, vec3(2.2));\n"
+    "    float l = max(c.r, max(c.g, c.b));\n"
+    /* Soft knee: a hard cutoff makes bright edges crawl as they cross it. */
+    "    float soft = clamp((l - u_threshold + u_knee) / (2.0 * u_knee),\n"
+    "                       0.0, 1.0);\n"
+    "    float w = max(l - u_threshold, u_knee * soft * soft) /\n"
+    "              max(l, 1e-4);\n"
+    "    frag = vec4(c * w, 1.0);\n"
+    "}\n";
+
+static const char* CINE_BLUR_SRC =
+    "#version 300 es\n"
+    "precision highp float;\n"
+    "uniform sampler2D u_src;\n"
+    "uniform vec2 u_dir;\n"
+    "in vec2 v_uv;\n"
+    "out vec4 frag;\n"
+    /* Nine-tap Gaussian as five bilinear fetches: the hardware does half the
+     * work by sampling between texels. */
+    "void main() {\n"
+    "    vec3 c = texture(u_src, v_uv).rgb * 0.227027;\n"
+    "    c += texture(u_src, v_uv + u_dir * 1.3846154).rgb * 0.3162162;\n"
+    "    c += texture(u_src, v_uv - u_dir * 1.3846154).rgb * 0.3162162;\n"
+    "    c += texture(u_src, v_uv + u_dir * 3.2307692).rgb * 0.0702703;\n"
+    "    c += texture(u_src, v_uv - u_dir * 3.2307692).rgb * 0.0702703;\n"
+    "    frag = vec4(c, 1.0);\n"
+    "}\n";
+
+static const char* CINE_COMPOSITE_SRC =
+    "#version 300 es\n"
+    "precision highp float;\n"
+    "uniform sampler2D u_scene;\n"
+    "uniform sampler2D u_bloom;\n"
+    "uniform sampler2D u_bloom_wide;\n"
+    "uniform float u_bloom_amount;\n"
+    "uniform float u_bloom_wide_amount;\n"
+    "uniform float u_exposure;\n"
+    "uniform float u_saturation;\n"
+    "uniform float u_vignette;\n"
+    "uniform float u_sharpen;\n"
+    "uniform vec2 u_texel;\n"
+    "in vec2 v_uv;\n"
+    "out vec4 frag;\n"
+    /* ACES filmic approximation (Narkowicz 2015).  Melee's palette was
+     * authored flat for a CRT; a curve gives the highlights somewhere to roll
+     * off to instead of clipping, which is most of what makes bloom read as
+     * light rather than as fog. */
+    "vec3 tonemap(vec3 x) {\n"
+    "    const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;\n"
+    "    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);\n"
+    "}\n"
+    "void main() {\n"
+    /* Everything from here to the last line is linear light. */
+    "    vec3 col = pow(texture(u_scene, v_uv).rgb, vec3(2.2));\n"
+    /* Contrast-adaptive sharpen, before anything is added to the frame.
+     * Melee's textures are 64x64 and 128x128 and the port draws them three
+     * times larger than the hardware ever did; an unsharp mask against the
+     * four-neighbour average puts the edge back.  The strength is divided by
+     * the local contrast so flat areas -- skies, gradients -- are left alone
+     * and do not gain ringing or amplified dither. */
+    "    if (u_sharpen > 0.0) {\n"
+    "        vec3 n = pow(texture(u_scene, v_uv + vec2(u_texel.x, 0.0)).rgb,\n"
+    "                     vec3(2.2));\n"
+    "        n += pow(texture(u_scene, v_uv - vec2(u_texel.x, 0.0)).rgb,\n"
+    "                 vec3(2.2));\n"
+    "        n += pow(texture(u_scene, v_uv + vec2(0.0, u_texel.y)).rgb,\n"
+    "                 vec3(2.2));\n"
+    "        n += pow(texture(u_scene, v_uv - vec2(0.0, u_texel.y)).rgb,\n"
+    "                 vec3(2.2));\n"
+    "        vec3 d = col - n * 0.25;\n"
+    "        float contrast = max(max(abs(d.r), abs(d.g)), abs(d.b));\n"
+    "        col = max(col + d * u_sharpen / (1.0 + 8.0 * contrast), 0.0);\n"
+    "    }\n"
+    "    col += texture(u_bloom, v_uv).rgb * u_bloom_amount;\n"
+    "    col += texture(u_bloom_wide, v_uv).rgb * u_bloom_wide_amount;\n"
+    "    col = tonemap(col * u_exposure);\n"
+    "    float l = dot(col, vec3(0.2126, 0.7152, 0.0722));\n"
+    "    col = max(mix(vec3(l), col, u_saturation), 0.0);\n"
+    "    vec2 dv = v_uv - 0.5;\n"
+    "    col *= 1.0 - u_vignette * dot(dv, dv);\n"
+    "    frag = vec4(pow(col, vec3(1.0 / 2.2)), 1.0);\n"
     "}\n";
 
 static GLuint compile_shader(GLenum type, const char* src)
@@ -1161,6 +1371,7 @@ static int build_program(char* error, size_t error_size)
     u_tex_lod_bias = glGetUniformLocation(program, "u_tex_lod_bias");
     u_tex_dynamic_i4 = glGetUniformLocation(program, "u_tex_dynamic_i4");
     u_dst_alpha_enable = glGetUniformLocation(program, "u_dst_alpha_enable");
+    u_cine_rim = glGetUniformLocation(program, "u_cine_rim");
     u_dst_alpha = glGetUniformLocation(program, "u_dst_alpha");
     u_ch_enable = glGetUniformLocation(program, "u_ch_enable");
     u_ch_amb_src = glGetUniformLocation(program, "u_ch_amb_src");
@@ -1258,6 +1469,15 @@ int gx_gl_attach(int width, int height, char* error, size_t error_size)
     gx_hle_set_texture_invalidate_hook(gx_gl_invalidate_texture);
     /* A new context means new programs and new uniform state. */
     uni_cache_reset();
+    /* ...including the cinematic pass's, whose names are lazily built and
+     * would otherwise be dangling handles from the dead context. */
+    cine_built = 0;
+    cine_failed = 0;
+    cine_bright_program = cine_blur_program = cine_composite_program = 0;
+    cine_scene_tex = cine_blur_tex[0] = cine_blur_tex[1] = 0;
+    cine_wide_tex[0] = cine_wide_tex[1] = 0;
+    cine_fbo = 0;
+    cine_tex_w = cine_tex_h = 0;
     if (width > 0) {
         gl_width = width;
     }
@@ -1618,6 +1838,23 @@ static int gx_copy_format_compatible(unsigned copied, unsigned sampled)
     return 0;
 }
 
+/*
+ * Melee asks for 1x anisotropy nearly everywhere: `GXInitTexObj` defaults to
+ * GX_ANISO_1 and almost nothing overrides it, because on Flipper the extra
+ * samples cost real bandwidth.  They cost nothing here, and 1x is what makes
+ * a stage floor smear into mush the moment the camera tilts -- the one
+ * artefact that reads as "old" on any recording.  The cinematic preset raises
+ * the floor to 8x and leaves anything the game asked for above that alone.
+ *
+ * The effective value is what goes in the cache entry, so toggling the preset
+ * re-uploads rather than keeping the old sampler state.
+ */
+static unsigned char tex_effective_aniso(unsigned char requested)
+{
+    unsigned char floor_aniso = gl_options.cinematic ? 3 : 0; /* 1<<3 = 8x */
+    return requested > floor_aniso ? requested : floor_aniso;
+}
+
 static GLuint texture_for(const GxHleTexture* t)
 {
     size_t i;
@@ -1628,6 +1865,7 @@ static GLuint texture_for(const GxHleTexture* t)
     const void* image = t->image;
     const void* palette = t->palette;
     GLuint dynamic;
+    unsigned char aniso = tex_effective_aniso(t->anisotropy);
 
     if (image == NULL) {
         fprintf(stderr,
@@ -1647,7 +1885,7 @@ static GLuint texture_for(const GxHleTexture* t)
             e->wrap_t == t->wrap_t && e->mag_filt == t->mag_filt &&
             e->min_filt == t->min_filt && e->mipmap == t->mipmap &&
             e->lod_bias == t->lod_bias && e->min_lod == t->min_lod &&
-            e->max_lod == t->max_lod && e->anisotropy == t->anisotropy) {
+            e->max_lod == t->max_lod && e->anisotropy == aniso) {
             e->last_used = ++tex_clock;
             tex_cache_hits++;
             return e->name;
@@ -1840,8 +2078,8 @@ static GLuint texture_for(const GxHleTexture* t)
                         wrap_to_gl(t->wrap_t));
         glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_LOD, t->min_lod);
         glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_LOD, t->max_lod);
-        if (aniso_supported && t->anisotropy > 0) {
-            GLfloat samples = (GLfloat) (1u << t->anisotropy);
+        if (aniso_supported && aniso > 0) {
+            GLfloat samples = (GLfloat) (1u << aniso);
             glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT,
                             samples);
         }
@@ -1860,7 +2098,7 @@ static GLuint texture_for(const GxHleTexture* t)
         e->lod_bias = t->lod_bias;
         e->min_lod = t->min_lod;
         e->max_lod = t->max_lod;
-        e->anisotropy = t->anisotropy;
+        e->anisotropy = aniso;
         e->last_used = ++tex_clock;
         free(rgba);
         free(expanded_palette);
@@ -1949,6 +2187,31 @@ static GLfloat gx_raster_size(unsigned char raw)
     float scale = disp_h > 0 ? (float) disp_h / 480.0f : 1.0f;
     float out = px * scale;
     return (GLfloat) (out < 1.0f ? 1.0f : out);
+}
+
+/*
+ * Rim strength for one draw, and 0 for most of them.
+ *
+ * A draw qualifies only if the GX channel state says it is genuinely lit: a
+ * channel enabled *and* pointing at a light.  That is the same test the vertex
+ * shader's `channel_*` functions make, and it is what separates the world --
+ * fighters, stages, items -- from Melee's flat 2D work, which runs the same
+ * TEV path with lighting off and carries whatever the vertex format left in
+ * the normal slot.  Lighting a garbage normal is how an effect like this ends
+ * up outlining the HUD.
+ */
+static GLfloat draw_rim_strength(const GxHleDrawState* s)
+{
+    int i;
+    if (!gl_options.cinematic) {
+        return 0.0f;
+    }
+    for (i = 0; i < 4; ++i) {
+        if (s->ch_enable[i] != 0 && s->ch_light_mask[i] != 0) {
+            return CINE_RIM;
+        }
+    }
+    return 0.0f;
 }
 
 static void apply_draw_state(const GxHleDrawState* s)
@@ -2300,6 +2563,7 @@ static void upload_draw_uniforms(const GxHleDrawState* s)
     UNI_1I(u_ras_flat, !gl_options.lighting);
     UNI_1I(u_ztex_op_main, s->ztex_op);
     UNI_1F(u_ztex_bias_main, s->ztex_bias);
+    UNI_1F(u_cine_rim, draw_rim_strength(s));
     UNI_1I(u_dst_alpha_enable, s->dst_alpha_enable);
     UNI_1F(u_dst_alpha, (GLfloat) s->dst_alpha / 255.0f);
 
@@ -2915,6 +3179,234 @@ static void apply_display_filter(void)
     glDrawArrays(GL_TRIANGLES, 0, 3);
 }
 
+
+/* Tuned against a match on Final Destination at 1280x720.  The threshold sits
+ * just above Melee's diffuse range so lit skin does not glow: what crosses it
+ * is specular, energy and the stage's own emissive work. */
+
+static GLuint cine_link(const char* frag, char* what)
+{
+    GLuint vs = compile_shader(GL_VERTEX_SHADER, DISPLAY_FILTER_VERTEX_SRC);
+    GLuint fs = compile_shader(GL_FRAGMENT_SHADER, frag);
+    GLuint prog;
+    GLint ok = 0;
+    if (vs == 0 || fs == 0) {
+        fprintf(stderr, "[cinematic] %s shader compile failed\n", what);
+        return 0;
+    }
+    prog = glCreateProgram();
+    glAttachShader(prog, vs);
+    glAttachShader(prog, fs);
+    glLinkProgram(prog);
+    glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+    if (!ok) {
+        char log[1024];
+        glGetProgramInfoLog(prog, sizeof(log), NULL, log);
+        fprintf(stderr, "[cinematic] %s link failed: %.200s\n", what, log);
+        glDeleteProgram(prog);
+        return 0;
+    }
+    return prog;
+}
+
+static int cine_build(void)
+{
+    if (cine_built) {
+        return !cine_failed;
+    }
+    cine_built = 1;
+    cine_bright_program = cine_link(CINE_BRIGHT_SRC, "bright-pass");
+    cine_blur_program = cine_link(CINE_BLUR_SRC, "blur");
+    cine_composite_program = cine_link(CINE_COMPOSITE_SRC, "composite");
+    if (cine_bright_program == 0 || cine_blur_program == 0 ||
+        cine_composite_program == 0)
+    {
+        cine_failed = 1;
+        return 0;
+    }
+    u_cine_bright_scene = glGetUniformLocation(cine_bright_program, "u_scene");
+    u_cine_bright_threshold =
+        glGetUniformLocation(cine_bright_program, "u_threshold");
+    u_cine_bright_knee = glGetUniformLocation(cine_bright_program, "u_knee");
+    u_cine_blur_src = glGetUniformLocation(cine_blur_program, "u_src");
+    u_cine_blur_dir = glGetUniformLocation(cine_blur_program, "u_dir");
+    u_cine_comp_scene = glGetUniformLocation(cine_composite_program, "u_scene");
+    u_cine_comp_bloom = glGetUniformLocation(cine_composite_program, "u_bloom");
+    u_cine_comp_amount =
+        glGetUniformLocation(cine_composite_program, "u_bloom_amount");
+    u_cine_comp_bloom_wide =
+        glGetUniformLocation(cine_composite_program, "u_bloom_wide");
+    u_cine_comp_wide_amount =
+        glGetUniformLocation(cine_composite_program, "u_bloom_wide_amount");
+    u_cine_comp_sharpen =
+        glGetUniformLocation(cine_composite_program, "u_sharpen");
+    u_cine_comp_texel = glGetUniformLocation(cine_composite_program, "u_texel");
+    u_cine_comp_exposure =
+        glGetUniformLocation(cine_composite_program, "u_exposure");
+    u_cine_comp_saturation =
+        glGetUniformLocation(cine_composite_program, "u_saturation");
+    u_cine_comp_vignette =
+        glGetUniformLocation(cine_composite_program, "u_vignette");
+    glGenFramebuffers(1, &cine_fbo);
+    return 1;
+}
+
+static void cine_alloc_tex(GLuint* name, int w, int h)
+{
+    if (*name == 0) {
+        glGenTextures(1, name);
+    }
+    glBindTexture(GL_TEXTURE_2D, *name);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    /* Clamped, and it matters: a wrapped blur drags the bright left edge of
+     * the frame onto the right one. */
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+}
+
+static int cine_resize(void)
+{
+    if (cine_tex_w == gl_width && cine_tex_h == gl_height) {
+        return 1;
+    }
+    cine_blur_w = gl_width / 2 > 0 ? gl_width / 2 : 1;
+    cine_blur_h = gl_height / 2 > 0 ? gl_height / 2 : 1;
+    cine_alloc_tex(&cine_scene_tex, gl_width, gl_height);
+    cine_alloc_tex(&cine_blur_tex[0], cine_blur_w, cine_blur_h);
+    cine_alloc_tex(&cine_blur_tex[1], cine_blur_w, cine_blur_h);
+    cine_wide_w = cine_blur_w / 2 > 0 ? cine_blur_w / 2 : 1;
+    cine_wide_h = cine_blur_h / 2 > 0 ? cine_blur_h / 2 : 1;
+    cine_alloc_tex(&cine_wide_tex[0], cine_wide_w, cine_wide_h);
+    cine_alloc_tex(&cine_wide_tex[1], cine_wide_w, cine_wide_h);
+    cine_tex_w = gl_width;
+    cine_tex_h = gl_height;
+
+    glBindFramebuffer(GL_FRAMEBUFFER, cine_fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                           GL_TEXTURE_2D, cine_blur_tex[0], 0);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        fprintf(stderr, "[cinematic] bloom framebuffer incomplete; "
+                        "disabling\n");
+        cine_failed = 1;
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return 0;
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    return 1;
+}
+
+static void cine_blit(void)
+{
+    glBindVertexArray(vertex_vao);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+}
+
+/*
+ * Runs last, on the window's own colour buffer, after `apply_display_filter`.
+ *
+ * The order is deliberate: the deflicker filter is what the console's video
+ * encoder does to the finished EFB, so it belongs to the picture, and the
+ * cinematic grade sits on top of the picture rather than in the middle of it.
+ */
+static void apply_cinematic(void)
+{
+    if (!gl_options.cinematic || cine_failed) {
+        return;
+    }
+    if (!cine_build() || !cine_resize()) {
+        return;
+    }
+
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_BLEND);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glBindVertexArray(vertex_vao);
+
+    /* 1. the finished frame, as drawn. */
+    glActiveTexture(GL_TEXTURE0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindTexture(GL_TEXTURE_2D, cine_scene_tex);
+    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, gl_width, gl_height);
+
+    /* 2. bright pass, into half resolution.  Downsampling is free blur and
+     * costs the blur passes three quarters of their fill. */
+    glBindFramebuffer(GL_FRAMEBUFFER, cine_fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                           GL_TEXTURE_2D, cine_blur_tex[0], 0);
+    glViewport(0, 0, cine_blur_w, cine_blur_h);
+    glUseProgram(cine_bright_program);
+    glUniform1i(u_cine_bright_scene, 0);
+    glUniform1f(u_cine_bright_threshold, CINE_THRESHOLD);
+    glUniform1f(u_cine_bright_knee, CINE_KNEE);
+    cine_blit();
+
+    /* 3. separable Gaussian: horizontal into [1], vertical back into [0]. */
+    glUseProgram(cine_blur_program);
+    glUniform1i(u_cine_blur_src, 0);
+
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                           GL_TEXTURE_2D, cine_blur_tex[1], 0);
+    glBindTexture(GL_TEXTURE_2D, cine_blur_tex[0]);
+    glUniform2f(u_cine_blur_dir, 1.0f / (float) cine_blur_w, 0.0f);
+    cine_blit();
+
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                           GL_TEXTURE_2D, cine_blur_tex[0], 0);
+    glBindTexture(GL_TEXTURE_2D, cine_blur_tex[1]);
+    glUniform2f(u_cine_blur_dir, 0.0f, 1.0f / (float) cine_blur_h);
+    cine_blit();
+
+    /* 4. the wide halo: the tight glow again at a quarter resolution, where
+     * the same nine taps reach four times as far. */
+    glViewport(0, 0, cine_wide_w, cine_wide_h);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                           GL_TEXTURE_2D, cine_wide_tex[1], 0);
+    glBindTexture(GL_TEXTURE_2D, cine_blur_tex[0]);
+    glUniform2f(u_cine_blur_dir, 1.0f / (float) cine_wide_w, 0.0f);
+    cine_blit();
+
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                           GL_TEXTURE_2D, cine_wide_tex[0], 0);
+    glBindTexture(GL_TEXTURE_2D, cine_wide_tex[1]);
+    glUniform2f(u_cine_blur_dir, 0.0f, 1.0f / (float) cine_wide_h);
+    cine_blit();
+
+    /* 5. back to the window: scene + both bloom scales, through the curve. */
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(0, 0, gl_width, gl_height);
+    glUseProgram(cine_composite_program);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, cine_scene_tex);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, cine_blur_tex[0]);
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, cine_wide_tex[0]);
+    glUniform1i(u_cine_comp_scene, 0);
+    glUniform1i(u_cine_comp_bloom, 1);
+    glUniform1i(u_cine_comp_bloom_wide, 2);
+    glUniform1f(u_cine_comp_amount, CINE_BLOOM);
+    glUniform1f(u_cine_comp_wide_amount, CINE_BLOOM_WIDE);
+    glUniform1f(u_cine_comp_sharpen, CINE_SHARPEN);
+    glUniform2f(u_cine_comp_texel, 1.0f / (float) gl_width,
+                1.0f / (float) gl_height);
+    glUniform1f(u_cine_comp_exposure, CINE_EXPOSURE);
+    glUniform1f(u_cine_comp_saturation, CINE_SATURATION);
+    glUniform1f(u_cine_comp_vignette, CINE_VIGNETTE);
+    cine_blit();
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE0);
+}
+
 int gx_gl_render_frame(void)
 {
     const GxHleVertex* vertices = NULL;
@@ -3131,6 +3623,7 @@ int gx_gl_render_frame(void)
         }
     }
     apply_display_filter();
+    apply_cinematic();
     glBindTexture(GL_TEXTURE_2D, 0);
     glBindVertexArray(0);
     return (int) draw_count;

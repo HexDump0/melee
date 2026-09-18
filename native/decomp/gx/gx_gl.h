@@ -43,6 +43,17 @@ typedef struct GxGlOptions {
     int wireframe;
     int no_cull; /* debug: draw both faces */
     int no_alpha_test; /* debug: skip GX alpha compare */
+    /*
+     * Cinematic presentation (P-864): bloom, a filmic curve, a vignette and
+     * an anisotropy floor, applied to the finished frame on its way to the
+     * window.  On by default -- it is what the port looks like now.
+     *
+     * Presentation only, like every other field here: it reads and writes the
+     * colour buffer after the last draw of the frame, so a capture made with
+     * it on is the same match as one made without it.  The headless render
+     * harness turns it off so its output stays comparable to the console's.
+     */
+    int cinematic;
 } GxGlOptions;
 
 void gx_gl_set_options(const GxGlOptions* options);

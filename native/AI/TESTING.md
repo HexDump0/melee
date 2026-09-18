@@ -642,3 +642,33 @@ add a checklist to `TASKS.md` under "needs a human" and ask the owner to run:
 ```
 
 Checklist format: exact keys, expected result, and what a regression looks like.
+
+## The cinematic preset (P-864)
+
+On by default in the game.  **F8** toggles it live, `MELEE_CINEMATIC=0` or
+`--no-cinematic` start without it.
+
+```sh
+# the same frame graded and ungraded, to compare
+MELEE_CINEMATIC=0 ./build/native/test_decomp_render --stage GrIz.dat \
+    --fighter PlMrNr.dat --width 1280 --height 720 --shot off.bmp
+MELEE_CINEMATIC=1 ./build/native/test_decomp_render --stage GrIz.dat \
+    --fighter PlMrNr.dat --width 1280 --height 720 --shot on.bmp
+```
+
+The render harness is **ungraded by default** and `MELEE_CINEMATIC=1` opts one
+capture in.  That is deliberate: the backend's `gl_options` default is what an
+offscreen pixel probe gets, and grading `decomp_efb` or `decomp_parity` is not
+a feature, it is a broken test.  The player-facing default lives in
+`viewer_main.c`, next to the window.
+
+Two numbers worth re-measuring if the tuning changes.  **Mean luminance of lit
+pixels** (>8) should hold within a couple of percent between the two captures
+-- if it drifts, the exposure is fighting the ACES curve and the grade reads as
+a brightness change rather than a grade.  **Clipped fraction** (>=250) should
+fall to ~0: that is what the curve is for, and on GrIz it goes 8.42% -> 0.00%.
+
+To isolate the rim light, build with `CINE_RIM` at `0.0f` and diff against the
+normal build; it should change ~5% of pixels with a large maximum, which is a
+silhouette.  A large *fraction* with a small maximum means the host gate has
+stopped working and unlit 2D geometry is being lit.

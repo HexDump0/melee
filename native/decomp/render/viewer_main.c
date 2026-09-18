@@ -108,7 +108,7 @@ static void ifAll_HideHUD_or_show(int hide)
  */
 static int match_view_render_key(SDL_Keycode code)
 {
-    static GxGlOptions opt = { 1, 1, -1, -1, 0, 0, 0 };
+    static GxGlOptions opt = { 1, 1, -1, -1, 0, 0, 0, 1 };
     const char* what;
 
     switch (code) {
@@ -148,10 +148,14 @@ static int match_view_render_key(SDL_Keycode code)
         ifAll_HideHUD_or_show(!ifAll_IsHUDHidden());
         what = ifAll_IsHUDHidden() ? "HUD hidden" : "HUD shown";
         break;
+    case SDLK_F8:
+        opt.cinematic = !opt.cinematic;
+        what = opt.cinematic ? "cinematic on" : "cinematic off (raw GX)";
+        break;
     case SDLK_F6: {
         /* One key back to a clean picture, because a recording that has to be
          * restarted to undo a toggle is a recording nobody makes. */
-        GxGlOptions clean = { 1, 1, -1, -1, 0, 0, 0 };
+        GxGlOptions clean = { 1, 1, -1, -1, 0, 0, 0, 1 };
         opt = clean;
         what = "all render toggles reset";
         break;
@@ -772,6 +776,15 @@ int main(int argc, char** argv)
     v->gl.lighting = 1;
     v->gl.only_draw = -1;
     v->gl.hide_draw = -1;
+    /*
+     * Cinematic on unless asked otherwise.  MELEE_CINEMATIC=0 turns it off
+     * for anyone comparing a frame against a console capture, and --no-
+     * cinematic does the same from the command line; F8 toggles it live.
+     */
+    {
+        const char* cine = getenv("MELEE_CINEMATIC");
+        v->gl.cinematic = (cine == NULL || cine[0] != '0');
+    }
     v->hud = 1;
 
     for (i = 1; (int) i < argc; ++i) {
@@ -843,6 +856,8 @@ int main(int argc, char** argv)
             v->gl.no_cull = 1;
         } else if (strcmp(argv[i], "--no-alpha-test") == 0) {
             v->gl.no_alpha_test = 1;
+        } else if (strcmp(argv[i], "--no-cinematic") == 0) {
+            v->gl.cinematic = 0;
         } else if (strcmp(argv[i], "--no-hud") == 0) {
             v->hud = 0;
         } else if (strcmp(argv[i], "--cycle") == 0 && (int) i + 1 < argc) {

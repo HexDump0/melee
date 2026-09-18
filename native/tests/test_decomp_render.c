@@ -2792,7 +2792,7 @@ int main(int argc, char** argv)
         static const u8 vfilter[7] = { 8, 8, 10, 12, 10, 8, 8 };
         GXSetCopyFilter(GX_FALSE, NULL, GX_TRUE, vfilter);
         GXCopyDisp(NULL, GX_FALSE);
-        if (hide_draw >= 0 || only_draw >= 0) {
+        if (hide_draw >= 0 || only_draw >= 0 || getenv("MELEE_CINEMATIC")) {
             GxGlOptions o;
             o.textures = 1;
             o.lighting = 1;
@@ -2801,6 +2801,13 @@ int main(int argc, char** argv)
             o.wireframe = 0;
             o.no_cull = 0;
             o.no_alpha_test = 0;
+            /* The harness compares pixels, so it renders raw GX.
+             * MELEE_CINEMATIC=1 opts one capture in, which is how the grade
+             * gets measured against the same frame ungraded. */
+            {
+                const char* cine = getenv("MELEE_CINEMATIC");
+                o.cinematic = (cine != NULL && cine[0] == '1');
+            }
             gx_gl_set_options(&o);
         }
         if (!gx_gl_init(opt.width, opt.height, error, sizeof(error))) {
