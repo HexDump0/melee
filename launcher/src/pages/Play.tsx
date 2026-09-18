@@ -127,7 +127,7 @@ export default function Play({
               }}
               title={ready ? undefined : "Set a disc and a port binary first"}
             >
-              ▸ Launch
+              Launch
             </Button>
           )
         }
