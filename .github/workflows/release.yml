@@ -73,38 +73,59 @@ jobs:
 
   port-linux:
     runs-on: ubuntu-latest
+    # Debian, not the Ubuntu runner, and that is the fix rather than a
+    # preference.  **Ubuntu's i386 is a partial architecture** -- it carries
+    # what Wine and 32-bit games need and little else -- so building anything
+    # 32-bit there means discovering one missing `:i386` dev package per CI
+    # run: first `libglib2.0-dev` (via PulseAudio), then Xcursor, then however
+    # many more.  Debian keeps i386 complete, which ends the whole class.
+    #
+    # It also gives an older glibc than the runner's, so the released binary
+    # runs on more distributions rather than fewer.
+    container: debian:bookworm
     steps:
+      # Before checkout: actions/checkout needs git in the container, and
+      # without it the submodules the build depends on are silently skipped.
+      - name: Toolchain and 32-bit dependencies
+        run: |
+          set -eux
+          dpkg --add-architecture i386
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            git ca-certificates curl xz-utils \
+            cmake ninja-build pkg-config gcc-multilib g++-multilib \
+            libgl-dev:i386 libegl-dev:i386 libgles-dev:i386 \
+            libx11-dev:i386 libxext-dev:i386 libxcursor-dev:i386 \
+            libxi-dev:i386 libxrandr-dev:i386 libxfixes-dev:i386 \
+            libxss-dev:i386 libxkbcommon-dev:i386 libdrm-dev:i386 \
+            libasound2-dev:i386
+
+      # One run should tell us everything that is missing, not the first thing.
+      - name: Check the headers the build actually needs
+        run: |
+          missing=""
+          for h in GL/gl.h EGL/egl.h GLES3/gl3.h X11/Xlib.h \
+                   X11/Xcursor/Xcursor.h X11/extensions/Xrandr.h \
+                   alsa/asoundlib.h; do
+            [ -e "/usr/include/$h" ] || missing="$missing $h"
+          done
+          if [ -n "$missing" ]; then
+            echo "missing headers:$missing"
+            exit 1
+          fi
+          echo "all required headers present"
+
       - uses: actions/checkout@v4
         with: { submodules: recursive }
 
-      # 32-bit everything.  gcc-multilib gives -m32; the GL/EGL and audio
-      # headers have to come from the i386 architecture explicitly.
-      #
-      # **Ubuntu's i386 is a partial architecture**, not a full one: it carries
-      # the packages 32-bit games and Wine need and little else.  The first run
-      # of this job died on `libglib2.0-dev:i386`, which has no
-      # `libglib2.0-dev-bin:i386` to satisfy it -- pulled in by
-      # `libpulse-dev:i386`.  PulseAudio and Wayland are both dropped here and
-      # switched off in SDL below, which keeps the i386 surface to things
-      # Ubuntu actually ships.
-      #
-      # The cost is stated rather than hidden: the released Linux binary is
-      # **X11 and ALSA**.  On a Wayland desktop it runs through XWayland, and
-      # PulseAudio/PipeWire users get audio through their ALSA compatibility
-      # layer, which is how most 32-bit games on Linux already work.
-      - name: 32-bit toolchain
-        run: |
-          sudo dpkg --add-architecture i386
-          sudo apt-get update
-          sudo apt-get install -y gcc-multilib g++-multilib cmake ninja-build \
-            libegl1-mesa-dev:i386 libgl1-mesa-dev:i386 \
-            libasound2-dev:i386 libx11-dev:i386 libxext-dev:i386
-
       - name: Build 32-bit SDL3
         run: |
+          set -eux
           curl -sL -o sdl.tar.gz \
             "https://github.com/libsdl-org/SDL/releases/download/release-${SDL_VERSION}/SDL3-${SDL_VERSION}.tar.gz"
           tar xzf sdl.tar.gz
+          # PulseAudio and Wayland stay off: ALSA and X11 are what a 32-bit
+          # game can rely on, and XWayland covers Wayland desktops.
           cmake -S "SDL3-${SDL_VERSION}" -B sdlb -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_FLAGS=-m32 -DCMAKE_CXX_FLAGS=-m32 \
             -DCMAKE_INSTALL_PREFIX=/usr/local \
@@ -116,8 +137,8 @@ jobs:
           grep -q "SDL_VIDEO_DRIVER_X11 1" sdlb/include/build_config/SDL_build_config.h \
             || { echo "SDL3 configured without X11 -- the port cannot open a window"; exit 1; }
           cmake --build sdlb -j"$(nproc)"
-          sudo cmake --install sdlb
-          sudo ldconfig
+          cmake --install sdlb
+          ldconfig
 
       - name: Build the port
         run: |

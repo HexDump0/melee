@@ -131,14 +131,31 @@ runner.
 calls `enable_language(CXX)`, so configuring fails without a C++ cross
 compiler that nothing ever uses.
 
-**Ubuntu's i386 is a partial architecture.** It carries what 32-bit games and
-Wine need and little else, so `libpulse-dev:i386` cannot be installed -- it
-depends on `libglib2.0-dev:i386`, which has no `libglib2.0-dev-bin:i386` to
-satisfy it. PulseAudio and Wayland are dropped and switched off in SDL, which
-makes the released Linux binary **X11 and ALSA**: Wayland desktops run it
-through XWayland and PulseAudio/PipeWire through their ALSA compatibility
-layer, which is how most 32-bit Linux games already work. If that ever needs
-to change, build the Linux job in a Debian container, where i386 is complete.
+**Ubuntu's i386 is a partial architecture**, and that cost two CI runs before
+the right fix was obvious. It carries what Wine and 32-bit games need and
+little else, so building anything 32-bit there means discovering one missing
+`:i386` dev package per run: first `libglib2.0-dev` (pulled in by
+`libpulse-dev`), then `libxcursor-dev`, and however many more were queued
+behind it.
+
+The fix is not a longer package list, it is **Debian**: the job runs in a
+`debian:bookworm` container, where i386 is complete. That ends the class rather
+than the instance, and it has a second benefit -- an older glibc than the
+runner's, so the released binary runs on more distributions rather than fewer.
+
+Two habits that came out of it and are worth keeping:
+
+- **Install before checkout.** `actions/checkout` needs `git` inside the
+  container; without it the submodules are silently skipped and the failure
+  arrives much later, looking like something else.
+- **Check all the headers at once.** A step that verifies every header the
+  build needs (`GL/gl.h`, `EGL/egl.h`, `GLES3/gl3.h`, `X11/Xcursor/Xcursor.h`,
+  …) turns "one missing package per run" into one run that names all of them.
+
+PulseAudio and Wayland stay off regardless, so the released Linux binary is
+**X11 and ALSA**: Wayland desktops run it through XWayland and PulseAudio or
+PipeWire through their ALSA compatibility layer, which is how most 32-bit Linux
+games already work.
 
 The launcher job passed first time, AppImage included -- which is the answer to
 the one thing that could not be checked locally.
