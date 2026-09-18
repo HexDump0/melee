@@ -22,7 +22,15 @@
 
 #include "unbound_abi.h"
 
-#if defined(__wasm__)
+/*
+ * A mod is normally a separate `.wasm`, so its host calls are wasm imports and
+ * its entry points wasm exports.  `UNBOUND_MOD_BUILTIN` says the mod is being
+ * compiled *into* the host instead -- which is how the browser build ships it,
+ * because a page has no loader to hand a second module to (ADR-0026).  The
+ * declarations are then ordinary C: the host defines the imports and calls the
+ * exports directly.
+ */
+#if defined(__wasm__) && !defined(UNBOUND_MOD_BUILTIN)
 #define UNBOUND_IMPORT(name)                                                  \
     __attribute__((import_module("unbound"), import_name(name)))
 #define UNBOUND_EXPORT(name) __attribute__((export_name(name)))

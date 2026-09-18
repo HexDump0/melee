@@ -46,7 +46,10 @@ OUT=${1:-/tmp/melee-wasm-census}
 mkdir -p "$OUT/obj"
 command -v emcc >/dev/null || { echo "emcc not on PATH; source emsdk_env.sh" >&2; exit 1; }
 
-INCS="-I$W/native/decomp/shim -I$W/native -I$W/decomp/src -I$W/decomp/extern/dolphin/include"
+# mods/include carries the Unbound ABI headers.  The mod system is not
+# optional in the browser -- there is no loader, so Unbound is compiled in
+# (ADR-0026) -- and viewer_main.c includes unbound_abi.h unconditionally.
+INCS="-I$W/native/decomp/shim -I$W/native -I$W/decomp/src -I$W/decomp/extern/dolphin/include -I$W/mods/include"
 # -O2 on the *compile* only.  This started as a census script and never passed
 # an optimisation flag, so every browser build until now was -O0, which is why
 # the first in-game report was "too slow" (the native product build is
@@ -83,8 +86,17 @@ SHIM="-include $W/native/decomp/shim/decomp_shim.h"
            platform/disc platform/os platform/gx_vi platform/dvd \
            platform/ar platform/ssm platform/sem platform/hps \
            platform/complete platform/card platform/pad_card \
-           audio/ax_hle audio/ax_mixer decomp/fonts platform/misc; do
+           audio/ax_hle audio/ax_mixer decomp/fonts platform/misc \
+           mod/mod mod/mod_cobj mod/mod_menu mod/mod_opening \
+           mod/mod_builtin; do
     echo "$W/native/$f.c"
+  done
+  # Unbound itself.  The desktop build hands WAMR a .wasm from mods/; a page
+  # has no loader for a second module, so the browser compiles the mod in and
+  # binds it through mod_builtin.c (ADR-0026).  mod_wasm.c is deliberately
+  # absent -- there is no WAMR here.
+  for f in unbound widescreen credits; do
+    echo "$W/mods/unbound/src/$f.c"
   done
 } | sort -u > "$OUT/sources.txt"
 
@@ -97,8 +109,30 @@ while read -r src; do
     */melee/gm/gmmain.c)  extra="-Dmain=gm_main" ;;
     */baselib/archive.c|*/assets/hsd_convert.c) extra="-DMELEE_ARCHIVE_INTERNAL=1" ;;
   esac
+  # The shim renames the functions the mod layer interposes, so both sides of
+  # each pair -- the decomp TU that defines the real one and the interposer
+  # that defines the renamed one -- must be compiled with the rename off.
+  # These mirror the set_source_files_properties() lines in CMakeLists.txt;
+  # when one moves, so does the other.
+  case "$src" in
+    */baselib/cobj.c)     extra="$extra -DMELEE_COBJ_INTERNAL=1" ;;
+    */baselib/jobj.c)     extra="$extra -DMELEE_JOBJ_INTERNAL=1" ;;
+    */baselib/sislib.c)   extra="$extra -DMELEE_SISLIB_INTERNAL=1" ;;
+    */melee/lb/lbmthp.c)  extra="$extra -DMELEE_MTHP_INTERNAL=1" ;;
+    */melee/gm/gm_1A36.c) extra="$extra -DMELEE_GM_INPUT_INTERNAL=1" ;;
+    */melee/lb/lbaudio_ax.c) extra="$extra -DMELEE_AUDIO_AX_INTERNAL=1" ;;
+    */mod/mod_cobj.c)     extra="$extra -DMELEE_COBJ_INTERNAL=1" ;;
+    */mod/mod_menu.c)
+      extra="$extra -DMELEE_JOBJ_INTERNAL=1 -DMELEE_SISLIB_INTERNAL=1" ;;
+    */mod/mod_opening.c)
+      extra="$extra -DMELEE_MTHP_INTERNAL=1 -DMELEE_GM_INPUT_INTERNAL=1 -DMELEE_AUDIO_AX_INTERNAL=1" ;;
+  esac
   case "$src" in
     */viewer_*.c|*/sdl_audio.c) extra="$extra -DMELEE_SHIM_REAL_STDBOOL" ;;
+  esac
+  case "$src" in
+    */mods/unbound/src/*.c|*/mod/mod_builtin.c)
+      extra="$extra -DUNBOUND_MOD_BUILTIN=1" ;;
   esac
   # shellcheck disable=SC2086
   emcc -c "$src" -o "$obj" --use-port=sdl3 $INCS $BASE $extra $SHIM 2>"$OUT/err" \
