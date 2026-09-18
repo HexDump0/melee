@@ -83,6 +83,60 @@ static void usage(const char* argv0)
 MatchView match_view;
 
 /*
+ * Render toggles for the running game (P-858).
+ *
+ * The development viewer has had these on letter keys since S2, but the retail
+ * frontend -- the thing anyone actually plays or records -- handled only ESC.
+ * They are on function keys here because the letters are gameplay input: `Z`
+ * is A, `X` is B, `C` is X.
+ *
+ * Every one of them is presentation only.  They set `GxGlOptions`, which the
+ * GL backend consults while drawing; nothing reaches the engine, so a capture
+ * made with wireframe on is the same match as one made without it.
+ */
+static int match_view_render_key(SDL_Keycode code)
+{
+    static GxGlOptions opt = { 1, 1, -1, -1, 0, 0, 0 };
+    const char* what;
+
+    switch (code) {
+    case SDLK_F1:
+        opt.wireframe = !opt.wireframe;
+        what = opt.wireframe ? "wireframe on" : "wireframe off";
+        break;
+    case SDLK_F2:
+        opt.textures = !opt.textures;
+        what = opt.textures ? "textures on" : "textures off";
+        break;
+    case SDLK_F3:
+        opt.lighting = !opt.lighting;
+        what = opt.lighting ? "lighting on" : "lighting off (flat)";
+        break;
+    case SDLK_F4:
+        opt.no_cull = !opt.no_cull;
+        what = opt.no_cull ? "backfaces shown" : "backfaces culled";
+        break;
+    case SDLK_F5:
+        opt.no_alpha_test = !opt.no_alpha_test;
+        what = opt.no_alpha_test ? "alpha test off" : "alpha test on";
+        break;
+    case SDLK_F6: {
+        /* One key back to a clean picture, because a recording that has to be
+         * restarted to undo a toggle is a recording nobody makes. */
+        GxGlOptions clean = { 1, 1, -1, -1, 0, 0, 0 };
+        opt = clean;
+        what = "all render toggles reset";
+        break;
+    }
+    default:
+        return 0;
+    }
+    gx_gl_set_options(&opt);
+    fprintf(stderr, "[render] %s\n", what);
+    return 1;
+}
+
+/*
  * Frontend input
  * ---------------
  * Live mode maps the keyboard to PAD channel 0 (Enter/Start, Z/A, X/B, C/X,
@@ -158,6 +212,10 @@ static void match_present(void)
                    e.key.key == SDLK_ESCAPE)
         {
             match_view.quit = 1;
+        } else if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat &&
+                   match_view_render_key(e.key.key))
+        {
+            /* handled: a render toggle, not game input */
         } else if (e.type == SDL_EVENT_WINDOW_RESIZED ||
                    e.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)
         {

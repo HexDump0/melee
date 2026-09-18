@@ -185,6 +185,25 @@ where they are actually deflected -- an idle pad never zeroes the keyboard.
 Ports 3 and 4 are gamepad-only.  Each pad prints `viewer: port N = <name>` when
 it opens, and hot-plug is handled through `SDL_EVENT_GAMEPAD_ADDED/REMOVED`.
 
+## Render toggles while the game runs (P-858)
+
+Function keys in the retail frontend, for captures and for looking at what the
+renderer is doing without leaving the match:
+
+| Key | Toggle |
+|---|---|
+| F1 | wireframe |
+| F2 | textures |
+| F3 | lighting (off = flat raster colour) |
+| F4 | backface culling |
+| F5 | alpha test |
+| F6 | reset all of the above |
+
+They set `GxGlOptions` only; nothing reaches the engine, so a capture made
+with wireframe on is the same match as one made without it.  Each press prints
+a `[render]` line.  The letters are gameplay input (`Z` is A, `X` is B), which
+is why these are on function keys.
+
 ## Boss-intro camera (P-847)
 
 ```sh
