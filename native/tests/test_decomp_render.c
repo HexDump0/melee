@@ -1101,6 +1101,137 @@ static int efb_test(void)
         fail = 1;
     }
 
+    /* ---- pass 2b: P-846 a Z-texture draw still runs its TEV ----
+     * `GXSetZTexture` replaces the fragment depth; it does not replace the
+     * colour.  The Classic team-battle splash proves both halves of that:
+     * `HSD_SObjLib_803A4A68`'s secondary-image branch draws the captured
+     * opponent with TEXMAP0 as the colour and TEXMAP1 as the Z source, two
+     * TEV stages, and **no colour attribute in the vertex description** --
+     * so a depth-only pass that emits the vertex colour paints it black, and
+     * one that takes the Z from the first stage feeds it the colour texture.
+     * This pass reproduces that draw: a green texture over a Z8 texture whose
+     * left half is near and right half far, against a depth buffer primed to
+     * the middle.  Left must come out green (near passes GX_LESS), right must
+     * stay red (far fails) -- which is only true if the colour came from the
+     * TEV and the depth from the *last* stage. */
+    {
+        static unsigned char z8_split[32];  /* 8x4 GX_TF_Z8 */
+        static unsigned char green4[32];    /* 4x4 GX_TF_RGB5A3 */
+        GXTexObj ctex;
+        GXTexObj zsplit;
+        GXColor red = { 0xFF, 0x00, 0x00, 0xFF };
+        unsigned char left[4] = { 0, 0, 0, 0 };
+        unsigned char right[4] = { 0, 0, 0, 0 };
+        int x, y;
+
+        /* I8/Z8 tiling: (y % 4) * 8 + (x % 8) inside one 8x4 tile. */
+        for (y = 0; y < 4; ++y) {
+            for (x = 0; x < 8; ++x) {
+                z8_split[y * 8 + x] = (unsigned char) (x < 4 ? 0x00 : 0xFF);
+            }
+        }
+        /* RGB5A3 opaque green, one 4x4 tile: (y % 4) * 8 + (x % 4) * 2. */
+        for (y = 0; y < 4; ++y) {
+            for (x = 0; x < 4; ++x) {
+                size_t off = (size_t) y * 8 + (size_t) x * 2;
+                green4[off] = 0x83;
+                green4[off + 1] = 0xE0;
+            }
+        }
+
+        gx_hle_begin_frame();
+        gx_hle_reset_state();
+        GXSetProjection((f32(*)[4]) identity, GX_PERSPECTIVE);
+        GXSetNumChans(1);
+        GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX,
+                      GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
+        GXSetCullMode(GX_CULL_NONE);
+        GXSetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_CLEAR);
+        GXSetAlphaCompare(GX_ALWAYS, 0, GX_AOP_OR, GX_ALWAYS, 0);
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+        GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
+
+        /* Prime colour to red and depth to the middle (NDC z 0 -> 0.5). */
+        GXSetNumTexGens(0);
+        GXSetNumTevStages(1);
+        GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL,
+                      GX_COLOR0A0);
+        GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+        GXSetZMode(GX_TRUE, GX_ALWAYS, GX_TRUE);
+        GXSetColorUpdate(GX_TRUE);
+        GXClearVtxDesc();
+        GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+        GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+        GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+        GXPosition3f32(-1.0f, -1.0f, 0.0f);
+        GXColor4u8(red.r, red.g, red.b, red.a);
+        GXPosition3f32(1.0f, -1.0f, 0.0f);
+        GXColor4u8(red.r, red.g, red.b, red.a);
+        GXPosition3f32(1.0f, 1.0f, 0.0f);
+        GXColor4u8(red.r, red.g, red.b, red.a);
+        GXPosition3f32(-1.0f, 1.0f, 0.0f);
+        GXColor4u8(red.r, red.g, red.b, red.a);
+
+        /* The splash sprite's draw, minus the sprite. */
+        GXInitTexObj(&ctex, green4, 4, 4, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP,
+                     GX_FALSE);
+        GXInitTexObj(&zsplit, z8_split, 8, 4, GX_TF_Z8, GX_CLAMP, GX_CLAMP,
+                     GX_FALSE);
+        GXLoadTexObj(&ctex, GX_TEXMAP0);
+        GXLoadTexObj(&zsplit, GX_TEXMAP1);
+        GXSetNumTexGens(1);
+        GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY,
+                          GX_NONE, GX_PTIDENTITY);
+        GXSetNumTevStages(2);
+        GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
+        GXSetTevOp(GX_TEVSTAGE0, GX_REPLACE);
+        GXSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD0, GX_TEXMAP1, GX_COLOR0A0);
+        GXSetTevColorIn(GX_TEVSTAGE1, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO,
+                        GX_CC_CPREV);
+        GXSetTevColorOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1,
+                        GX_TRUE, GX_TEVPREV);
+        GXSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO,
+                        GX_CA_APREV);
+        GXSetTevAlphaOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1,
+                        GX_TRUE, GX_TEVPREV);
+        GXSetZTexture(GX_ZT_REPLACE, GX_TF_Z8, 0);
+        GXSetZMode(GX_TRUE, GX_LESS, GX_FALSE);
+        /* Position and one texcoord, no colour -- as the sprite draws. */
+        GXClearVtxDesc();
+        GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+        GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+        GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+        GXPosition3f32(-1.0f, -1.0f, 0.9f);
+        GXTexCoord2f32(0.0f, 1.0f);
+        GXPosition3f32(1.0f, -1.0f, 0.9f);
+        GXTexCoord2f32(1.0f, 1.0f);
+        GXPosition3f32(1.0f, 1.0f, 0.9f);
+        GXTexCoord2f32(1.0f, 0.0f);
+        GXPosition3f32(-1.0f, 1.0f, 0.9f);
+        GXTexCoord2f32(0.0f, 0.0f);
+        GXSetZTexture(GX_ZT_DISABLE, GX_TF_Z8, 0);
+
+        if (gx_gl_render_frame() < 0) {
+            printf("efb: FAIL render_frame (ztex TEV)\n");
+            return 0;
+        }
+        glReadPixels(160, 240, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, left);
+        glReadPixels(480, 240, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, right);
+        if (!(left[1] > 200 && left[0] < 60)) {
+            printf("efb: FAIL ztex colour left=%u,%u,%u (want the green "
+                   "texture, not the vertex colour)\n",
+                   left[0], left[1], left[2]);
+            fail = 1;
+        }
+        if (!(right[0] > 200 && right[1] < 60)) {
+            printf("efb: FAIL ztex depth right=%u,%u,%u (want red: the far "
+                   "half of the last stage's Z texture must fail GX_LESS)\n",
+                   right[0], right[1], right[2]);
+            fail = 1;
+        }
+    }
+
     /* ---- pass 3: GX_CTF_R4 EFB copy (HSD's shadow map) ---- */
     {
         static unsigned char copy4[32]; /* 8x8 px, 4-bit tiled */

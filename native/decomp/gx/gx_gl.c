@@ -219,11 +219,8 @@ static GLint u_fog_width;
 static GLint u_depth_near;
 static GLint u_tex_enable;
 static GLint u_ras_flat;
-static GLuint ztex_program;
-static GLint u_ztex_sampler;
-static GLint u_ztex_op_loc;
-static GLint u_ztex_bias_loc;
-static GLint u_ztex_color_loc;
+static GLint u_ztex_op_main;
+static GLint u_ztex_bias_main;
 static GLuint display_filter_program;
 static GLint u_display_filter_sampler;
 static GLint u_display_filter_step;
@@ -672,29 +669,6 @@ static const char* VERTEX_SRC =
     "    v_dist = -a_view.z;\n"
     "}\n";
 
-static const char* ZTEX_FRAGMENT_SRC =
-    "#version 300 es\n"
-    "precision highp float;\n"
-    "uniform sampler2D u_ztex;\n"
-    "uniform int u_ztex_op;\n"
-    "uniform float u_ztex_bias;\n"
-    "uniform int u_ztex_color;\n"
-    "in vec3 v_uv0;\n"
-    "in vec4 v_color;\n"
-    "out vec4 frag;\n"
-    "void main() {\n"
-    "    vec2 uv = v_uv0.z == 0.0 ? clamp(v_uv0.xy / 2.0, vec2(-1.0), vec2(1.0)) : v_uv0.xy / v_uv0.z;\n"
-    "    float z = texture(u_ztex, uv).r;\n"
-    "    if (u_ztex_op == 2) gl_FragDepth = clamp(z + u_ztex_bias, 0.0, 1.0);\n"
-    "    else gl_FragDepth = clamp(gl_FragCoord.z + z + u_ztex_bias, 0.0, 1.0);\n"
-    "    /* GXSetZTexture replaces depth, but the TEV colour still reaches the\n"
-    "     * framebuffer when the draw updates colour -- the screen erase\n"
-    "     * (displayfunc.c) paints the erase colour this way.  Melee's only\n"
-    "     * colour-writing Z-texture draws use mat_src = VTX with a passthrough\n"
-    "     * TEV, so the vertex colour is the TEV output there. */\n"
-    "    frag = u_ztex_color != 0 ? vec4(v_color.rgb, 1.0) : vec4(0.0);\n"
-    "}\n";
-
 /* Melee renders a deliberately dithered EFB, then asks GXCopyDisp for the
  * NTSC deflicker filter.  GX groups its seven coefficients as 2/3/2 weights
  * over the previous/current/next rows.  Keeping that in a post-pass preserves
@@ -775,6 +749,9 @@ static const char* FRAGMENT_SRC =
     "uniform int u_dst_alpha_enable;\n"
     "uniform float u_dst_alpha;\n"
     "uniform int u_ras_flat;\n"
+    "/* GXSetZTexture: 0 = disabled, 1 = GX_ZT_ADD, 2 = GX_ZT_REPLACE. */\n"
+    "uniform int u_ztex_op;\n"
+    "uniform float u_ztex_bias;\n"
     "uniform ivec2 u_ind_order[4];\n"
     "uniform vec2 u_ind_scale[4];\n"
     "uniform vec4 u_ind_mtx0[4];\n"
@@ -1083,6 +1060,24 @@ static const char* FRAGMENT_SRC =
     "    /* GXSetDstAlpha replaces the framebuffer alpha after the TEV chain. */\n"
     "    if (u_dst_alpha_enable != 0) color.a = u_dst_alpha;\n"
     "    frag_color = color;\n"
+    "    /* P-846: the Z texture comes from the **last** TEV stage, and it\n"
+    "     * replaces only the depth -- the TEV still decides the colour.  A\n"
+    "     * separate depth-only program cannot do that, which is how the\n"
+    "     * Classic team-battle splash's sprites came out black. */\n"
+    "    if (u_ztex_op != 0) {\n"
+    "        int last = u_stages > 0 ? u_stages - 1 : 0;\n"
+    "        ivec4 zord = u_tev_order[last];\n"
+    "        if (u_tex_enable != 0 && zord.y != 255) {\n"
+    "            float z = gx_sample_map(zord.y, gx_coord_uv(zord.x)).r;\n"
+    "            gl_FragDepth = clamp(u_ztex_op == 2 ? z + u_ztex_bias\n"
+    "                                 : gl_FragCoord.z + z + u_ztex_bias,\n"
+    "                                 0.0, 1.0);\n"
+    "        } else {\n"
+    "            gl_FragDepth = gl_FragCoord.z;\n"
+    "        }\n"
+    "    } else {\n"
+    "        gl_FragDepth = gl_FragCoord.z;\n"
+    "    }\n"
     "}\n";
 
 static GLuint compile_shader(GLenum type, const char* src)
@@ -1159,6 +1154,8 @@ static int build_program(char* error, size_t error_size)
     u_depth_near = glGetUniformLocation(program, "u_depth_near");
     u_tex_enable = glGetUniformLocation(program, "u_tex_enable");
     u_ras_flat = glGetUniformLocation(program, "u_ras_flat");
+    u_ztex_op_main = glGetUniformLocation(program, "u_ztex_op");
+    u_ztex_bias_main = glGetUniformLocation(program, "u_ztex_bias");
 
 
     u_tex_lod_bias = glGetUniformLocation(program, "u_tex_lod_bias");
@@ -1189,32 +1186,6 @@ static int build_program(char* error, size_t error_size)
     u_tex_size = glGetUniformLocation(program, "u_tex_size");
     u_coord_srtg = glGetUniformLocation(program, "u_coord_srtg");
 
-    /* P-615: the Z-texture pass is a small dedicated program; writing
-     * gl_FragDepth from the big TEV shader is ignored on Mesa/radeonsi. */
-    {
-        GLuint zvs = compile_shader(GL_VERTEX_SHADER, VERTEX_SRC);
-        GLuint zfs = compile_shader(GL_FRAGMENT_SHADER, ZTEX_FRAGMENT_SRC);
-        if (zvs != 0 && zfs != 0) {
-            ztex_program = glCreateProgram();
-            glAttachShader(ztex_program, zvs);
-            glAttachShader(ztex_program, zfs);
-            glLinkProgram(ztex_program);
-            glGetProgramiv(ztex_program, GL_LINK_STATUS, &ok);
-            if (!ok) {
-                char log[2048];
-                glGetProgramInfoLog(ztex_program, sizeof(log), NULL, log);
-                fprintf(stderr, "gx_gl: ztex link failed: %.200s\n", log);
-                ztex_program = 0;
-            }
-            glDeleteShader(zvs);
-            glDeleteShader(zfs);
-            u_ztex_sampler = glGetUniformLocation(ztex_program, "u_ztex");
-            u_ztex_op_loc = glGetUniformLocation(ztex_program, "u_ztex_op");
-            u_ztex_bias_loc = glGetUniformLocation(ztex_program, "u_ztex_bias");
-            u_ztex_color_loc =
-                glGetUniformLocation(ztex_program, "u_ztex_color");
-        }
-    }
     {
         GLuint dvs =
             compile_shader(GL_VERTEX_SHADER, DISPLAY_FILTER_VERTEX_SRC);
@@ -2327,6 +2298,8 @@ static void upload_draw_uniforms(const GxHleDrawState* s)
     UNI_1F(u_point_size, gx_raster_size(s->point_size));
     UNI_1I(u_tex_enable, gl_options.textures);
     UNI_1I(u_ras_flat, !gl_options.lighting);
+    UNI_1I(u_ztex_op_main, s->ztex_op);
+    UNI_1F(u_ztex_bias_main, s->ztex_bias);
     UNI_1I(u_dst_alpha_enable, s->dst_alpha_enable);
     UNI_1F(u_dst_alpha, (GLfloat) s->dst_alpha / 255.0f);
 
@@ -2884,36 +2857,6 @@ static void efb_copy_tex(const GxHleDraw* d)
     efb_clear_after_copy(d, src_x, gl_y, src_w, src_h);
 }
 
-/* P-615: depth-only Z-texture pass (GX_ZT_REPLACE/ADD). */
-static void draw_ztex(const GxHleDraw* d, const GxHleDrawState* s,
-                      const GxHleTexture* textures, size_t texture_count)
-{
-    GLuint tex = 0;
-    int i;
-
-    for (i = 0; i < s->num_stages && i < GX_HLE_MAX_STAGES; i++) {
-        int map = s->stages[i].order_map;
-        if (map >= 0 && map < 8) {
-            if (s->texmap[map] >= 0 &&
-                (size_t) s->texmap[map] < texture_count) {
-                tex = texture_for(&textures[s->texmap[map]]);
-            }
-            break;
-        }
-    }
-    glUseProgram(ztex_program);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, tex);
-    glUniform1i(u_ztex_sampler, 0);
-    glUniform1i(u_ztex_op_loc, (int) s->ztex_op);
-    glUniform1f(u_ztex_bias_loc, s->ztex_bias);
-    glUniform1i(u_ztex_color_loc, (int) s->color_update);
-    apply_viewport(s);
-    apply_draw_state(s);
-    glDrawArrays(GL_TRIANGLES, (GLint) d->first_vertex,
-                 (GLsizei) d->vertex_count);
-}
-
 static void apply_display_filter(void)
 {
     unsigned char gx_weights[7];
@@ -3046,13 +2989,6 @@ int gx_gl_render_frame(void)
         }
         if (d->kind == GX_HLE_DRAW_COPY_TEX) {
             efb_copy_tex(d);
-            have_applied_state = 0;
-            tex_units_invalidate();
-            continue;
-        }
-        if (d->vertex_count != 0 && s->ztex_op != 0 && ztex_program != 0) {
-            draw_ztex(d, s, textures, texture_count);
-            glUseProgram(program);
             have_applied_state = 0;
             tex_units_invalidate();
             continue;

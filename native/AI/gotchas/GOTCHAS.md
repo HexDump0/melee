@@ -4727,3 +4727,44 @@ copy that is **more than one tile** and put a guard band past
 trips the copy through `gx_texture_decode`, which is the authority for the
 layout. Formats with a 32-byte tile were right all along; only the two
 64-byte ones have two halves to get out of step. P-843.
+
+## G-221: a Z-texture draw still has a colour, and its Z comes from the *last* stage
+
+`GXSetZTexture` replaces the fragment's depth. It does **not** replace the
+fragment's colour, and it does not turn the TEV off. The port had it as a
+dedicated depth-only program (`draw_ztex`) that every draw with
+`ztex_op != 0` was diverted to, whose fragment shader ended:
+
+```glsl
+frag = u_ztex_color != 0 ? vec4(v_color.rgb, 1.0) : vec4(0.0);
+```
+
+-- the **vertex** colour, on the stated assumption that "Melee's only
+colour-writing Z-texture draws use mat_src = VTX with a passthrough TEV".
+
+`HSD_SObjLib_803A4A68`'s secondary-image branch is the counter-example, and it
+is what the Classic team-battle VS splash draws with: TEXMAP0 is the captured
+opponent, TEXMAP1 is the captured depth, there are two TEV stages, and
+`GXClearVtxDesc` leaves the draw with a position and one texcoord and **no
+colour attribute at all**. So the ten sprites painted `vec4(0,0,0,1)` -- the
+owner's report was "the vs screen right side is just black".
+
+The same pass also took the Z from the **first** stage's texmap. GX takes it
+from the last, which on that draw is the difference between the depth capture
+and the colour capture. Single-stage users -- the `displayfunc.c` screen erase
+that the pass was written for -- hit neither bug, which is how it survived.
+
+**Two general lessons.**
+
+1. **A special-cased pass that throws away the TEV is a bet that no future
+   draw needs it.** The fix is the shader the rest of the renderer already
+   has: the main program writes `gl_FragDepth` from the last stage's texture
+   when `u_ztex_op != 0`, and the TEV decides the colour as it does for
+   everything else. The dedicated program is gone.
+2. **"The driver ignores it" deserves a re-measurement before it becomes
+   architecture.** The old comment read "writing gl_FragDepth from the big TEV
+   shader is ignored on Mesa/radeonsi". On Mesa 26.1.6 / radeonsi it is not
+   ignored: the depth-erase test that justified the separate program passes
+   unchanged through the main shader. Early-Z was not a reason to keep it
+   either -- the shader already contains an unconditional `discard` for the
+   alpha test, so it had no early-Z to lose. P-846.

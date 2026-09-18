@@ -1,5 +1,20 @@
 # State of the port
 
+> **Z-texture draws lost their colour, and the Classic team-battle splash was
+> the one that noticed (2026-09-18, P-846, G-221).** `GXSetZTexture` replaces
+> the depth, not the colour, but the port sent every `ztex_op != 0` draw to a
+> depth-only program that emitted the **vertex** colour and took its Z from the
+> **first** TEV stage. The splash's ten sprites draw with no colour attribute
+> at all and with the depth capture on the *second* stage, so they came out
+> black -- the owner's "the vs screen right side is just black". The main
+> shader now writes `gl_FragDepth` itself and the TEV decides the colour, as
+> the hardware does; the dedicated program is deleted. The comment that
+> justified it -- "writing gl_FragDepth from the big TEV shader is ignored on
+> Mesa/radeonsi" -- does not hold on Mesa 26.1.6, and the shader already had
+> an unconditional `discard`, so there was no early-Z to lose. A new `--efb`
+> pass reproduces the sprite's exact draw and measures both halves of the old
+> behaviour.
+
 > **Race to the Finish panicked on entry, and it was the last stage on the raw
 > fallback that anyone had hit (2026-09-18, P-845).** `GrNPo.dat` matched no
 > `stage_param_markers` entry, so its `yakumono_param` stayed big-endian --
