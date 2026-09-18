@@ -1849,6 +1849,68 @@ static void report_bad_proc(const HSD_GObjProc* proc, const HSD_GObj* gobj,
                      (unsigned) gm_GetCurrentSceneIndex());
 }
 
+/* The proc walk below cannot see everything.  P-843's dump had **two**
+ * fighter gobjs on GX link 5 -- `p_link=8`,
+ * `remove_fn=Fighter_Unload_8006DABC`, so real fighters, not the menu
+ * widgets G-219 is about -- whose `Fighter` was gone: one with
+ * `fp->gobj = 0xffffffff` and one whose `user_data` was `0xffffffff`
+ * outright.  Neither carried a proc any more, so neither would ever have
+ * tripped a proc-keyed check, and both were still on the link the engine
+ * draws from.
+ *
+ * `0xffffffff` in `fp->gobj` is worth saying out loud: a `Fighter` released
+ * through `HSD_ObjFree` has the pool's **free-list link** in that word, which
+ * is a live pointer into `fighter_alloc_data`.  `0xffffffff` is not that.
+ * The memory was written over, not merely freed. */
+static void check_gx_fighters(unsigned* reports)
+{
+    HSD_GObj* gobj;
+    unsigned n = 0;
+
+    if (HSD_GObjGXLinkHead == NULL) {
+        return;
+    }
+    for (gobj = HSD_GObjGXLinkHead[5]; gobj != NULL && n < 64 && *reports < 16;
+         gobj = gobj->next_gx, n++)
+    {
+        const Fighter* fp;
+        char sym[128];
+        if (!mem1_ok(gobj, sizeof(*gobj)) ||
+            gobj->classifier != HSD_GOBJ_CLASS_FIGHTER ||
+            gobj->user_data == NULL)
+        {
+            continue;
+        }
+        /* Only the real thing: p_link 8 and the fighter destructor.  A menu
+         * widget shares the classifier but neither of those (G-219). */
+        if (gobj->p_link != 8 ||
+            gobj->user_data_remove_func != Fighter_Unload_8006DABC)
+        {
+            continue;
+        }
+        if (fighter_gobj_ok(gobj)) {
+            continue;
+        }
+        (*reports)++;
+        fp = (const Fighter*) gobj->user_data;
+        boot_triage_symbol((const void*) (uintptr_t)
+                               gobj->user_data_remove_func,
+                           sym, sizeof(sym));
+        boot_triage_note("[gobj-watch] frame %u: dead Fighter still on GX "
+                         "link 5 -- gobj=%p user_data=%p fp->gobj=%p\n",
+                         frame, (void*) gobj, gobj->user_data,
+                         mem1_ok(fp, sizeof(*fp)) ? (const void*) fp->gobj
+                                                  : NULL);
+        boot_triage_note("[gobj-watch]   p_link=%u gx_link=%u kind=%u "
+                         "remove_fn=%s proc=%p mode=%u scene=%u\n",
+                         (unsigned) gobj->p_link, (unsigned) gobj->gx_link,
+                         (unsigned) gobj->user_data_kind, sym,
+                         (void*) gobj->proc,
+                         (unsigned) gm_GetCurrentGameMode(),
+                         (unsigned) gm_GetCurrentSceneIndex());
+    }
+}
+
 static void check_gobj_watch(void)
 {
     static unsigned reports;
@@ -1868,6 +1930,7 @@ static void check_gobj_watch(void)
     if ((frame % (unsigned) gobj_watch) != 0) {
         return;
     }
+    check_gx_fighters(&reports);
     for (s = 0; s <= (unsigned) HSD_GObjLibInitData.gproc_pri_max; s++) {
         const HSD_GObjProc* proc;
         unsigned n = 0;
@@ -1914,6 +1977,50 @@ static void check_gobj_watch(void)
              * be here; `ftdemo.c`'s demo fighters used to inherit stack
              * garbage instead (P-843).  Checking it here is how that fix
              * stays fixed. */
+            /* **Three fields of a live `Fighter` come back as `0xFFFFFFFF`
+             * on the screen the P-843 crashes happen on**, while everything
+             * around them stays sane: `ground_or_air` (+0xE0),
+             * `gr_vel` (+0xEC) and `item_gobj` (+0x1974).  The last one is
+             * what kills it -- `Fighter_8006A360` guards the call with
+             * `if (fp->item_gobj)`, which `0xFFFFFFFF` passes, and
+             * `itGetKind` then reads `+0x2C` off it: `0xFFFFFFFF + 0x2C`
+             * wraps to **`0x2b`**, the reported fault address.
+             *
+             * None of the three can be left over from creation.
+             * `ftDemo_CreateFighter` calls `Fighter_UnkProcessDeath_80068354`
+             * unconditionally (ftdemo.c:161) and that calls
+             * `Fighter_UnkInitReset_80067C98`, which sets `item_gobj = 0`.
+             * So they are **written after the fighter is built**, and the
+             * frame that happens on is the thing five reports have not had.
+             *
+             * `ground_or_air` is a 4-byte enum that is only ever `GA_Ground`
+             * or `GA_Air`, and `gr_vel` is a speed -- neither has a legal
+             * NaN or -1. */
+            if (is_fighter_proc(proc->on_invoke)) {
+                const Fighter* fp = (const Fighter*) gobj->user_data;
+                int ga = (int) fp->ground_or_air;
+                if (ga != 0 && ga != 1) {
+                    reports++;
+                    report_bad_proc(proc, gobj, s, "Fighter::ground_or_air "
+                                                   "is neither ground nor "
+                                                   "air");
+                    boot_triage_note("[gobj-watch]   ground_or_air=%d "
+                                     "gr_vel=%g item_gobj=%p\n",
+                                     ga, (double) fp->gr_vel,
+                                     (const void*) fp->item_gobj);
+                    continue;
+                }
+                if (fp->item_gobj != NULL &&
+                    !mem1_ok(fp->item_gobj, sizeof(*gobj)))
+                {
+                    reports++;
+                    report_bad_proc(proc, gobj, s,
+                                    "Fighter::item_gobj is not a gobj");
+                    boot_triage_note("[gobj-watch]   item_gobj=%p\n",
+                                     (const void*) fp->item_gobj);
+                    continue;
+                }
+            }
             if (is_fighter_proc(proc->on_invoke)) {
                 const Fighter* fp = (const Fighter*) gobj->user_data;
                 int slot = (int) fp->x61C;
