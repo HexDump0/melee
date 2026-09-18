@@ -178,7 +178,7 @@ if [ "${1:-}" = "--run-one" ]; then
     # `timeout` is a backstop only: melee_decomp_boot arms its own SIGALRM at
     # --boot-timeout and reports a backtrace from it, which is far more useful
     # than an outside kill.  Give the inside alarm 30 s of room to win.
-    MELEE_NO_CARD=1 MELEE_RNG_SEED="$seed" \
+    MELEE_NO_CARD=1 MELEE_NO_OPENING=1 MELEE_RNG_SEED="$seed" \
     MELEE_MATCH_P0="$p0" MELEE_MATCH_P1="$p1" MELEE_MATCH_STAGE="$stage" \
     MELEE_MATCH_ITEMS="${MELEE_SOAK_ITEMS:--2}" \
         timeout -k 5 "$((timeout_s + 30))" \
@@ -499,7 +499,7 @@ while IFS=$'\t' read -r count key tag_str; do
         "$work/results.tsv")
     echo
     printf 'soak: %s (x%d)\n' "$key" "$count"
-    printf 'soak:   repro: MELEE_NO_CARD=1 MELEE_RNG_SEED=%s \\\n' "$r_seed"
+    printf 'soak:   repro: MELEE_NO_CARD=1 MELEE_NO_OPENING=1 MELEE_RNG_SEED=%s \\\n' "$r_seed"
     if [ "$r_p0" != "-1" ] || [ "$r_stage" != "-1" ]; then
         printf 'soak:              MELEE_MATCH_P0=%s MELEE_MATCH_P1=%s MELEE_MATCH_STAGE=%s \\\n' \
             "$r_p0" "$r_p1" "$r_stage"

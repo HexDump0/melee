@@ -17,7 +17,8 @@ rm -rf "$work"
 mkdir -p "$work"
 
 run() {
-    MELEE_CARD_DIR="$work" SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy \
+    MELEE_NO_OPENING=1 MELEE_CARD_DIR="$work" \
+        SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy \
         "$melee" --frontend --no-items --input "$input" --frames 400 \
         --shot "$work/$1.bmp" >"$work/$1.log" 2>&1
 }

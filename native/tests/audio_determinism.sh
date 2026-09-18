@@ -10,7 +10,8 @@ work="$2"
 mkdir -p "$work"
 
 run() {
-    "$boot" --boot-frames 300 --boot-timeout 60 --boot-match 20 \
+    MELEE_NO_OPENING=1 \
+        "$boot" --boot-frames 300 --boot-timeout 60 --boot-match 20 \
         --audio-dump "$work/$1.wav" --boot-log "$work/$1.log" >/dev/null 2>&1
     grep -o 'audio: frames=[0-9]* hash=[0-9a-f]*' "$work/$1.log"
 }

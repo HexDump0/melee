@@ -246,6 +246,34 @@ retail-DOL method for deciding each site, and the current verdict table are in
 `learnings/decomp_port.md` ("P-695 missing-`return` census").  Use a real
 compile, not `-fsyntax-only` (it finds 8 of 45).
 
+## The opening movie, and why every harness skips it (P-844)
+
+The product boots the way the console does: a cold boot returns reset code 0,
+`skip_intro` stays false and `bootOnLoad` enters `GM_OPENING_MV`, so
+`./build/native/melee` plays `MvOpen.mth` before the title.  (With no save on
+the card the game's own `lbCardGame_DecideGameMode` override sends the boot to
+`GM_MEMCARD` first, exactly as it does on hardware — the movie is what you get
+once a save exists.)
+
+**`MELEE_NO_OPENING=1` takes the reset-to-menu boot instead** (reset code
+`0x80000000` -> `GM_TITLE`), and every harness wants it: the frontend input
+scripts, the title probe's frame-400 window and the match tests' frame-600
+position all count frames from the boot, and the movie shifts all of them.
+`CMakeLists.txt` pins it for the whole suite next to `MELEE_RNG_SEED`, and the
+shell harnesses set it themselves so they also work when run by hand.  Empty
+and `0` count as unset, which is how `frontend_opening.sh` clears the pinned
+value for the one run that is about the movie:
+
+```sh
+# the shipped boot, headless
+MELEE_NO_OPENING=0 MELEE_CARD_DIR=<dir with a save> SDL_VIDEODRIVER=offscreen \
+    SDL_AUDIODRIVER=dummy ./build/native/melee --frontend --frames 300 \
+    --shot /tmp/opening.bmp
+```
+
+Expect `mode=24 scene=0` in the log and a frame that is not black; `mode=0`
+straight after `mode=40` means the boot skipped the movie.
+
 ## Title-demo CPU attacks
 
 `ctest decomp_opening` now covers the idle title demo as well as the opening

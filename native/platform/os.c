@@ -544,15 +544,21 @@ void OSSetProgressiveMode(u32 mode)
 
 unsigned long OSGetResetCode(void)
 {
-    /* 0x80000000 is the game's "reset to menu" code: gmMainLib_8015FCC0 maps
-     * it to skip_intro, which routes GM_BOOT to the memory-card scene instead
-     * of the opening movie.  The skip-intro path stays the default until the
-     * opening is verified headlessly; MELEE_OPENING=1 cold-boots into
-     * GM_OPENING_MV and plays MvOpen.mth (P-685). */
-    if (getenv("MELEE_OPENING") != NULL) {
-        return 0;
+    /* A cold boot returns 0, which leaves gmMainLib_8046B0F0.skip_intro false,
+     * and bootOnLoad then enters GM_OPENING_MV and plays MvOpen.mth.  That is
+     * what the console does from a power-on, so it is what the product does
+     * (P-844).  0x80000000 is the game's own "reset to menu" code:
+     * gmMainLib_8015FCC0 maps it to skip_intro and GM_BOOT goes straight to
+     * GM_TITLE.  MELEE_NO_OPENING=1 asks for that boot, and every test in
+     * CMakeLists.txt does, because the movie moves the frame numbers their
+     * probes are written against.  Empty and "0" mean unset, so a harness can
+     * clear an inherited value (sfx_debug.c uses the same convention). */
+    const char* skip = getenv("MELEE_NO_OPENING");
+
+    if (skip != NULL && skip[0] != '\0' && strcmp(skip, "0") != 0) {
+        return 0x80000000;
     }
-    return 0x80000000;
+    return 0;
 }
 
 BOOL OSGetResetSwitchState(void)

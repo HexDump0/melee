@@ -6,7 +6,7 @@
 #   2. an idle frontend run must reach the title (frame ~4) and its attract
 #      demo (GM_OPENING_MV scene 1) and exit cleanly - this is where the
 #      colanim opcode and ftData part-table endianness bugs crashed,
-#   3. MELEE_OPENING=1 cold-boots into MvOpen.mth; the movie must render real
+#   3. the retail cold boot enters MvOpen.mth; the movie must render real
 #      pixel content (the GL texture cache used to serve the first black
 #      frame forever because the planes are CPU-updated in place).
 #
@@ -21,7 +21,8 @@ rm -rf "$work"
 mkdir -p "$work"
 printf 'channels 1\n3000 * -\n' >"$work/idle.txt"
 
-MELEE_CARD_DIR="$work" SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy \
+MELEE_NO_OPENING=1 MELEE_CARD_DIR="$work" SDL_VIDEODRIVER=offscreen \
+    SDL_AUDIODRIVER=dummy \
     "$melee" --frontend --no-items --input "$input" --frames 400 \
     --shot "$work/create.bmp" >"$work/create.log" 2>&1
 if [ ! -s "$work/card_a/file_000.gcm" ]; then
@@ -30,7 +31,7 @@ if [ ! -s "$work/card_a/file_000.gcm" ]; then
 fi
 
 MELEE_CPU_TEST=1 MELEE_VIEWER_TRIAGE=1 MELEE_NO_ASSET_CACHE=1 \
-    MELEE_CARD_DIR="$work" \
+    MELEE_NO_OPENING=1 MELEE_CARD_DIR="$work" \
     SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy \
     "$melee" --frontend --no-items --input "$work/idle.txt" --frames 1600 \
     --shot "$work/idle.bmp" >"$work/idle.log" 2>&1
@@ -47,7 +48,9 @@ if ! grep -q '\[cpu\] hit .*attack_entries=[1-9]' "$work/idle.log"; then
     exit 1
 fi
 
-MELEE_OPENING=1 MELEE_CARD_DIR="$work" SDL_VIDEODRIVER=offscreen \
+# The suite pins MELEE_NO_OPENING=1 (CMakeLists.txt); clear it for the one run
+# that is about the movie, which then boots exactly as the shipped game does.
+MELEE_NO_OPENING=0 MELEE_CARD_DIR="$work" SDL_VIDEODRIVER=offscreen \
     SDL_AUDIODRIVER=dummy "$melee" --frontend --no-items \
     --input "$work/idle.txt" --frames 300 --shot "$work/opening.bmp" \
     >"$work/opening.log" 2>&1

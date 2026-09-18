@@ -1,5 +1,24 @@
 # State of the port
 
+> **The game boots into its own opening movie now (2026-09-18, P-844).**
+> `OSGetResetCode` returned the console's "reset to menu" code `0x80000000` on
+> every launch, which is what `gmMainLib_8015FCC0` turns into `skip_intro`, so
+> `bootOnLoad` went straight to `GM_TITLE` and `MvOpen.mth` only played under
+> `MELEE_OPENING=1`. A cold boot returns **0**, and that is what the port
+> returns by default: `./build/native/melee` plays the movie and then falls
+> into the title, as the console does. With no save on the card the game's own
+> `lbCardGame_DecideGameMode` override still sends the boot to `GM_MEMCARD`
+> first -- that is the decompilation's behaviour, not the port's.
+> **`MELEE_NO_OPENING=1` asks for the old boot**, and the whole test suite
+> does: the frontend input scripts, the title probe's frame-400 window and the
+> match tests' frame-600 position all count frames from the boot, so the movie
+> would move every one of them. `CMakeLists.txt` pins it for every test next to
+> `MELEE_RNG_SEED`, and the four shell harnesses set it themselves so they
+> still work run by hand. Empty and `0` read as unset, which is how
+> `frontend_opening.sh` clears the pin for the run that is about the movie --
+> that run boots exactly as the shipped game does and still measures
+> `bright=0.925`. ctest 33/33.
+
 > **The Classic VS splash was shredding the arena, and that is the crash
 > P-816/P-836/P-843 have all been reporting (2026-09-18, G-220).** The owner
 > placed it exactly: the versus screen between Classic rounds, on the middle

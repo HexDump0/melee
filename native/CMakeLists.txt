@@ -1019,8 +1019,17 @@ endif()
 # bugs -- MELEE_RNG_SEED=0x13371337 segfaults in HSD_Synth_80389334, P-752 --
 # but those belong in their own issue with their own repro, not in a blanket
 # reseed of every harness.
+#
+# P-844: the product boots into the opening movie, as the console does.  Every
+# harness here counts frames from the boot -- the frontend input scripts, the
+# title probe's frame-400 window, the match tests' frame-600 position -- so the
+# movie would shift all of them by its length.  Pin the skip-intro boot for the
+# suite the same way and for the same reason as the seed; the one test that is
+# about the movie (decomp_opening) clears it for the run that needs it.
 get_property(melee_all_tests DIRECTORY PROPERTY TESTS)
 if(melee_all_tests)
   set_property(TEST ${melee_all_tests} APPEND PROPERTY
       ENVIRONMENT_MODIFICATION "MELEE_RNG_SEED=set:tick")
+  set_property(TEST ${melee_all_tests} APPEND PROPERTY
+      ENVIRONMENT_MODIFICATION "MELEE_NO_OPENING=set:1")
 endif()
