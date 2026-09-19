@@ -15,9 +15,12 @@
  * result MWCC's `__fabs` returns (generator.c:884 subtracts from M_PI and
  * compares against a float epsilon).  `fabs` keeps the double semantics.
  */
-#include "../../../decomp/src/placeholder.h"
-
+/* glibc's <math.h> declares __fabs internally.  If the decomp header's
+ * function-like __fabs macro is already defined, it rewrites that declaration
+ * to fabsf with a double signature and the translation unit cannot compile.
+ * Load the system declarations before introducing the upstream macro. */
 #include <math.h>
+#include "../../../decomp/src/placeholder.h"
 #undef __frsqrte
 #define __frsqrte(x) (1.0 / sqrt((double) (x)))
 
