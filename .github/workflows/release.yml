@@ -99,7 +99,7 @@ jobs:
           # machine, so it is the one Wayland piece that must not be :i386.
           apt-get install -y --no-install-recommends \
             git ca-certificates curl xz-utils \
-            cmake ninja-build pkg-config gcc-multilib g++-multilib \
+            cmake ninja-build pkg-config gcc-multilib g++-multilib clang lld \
             libsdl2-dev libgl-dev libwayland-bin \
             libgl-dev:i386 libegl-dev:i386 libgles-dev:i386 \
             libwayland-dev:i386 libdecor-0-dev:i386 \
