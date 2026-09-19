@@ -94,31 +94,47 @@ jobs:
           # The amd64 libsdl2-dev and libgl-dev are not a mistake: native's
           # CMakeLists looks them up at the top level with REQUIRED (for the
           # 64-bit melee_prototype viewer, which this job never builds), so
-          # configuring the product target fails without them.
+          # configuring the product target fails without them.  libwayland-bin
+          # is amd64 for a different reason: wayland-scanner runs on the build
+          # machine, so it is the one Wayland piece that must not be :i386.
           apt-get install -y --no-install-recommends \
             git ca-certificates curl xz-utils \
             cmake ninja-build pkg-config gcc-multilib g++-multilib \
-            libsdl2-dev libgl-dev \
+            libsdl2-dev libgl-dev libwayland-bin \
             libgl-dev:i386 libegl-dev:i386 libgles-dev:i386 \
+            libwayland-dev:i386 libdecor-0-dev:i386 \
             libx11-dev:i386 libxext-dev:i386 libxcursor-dev:i386 \
             libxi-dev:i386 libxrandr-dev:i386 libxfixes-dev:i386 \
-            libxss-dev:i386 libxkbcommon-dev:i386 libdrm-dev:i386 \
-            libasound2-dev:i386
+            libxss-dev:i386 libxtst-dev:i386 libxkbcommon-dev:i386 \
+            libdrm-dev:i386 libasound2-dev:i386
 
-      # One run should tell us everything that is missing, not the first thing.
-      - name: Check the headers the build actually needs
+      # One run should tell us everything that is missing, not the first thing:
+      # SDL3 reports one missing X11/Wayland dependency per configure, so
+      # discovering them from CI failures costs a run each.
+      - name: Check what the SDL3 build actually needs
         run: |
           missing=""
           for h in GL/gl.h EGL/egl.h GLES3/gl3.h X11/Xlib.h \
                    X11/Xcursor/Xcursor.h X11/extensions/Xrandr.h \
+                   X11/extensions/XTest.h wayland-client.h \
+                   xkbcommon/xkbcommon.h libdecor-0/libdecor.h \
                    alsa/asoundlib.h; do
             [ -e "/usr/include/$h" ] || missing="$missing $h"
           done
+          # Wayland is found purely through pkg-config, so it is the i386 .pc
+          # files that decide whether the driver is built -- a header check
+          # alone would pass and the driver would still be silently absent.
+          for pc in wayland-client wayland-egl wayland-cursor egl xkbcommon \
+                    libdecor-0 x11 xext xcursor xi xfixes xrandr xtst; do
+            PKG_CONFIG_LIBDIR=/usr/lib/i386-linux-gnu/pkgconfig:/usr/share/pkgconfig \
+              pkg-config --exists "$pc" || missing="$missing $pc.pc(i386)"
+          done
+          command -v wayland-scanner >/dev/null || missing="$missing wayland-scanner"
           if [ -n "$missing" ]; then
-            echo "missing headers:$missing"
+            echo "missing:$missing"
             exit 1
           fi
-          echo "all required headers present"
+          echo "all required headers and 32-bit packages present"
 
       - uses: actions/checkout@v4
         with: { submodules: recursive }
@@ -129,25 +145,42 @@ jobs:
           curl -sL -o sdl.tar.gz \
             "https://github.com/libsdl-org/SDL/releases/download/release-${SDL_VERSION}/SDL3-${SDL_VERSION}.tar.gz"
           tar xzf sdl.tar.gz
-          # PulseAudio and Wayland stay off: ALSA and X11 are what a 32-bit
-          # game can rely on, and XWayland covers Wayland desktops.
+          # Wayland is the desktop the port is developed on, so it is built
+          # natively rather than through XWayland -- but X11 stays on as the
+          # fallback, because a release with Wayland alone cannot open a window
+          # at all on an X11 session.  SDL picks at runtime and dlopens either,
+          # so neither is a hard runtime dependency of the shipped binary.
+          # PulseAudio stays off: ALSA is what a 32-bit game can rely on.
+          #
           # -G Ninja, not the default: the container installs ninja-build and
           # no make at all, so "Unix Makefiles" has no build program and
           # configuring dies before it ever looks for a compiler.
+          #
+          # PKG_CONFIG_LIBDIR is what makes the 32-bit half work: SDL3 finds
+          # Wayland only through pkg-config, and the container's pkg-config
+          # searches the amd64 directory, where none of the :i386 dev packages
+          # put a .pc file.  Scoped to this step -- the port's own configure
+          # needs the amd64 pkg-config path back for melee_prototype's sdl2.
+          #
           # Installed as /usr/lib32/libSDL3.so and /usr/include/SDL3, which is
           # the Arch lib32-sdl3 layout the port is written against: native's
           # CMakeLists finds the 32-bit SDL3 with NO_DEFAULT_PATH in /usr/lib32
           # and skips the whole `melee` target when it is anywhere else.
+          PKG_CONFIG_LIBDIR=/usr/lib/i386-linux-gnu/pkgconfig:/usr/share/pkgconfig \
           cmake -S "SDL3-${SDL_VERSION}" -B sdlb -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_FLAGS=-m32 -DCMAKE_CXX_FLAGS=-m32 \
             -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_INSTALL_LIBDIR=lib32 \
             -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF \
-            -DSDL_X11=ON -DSDL_WAYLAND=OFF \
+            -DSDL_WAYLAND=ON -DSDL_X11=ON \
             -DSDL_ALSA=ON -DSDL_PULSEAUDIO=OFF -DSDL_PIPEWIRE=OFF
-          # Fail loudly here rather than at the port's link step: a backend
-          # silently switched off produces a window that never opens.
-          grep -q "SDL_VIDEO_DRIVER_X11 1" sdlb/include/build_config/SDL_build_config.h \
-            || { echo "SDL3 configured without X11 -- the port cannot open a window"; exit 1; }
+          # Fail loudly here rather than at the port's link step: SDL disables a
+          # video driver whose dependencies are missing with a warning, not an
+          # error, and the result is a binary that never opens a window.
+          cfg=sdlb/include/build_config/SDL_build_config.h
+          grep -q "SDL_VIDEO_DRIVER_WAYLAND 1" "$cfg" \
+            || { echo "SDL3 configured without Wayland -- see the missing dependency above"; exit 1; }
+          grep -q "SDL_VIDEO_DRIVER_X11 1" "$cfg" \
+            || { echo "SDL3 configured without X11 -- the release would not run on an X11 session"; exit 1; }
           cmake --build sdlb -j"$(nproc)"
           cmake --install sdlb
           ldconfig
