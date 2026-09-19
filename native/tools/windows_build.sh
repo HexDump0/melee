@@ -20,6 +20,14 @@
 # build uses (ADR-0026), so this needs no WAMR.
 set -e
 W=$(cd "$(dirname "$0")/../.." && pwd)
+
+# The decomp submodule is checked out pristine; its #ifdef PORT_PC fixes live
+# in patches/ and are applied to the work tree (ADR-0011).  The CMake build
+# does this at configure time -- do it here too, or a clean checkout fails on
+# the first patched TU (debug_font.inc, which only the patch #ifdefs away).
+# Idempotent, so a tree that already has them is untouched.
+"$W/scripts/apply_decomp_patches.sh"
+
 OUT=${1:-/tmp/melee-win}
 SDL=${2:-$OUT/sdl3-prefix}
 CC=${CC:-i686-w64-mingw32-gcc}
