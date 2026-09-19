@@ -188,6 +188,9 @@ jobs:
           ldconfig
 
       - name: Build the port
+        # Container jobs default to /bin/sh; this step needs Bash so the
+        # configure pipeline preserves cmake's exit status through tee.
+        shell: bash
         run: |
           set -euxo pipefail
           cmake -S native -B build/native -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
