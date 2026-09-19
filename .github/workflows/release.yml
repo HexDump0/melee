@@ -176,7 +176,9 @@ jobs:
           # Fail loudly here rather than at the port's link step: SDL disables a
           # video driver whose dependencies are missing with a warning, not an
           # error, and the result is a binary that never opens a window.
-          cfg=sdlb/include/build_config/SDL_build_config.h
+          # SDL 3.4 generates this in a configuration-specific include tree.
+          # (Older SDL releases used sdlb/include/build_config instead.)
+          cfg=sdlb/include-config-release/build_config/SDL_build_config.h
           grep -q "SDL_VIDEO_DRIVER_WAYLAND 1" "$cfg" \
             || { echo "SDL3 configured without Wayland -- see the missing dependency above"; exit 1; }
           grep -q "SDL_VIDEO_DRIVER_X11 1" "$cfg" \
