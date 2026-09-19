@@ -99,7 +99,8 @@ jobs:
           # machine, so it is the one Wayland piece that must not be :i386.
           apt-get install -y --no-install-recommends \
             git ca-certificates curl xz-utils \
-            cmake ninja-build pkg-config gcc-multilib g++-multilib clang lld \
+            cmake ninja-build pkg-config gcc-multilib g++-multilib \
+            clang-16 lld-16 \
             libsdl2-dev libgl-dev libwayland-bin \
             libgl-dev:i386 libegl-dev:i386 libgles-dev:i386 \
             libwayland-dev:i386 libdecor-0-dev:i386 \
@@ -193,7 +194,15 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
+          # Bookworm's unversioned clang/wasm-ld are LLVM 14, whose wasm-ld
+          # does not support --export-memory.  Keep the compiler and linker
+          # on LLVM 16 for the unbound.wasm custom command.
+          export PATH=/usr/lib/llvm-16/bin:$PATH
+          test -x /usr/lib/llvm-16/bin/clang
+          test -x /usr/lib/llvm-16/bin/wasm-ld
+          wasm-ld --help | grep -- '--export-memory'
           cmake -S native -B build/native -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DMELEE_WASM_CLANG=/usr/lib/llvm-16/bin/clang \
             2>&1 | tee configure.log
           # The melee target is conditional on 32-bit SDL3 being found, and a
           # skipped target is only a STATUS line -- say so here rather than
