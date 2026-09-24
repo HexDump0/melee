@@ -13,50 +13,37 @@
 </p>
 
 A native port of **Super Smash Bros. Melee** (v1.02 / Rev 2, `GALE01`) that
-compiles the game's own decompiled source and adds a few quality of life features
+compiles the game's own decompiled source natively and adds several quality of life features
 
-> **Bugs/Crashes might be present** This is still in a very early stage and might not be perfect
+> Bugs and crashes might be present. This project is under active development and is not fully stable yet.
 
-## What it does
+## Features
 
-- **Compiles the engine** `src/` comes from the
+- **Source** Built directly from
   [`doldecomp/melee`](https://github.com/doldecomp/melee); the port
-  supplies platform behavior (GX, AX, OS, DVD, input, timing) and a small set
-  of `#ifdef PORT_PC` portability patches in `patches/`.
-- **Renderer.** A GX high-level emulator translates display lists to
+  is compiled natively from it with a small set of patches in `patches/`.
+- **Renderer.** A custom GX high-level emulator translates display lists to
   OpenGL/GLES 3, including TEV combiner shaders, texture decode and the
-  asset converter that reads models, stages and effects off your disc.
+  asset converter that reads models, stages and effects off disc.
 - **Audio.** AX is emulated on the host: a software mixer for the game's
   voices, sequences and ADPCM banks..
 - **Mods.** WebAssembly mods run under WAMR through a small host ABI
-  (`mod.toml` + `.wasm` in `mods/`). Unbound is the default mod, it includes widescreen,
-  the boot movie and the credits
-- **Browser.** The same sources compile to wasm32 (Emscripten, SDL3, WebGL2,
+  (`mod.toml` + `.wasm` in `mods/`). The QoL features are a mod
+- **Browser.** Compiles to wasm32 (Emscripten, SDL3, WebGL2,
   JSPI).
-- **Launcher.** A Tauri app for settings, mods and crash reports that can
-  download the port from GitHub releases and checks for updates.
+- **Launcher.** A Tauri app for settings, mods and crash reports etc
 
 ## Play it
 
-**In a browser** — <https://melee.hexdump0.pw/play>: 
+**In a browser**: <https://melee.hexdump0.pw/play>: 
 
-**Prebuilt releases** — [Releases](https://github.com/HexDump0/melee/releases)
-publishes raw binaries, not archives:
+**Prebuilt releases**: [Releases](https://github.com/HexDump0/melee/releases)
 
-| Asset | What it is |
-|---|---|
-| `melee-linux-x86` | the port, 32-bit, dynamic SDL3 |
-| `melee-windows-x86.exe` | the port, 32-bit, SDL3 linked statically |
-| launcher bundles | `.deb`, `.AppImage`, `.msi`, `.exe` from the same workflow |
+## Build
 
-## Build from source
-
-Builds are done on an linux host
-
-**Requirements** (Arch package names in parentheses): a 32-bit toolchain
+**Requirements**: a 32-bit toolchain
 (`gcc-multilib`), CMake, Ninja, SDL3 (`lib32-sdl3`), and Mesa with 32-bit
-EGL/GLESv2. Exact packages and machine setup are in
-[`native/AI/TESTING.md`](native/AI/TESTING.md).
+EGL/GLESv2
 
 ```sh
 git clone --recurse-submodules https://github.com/HexDump0/melee
@@ -91,22 +78,12 @@ site/scripts/build-play.sh
 ctest --test-dir build/native              # headless suite
 ```
 
-A few switches worth knowing, the full list is in
-[`native/AI/TESTING.md`](native/AI/TESTING.md).
-
-| Variable | Effect |
-|---|---|
-| `MELEE_MATCH_P0`, `MELEE_MATCH_P1`, `MELEE_MATCH_STAGE` | pick the match to run |
-| `MELEE_RNG_SEED=0x...` | replay a run exactly |
-| `MELEE_MATCH_CPU=1..9` | make both slots CPUs |
-| `MELEE_NO_MODS=1` | boot vanilla, with no mods loaded |
-| `MELEE_LOG_REPORTS=1` | echo the game's `OSReport` output to stderr |
+Look at [`native/AI/TESTING.md`](native/AI/TESTING.md) for a list of all the configurable options 
 
 ## Mods
 
 A mod is a directory in `mods/` with a `mod.toml` manifest and a WebAssembly
-module; the loader reads both, and each manifest setting becomes a labeled
-control in the launcher.
+module
 
 ## Repository layout
 
