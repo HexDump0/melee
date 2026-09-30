@@ -12,28 +12,25 @@
   <a href="https://discord.gg/87kwPPetPD"><img alt="Discord" src="https://img.shields.io/badge/discord-join-5865F2?labelColor=000000&logo=discord&logoColor=white"></a>
 </p>
 
-A native port of **Super Smash Bros. Melee** (v1.02 / Rev 2, `GALE01`) that
+A native port of **Super Smash Bros. Melee** (v1.02 / Rev 2) that
 compiles the game's own decompiled source natively and adds several quality of life features
 
 > Bugs and crashes might be present. This project is under active development and is not fully stable yet.
 
 ## Features
 
-- **Source** Built directly from
-  [`doldecomp/melee`](https://github.com/doldecomp/melee); the port
-  is compiled natively from it with a small set of patches in `patches/`.
-- **Renderer.** A custom GX high-level emulator translates display lists to
+- Built directly from
+  [`doldecomp/melee`](https://github.com/doldecomp/melee)
+- A custom GX high-level emulator translates display lists to
   OpenGL/GLES 3, including TEV combiner shaders, texture decode and the
-  asset converter that reads models, stages and effects off disc.
-- **Audio.** AX is emulated on the host: a software mixer for the game's
+  asset converter
+- AX is emulated on the host with a software mixer for the game's
   voices, sequences and ADPCM banks..
-- **Mods.** WebAssembly mods run under WAMR through a small host ABI
-  (`mod.toml` + `.wasm` in `mods/`). The QoL features are a mod
-- **Browser.** Compiles to wasm32 (Emscripten, SDL3, WebGL2,
-  JSPI).
-- **Launcher.** A Tauri app for settings, mods and crash reports etc
+- WebAssembly mods that run under WAMR through a small host ABI (The QoL features are a mod too)
+- Compiles to wasm32 (Emscripten, SDL3, WebGL2, JSPI).
+- A Tauri app for settings, mods and crash reports etc
 
-## Play it
+## Try it
 
 **In a browser**: <https://melee.hexdump0.pw/play>: 
 
@@ -48,34 +45,32 @@ EGL/GLESv2
 ```sh
 git clone --recurse-submodules https://github.com/HexDump0/melee
 cd melee
-./scripts/apply_decomp_patches.sh            # idempotent; CMake runs it too
+./scripts/apply_decomp_patches.sh
 cmake -S native -B build/native -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build/native -j"$(nproc)"
-ctest --test-dir build/native                # full regression suite
+ctest --test-dir build/native
 ```
+
+For windows 
 
 ```sh
 native/tools/windows_build.sh /tmp/melee-win /path/to/sdl3-prefix
 ```
 
-See [`native/AI/reference/windows.md`](native/AI/reference/windows.md) for the
-toolchain, the static-link default and what is still unverified there.
-
 For the browser build
 
 
 ```sh
-source ~/projects/emsdk/emsdk_env.sh          # Emscripten 6.0.9, pinned
+source ~/projects/emsdk/emsdk_env.sh          # Emscripten 6.0.9
 site/scripts/build-play.sh
 ```
 
 ## Running and testing
 
 ```sh
-./build/native/melee                       # retail frontend, live input
-./build/native/melee --match               # a debug match, no menus
+./build/native/melee                       # actual game
+./build/native/melee --match               # debug match
 ./build/native/melee --match 600           # ...for 600 frames, then exit
-ctest --test-dir build/native              # headless suite
 ```
 
 Look at [`native/AI/TESTING.md`](native/AI/TESTING.md) for a list of all the configurable options 
@@ -84,22 +79,6 @@ Look at [`native/AI/TESTING.md`](native/AI/TESTING.md) for a list of all the con
 
 A mod is a directory in `mods/` with a `mod.toml` manifest and a WebAssembly
 module
-
-## Repository layout
-
-```
-.
-├── native/          the port: platform layer, GX HLE, renderer, viewer, tests
-│   └── AI/          port agent hub: STATE.md, ROADMAP*.md, TASKS.md, learnings/
-├── launcher/        Tauri shell around the port (settings, mods, crashes)
-├── site/            the website, including the browser build at /play
-├── mods/            WebAssembly mods; unbound/ is the default one
-├── patches/         #ifdef PORT_PC portability patches for the decompilation
-├── scripts/         setup helpers (patch application)
-├── assets/          logo artwork, boot animation, gameplay capture
-├── AI/              decompilation agent hub (claims, workflow, learnings)
-└── decomp/          git submodule: doldecomp/melee (pinned, never committed into)
-```
 
 ## Legal
 
